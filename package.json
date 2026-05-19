@@ -1,0 +1,30 @@
+{
+  "name": "sidebeat-lanes",
+  "version": "0.2.0",
+  "private": false,
+  "description": "Right-to-left browser rhythm game and chart authoring tools.",
+  "type": "module",
+  "scripts": {
+    "start": "vite --host 0.0.0.0 --port 5173",
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "tsc && vite build",
+    "test": "vitest run && node scripts/smoke-test.mjs && npm run build"
+  },
+  "keywords": [
+    "rhythm-game",
+    "canvas",
+    "browser-game",
+    "typescript"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^4.1.6"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1"
+  }
+}

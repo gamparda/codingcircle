@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sidebeat Lanes</title>
+  </head>
+  <body class="play-page">
+    <main class="shell game-shell">
+      <section class="hud" aria-label="게임 상태">
+        <div><span>Song</span><strong id="songLabel">Demo Track</strong></div>
+        <div><span>Difficulty</span><strong id="difficultyLabel">Normal</strong></div>
+        <div><span>Score</span><strong id="score">0</strong></div>
+        <div><span>Combo</span><strong id="combo">0</strong></div>
+        <div><span>Accuracy</span><strong id="accuracy">100.00%</strong></div>
+        <div><span>Life</span><strong id="life">100</strong></div>
+      </section>
+
+      <section class="game-card">
+        <canvas id="game" width="1100" height="560" aria-label="Sidebeat Lanes game canvas"></canvas>
+        <div class="controls">
+          <label class="pill-field"><span>난이도</span><select id="difficultySelect"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option><option value="expert">Expert</option></select></label>
+          <label class="pill-field"><span>라이브러리</span><select id="songLibrary"><option value="">Demo Track</option></select></label>
+          <label class="pill-field file-field"><span>곡</span><input id="audioUpload" type="file" accept="audio/*" /></label>
+          <label class="pill-field file-field"><span>채보</span><input id="chartUpload" type="file" accept="application/json,.json" /></label>
+          <audio id="audioPlayer" controls preload="metadata"></audio>
+          <button id="startButton">Start / Pause</button>
+          <button id="restartButton" class="secondary">Restart</button>
+          <p class="control-hint"><kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd><span>롱노트 유지</span><kbd>Space</kbd><span>시작</span><kbd>R</kbd><span>재시작</span></p>
+        </div>
+      </section>
+
+      <section class="feedback"><strong id="judgement">Ready</strong><span id="status">스페이스 또는 Start를 눌러 시작하세요.</span></section>
+    </main>
+
+    <dialog id="resultDialog" class="result-dialog">
+      <div class="result-card">
+        <p class="eyebrow">RESULT</p><h2 id="resultRank">S</h2>
+        <dl><div><dt>Score</dt><dd id="resultScore">0</dd></div><div><dt>Max Combo</dt><dd id="resultCombo">0</dd></div><div><dt>Accuracy</dt><dd id="resultAccuracy">100.00%</dd></div><div><dt>Notes</dt><dd id="resultNotes">0</dd></div><div><dt>Best</dt><dd id="resultBest">-</dd></div></dl>
+        <button id="closeResult" type="button">닫기</button>
+      </div>
+    </dialog>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

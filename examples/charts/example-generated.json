@@ -1,0 +1,16 @@
+{
+  "title": "Example Generated Draft",
+  "format": "sidebeat-lanes-chart-v3",
+  "difficulty": "normal",
+  "bpm": 128,
+  "offset": 0,
+  "latencyMs": 0,
+  "audioFileName": "example.mp3",
+  "generator": "example fixture",
+  "notes": [
+    { "lane": 0, "time": 1000, "duration": 0 },
+    { "lane": 1, "time": 1469, "duration": 0 },
+    { "lane": 2, "time": 1938, "duration": 938 },
+    { "lane": 3, "time": 2876, "duration": 0 }
+  ]
+}
