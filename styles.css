@@ -1,0 +1,133 @@
+:root {
+  color-scheme: dark;
+  --bg: #090b13;
+  --panel: rgba(255, 255, 255, 0.07);
+  --panel-strong: rgba(255, 255, 255, 0.12);
+  --text: #f4f0e8;
+  --muted: #b8b1a4;
+  --gold: #d9a441;
+  --red: #d64b4b;
+  --line: rgba(255, 255, 255, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(214, 75, 75, 0.22), transparent 32rem),
+    radial-gradient(circle at 80% 10%, rgba(217, 164, 65, 0.16), transparent 28rem),
+    linear-gradient(180deg, #090b13 0%, #101522 54%, #08090f 100%);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.hero {
+  min-height: 70vh;
+  display: grid;
+  place-content: center;
+  padding: 7rem 1.5rem 5rem;
+  text-align: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.eyebrow {
+  color: var(--gold);
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  margin: 0 0 1rem;
+}
+
+h1 {
+  font-size: clamp(3rem, 9vw, 7rem);
+  line-height: 0.95;
+  margin: 0;
+  text-shadow: 0 0 32px rgba(217, 164, 65, 0.25);
+}
+
+.lead {
+  max-width: 720px;
+  margin: 1.5rem auto 2rem;
+  color: var(--muted);
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 0.85rem 1.15rem;
+  border: 1px solid rgba(217, 164, 65, 0.55);
+  border-radius: 999px;
+  color: var(--text);
+  text-decoration: none;
+  background: rgba(217, 164, 65, 0.14);
+}
+
+main {
+  width: min(1120px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 4rem 0 6rem;
+}
+
+.section {
+  margin-bottom: 4rem;
+}
+
+h2 {
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  margin: 0 0 1rem;
+}
+
+.section > p {
+  color: var(--muted);
+  max-width: 820px;
+}
+
+.cards,
+.tower-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+}
+
+article {
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  padding: 1.2rem;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+}
+
+article h3 {
+  margin: 0 0 0.4rem;
+}
+
+article p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.tower-list article {
+  min-height: 136px;
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+}
+
+.tower-list span {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+  color: var(--gold);
+  font-weight: 800;
+}
+
+.weapons article:nth-child(2) h3,
+.tower-list article:nth-child(2) h3,
+.tower-list article:nth-child(8) h3 {
+  color: var(--red);
+}

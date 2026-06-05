@@ -3,43 +3,55 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sidebeat Lanes</title>
+    <title>하늘을 삼킨 탑</title>
+    <link rel="stylesheet" href="styles.css" />
   </head>
-  <body class="play-page">
-    <main class="shell game-shell">
-      <section class="hud" aria-label="게임 상태">
-        <div><span>Song</span><strong id="songLabel">Demo Track</strong></div>
-        <div><span>Difficulty</span><strong id="difficultyLabel">Normal</strong></div>
-        <div><span>Score</span><strong id="score">0</strong></div>
-        <div><span>Combo</span><strong id="combo">0</strong></div>
-        <div><span>Accuracy</span><strong id="accuracy">100.00%</strong></div>
-        <div><span>Life</span><strong id="life">100</strong></div>
+  <body>
+    <header class="hero">
+      <p class="eyebrow">100층 탑 등반 RPG</p>
+      <h1>하늘을 삼킨 탑</h1>
+      <p class="lead">
+        검은 별빛이 세상을 죽이고 있다. 이름 없는 모험가는 탑의 핵을 파괴하기 위해 100층을 오른다.
+      </p>
+      <a class="button" href="docs/story.md">전체 스토리 보기</a>
+    </header>
+
+    <main>
+      <section class="section">
+        <h2>기본 설정</h2>
+        <p>
+          탑은 단순한 마물의 소굴이 아니다. 오래전 멸망한 문명 <strong>아르카론</strong>이 만든 봉인 장치이며,
+          꼭대기의 핵은 검은 별빛과 문 너머의 존재를 동시에 막고 있다.
+        </p>
       </section>
 
-      <section class="game-card">
-        <canvas id="game" width="1100" height="560" aria-label="Sidebeat Lanes game canvas"></canvas>
-        <div class="controls">
-          <label class="pill-field"><span>난이도</span><select id="difficultySelect"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option><option value="expert">Expert</option></select></label>
-          <label class="pill-field"><span>라이브러리</span><select id="songLibrary"><option value="">Demo Track</option></select></label>
-          <label class="pill-field file-field"><span>곡</span><input id="audioUpload" type="file" accept="audio/*" /></label>
-          <label class="pill-field file-field"><span>채보</span><input id="chartUpload" type="file" accept="application/json,.json" /></label>
-          <audio id="audioPlayer" controls preload="metadata"></audio>
-          <button id="startButton">Start / Pause</button>
-          <button id="restartButton" class="secondary">Restart</button>
-          <p class="control-hint"><kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd><span>롱노트 유지</span><kbd>Space</kbd><span>시작</span><kbd>R</kbd><span>재시작</span></p>
+      <section class="section">
+        <h2>초반 무기 선택</h2>
+        <p>1~5층까지는 초보자 방망이를 사용하고, 5층 이후 아래 무기 중 하나를 선택한다.</p>
+        <div class="cards weapons">
+          <article><h3>한손검</h3><p>균형형. 막기 확률 30%.</p></article>
+          <article><h3>쌍검</h3><p>낮은 공격력, 빠른 공속. 막기 확률 40%.</p></article>
+          <article><h3>대검</h3><p>높은 공격력, 느린 공속. 막기 확률 25%.</p></article>
+          <article><h3>마법 지팡이</h3><p>높은 공격력. 막기 없음. 보호막으로 피해 감소.</p></article>
+          <article><h3>활</h3><p>적당한 공격력, 확정 선공권. 막기 없음.</p></article>
         </div>
       </section>
 
-      <section class="feedback"><strong id="judgement">Ready</strong><span id="status">스페이스 또는 Start를 눌러 시작하세요.</span></section>
+      <section class="section">
+        <h2>층 구성</h2>
+        <div class="tower-list">
+          <article><span>1~10</span><h3>무너진 던전</h3><p>고블린 / 던전 골렘</p></article>
+          <article><span>11~20</span><h3>뒤틀린 숲</h3><p>늑구 / 붉은 눈의 알파늑대</p></article>
+          <article><span>21~30</span><h3>저주받은 해변</h3><p>소라게 / 심해 메갈로돈</p></article>
+          <article><span>31~40</span><h3>죽음의 사막</h3><p>미라 / 데스웜</p></article>
+          <article><span>41~50</span><h3>얼어붙은 설원</h3><p>설원 엘프 / 예티</p></article>
+          <article><span>51~60</span><h3>화산지대</h3><p>마그마골렘 / 용암 드래곤</p></article>
+          <article><span>61~70</span><h3>차원의 틈새</h3><p>마법사 / 검은 마법사</p></article>
+          <article><span>71~80</span><h3>지옥</h3><p>악마 / 마왕 바알</p></article>
+          <article><span>81~90</span><h3>천국</h3><p>천사 / 대천사</p></article>
+          <article><span>91~100</span><h3>엔더</h3><p>심연 덩어리 / 엔더 드래곤</p></article>
+        </div>
+      </section>
     </main>
-
-    <dialog id="resultDialog" class="result-dialog">
-      <div class="result-card">
-        <p class="eyebrow">RESULT</p><h2 id="resultRank">S</h2>
-        <dl><div><dt>Score</dt><dd id="resultScore">0</dd></div><div><dt>Max Combo</dt><dd id="resultCombo">0</dd></div><div><dt>Accuracy</dt><dd id="resultAccuracy">100.00%</dd></div><div><dt>Notes</dt><dd id="resultNotes">0</dd></div><div><dt>Best</dt><dd id="resultBest">-</dd></div></dl>
-        <button id="closeResult" type="button">닫기</button>
-      </div>
-    </dialog>
-    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

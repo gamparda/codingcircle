@@ -1,0 +1,151 @@
+{
+  "title": "하늘을 삼킨 탑",
+  "coreSetting": {
+    "goal": "100층까지 올라가 탑의 핵을 파괴하고 검은 별빛을 멈춘다.",
+    "ancientCivilization": "아르카론",
+    "mainReveal": "탑은 마물의 소굴이 아니라 문 너머의 존재를 막기 위한 봉인 장치다."
+  },
+  "startingRules": {
+    "floors1To5Weapon": "초보자 방망이",
+    "weaponChoiceAfterFloor": 5,
+    "shops": [
+      { "afterFloor": 5, "type": "중간 보급 상점" },
+      { "afterFloor": 9, "type": "보스 직전 상점" }
+    ]
+  },
+  "weapons": [
+    {
+      "name": "한손검",
+      "role": "균형형",
+      "attack": "균형 잡힌 공격력",
+      "speed": "균형 잡힌 공속",
+      "initiative": "보통",
+      "blockChance": 30,
+      "note": "초보 친화적"
+    },
+    {
+      "name": "쌍검",
+      "role": "속도형",
+      "attack": "낮은 공격력",
+      "speed": "빠른 공속",
+      "initiative": "초반부 거의 확정 선공권",
+      "blockChance": 40,
+      "note": "연타와 안정적인 막기 확률 중심"
+    },
+    {
+      "name": "대검",
+      "role": "중량형",
+      "attack": "높은 공격력",
+      "speed": "느린 공속",
+      "initiative": "초반부 거의 확정 후공권",
+      "blockChance": 25,
+      "note": "후반 스탯 관리에 따라 선후공 변화 가능"
+    },
+    {
+      "name": "마법 지팡이",
+      "role": "마법형",
+      "attack": "높은 공격력",
+      "speed": "적당한 공속",
+      "initiative": "보통",
+      "blockChance": 0,
+      "note": "막기 없음. 보호막 스킬로 확정 방어 가능하지만 데미지 감소만 적용"
+    },
+    {
+      "name": "활",
+      "role": "원거리 선공형",
+      "attack": "적당한 공격력",
+      "speed": "원거리 우위",
+      "initiative": "확정 선공권",
+      "blockChance": 0,
+      "note": "막기 없음"
+    }
+  ],
+  "regions": [
+    {
+      "range": "1~10",
+      "name": "무너진 던전",
+      "background": "탑 내부 던전",
+      "mob": "고블린",
+      "boss": "던전 골렘",
+      "tablet": "탑은 감옥이 아니다. 탑은 문이다."
+    },
+    {
+      "range": "11~20",
+      "name": "뒤틀린 숲",
+      "background": "숲",
+      "mob": "늑구",
+      "boss": "붉은 눈의 알파늑대",
+      "tablet": "아르카론은 하늘을 열었고, 하늘 너머의 것이 그들을 내려다보았다."
+    },
+    {
+      "range": "21~30",
+      "name": "저주받은 해변",
+      "background": "해변",
+      "mob": "소라게",
+      "boss": "심해 메갈로돈",
+      "tablet": "그들은 별을 연구하지 않았다. 별에게 먹이를 주었다."
+    },
+    {
+      "range": "31~40",
+      "name": "죽음의 사막",
+      "background": "사막",
+      "mob": "미라",
+      "boss": "데스웜",
+      "tablet": "문을 닫기 위해, 그들은 살아 있는 도시를 제물로 삼았다."
+    },
+    {
+      "range": "41~50",
+      "name": "얼어붙은 설원",
+      "background": "얼어붙은 설원",
+      "mob": "설원 엘프",
+      "boss": "예티",
+      "tablet": "봉인은 실패하지 않았다. 다만 너무 오래 버텼을 뿐이다."
+    },
+    {
+      "range": "51~60",
+      "name": "화산지대",
+      "background": "화산지대",
+      "mob": "마그마골렘",
+      "boss": "용암 드래곤",
+      "difficultyNote": "난이도 상승. 반복 사냥과 장비 강화 권장.",
+      "tablet": "탑의 핵은 봉인 장치이자 심장이다. 심장이 뛰는 한, 문도 닫힌다."
+    },
+    {
+      "range": "61~70",
+      "name": "차원의 틈새",
+      "background": "차원의 틈새",
+      "mob": "마법사",
+      "boss": "검은 마법사",
+      "tablet": "핵을 부수면 세상은 산다. 그러나 문도 열린다."
+    },
+    {
+      "range": "71~80",
+      "name": "지옥",
+      "background": "지옥",
+      "mob": "악마",
+      "boss": "마왕 바알",
+      "tablet": "너는 위로 올라간다고 믿지만, 사실은 문 앞으로 끌려가고 있다."
+    },
+    {
+      "range": "81~90",
+      "name": "천국",
+      "background": "천국",
+      "mob": "천사",
+      "boss": "대천사",
+      "tablet": "선은 언제나 생명을 구하지 않는다. 때로는 안전이라는 이름으로 죽음을 고른다."
+    },
+    {
+      "range": "91~100",
+      "name": "엔더",
+      "background": "엔더",
+      "mob": "심연 덩어리",
+      "boss": "엔더 드래곤",
+      "tablet": "우리는 괴물을 가둔 것이 아니다. 괴물이 들어오지 못하도록 세상을 가둔 것이다."
+    }
+  ],
+  "ending": {
+    "result": "탑의 핵이 파괴되고 검은 별빛은 멈춘다.",
+    "twist": "세상은 살아났지만 문은 열린다.",
+    "finalTablet": "첫 번째 탑은 무너졌다. 두 번째 문이 열린다."
+  }
+}
