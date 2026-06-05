@@ -11,6 +11,17 @@ const regions = [
   { min: 91, max: 100, key: 'ender', name: '엔더', bg: '엔더', mob: '심연 덩어리', boss: '엔더 드래곤', tablet: '우리는 괴물을 가둔 것이 아니다. 괴물이 들어오지 못하도록 세상을 가둔 것이다.', story: '검은 별빛이 바닥처럼 깔려 있다. 모든 지역의 기억이 심연 속에서 뒤섞인다.' }
 ];
 
+const enemyArt = {
+  '고블린': 'assets/monsters/goblin.png',
+  '던전 골렘': 'assets/monsters/dungeon-golem.png',
+  '늑구': 'assets/monsters/wolfgu.png',
+  '붉은 눈의 알파늑대': 'assets/monsters/red-alpha-wolf.png',
+  '마법사': 'assets/monsters/dark-summoner.png',
+  '검은 마법사': 'assets/monsters/black-wizard.png',
+  '심연 덩어리': ['assets/monsters/abyss-mass.png', 'assets/monsters/teal-abyss-golem.png'],
+  '엔더 드래곤': 'assets/monsters/ender-dragon.png'
+};
+
 const weapons = [
   { name: '한손검', attack: 13, speed: 12, block: 30, skill: '균형 베기', desc: '안정적인 공격. 막기 30%.' },
   { name: '쌍검', attack: 10, speed: 18, block: 40, skill: '연속 베기', desc: '낮은 공격력, 빠른 공속. 막기 40%.' },
@@ -20,7 +31,7 @@ const weapons = [
 ];
 
 const el = Object.fromEntries([
-  'regionBadge', 'scene', 'enemyType', 'enemyName', 'enemyHpText', 'enemyHpBar', 'storyTitle', 'storyText',
+  'regionBadge', 'scene', 'monsterCard', 'enemyType', 'enemyName', 'enemyHpText', 'enemyHpBar', 'storyTitle', 'storyText',
   'floorText', 'playerTitle', 'weaponText', 'playerHpText', 'playerHpBar', 'attackText', 'speedText', 'blockText',
   'goldText', 'actions', 'choicePanel', 'log', 'progressText', 'attackButton', 'skillButton', 'potionButton', 'resetButton'
 ].map(id => [id, document.getElementById(id)]));
@@ -308,6 +319,9 @@ function render() {
   const region = regionForFloor(state.floor);
   el.regionBadge.textContent = `${region.min}~${region.max}층 · ${region.name}`;
   el.scene.className = `scene ${region.key}`;
+  const artPath = getEnemyArt(state.enemy?.name);
+  el.monsterCard.classList.toggle('has-art', Boolean(artPath));
+  el.monsterCard.style.setProperty('--monster-art', artPath ? `url("${artPath}")` : 'none');
   el.enemyType.textContent = state.enemy?.type ?? '-';
   el.enemyName.textContent = state.enemy?.name ?? '-';
   el.enemyHpText.textContent = `${state.enemy?.hp ?? 0} / ${state.enemy?.maxHp ?? 0}`;
@@ -337,6 +351,12 @@ function log(text, type = '') {
   if (type) p.className = type;
   p.textContent = text;
   el.log.prepend(p);
+}
+
+function getEnemyArt(name) {
+  const art = enemyArt[name];
+  if (Array.isArray(art)) return art[state.floor % art.length];
+  return art;
 }
 
 function pct(value, max) {

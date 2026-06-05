@@ -195,6 +195,8 @@ h1 { margin-bottom: 0; font-size: clamp(2rem, 4vw, 4rem); line-height: 1; }
   background:
     radial-gradient(circle at 50% 28%, rgba(255,255,255,0.18), transparent 19rem),
     linear-gradient(180deg, rgba(0,0,0,0.08), rgba(0,0,0,0.5));
+  background-position: center;
+  background-size: cover;
   text-align: left;
   box-shadow: 0 36px 110px rgba(0, 0, 0, 0.46), inset 0 1px rgba(255,255,255,0.18);
 }
@@ -215,6 +217,25 @@ h1 { margin-bottom: 0; font-size: clamp(2rem, 4vw, 4rem); line-height: 1; }
     radial-gradient(circle at 50% 54%, rgba(0,0,0,0.45), transparent 2rem),
     linear-gradient(145deg, rgba(40,45,62,0.96), rgba(12,14,20,0.95));
   box-shadow: 0 28px 70px rgba(0,0,0,0.52), 0 0 60px rgba(239,95,95,0.18);
+}
+
+.monster-card.has-art {
+  background-image:
+    linear-gradient(180deg, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.12) 45%, rgba(0,0,0,0.82) 100%),
+    var(--monster-art);
+}
+
+.monster-card.has-art::before {
+  display: none;
+}
+
+.monster-card.has-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 90px rgba(0,0,0,0.55);
 }
 
 .enemy-type,
