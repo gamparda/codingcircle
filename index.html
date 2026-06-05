@@ -7,51 +7,78 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="hero">
-      <p class="eyebrow">100층 탑 등반 RPG</p>
-      <h1>하늘을 삼킨 탑</h1>
-      <p class="lead">
-        검은 별빛이 세상을 죽이고 있다. 이름 없는 모험가는 탑의 핵을 파괴하기 위해 100층을 오른다.
-      </p>
-      <a class="button" href="docs/story.md">전체 스토리 보기</a>
-    </header>
-
-    <main>
-      <section class="section">
-        <h2>기본 설정</h2>
-        <p>
-          탑은 단순한 마물의 소굴이 아니다. 오래전 멸망한 문명 <strong>아르카론</strong>이 만든 봉인 장치이며,
-          꼭대기의 핵은 검은 별빛과 문 너머의 존재를 동시에 막고 있다.
-        </p>
-      </section>
-
-      <section class="section">
-        <h2>초반 무기 선택</h2>
-        <p>1~5층까지는 초보자 방망이를 사용하고, 5층 이후 아래 무기 중 하나를 선택한다.</p>
-        <div class="cards weapons">
-          <article><h3>한손검</h3><p>균형형. 막기 확률 30%.</p></article>
-          <article><h3>쌍검</h3><p>낮은 공격력, 빠른 공속. 막기 확률 40%.</p></article>
-          <article><h3>대검</h3><p>높은 공격력, 느린 공속. 막기 확률 25%.</p></article>
-          <article><h3>마법 지팡이</h3><p>높은 공격력. 막기 없음. 보호막으로 피해 감소.</p></article>
-          <article><h3>활</h3><p>적당한 공격력, 확정 선공권. 막기 없음.</p></article>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">100층 턴제 RPG</p>
+          <h1>하늘을 삼킨 탑</h1>
         </div>
-      </section>
+        <button id="resetButton" class="ghost-button">처음부터</button>
+      </header>
 
-      <section class="section">
-        <h2>층 구성</h2>
-        <div class="tower-list">
-          <article><span>1~10</span><h3>무너진 던전</h3><p>고블린 / 던전 골렘</p></article>
-          <article><span>11~20</span><h3>뒤틀린 숲</h3><p>늑구 / 붉은 눈의 알파늑대</p></article>
-          <article><span>21~30</span><h3>저주받은 해변</h3><p>소라게 / 심해 메갈로돈</p></article>
-          <article><span>31~40</span><h3>죽음의 사막</h3><p>미라 / 데스웜</p></article>
-          <article><span>41~50</span><h3>얼어붙은 설원</h3><p>설원 엘프 / 예티</p></article>
-          <article><span>51~60</span><h3>화산지대</h3><p>마그마골렘 / 용암 드래곤</p></article>
-          <article><span>61~70</span><h3>차원의 틈새</h3><p>마법사 / 검은 마법사</p></article>
-          <article><span>71~80</span><h3>지옥</h3><p>악마 / 마왕 바알</p></article>
-          <article><span>81~90</span><h3>천국</h3><p>천사 / 대천사</p></article>
-          <article><span>91~100</span><h3>엔더</h3><p>심연 덩어리 / 엔더 드래곤</p></article>
+      <main class="game-layout">
+        <section class="panel stage-panel">
+          <div id="regionBadge" class="region-badge">1~10층 · 무너진 던전</div>
+          <div id="scene" class="scene dungeon">
+            <div class="tower-light"></div>
+            <div class="monster-card">
+              <p id="enemyType" class="enemy-type">잡몹</p>
+              <h2 id="enemyName">고블린</h2>
+              <div class="hp-row">
+                <span>적 HP</span>
+                <strong id="enemyHpText">20 / 20</strong>
+              </div>
+              <div class="bar"><div id="enemyHpBar"></div></div>
+            </div>
+          </div>
+
+          <div class="story-box">
+            <h3 id="storyTitle">탑의 입구</h3>
+            <p id="storyText">탑 내부는 오래된 지하 감옥처럼 차갑다. 고블린들이 폐허를 점령하고 있다.</p>
+          </div>
+        </section>
+
+        <aside class="panel status-panel">
+          <div class="floor-line">
+            <span>현재 층</span>
+            <strong id="floorText">1F</strong>
+          </div>
+
+          <div class="player-card">
+            <h2 id="playerTitle">이름 없는 모험가</h2>
+            <p id="weaponText">무기: 초보자 방망이</p>
+            <div class="hp-row">
+              <span>HP</span>
+              <strong id="playerHpText">100 / 100</strong>
+            </div>
+            <div class="bar player"><div id="playerHpBar"></div></div>
+            <div class="stats-grid">
+              <div><span>공격</span><strong id="attackText">8</strong></div>
+              <div><span>속도</span><strong id="speedText">8</strong></div>
+              <div><span>막기</span><strong id="blockText">10%</strong></div>
+              <div><span>골드</span><strong id="goldText">0</strong></div>
+            </div>
+          </div>
+
+          <div id="actions" class="actions">
+            <button id="attackButton">공격</button>
+            <button id="skillButton">스킬</button>
+            <button id="potionButton">포션</button>
+          </div>
+
+          <div id="choicePanel" class="choice-panel hidden"></div>
+        </aside>
+      </main>
+
+      <section class="panel log-panel">
+        <div class="log-head">
+          <h2>전투 기록</h2>
+          <span id="progressText">목표: 100층 핵 파괴</span>
         </div>
+        <div id="log" class="log"></div>
       </section>
-    </main>
+    </div>
+
+    <script src="game.js"></script>
   </body>
 </html>
