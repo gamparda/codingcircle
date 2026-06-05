@@ -16,67 +16,66 @@
         <button id="resetButton" class="ghost-button">처음부터</button>
       </header>
 
-      <main class="game-layout">
-        <section class="panel stage-panel">
-          <div id="regionBadge" class="region-badge">1~10층 · 무너진 던전</div>
-          <div id="scene" class="scene dungeon">
-            <div class="tower-light"></div>
-            <div class="monster-card">
-              <p id="enemyType" class="enemy-type">잡몹</p>
-              <h2 id="enemyName">고블린</h2>
-              <div class="hp-row">
-                <span>적 HP</span>
-                <strong id="enemyHpText">20 / 20</strong>
-              </div>
-              <div class="bar"><div id="enemyHpBar"></div></div>
-            </div>
+      <main class="battlefield panel">
+        <div id="scene" class="scene dungeon">
+          <div class="tower-light"></div>
+          <div class="vignette"></div>
+
+          <div class="field-top">
+            <div id="regionBadge" class="region-badge">1~10층 · 무너진 던전</div>
+            <div class="floor-pill"><span>현재 층</span><strong id="floorText">1F</strong></div>
           </div>
 
-          <div class="story-box">
+          <section class="monster-card">
+            <p id="enemyType" class="enemy-type">잡몹</p>
+            <h2 id="enemyName">고블린</h2>
+            <div class="hp-row">
+              <span>적 HP</span>
+              <strong id="enemyHpText">20 / 20</strong>
+            </div>
+            <div class="bar"><div id="enemyHpBar"></div></div>
+          </section>
+
+          <aside class="floating-card status-panel">
+            <div class="player-card">
+              <h2 id="playerTitle">이름 없는 모험가</h2>
+              <p id="weaponText">무기: 초보자 방망이</p>
+              <div class="hp-row">
+                <span>HP</span>
+                <strong id="playerHpText">100 / 100</strong>
+              </div>
+              <div class="bar player"><div id="playerHpBar"></div></div>
+              <div class="stats-grid">
+                <div><span>공격</span><strong id="attackText">8</strong></div>
+                <div><span>속도</span><strong id="speedText">8</strong></div>
+                <div><span>막기</span><strong id="blockText">10%</strong></div>
+                <div><span>골드</span><strong id="goldText">0</strong></div>
+              </div>
+            </div>
+
+            <div id="actions" class="actions">
+              <button id="attackButton">공격</button>
+              <button id="skillButton">스킬</button>
+              <button id="potionButton">포션</button>
+            </div>
+          </aside>
+
+          <section class="floating-card story-box">
             <h3 id="storyTitle">탑의 입구</h3>
             <p id="storyText">탑 내부는 오래된 지하 감옥처럼 차갑다. 고블린들이 폐허를 점령하고 있다.</p>
-          </div>
-        </section>
+          </section>
 
-        <aside class="panel status-panel">
-          <div class="floor-line">
-            <span>현재 층</span>
-            <strong id="floorText">1F</strong>
-          </div>
-
-          <div class="player-card">
-            <h2 id="playerTitle">이름 없는 모험가</h2>
-            <p id="weaponText">무기: 초보자 방망이</p>
-            <div class="hp-row">
-              <span>HP</span>
-              <strong id="playerHpText">100 / 100</strong>
+          <section class="floating-card log-panel">
+            <div class="log-head">
+              <h2>전투 기록</h2>
+              <span id="progressText">목표: 100층 핵 파괴</span>
             </div>
-            <div class="bar player"><div id="playerHpBar"></div></div>
-            <div class="stats-grid">
-              <div><span>공격</span><strong id="attackText">8</strong></div>
-              <div><span>속도</span><strong id="speedText">8</strong></div>
-              <div><span>막기</span><strong id="blockText">10%</strong></div>
-              <div><span>골드</span><strong id="goldText">0</strong></div>
-            </div>
-          </div>
-
-          <div id="actions" class="actions">
-            <button id="attackButton">공격</button>
-            <button id="skillButton">스킬</button>
-            <button id="potionButton">포션</button>
-          </div>
+            <div id="log" class="log"></div>
+          </section>
 
           <div id="choicePanel" class="choice-panel hidden"></div>
-        </aside>
-      </main>
-
-      <section class="panel log-panel">
-        <div class="log-head">
-          <h2>전투 기록</h2>
-          <span id="progressText">목표: 100층 핵 파괴</span>
         </div>
-        <div id="log" class="log"></div>
-      </section>
+      </main>
     </div>
 
     <script src="game.js"></script>
