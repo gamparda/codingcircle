@@ -48,7 +48,8 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 2. 커밋과 GitHub Actions 실행 번호가 들어간 새 버전 빌드
 3. Windows 게임/서버 EXE와 설치 프로그램 생성
 4. 설치 프로그램 SHA-256 계산
-5. GitHub Pages에 `update.json`과 `CatWarSetup.exe` 배포
+5. 버전 태그와 GitHub Release 생성
+6. GitHub Pages에 `update.json`과 `CatWarSetup.exe` 배포
 
 게임은 `https://gamparda.github.io/codingcircle/update.json`을 시작 시점과 비전투 상태에서 60초마다 확인합니다. 최신 버전이 발견되면 업데이트를 건너뛸 수 없으며, 설치 파일을 다운로드하고 SHA-256을 검증한 다음 게임을 종료해 무인 설치하고 자동 재실행합니다.
 
@@ -57,7 +58,17 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 - 전용 서버: 활성 매치가 없을 때만 설치 및 재시작
 - 업데이트 서버 접속 실패: 현재 실행은 유지하고 나중에 자동 재시도
 
-GitHub Release는 사용하지 않으며, 테스트를 통과한 최신 `main` 빌드가 곧 업데이트 채널입니다. GitHub Pages 배포가 처음이라면 저장소의 **Settings → Pages → Source**가 `GitHub Actions`로 설정되어 있어야 합니다.
+테스트를 통과한 최신 `main` 빌드가 곧 자동 업데이트 채널이자 GitHub Release가 됩니다. GitHub Pages 배포가 처음이라면 저장소의 **Settings → Pages → Source**가 `GitHub Actions`로 설정되어 있어야 합니다.
+
+각 Release에는 다음 파일이 포함됩니다.
+
+- `CatWarSetup.exe`
+- `update.json`
+- `SHA256SUMS.txt`
+- GitHub가 자동 생성하는 소스 ZIP과 TAR.GZ
+- 이전 버전 이후의 자동 변경 내역
+
+버전별 수동 다운로드는 [GitHub Releases](https://github.com/gamparda/codingcircle/releases)에서 할 수 있습니다.
 
 ## 개발 환경 준비
 

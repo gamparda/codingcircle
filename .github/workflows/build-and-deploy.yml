@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -84,7 +84,25 @@ jobs:
             published_at = (Get-Date).ToUniversalTime().ToString("o")
           } | ConvertTo-Json
           [System.IO.File]::WriteAllText((Join-Path $PWD "site/update.json"), $manifest + "`n", [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n", [System.Text.UTF8Encoding]::new($false))
           New-Item -ItemType File -Force site/.nojekyll | Out-Null
+
+      - name: Publish versioned GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "v$env:BUILD_VERSION"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag site/CatWarSetup.exe site/update.json site/SHA256SUMS.txt --clobber --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw "Failed to replace release assets" }
+            gh release edit $tag --title "Cat War $env:BUILD_VERSION" --latest --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $tag site/CatWarSetup.exe site/update.json site/SHA256SUMS.txt --target $env:GITHUB_SHA --title "Cat War $env:BUILD_VERSION" --generate-notes --latest --repo $env:GITHUB_REPOSITORY
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Failed to publish GitHub Release" }
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
