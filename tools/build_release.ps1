@@ -62,6 +62,10 @@ $ExportPreset = $ExportPreset -replace 'application/product_version="[^"]+"', "a
 
 Write-Host "Building Cat War $Version ($Commit)" -ForegroundColor Green
 
+Write-Host "[0/4] Initializing Godot project metadata..." -ForegroundColor Cyan
+& $Godot --headless --path $Root --editor --quit
+if ($LASTEXITCODE -ne 0) { throw "Godot project initialization failed with exit code $LASTEXITCODE" }
+
 Write-Host "[1/4] Running game rule tests..." -ForegroundColor Cyan
 & $Godot --headless --path $Root --script res://tests/run_tests.gd
 if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE" }

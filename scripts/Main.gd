@@ -71,7 +71,7 @@ func _arg_string(args: PackedStringArray, prefix: String, fallback: String) -> S
 
 func _process(delta: float) -> void:
 	if running_as_server:
-		updater.set_safe_to_update(network.models.is_empty())
+		updater.set_safe_to_update(_server_can_update())
 	if local_ai_mode and battle_active and is_instance_valid(local_model):
 		local_ai.update(local_model, delta)
 		local_model.tick(delta)
@@ -81,6 +81,12 @@ func _process(delta: float) -> void:
 		if smoke_elapsed > 15.0:
 			printerr("SMOKE_CLIENT_TIMEOUT")
 			get_tree().quit(2)
+
+func _server_can_update() -> bool:
+	for model in network.models.values():
+		if model.winner == -1:
+			return false
+	return true
 
 func _clear_screen() -> void:
 	for child in get_children():
