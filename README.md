@@ -1,61 +1,165 @@
-# Cat War — 서버 권한형 프로토타입
+# Cat War
 
-Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 클라이언트끼리 직접 호스트하지 않으며, 모든 경기 판정은 별도 전용 서버에서 수행합니다.
+Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인 대전은 별도 전용 서버가 모든 규칙과 전투를 판정하며, 서버 없이 실행되는 오프라인 AI 대전도 제공합니다.
 
-## 들어 있는 기능
+## 프로그램 구성
+
+이 저장소에는 **게임 클라이언트와 전용 서버 코드가 모두 포함**되어 있습니다. 두 프로그램은 서로 다른 코드 복사본이 아니라 같은 Godot 프로젝트와 같은 `BattleModel` 규칙을 공유합니다.
+
+| 실행 방식 | 동작 |
+|---|---|
+| `CatWar.exe` | 게임 클라이언트와 오프라인 AI 대전 |
+| `CatWar.exe --headless -- --server --port=7777` | 화면 없는 전용 서버 |
+| 설치 후 시작 메뉴의 `Cat War Dedicated Server` | UDP 7777 전용 서버 실행 |
+
+전용 서버가 같은 EXE를 서버 모드로 실행하는 구조이므로 클라이언트와 서버의 전투 규칙 버전이 어긋나지 않습니다. 서버 PC에는 `CatWar.exe`와 `StartServer.cmd`만 복사해도 됩니다.
+
+## 주요 기능
 
 - 중앙 전용 서버의 자동 1대1 매칭
-- 인터넷이나 서버 연결 없이 바로 시작하는 오프라인 AI 대전
-- 상황에 따라 탱커·힐러·궁수·검사를 조합하고 구조물도 설치하는 AI
-- 서버 판정 자원, 생산, 이동, 공격, 피해, 승패
+- 서버 판정 자원, 생산, 이동, 공격, 회복, 피해, 승패
+- 인터넷 없이 실행되는 오프라인 AI 대전
 - 탱커 / 힐러 / 궁수 / 검사
-- 벽 / 점프대 / 늪과 진영별 설치 구역, 최대 3개 제한
+- 벽 / 점프대 / 늪과 진영별 설치 구역
 - 실시간 상태 스냅샷 동기화
-- 상대 연결 종료 처리와 양쪽 동의 재경기
-- 고양이 요새·유닛 실루엣·야간 전장 배경
-- 기지 체력 카드, 에너지 패널, 카드형 생산·구조물 HUD
-- 온라인/오프라인 모드를 분리한 한국어 시작 화면
+- 연결 종료 처리와 양쪽 동의 재경기
+- 투명 PNG 캐릭터와 픽셀아트 렌더링
+- Windows 설치·제거 프로그램
 
-## 로컬에서 서버와 클라이언트 실행
+## 설치 프로그램 사용
 
-PowerShell에서 각각 별도 창으로 실행합니다.
+`dist/CatWarSetup.exe`를 더블 클릭하면 일반 Windows 응용프로그램처럼 설치됩니다.
 
-```powershell
-.\builds\CatWar.exe --headless -- --server --port=7777
-```
+설치되는 항목:
 
-```powershell
-.\builds\CatWar.exe
-```
+- `%LOCALAPPDATA%\Programs\Cat War\CatWar.exe`
+- 시작 메뉴의 `Cat War`
+- 시작 메뉴의 `Cat War Dedicated Server`
+- 선택 가능한 바탕 화면 바로가기
+- Windows 설정의 앱 제거 항목
 
-클라이언트의 서버 주소에 서버 PC의 IP 또는 도메인을 입력합니다. 서버 방화벽과 공유기/클라우드 보안 그룹에서 **UDP 7777**을 허용해야 합니다. 인터넷 대전에서는 서버 실행 파일을 공인 IP가 있는 Windows 서버에 올리는 방식이 가장 간단합니다.
+현재 설치 파일은 코드 서명 인증서로 서명하지 않았으므로 다른 PC에서는 Windows SmartScreen 경고가 표시될 수 있습니다.
 
-## 오프라인 AI 대전
+## 개발 환경 준비
 
-`CatWar.exe`를 실행한 뒤 **오프라인 AI 대전**을 누르면 됩니다. 서버 주소를 입력하거나 인터넷에 연결할 필요가 없습니다. AI와 플레이어 모두 같은 자원·비용·구조물 제한 규칙을 사용합니다.
-
-## 개발 실행
-
-Godot에서 `project.godot`을 열고 실행합니다. 서버 모드는 다음 인자로 실행됩니다.
-
-### 캐릭터 PNG 재생성
-
-사용자가 제공한 원본 스프라이트 시트에서 투명 PNG를 다시 만들려면 다음 명령을 실행합니다.
+Windows PowerShell에서 필요한 프로그램을 설치합니다.
 
 ```powershell
-python -m pip install -r .\tools\requirements.txt; python .\tools\extract_sprites.py
+winget install --id GodotEngine.GodotEngine --exact; winget install --id JRSoftware.InnoSetup --exact
 ```
 
-스크립트는 캔버스 외곽과 연결된 밝은 배경만 제거하여 힐러의 흰색 의상과 장비를 보존합니다. 원본 및 사용 안내는 `ASSET_SOURCES.md`를 참고하세요.
+Godot 4.7.2 편집기에서 **Editor → Manage Export Templates**를 열고 같은 버전의 Export Templates를 설치해야 Windows EXE를 내보낼 수 있습니다.
+
+## 한 번에 전체 빌드
+
+저장소 루트에서 다음 한 줄을 실행합니다.
 
 ```powershell
-godot --headless --path . -- --server --port=7777
+powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1
 ```
 
-## 검증
+스크립트가 순서대로 수행하는 작업:
+
+1. 게임 규칙 테스트 실행
+2. Windows용 게임/서버 겸용 `CatWar.exe` 생성
+3. 생성된 EXE의 오프라인 AI 모드 실행 검증
+4. Inno Setup으로 설치 프로그램 생성
+
+결과물:
+
+```text
+builds/CatWar.exe
+
+dist/CatWarSetup.exe
+```
+
+Godot 또는 Inno Setup을 사용자 지정 위치에 설치했다면 다음처럼 경로를 넘길 수 있습니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1 -GodotPath "C:\경로\godot_console.exe" -IsccPath "C:\경로\ISCC.exe"
+```
+
+## 수동 빌드
+
+### 1. 테스트
 
 ```powershell
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-테스트는 자원, 생산, 공격, 구조물 설치 제한, 기지 파괴, 매칭 및 연결 종료 정리를 검사합니다.
+### 2. 게임과 서버 겸용 EXE
+
+```powershell
+godot --headless --path . --export-release "Windows Desktop" "$PWD\builds\CatWar.exe"
+```
+
+### 3. 설치 프로그램
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" .\installer\CatWar.iss
+```
+
+## 실행 방법
+
+### 게임 클라이언트
+
+```powershell
+.\builds\CatWar.exe
+```
+
+온라인 대전에서는 시작 화면에 전용 서버의 IP 또는 도메인을 입력합니다.
+
+### 전용 서버
+
+```powershell
+.\builds\CatWar.exe --headless -- --server --port=7777
+```
+
+또는 다음 런처를 사용합니다.
+
+```powershell
+.\server\StartServer.cmd 7777
+```
+
+서버는 **UDP**를 사용합니다. 서버 PC의 Windows 방화벽, 공유기 포트 포워딩 또는 클라우드 보안 그룹에서 선택한 UDP 포트를 허용해야 합니다.
+
+### 오프라인 AI 대전
+
+`CatWar.exe`를 실행하고 **AI 훈련장**을 선택합니다. 서버나 인터넷 연결이 필요하지 않습니다.
+
+## 소스 구조
+
+```text
+project.godot                 Godot 프로젝트 설정
+scenes/Main.tscn              메인 장면
+scripts/Main.gd               메뉴, HUD, 클라이언트/서버 실행 모드
+scripts/BattleModel.gd        서버 권한형 전투 규칙
+scripts/NetworkController.gd  ENet 연결, RPC, 서버 스냅샷
+scripts/MatchRegistry.gd      1대1 매칭과 진영 배정
+scripts/ServerAI.gd           오프라인 AI 판단
+scripts/BattleView.gd         전장과 캐릭터 렌더링
+assets/units/                 최종 투명 캐릭터 PNG
+assets/source/role_sheets/    사용자가 제공한 원본 시트
+tools/extract_sprites.py      원본 시트 배경 제거 도구
+tools/build_release.ps1       테스트·EXE·설치 파일 통합 빌드
+installer/CatWar.iss          Inno Setup 설치 프로그램 정의
+server/StartServer.cmd        Windows 서버 실행 런처
+tests/run_tests.gd            전투·회복·구조물·매칭 테스트
+```
+
+## 캐릭터 PNG 재생성
+
+```powershell
+python -m pip install -r .\tools\requirements.txt; python .\tools\extract_sprites.py
+```
+
+스크립트는 캔버스 외곽과 연결된 밝은 배경만 제거해 힐러의 흰 의상과 장비를 보존합니다. 원본 이미지 사용 안내는 `ASSET_SOURCES.md`를 참고하세요.
+
+## 온라인 배포 체크리스트
+
+1. 서버와 클라이언트를 같은 커밋에서 빌드합니다.
+2. 공인 IP가 있는 Windows 서버에 `CatWar.exe`와 `StartServer.cmd`를 복사합니다.
+3. UDP 7777 또는 선택한 포트를 허용합니다.
+4. 서버를 먼저 실행합니다.
+5. 클라이언트에서 서버 IP와 포트를 입력합니다.
+6. 두 클라이언트가 접속해 한 경기를 완료하는지 확인합니다.
