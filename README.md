@@ -40,6 +40,25 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 
 현재 설치 파일은 코드 서명 인증서로 서명하지 않았으므로 다른 PC에서는 Windows SmartScreen 경고가 표시될 수 있습니다.
 
+## 강제 자동 업데이트
+
+`main` 브랜치에 코드가 푸시될 때마다 `.github/workflows/build-and-deploy.yml`이 다음 작업을 수행합니다.
+
+1. 테스트 실행
+2. 커밋과 GitHub Actions 실행 번호가 들어간 새 버전 빌드
+3. Windows 게임/서버 EXE와 설치 프로그램 생성
+4. 설치 프로그램 SHA-256 계산
+5. GitHub Pages에 `update.json`과 `CatWarSetup.exe` 배포
+
+게임은 `https://gamparda.github.io/codingcircle/update.json`을 시작 시점과 비전투 상태에서 60초마다 확인합니다. 최신 버전이 발견되면 업데이트를 건너뛸 수 없으며, 설치 파일을 다운로드하고 SHA-256을 검증한 다음 게임을 종료해 무인 설치하고 자동 재실행합니다.
+
+- 메뉴·매칭 대기·결과 화면: 즉시 강제 업데이트
+- 진행 중인 경기: 다운로드는 가능하지만 설치는 경기 종료까지 대기
+- 전용 서버: 활성 매치가 없을 때만 설치 및 재시작
+- 업데이트 서버 접속 실패: 현재 실행은 유지하고 나중에 자동 재시도
+
+GitHub Release는 사용하지 않으며, 테스트를 통과한 최신 `main` 빌드가 곧 업데이트 채널입니다. GitHub Pages 배포가 처음이라면 저장소의 **Settings → Pages → Source**가 `GitHub Actions`로 설정되어 있어야 합니다.
+
 ## 개발 환경 준비
 
 Windows PowerShell에서 필요한 프로그램을 설치합니다.
@@ -77,6 +96,12 @@ Godot 또는 Inno Setup을 사용자 지정 위치에 설치했다면 다음처�
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1 -GodotPath "C:\경로\godot_console.exe" -IsccPath "C:\경로\ISCC.exe"
+```
+
+버전을 직접 지정해 빌드할 수도 있습니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1 -Version "0.3.12" -Commit "테스트커밋SHA"
 ```
 
 ## 수동 빌드
@@ -137,12 +162,15 @@ scripts/BattleModel.gd        서버 권한형 전투 규칙
 scripts/NetworkController.gd  ENet 연결, RPC, 서버 스냅샷
 scripts/MatchRegistry.gd      1대1 매칭과 진영 배정
 scripts/ServerAI.gd           오프라인 AI 판단
+scripts/UpdateManager.gd      버전 확인, 다운로드, 해시 검증, 무인 업데이트
 scripts/BattleView.gd         전장과 캐릭터 렌더링
+build_info.json               현재 빌드 버전·커밋·업데이트 주소
 assets/units/                 최종 투명 캐릭터 PNG
 assets/source/role_sheets/    사용자가 제공한 원본 시트
 tools/extract_sprites.py      원본 시트 배경 제거 도구
 tools/build_release.ps1       테스트·EXE·설치 파일 통합 빌드
 installer/CatWar.iss          Inno Setup 설치 프로그램 정의
+.github/workflows/            푸시별 자동 테스트·빌드·Pages 배포
 server/StartServer.cmd        Windows 서버 실행 런처
 tests/run_tests.gd            전투·회복·구조물·매칭 테스트
 ```

@@ -1,6 +1,7 @@
 extends Control
 
 @onready var network: NetworkController = $NetworkController
+@onready var updater: UpdateManager = $UpdateManager
 
 var own_side := 0
 var battle_view: BattleView
@@ -23,18 +24,28 @@ var local_ai_mode := false
 var ai_smoke_mode := false
 var local_model: BattleModel
 var local_ai: ServerAI
+var running_as_server := false
+var update_overlay: Control
+var update_message_label: Label
+var update_progress_bar: ProgressBar
 
 func _ready() -> void:
 	network.connection_status.connect(_on_connection_status)
 	network.match_found.connect(_on_match_found)
 	network.snapshot_received.connect(_on_snapshot)
 	network.opponent_disconnected.connect(_on_opponent_left)
+	updater.update_started.connect(_on_update_started)
+	updater.update_status.connect(_on_update_status)
+	updater.update_failed.connect(_on_update_failed)
 	var args := OS.get_cmdline_user_args()
 	if args.has("--server"):
+		running_as_server = true
 		visible = false
 		var port := _arg_int(args, "--port=", NetworkController.DEFAULT_PORT)
 		if not network.start_dedicated_server(port):
 			get_tree().quit(1)
+		updater.set_safe_to_update(true)
+		updater.check_for_update()
 		return
 	_build_connect_screen()
 	smoke_mode = args.has("--smoke-client")
@@ -59,6 +70,8 @@ func _arg_string(args: PackedStringArray, prefix: String, fallback: String) -> S
 	return fallback
 
 func _process(delta: float) -> void:
+	if running_as_server:
+		updater.set_safe_to_update(network.models.is_empty())
 	if local_ai_mode and battle_active and is_instance_valid(local_model):
 		local_ai.update(local_model, delta)
 		local_model.tick(delta)
@@ -71,7 +84,7 @@ func _process(delta: float) -> void:
 
 func _clear_screen() -> void:
 	for child in get_children():
-		if child != network:
+		if child != network and child != updater:
 			child.queue_free()
 	battle_view = null
 	status_label = null
@@ -181,6 +194,8 @@ func _build_connect_screen(message: String = "") -> void:
 	status_label.add_theme_font_size_override("font_size", 13)
 	status_label.add_theme_color_override("font_color", Color("#747d91"))
 	column.add_child(status_label)
+	updater.set_safe_to_update(true)
+	updater.check_for_update()
 
 func _apply_input_style(input: LineEdit) -> void:
 	var normal := StyleBoxFlat.new()
@@ -251,6 +266,7 @@ func _start_local_ai_battle() -> void:
 func _build_battle_screen() -> void:
 	battle_active = true
 	result_shown = false
+	updater.set_safe_to_update(false)
 	_clear_screen()
 	root_background = _make_background()
 
@@ -460,9 +476,12 @@ func _on_snapshot(data: Dictionary) -> void:
 		_show_result(winner)
 	elif winner == -1 and result_shown:
 		result_shown = false
+		updater.set_safe_to_update(false)
 
 func _show_result(winner: int) -> void:
 	result_shown = true
+	updater.set_safe_to_update(true)
+	updater.check_for_update()
 	var overlay := PanelContainer.new()
 	overlay.position = Vector2(350, 190)
 	overlay.size = Vector2(580, 330)
@@ -504,6 +523,7 @@ func _show_result(winner: int) -> void:
 	rematch.pressed.connect(func():
 		rematch.disabled = true
 		if local_ai_mode:
+			updater.set_safe_to_update(false)
 			local_model.reset()
 			local_ai = ServerAI.new(1)
 			overlay.queue_free()
@@ -513,6 +533,88 @@ func _show_result(winner: int) -> void:
 			network.send_rematch()
 	)
 	inner.add_child(rematch)
+
+func _on_update_started(version: String) -> void:
+	if running_as_server:
+		print("MANDATORY_UPDATE_FOUND version=%s" % version)
+		return
+	if is_instance_valid(update_overlay) or not is_instance_valid(root_background):
+		return
+	update_overlay = ColorRect.new()
+	update_overlay.color = Color(0.025, 0.03, 0.055, 0.96)
+	update_overlay.position = Vector2.ZERO
+	update_overlay.size = Vector2(1280, 720)
+	update_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	update_overlay.z_index = 200
+	root_background.add_child(update_overlay)
+	var panel := PanelContainer.new()
+	panel.position = Vector2(340, 205)
+	panel.size = Vector2(600, 310)
+	var style := _panel_style(Color("#11141e"), Color("#7170ff"), 18)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.65)
+	style.shadow_size = 30
+	panel.add_theme_stylebox_override("panel", style)
+	update_overlay.add_child(panel)
+	var inner := Control.new()
+	inner.custom_minimum_size = Vector2(600, 310)
+	panel.add_child(inner)
+	var overline := Label.new()
+	overline.text = "MANDATORY UPDATE"
+	overline.position = Vector2(0, 38)
+	overline.size = Vector2(600, 22)
+	overline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	overline.add_theme_font_size_override("font_size", 11)
+	overline.add_theme_color_override("font_color", Color("#8f98ad"))
+	inner.add_child(overline)
+	var title := Label.new()
+	title.text = "새 버전 %s" % version
+	title.position = Vector2(0, 66)
+	title.size = Vector2(600, 54)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 34)
+	title.add_theme_color_override("font_color", Color("#f5f7fb"))
+	inner.add_child(title)
+	update_message_label = Label.new()
+	update_message_label.text = "업데이트를 준비하고 있습니다..."
+	update_message_label.position = Vector2(45, 135)
+	update_message_label.size = Vector2(510, 34)
+	update_message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	update_message_label.add_theme_color_override("font_color", Color("#a7afc0"))
+	inner.add_child(update_message_label)
+	update_progress_bar = ProgressBar.new()
+	update_progress_bar.position = Vector2(65, 190)
+	update_progress_bar.size = Vector2(470, 14)
+	update_progress_bar.max_value = 100.0
+	update_progress_bar.show_percentage = false
+	update_progress_bar.add_theme_stylebox_override("background", _panel_style(Color("#080a0f"), Color(1.0, 1.0, 1.0, 0.06), 7))
+	update_progress_bar.add_theme_stylebox_override("fill", _panel_style(Color("#7170ff"), Color("#828fff"), 7))
+	inner.add_child(update_progress_bar)
+	var note := Label.new()
+	note.text = "경기 중에는 설치하지 않으며, 완료 후 게임이 자동으로 재시작됩니다."
+	note.position = Vector2(25, 232)
+	note.size = Vector2(550, 36)
+	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	note.add_theme_font_size_override("font_size", 12)
+	note.add_theme_color_override("font_color", Color("#747d91"))
+	inner.add_child(note)
+
+func _on_update_status(message: String, progress: float) -> void:
+	if running_as_server:
+		print("UPDATE_STATUS %s" % message)
+		return
+	if is_instance_valid(update_message_label):
+		update_message_label.text = message
+	if is_instance_valid(update_progress_bar) and progress >= 0.0:
+		update_progress_bar.value = progress * 100.0
+
+func _on_update_failed(message: String) -> void:
+	if running_as_server:
+		printerr("UPDATE_FAILED %s; retrying in 10 seconds" % message)
+		return
+	if is_instance_valid(update_message_label):
+		update_message_label.text = message + "\n10초 후 자동으로 다시 시도합니다."
+	if is_instance_valid(update_progress_bar):
+		update_progress_bar.value = 0.0
 
 func _on_opponent_left() -> void:
 	if multiplayer.multiplayer_peer is ENetMultiplayerPeer:

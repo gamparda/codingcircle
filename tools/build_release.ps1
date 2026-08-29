@@ -1,6 +1,9 @@
 param(
     [string]$GodotPath = "",
-    [string]$IsccPath = ""
+    [string]$IsccPath = "",
+    [string]$Version = "",
+    [string]$Commit = "local",
+    [string]$UpdateUrl = "https://gamparda.github.io/codingcircle/update.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,6 +39,29 @@ $Godot = Resolve-Godot $GodotPath
 $Iscc = Resolve-Iscc $IsccPath
 New-Item -ItemType Directory -Force $Builds, $Dist | Out-Null
 
+$BuildInfoPath = Join-Path $Root "build_info.json"
+if (-not $Version) {
+    $BuildInfo = Get-Content $BuildInfoPath -Raw | ConvertFrom-Json
+    $Version = [string]$BuildInfo.version
+}
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Version must use numeric major.minor.patch format, for example 0.3.12"
+}
+$BuildInfo = [ordered]@{
+    version = $Version
+    commit = $Commit
+    update_url = $UpdateUrl
+} | ConvertTo-Json
+[System.IO.File]::WriteAllText($BuildInfoPath, $BuildInfo + "`n", [System.Text.UTF8Encoding]::new($false))
+
+$ExportPresetPath = Join-Path $Root "export_presets.cfg"
+$ExportPreset = Get-Content $ExportPresetPath -Raw
+$ExportPreset = $ExportPreset -replace 'application/file_version="[^"]+"', "application/file_version=`"$Version`""
+$ExportPreset = $ExportPreset -replace 'application/product_version="[^"]+"', "application/product_version=`"$Version`""
+[System.IO.File]::WriteAllText($ExportPresetPath, $ExportPreset, [System.Text.UTF8Encoding]::new($false))
+
+Write-Host "Building Cat War $Version ($Commit)" -ForegroundColor Green
+
 Write-Host "[1/4] Running game rule tests..." -ForegroundColor Cyan
 & $Godot --headless --path $Root --script res://tests/run_tests.gd
 if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE" }
@@ -49,7 +75,7 @@ Write-Host "[3/4] Verifying offline AI mode..." -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw "Exported executable smoke test failed with exit code $LASTEXITCODE" }
 
 Write-Host "[4/4] Building Windows installer..." -ForegroundColor Cyan
-& $Iscc (Join-Path $Root "installer\CatWar.iss")
+& $Iscc "/DMyAppVersion=$Version" (Join-Path $Root "installer\CatWar.iss")
 if ($LASTEXITCODE -ne 0) { throw "Installer build failed with exit code $LASTEXITCODE" }
 
 Write-Host "Build complete:" -ForegroundColor Green

@@ -1,0 +1,106 @@
+name: Build and deploy mandatory update
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages-update
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: 4.7.2
+  GODOT_STATUS: stable
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out tested source
+        uses: actions/checkout@v4
+
+      - name: Cache Godot export templates
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Roaming/Godot/export_templates/4.7.2.stable
+          key: godot-export-templates-4.7.2-stable
+
+      - name: Download Godot and export templates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force .ci | Out-Null
+          $release = "${env:GODOT_VERSION}-${env:GODOT_STATUS}"
+          $godotZip = ".ci/godot.zip"
+          Invoke-WebRequest "https://github.com/godotengine/godot/releases/download/$release/Godot_v${env:GODOT_VERSION}-${env:GODOT_STATUS}_win64.exe.zip" -OutFile $godotZip
+          Expand-Archive $godotZip -DestinationPath .ci/godot -Force
+          $godot = (Get-ChildItem .ci/godot -Filter "*_console.exe" -Recurse | Select-Object -First 1).FullName
+          if (-not $godot) { throw "Godot console executable was not found" }
+          "GODOT_CONSOLE=$godot" | Out-File $env:GITHUB_ENV -Append
+
+          $templateDir = Join-Path $env:APPDATA "Godot/export_templates/${env:GODOT_VERSION}.stable"
+          $windowsTemplate = Join-Path $templateDir "windows_release_x86_64.exe"
+          if (-not (Test-Path $windowsTemplate)) {
+            $templateZip = ".ci/templates.zip"
+            Invoke-WebRequest "https://github.com/godotengine/godot/releases/download/$release/Godot_v${env:GODOT_VERSION}-${env:GODOT_STATUS}_export_templates.tpz" -OutFile $templateZip
+            Expand-Archive $templateZip -DestinationPath .ci/templates -Force
+            New-Item -ItemType Directory -Force $templateDir | Out-Null
+            Copy-Item ".ci/templates/templates/*" $templateDir -Recurse -Force
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Test and build versioned installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "0.3.${{ github.run_number }}"
+          $iscc = (Get-ChildItem "C:/Program Files (x86)/Inno Setup 6" -Filter ISCC.exe -Recurse | Select-Object -First 1).FullName
+          if (-not $iscc) { throw "Inno Setup compiler was not found" }
+          ./tools/build_release.ps1 -GodotPath $env:GODOT_CONSOLE -IsccPath $iscc -Version $version -Commit "${{ github.sha }}"
+          "BUILD_VERSION=$version" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Create public update channel
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force site | Out-Null
+          Copy-Item dist/CatWarSetup.exe site/CatWarSetup.exe
+          $sha = (Get-FileHash site/CatWarSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{
+            version = $env:BUILD_VERSION
+            commit = "${{ github.sha }}"
+            installer_url = "https://gamparda.github.io/codingcircle/CatWarSetup.exe"
+            sha256 = $sha
+            mandatory = $true
+            published_at = (Get-Date).ToUniversalTime().ToString("o")
+          } | ConvertTo-Json
+          [System.IO.File]::WriteAllText((Join-Path $PWD "site/update.json"), $manifest + "`n", [System.Text.UTF8Encoding]::new($false))
+          New-Item -ItemType File -Force site/.nojekyll | Out-Null
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload update channel
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy latest tested build
+        id: deployment
+        uses: actions/deploy-pages@v4

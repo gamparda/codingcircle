@@ -1,5 +1,7 @@
 #define MyAppName "Cat War"
+#ifndef MyAppVersion
 #define MyAppVersion "0.3.0"
+#endif
 #define MyAppPublisher "Coding Circle"
 #define MyAppExeName "CatWar.exe"
 
@@ -23,7 +25,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-VersionInfoVersion=0.3.0.0
+VersionInfoVersion={#MyAppVersion}.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Cat War Installer
 VersionInfoProductName={#MyAppName}

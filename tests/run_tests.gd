@@ -97,6 +97,14 @@ func _init() -> void:
 		ai.update(ai_model, 6.0)
 		expect_true(ai_model.structures.any(func(structure): return structure.side == 1), "AI places a structure through normal game rules")
 
+	var UpdateManager = load("res://scripts/UpdateManager.gd")
+	expect_true(UpdateManager != null, "UpdateManager script loads")
+	if UpdateManager != null:
+		expect_true(UpdateManager.is_newer_version("0.3.2", "0.3.1"), "newer patch version is detected")
+		expect_true(UpdateManager.is_newer_version("0.4.0", "0.3.99"), "newer minor version is detected")
+		expect_true(not UpdateManager.is_newer_version("0.3.1", "0.3.1"), "same version is not an update")
+		expect_true(not UpdateManager.is_newer_version("0.2.9", "0.3.0"), "older version is rejected")
+
 	finish()
 
 func finish() -> void:

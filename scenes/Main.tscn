@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource path="res://scripts/Main.gd" type="Script" id="1_main"]
 [ext_resource path="res://scripts/NetworkController.gd" type="Script" id="2_network"]
+[ext_resource path="res://scripts/UpdateManager.gd" type="Script" id="3_update"]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -14,3 +15,6 @@ script = ExtResource("1_main")
 
 [node name="NetworkController" type="Node" parent="."]
 script = ExtResource("2_network")
+
+[node name="UpdateManager" type="Node" parent="."]
+script = ExtResource("3_update")
