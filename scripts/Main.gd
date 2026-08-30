@@ -40,6 +40,9 @@ func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.has("--server"):
 		running_as_server = true
+		# Headless mode has no display refresh rate to pace the main loop.
+		# Cap it so an idle dedicated server does not spin a CPU core.
+		Engine.max_fps = 60
 		visible = false
 		var port := _arg_int(args, "--port=", NetworkController.DEFAULT_PORT)
 		if not network.start_dedicated_server(port):
