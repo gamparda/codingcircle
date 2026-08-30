@@ -109,8 +109,6 @@ func retry_update() -> void:
 func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if state == "checking":
 		_handle_manifest_response(result, response_code, body)
-	elif state == "checking_signature":
-		_handle_manifest_signature_response(result, response_code, body)
 	elif state == "downloading":
 		_handle_installer_response(result, response_code)
 
@@ -118,26 +116,10 @@ func _handle_manifest_response(result: int, response_code: int, body: PackedByte
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
 		state = "idle"
 		return
-	pending_manifest_body = body
-	state = "checking_signature"
-	var error := http.request(update_url + ".sig", ["Cache-Control: no-cache"])
-	if error != OK:
-		pending_manifest_body.clear()
-		_fail_update("업데이트 서명을 가져오지 못했습니다.")
+	accept_manifest(body)
 
-func _handle_manifest_signature_response(result: int, response_code: int, body: PackedByteArray) -> void:
-	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
-		pending_manifest_body.clear()
-		_fail_update("업데이트 서명 다운로드에 실패했습니다.")
-		return
-	accept_signed_manifest(pending_manifest_body, body.get_string_from_utf8())
-	pending_manifest_body.clear()
-
-func accept_signed_manifest(body: PackedByteArray, signature_base64: String) -> bool:
+func accept_manifest(body: PackedByteArray) -> bool:
 	manifest.clear()
-	if not verify_manifest_signature(body, signature_base64, manifest_public_key_pem):
-		_fail_update("업데이트 서명을 확인할 수 없습니다.")
-		return false
 	var parsed = JSON.parse_string(body.get_string_from_utf8())
 	if not parsed is Dictionary or not validate_manifest(parsed, allow_insecure_update):
 		_fail_update("신뢰할 수 없는 업데이트 정보입니다.")
@@ -152,6 +134,12 @@ func accept_signed_manifest(body: PackedByteArray, signature_base64: String) -> 
 	if safe_to_update:
 		_begin_download()
 	return true
+
+func accept_signed_manifest(body: PackedByteArray, signature_base64: String) -> bool:
+	if not verify_manifest_signature(body, signature_base64, manifest_public_key_pem):
+		_fail_update("업데이트 서명을 확인할 수 없습니다.")
+		return false
+	return accept_manifest(body)
 
 func _begin_download() -> void:
 	var version := String(manifest.get("version", "new"))

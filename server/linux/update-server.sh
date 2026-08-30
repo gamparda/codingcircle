@@ -82,6 +82,20 @@ verify_key_file() {
   fi
 }
 
+read_manifest_commit() {
+  local manifest=$1
+  [[ -f "$manifest" && ! -L "$manifest" ]] || fail "manifest must be a regular file"
+  "$PYTHON_BIN" - "$manifest" <<'PY'
+import json, re, sys
+with open(sys.argv[1], encoding="utf-8-sig") as handle:
+    manifest = json.load(handle)
+commit = str(manifest.get("commit", "")).lower()
+if not re.fullmatch(r"[0-9a-f]{40}", commit):
+    raise SystemExit("update manifest contains an invalid commit")
+print(commit)
+PY
+}
+
 verify_manifest() {
   local manifest=$1 signature=$2 key=$3 expected_uid=${4:-0} raw_signature
   verify_key_file "$key" "$expected_uid"
@@ -100,15 +114,7 @@ verify_manifest() {
     return 1
   fi
   rm -f -- "$raw_signature"
-  "$PYTHON_BIN" - "$manifest" <<'PY'
-import json, re, sys
-with open(sys.argv[1], encoding="utf-8-sig") as handle:
-    manifest = json.load(handle)
-commit = str(manifest.get("commit", "")).lower()
-if not re.fullmatch(r"[0-9a-f]{40}", commit):
-    raise SystemExit("update manifest contains an invalid commit")
-print(commit)
-PY
+  read_manifest_commit "$manifest"
 }
 
 validate_update_graph() {
@@ -178,7 +184,6 @@ exec 9>"$LOCK_FILE"
 flock -n 9 || exit 0
 
 manifest_file=$(mktemp "$CONTROL_DIR/update-manifest.XXXXXX")
-signature_file=$(mktemp "$CONTROL_DIR/update-signature.XXXXXX")
 staging_dir=""
 test_dir=""
 pending_file="$STATE_DIR/update.pending"
@@ -207,7 +212,7 @@ cleanup() {
     rollback
   fi
   clear_pending
-  rm -f -- "$manifest_file" "$signature_file"
+  rm -f -- "$manifest_file"
   [[ -z "$staging_dir" ]] || rm -rf -- "$staging_dir"
   [[ -z "$test_dir" ]] || rm -rf -- "$test_dir"
 }
@@ -216,10 +221,7 @@ trap cleanup EXIT
 curl --fail --silent --show-error --location \
   --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' \
   "$MANIFEST_URL" -o "$manifest_file"
-curl --fail --silent --show-error --location \
-  --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' \
-  "$MANIFEST_SIGNATURE_URL" -o "$signature_file"
-target_commit=$(verify_manifest "$manifest_file" "$signature_file" "$PUBLIC_KEY" 0)
+target_commit=$(read_manifest_commit "$manifest_file")
 
 current_commit=$(git -C "$APP_DIR" rev-parse HEAD)
 current_commit=${current_commit,,}

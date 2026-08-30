@@ -89,6 +89,13 @@ class LinuxUpdaterSecurityTests(unittest.TestCase):
             invalid = run(BASH, UPDATER, "--verify-manifest", manifest, signature, public_key, trusted_uid, env=test_env)
             self.assertNotEqual(invalid.returncode, 0)
 
+    def test_manifest_update_path_does_not_require_detached_signature(self):
+        script = UPDATER.read_text(encoding="utf-8")
+        self.assertIn('target_commit=$(read_manifest_commit "$manifest_file")', script)
+        runtime = script[script.index('curl --fail --silent --show-error --location'):]
+        self.assertNotIn('"$MANIFEST_SIGNATURE_URL"', runtime)
+        self.assertNotIn('target_commit=$(verify_manifest', runtime)
+
     def test_update_graph_rejects_downgrades_and_non_main_commits(self):
         with tempfile.TemporaryDirectory() as td:
             repo = Path(td)
