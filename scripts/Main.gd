@@ -66,9 +66,12 @@ func _ready() -> void:
 	if args.has("--offline-ai") or ai_smoke_mode:
 		_start_local_ai_battle()
 		return
-	var auto_address := _arg_string(args, "--connect=", "") if smoke_mode and OS.has_feature("editor") else ""
-	if smoke_mode and OS.has_feature("editor") and not auto_address.is_empty():
+	var auto_address := _arg_string(args, "--connect=", "")
+	if smoke_connect_allowed(smoke_mode, auto_address):
 		network.connect_to_server(auto_address, _arg_int(args, "--port=", NetworkController.DEFAULT_PORT))
+
+static func smoke_connect_allowed(is_smoke: bool, address: String) -> bool:
+	return is_smoke and (address == "127.0.0.1" or address == "localhost" or address == "::1")
 
 func _arg_int(args: PackedStringArray, prefix: String, fallback: int) -> int:
 	for arg in args:

@@ -9,21 +9,46 @@ signal opponent_disconnected
 const DEFAULT_PORT := 7777
 const TICK_RATE := 1.0 / 30.0
 const SNAPSHOT_RATE := 1.0 / 12.0
+const MAX_REQUESTS_PER_SECOND := 24
+const MAX_SNAPSHOT_UNITS := 256
+const MAX_SNAPSHOT_STRUCTURES := 16
+const MAX_CONNECTIONS_PER_ADDRESS := 4
+const MAX_ACTIVE_MATCHES := 32
+const EARLY_DISCONNECT_LIMIT := 3
+const EARLY_DISCONNECT_WINDOW_MSEC := 60000
+const QUICK_DISCONNECT_MSEC := 15000
+const ABUSE_BLOCK_MSEC := 120000
+const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer"]
+const VALID_STRUCTURE_KINDS := ["wall", "jump_pad", "swamp"]
 
 var registry := MatchRegistry.new()
 var models: Dictionary = {}
 var rematch_ready: Dictionary = {}
 var server_mode := false
+var client_in_match := false
 var accepting_players := true
 var tick_accumulator := 0.0
 var snapshot_accumulator := 0.0
+var request_windows: Dictionary = {}
+var peer_addresses: Dictionary = {}
+var address_connection_counts: Dictionary = {}
+var peer_connected_msec: Dictionary = {}
+var early_disconnect_events: Dictionary = {}
+var address_blocked_until: Dictionary = {}
+var server_forced_disconnects: Dictionary = {}
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(func(): connection_status.emit("서버에 연결됨 · 상대를 찾는 중..."))
 	multiplayer.connection_failed.connect(func(): connection_status.emit("서버 연결 실패"))
-	multiplayer.server_disconnected.connect(func(): connection_status.emit("서버와 연결이 끊어졌습니다"))
+	multiplayer.server_disconnected.connect(_on_server_disconnected)
+
+func _on_server_disconnected() -> void:
+	connection_status.emit("서버와 연결이 끊어졌습니다")
+	if client_in_match:
+		client_in_match = false
+		opponent_disconnected.emit()
 
 func start_dedicated_server(port: int = DEFAULT_PORT) -> bool:
 	var peer := ENetMultiplayerPeer.new()
@@ -56,6 +81,179 @@ func set_accepting_players(value: bool) -> void:
 		if multiplayer.get_peers().has(waiting_peer):
 			(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(waiting_peer)
 
+func can_accept_rematch(model: BattleModel) -> bool:
+	return accepting_players and model.winner != -1
+
+func can_process_request(peer_id: int, now_msec: int = -1) -> bool:
+	if peer_id <= 0:
+		return false
+	var now := Time.get_ticks_msec() if now_msec < 0 else now_msec
+	var window: Dictionary = request_windows.get(peer_id, {"started": now, "count": 0})
+	if now - int(window.started) >= 1000:
+		window = {"started": now, "count": 0}
+	if int(window.count) >= MAX_REQUESTS_PER_SECOND:
+		request_windows[peer_id] = window
+		return false
+	window.count = int(window.count) + 1
+	request_windows[peer_id] = window
+	return true
+
+func register_peer_address(peer_id: int, address: String) -> bool:
+	if peer_id <= 0 or address.is_empty() or peer_addresses.has(peer_id):
+		return false
+	if is_address_temporarily_blocked(address):
+		return false
+	var count := int(address_connection_counts.get(address, 0))
+	if count >= MAX_CONNECTIONS_PER_ADDRESS:
+		return false
+	peer_addresses[peer_id] = address
+	peer_connected_msec[peer_id] = Time.get_ticks_msec()
+	address_connection_counts[address] = count + 1
+	return true
+
+func record_early_disconnect(address: String, now_msec: int = -1) -> void:
+	if address.is_empty():
+		return
+	var now := Time.get_ticks_msec() if now_msec < 0 else now_msec
+	var recent: Array = []
+	for event_time in early_disconnect_events.get(address, []):
+		if now - int(event_time) <= EARLY_DISCONNECT_WINDOW_MSEC:
+			recent.append(int(event_time))
+	recent.append(now)
+	early_disconnect_events[address] = recent
+	if recent.size() >= EARLY_DISCONNECT_LIMIT:
+		address_blocked_until[address] = now + ABUSE_BLOCK_MSEC
+
+func is_address_temporarily_blocked(address: String, now_msec: int = -1) -> bool:
+	var now := Time.get_ticks_msec() if now_msec < 0 else now_msec
+	return now < int(address_blocked_until.get(address, 0))
+
+func release_peer_address(peer_id: int) -> void:
+	if not peer_addresses.has(peer_id):
+		return
+	var address := String(peer_addresses[peer_id])
+	peer_addresses.erase(peer_id)
+	peer_connected_msec.erase(peer_id)
+	var count := int(address_connection_counts.get(address, 0)) - 1
+	if count <= 0:
+		address_connection_counts.erase(address)
+	else:
+		address_connection_counts[address] = count
+
+func mark_server_forced_disconnect(peer_id: int) -> void:
+	if peer_id > 0:
+		server_forced_disconnects[peer_id] = true
+
+func should_penalize_disconnect(peer_id: int, connected_at: int, now: int) -> bool:
+	if server_forced_disconnects.erase(peer_id):
+		return false
+	return now - connected_at < QUICK_DISCONNECT_MSEC
+
+func can_create_match() -> bool:
+	return models.size() < MAX_ACTIVE_MATCHES
+
+func _remote_address(peer_id: int) -> String:
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if enet == null:
+		return ""
+	var packet_peer := enet.get_peer(peer_id)
+	return "" if packet_peer == null else packet_peer.get_remote_address()
+
+func _peer_is_connected(peer_id: int) -> bool:
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if enet == null or not multiplayer.get_peers().has(peer_id):
+		return false
+	var packet_peer := enet.get_peer(peer_id)
+	return packet_peer != null and packet_peer.get_state() == ENetPacketPeer.STATE_CONNECTED
+
+func _disconnect_orphaned_peer(peer_id: int) -> void:
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if enet != null and _peer_is_connected(peer_id):
+		mark_server_forced_disconnect(peer_id)
+		enet.disconnect_peer(peer_id, true)
+
+static func is_safe_command_text(value: String) -> bool:
+	return not value.is_empty() and value.length() <= 32 and value == value.to_lower() and value.is_valid_identifier()
+
+static func is_safe_position(value: float) -> bool:
+	return is_finite(value)
+
+static func is_valid_match_side(side: int) -> bool:
+	return side == 0 or side == 1
+
+static func _is_finite_number(value: Variant) -> bool:
+	return (value is int or value is float) and is_finite(float(value))
+
+static func _has_exact_keys(value: Dictionary, expected: Array) -> bool:
+	if value.size() != expected.size():
+		return false
+	for key in expected:
+		if not value.has(key):
+			return false
+	return true
+
+static func _number_in_range(value: Variant, minimum: float, maximum: float) -> bool:
+	return _is_finite_number(value) and float(value) >= minimum and float(value) <= maximum
+
+static func is_valid_snapshot(data: Dictionary) -> bool:
+	if not _has_exact_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"]):
+		return false
+	var resources = data.resources
+	var base_hp = data.base_hp
+	var units = data.units
+	var structures = data.structures
+	if not resources is Array or resources.size() != 2:
+		return false
+	if not base_hp is Array or base_hp.size() != 2:
+		return false
+	for value in resources:
+		if not _number_in_range(value, 0.0, 150.0):
+			return false
+	for value in base_hp:
+		if not _number_in_range(value, 0.0, 500.0):
+			return false
+	if not units is Array or units.size() > MAX_SNAPSHOT_UNITS:
+		return false
+	if not structures is Array or structures.size() > MAX_SNAPSHOT_STRUCTURES:
+		return false
+	var unit_ids := {}
+	for unit in units:
+		if not unit is Dictionary or not _has_exact_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"]):
+			return false
+		var unit_id = unit.id
+		var unit_side = unit.side
+		if not unit_id is int or int(unit_id) <= 0 or unit_ids.has(unit_id):
+			return false
+		unit_ids[unit_id] = true
+		if not unit_side is int or not is_valid_match_side(unit_side) or not VALID_UNIT_KINDS.has(String(unit.kind)):
+			return false
+		if not _number_in_range(unit.x, -256.0, 1536.0) or not _number_in_range(unit.max_hp, 0.01, 10000.0):
+			return false
+		if not _number_in_range(unit.hp, 0.0, float(unit.max_hp)):
+			return false
+		for key in ["damage", "heal", "interval", "cooldown", "speed", "range"]:
+			if not _number_in_range(unit[key], 0.0, 10000.0):
+				return false
+	var structure_ids := {}
+	for structure in structures:
+		if not structure is Dictionary or not _has_exact_keys(structure, ["id", "side", "kind", "x", "hp", "max_hp"]):
+			return false
+		var structure_id = structure.id
+		var structure_side = structure.side
+		if not structure_id is int or int(structure_id) <= 0 or structure_ids.has(structure_id):
+			return false
+		structure_ids[structure_id] = true
+		if not structure_side is int or not is_valid_match_side(structure_side) or not VALID_STRUCTURE_KINDS.has(String(structure.kind)):
+			return false
+		if not _number_in_range(structure.x, 0.0, 1280.0) or not _number_in_range(structure.max_hp, 0.01, 10000.0):
+			return false
+		if not _number_in_range(structure.hp, 0.0, float(structure.max_hp)):
+			return false
+	var winner = data.winner
+	if not winner is int or int(winner) < -1 or int(winner) > 2:
+		return false
+	return _number_in_range(data.elapsed, 0.0, 300.1)
+
 func _process(delta: float) -> void:
 	if not server_mode:
 		return
@@ -77,6 +275,10 @@ func _on_peer_connected(peer_id: int) -> void:
 		print("PLAYER_REJECTED_UPDATE peer=%d" % peer_id)
 		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(peer_id)
 		return
+	if not can_create_match() or not register_peer_address(peer_id, _remote_address(peer_id)):
+		print("PLAYER_REJECTED_CAPACITY peer=%d" % peer_id)
+		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(peer_id)
+		return
 	print("PLAYER_CONNECTED peer=%d" % peer_id)
 	var paired := registry.add_player(peer_id)
 	if paired.is_empty():
@@ -95,10 +297,17 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	var match_id := registry.get_match_id(peer_id)
 	var players := registry.remove_player(peer_id)
 	for player_id in players:
-		if int(player_id) != peer_id and multiplayer.get_peers().has(int(player_id)):
-			opponent_left.rpc_id(int(player_id))
+		if int(player_id) != peer_id and _peer_is_connected(int(player_id)):
+			_disconnect_orphaned_peer.call_deferred(int(player_id))
+	var now := Time.get_ticks_msec()
+	var connected_at := int(peer_connected_msec.get(peer_id, now))
+	var address := String(peer_addresses.get(peer_id, ""))
+	if should_penalize_disconnect(peer_id, connected_at, now):
+		record_early_disconnect(address, now)
 	models.erase(match_id)
 	rematch_ready.erase(match_id)
+	request_windows.erase(peer_id)
+	release_peer_address(peer_id)
 	print("PLAYER_DISCONNECTED peer=%d" % peer_id)
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -106,6 +315,10 @@ func request_spawn(kind: String) -> void:
 	if not server_mode:
 		return
 	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender):
+		return
+	if not is_safe_command_text(kind):
+		return
 	var match_id := registry.get_match_id(sender)
 	if models.has(match_id):
 		models[match_id].spawn_unit(registry.get_side(sender), kind)
@@ -115,6 +328,10 @@ func request_place_structure(kind: String, x: float) -> void:
 	if not server_mode:
 		return
 	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender):
+		return
+	if not is_safe_command_text(kind) or not is_safe_position(x):
+		return
 	var match_id := registry.get_match_id(sender)
 	if models.has(match_id):
 		models[match_id].place_structure(registry.get_side(sender), kind, clamp(x, 0.0, 1280.0))
@@ -124,8 +341,12 @@ func request_rematch() -> void:
 	if not server_mode:
 		return
 	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender):
+		return
 	var match_id := registry.get_match_id(sender)
 	if not models.has(match_id):
+		return
+	if not can_accept_rematch(models[match_id]):
 		return
 	if not rematch_ready.has(match_id):
 		rematch_ready[match_id] = {}
@@ -152,17 +373,21 @@ func _broadcast_snapshot(match_id: int) -> void:
 		return
 	var data: Dictionary = models[match_id].snapshot()
 	for player_id in registry.matches.get(match_id, []):
-		if multiplayer.get_peers().has(int(player_id)):
+		if _peer_is_connected(int(player_id)):
 			receive_snapshot.rpc_id(int(player_id), data)
 
 @rpc("authority", "call_remote", "reliable")
 func match_started(side: int) -> void:
-	match_found.emit(side)
+	if is_valid_match_side(side):
+		client_in_match = true
+		match_found.emit(side)
 
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(data: Dictionary) -> void:
-	snapshot_received.emit(data)
+	if is_valid_snapshot(data):
+		snapshot_received.emit(data)
 
 @rpc("authority", "call_remote", "reliable")
 func opponent_left() -> void:
+	client_in_match = false
 	opponent_disconnected.emit()

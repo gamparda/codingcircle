@@ -97,6 +97,75 @@ func _init() -> void:
 		ai.update(ai_model, 6.0)
 		expect_true(ai_model.structures.any(func(structure): return structure.side == 1), "AI places a structure through normal game rules")
 
+	var NetworkController = load("res://scripts/NetworkController.gd")
+	expect_true(NetworkController != null, "NetworkController script loads")
+	var network_policy = NetworkController.new()
+	var active_model = BattleModel.new()
+	expect_true(not network_policy.can_accept_rematch(active_model), "active matches reject rematch requests")
+	active_model.winner = 0
+	expect_true(network_policy.can_accept_rematch(active_model), "finished matches allow rematch requests")
+	network_policy.accepting_players = false
+	expect_true(not network_policy.can_accept_rematch(active_model), "server drain rejects rematch requests")
+
+	var accepted_requests := 0
+	for index in range(NetworkController.MAX_REQUESTS_PER_SECOND):
+		if network_policy.can_process_request(7, 1000):
+			accepted_requests += 1
+	expect_eq(accepted_requests, NetworkController.MAX_REQUESTS_PER_SECOND, "RPC rate limit accepts the configured burst")
+	expect_true(not network_policy.can_process_request(7, 1000), "RPC rate limit rejects excess requests")
+	expect_true(network_policy.can_process_request(7, 2001), "RPC rate limit resets after one second")
+	expect_true(NetworkController.is_safe_command_text("swordsman"), "known-size command text is accepted")
+	expect_true(not NetworkController.is_safe_command_text("x".repeat(33)), "oversized command text is rejected")
+	expect_true(not NetworkController.is_safe_command_text("wall&whoami"), "metacharacter command text is rejected")
+	expect_true(NetworkController.is_safe_position(640.0), "finite structure position is accepted")
+	expect_true(not NetworkController.is_safe_position(NAN), "NaN structure position is rejected")
+	expect_true(not NetworkController.is_safe_position(INF), "infinite structure position is rejected")
+	var safe_snapshot: Dictionary = BattleModel.new().snapshot()
+	expect_true(NetworkController.is_valid_snapshot(safe_snapshot), "authoritative model snapshot is accepted")
+	var short_snapshot: Dictionary = safe_snapshot.duplicate(true)
+	short_snapshot.resources = [10.0]
+	expect_true(not NetworkController.is_valid_snapshot(short_snapshot), "short resource arrays are rejected")
+	var unknown_unit_snapshot: Dictionary = safe_snapshot.duplicate(true)
+	unknown_unit_snapshot.units = [{"id": 1, "side": 0, "kind": "intruder", "x": 1.0, "hp": 1.0, "max_hp": 1.0, "speed": 1.0}]
+	expect_true(not NetworkController.is_valid_snapshot(unknown_unit_snapshot), "unknown unit kinds are rejected")
+	var wrong_type_snapshot: Dictionary = safe_snapshot.duplicate(true)
+	wrong_type_snapshot.units = [{"id": 1, "side": "zero", "kind": "shield", "x": 1.0, "hp": 1.0, "max_hp": 1.0, "speed": 1.0}]
+	expect_true(not NetworkController.is_valid_snapshot(wrong_type_snapshot), "string match sides are rejected instead of coerced")
+	var oversized_snapshot: Dictionary = safe_snapshot.duplicate(true)
+	oversized_snapshot.units.resize(NetworkController.MAX_SNAPSHOT_UNITS + 1)
+	expect_true(not NetworkController.is_valid_snapshot(oversized_snapshot), "oversized unit arrays are rejected")
+	var extra_key_snapshot: Dictionary = safe_snapshot.duplicate(true)
+	extra_key_snapshot.debug_payload = {"nested": [1, 2, 3]}
+	expect_true(not NetworkController.is_valid_snapshot(extra_key_snapshot), "unexpected snapshot keys are rejected")
+	var impossible_resource_snapshot: Dictionary = safe_snapshot.duplicate(true)
+	impossible_resource_snapshot.resources = [-1.0, 999999.0]
+	expect_true(not NetworkController.is_valid_snapshot(impossible_resource_snapshot), "implausible resource values are rejected")
+	var populated_model = BattleModel.new()
+	expect_true(populated_model.spawn_unit(0, "swordsman"), "snapshot fixture unit spawns")
+	var fractional_id_snapshot: Dictionary = populated_model.snapshot()
+	fractional_id_snapshot.units[0].id = 1.5
+	expect_true(not NetworkController.is_valid_snapshot(fractional_id_snapshot), "non-integral unit IDs are rejected")
+	expect_true(NetworkController.is_valid_match_side(0) and NetworkController.is_valid_match_side(1), "valid match sides are accepted")
+	expect_true(not NetworkController.is_valid_match_side(-1) and not NetworkController.is_valid_match_side(2), "invalid match sides are rejected")
+	var admission_policy = NetworkController.new()
+	for peer_id in range(1, NetworkController.MAX_CONNECTIONS_PER_ADDRESS + 1):
+		expect_true(admission_policy.register_peer_address(peer_id, "127.0.0.1"), "per-address admission accepts peer %d" % peer_id)
+	expect_true(not admission_policy.register_peer_address(99, "127.0.0.1"), "per-address admission rejects excess peers")
+	admission_policy.release_peer_address(1)
+	expect_true(admission_policy.register_peer_address(99, "127.0.0.1"), "per-address admission recovers after disconnect")
+	for strike in range(NetworkController.EARLY_DISCONNECT_LIMIT):
+		admission_policy.record_early_disconnect("198.51.100.7", 5000 + strike)
+	expect_true(admission_policy.is_address_temporarily_blocked("198.51.100.7", 6000), "repeated early disconnects trigger a temporary block")
+	expect_true(not admission_policy.is_address_temporarily_blocked("198.51.100.7", 5000 + NetworkController.ABUSE_BLOCK_MSEC + 100), "temporary connection block expires")
+	admission_policy.mark_server_forced_disconnect(200)
+	expect_true(not admission_policy.should_penalize_disconnect(200, 1000, 2000), "server-forced orphan disconnect is not penalized")
+	expect_true(admission_policy.should_penalize_disconnect(201, 1000, 2000), "voluntary quick disconnect is penalized")
+	for match_id in range(NetworkController.MAX_ACTIVE_MATCHES):
+		admission_policy.models[match_id] = BattleModel.new()
+	expect_true(not admission_policy.can_create_match(), "active match cap prevents model exhaustion")
+	admission_policy.free()
+	network_policy.free()
+
 	var UpdateManager = load("res://scripts/UpdateManager.gd")
 	expect_true(UpdateManager != null, "UpdateManager script loads")
 	if UpdateManager != null:
@@ -110,6 +179,10 @@ func _init() -> void:
 	if Main != null:
 		expect_eq(Main.OFFICIAL_SERVER_ADDRESS, "ruellyya.kr", "official server address is fixed")
 		expect_eq(Main.OFFICIAL_SERVER_PORT, 7777, "official server port is fixed")
+		expect_true(Main.smoke_connect_allowed(true, "127.0.0.1"), "exported smoke client may connect to loopback")
+		expect_true(Main.smoke_connect_allowed(true, "localhost"), "exported smoke client may connect to localhost")
+		expect_true(not Main.smoke_connect_allowed(true, "example.com"), "smoke client cannot target external hosts")
+		expect_true(not Main.smoke_connect_allowed(false, "127.0.0.1"), "normal clients cannot use smoke connect arguments")
 
 	var BattleView = load("res://scripts/BattleView.gd")
 	expect_true(BattleView != null, "BattleView loads with animated unit textures")

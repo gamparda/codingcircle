@@ -6,7 +6,10 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/catwar/app/server/linux/update-server.sh
+# Install this file separately from the replaceable application checkout, owned by root.
+ExecStart=/usr/local/libexec/catwar/update-server.sh
+EnvironmentFile=/etc/catwar/server.env
+UMask=0077
 Nice=10
 IOSchedulingClass=idle
 CPUQuota=50%
