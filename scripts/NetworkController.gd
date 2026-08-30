@@ -202,7 +202,7 @@ static func _number_in_range(value: Variant, minimum: float, maximum: float) -> 
 	return _is_finite_number(value) and float(value) >= minimum and float(value) <= maximum
 
 static func is_valid_snapshot(data: Dictionary) -> bool:
-	if not _has_exact_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"]):
+	if not _has_exact_keys(data, ["resources", "base_hp", "units", "structures", "heal_pads", "winner", "elapsed"]):
 		return false
 	var resources = data.resources
 	var base_hp = data.base_hp

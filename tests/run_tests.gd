@@ -48,12 +48,15 @@ func _init() -> void:
 	var swordsman_stats: Dictionary = BattleModel.UNIT_STATS.swordsman
 	var archer_stats: Dictionary = BattleModel.UNIT_STATS.archer
 	expect_true(float(swordsman_stats.cost) >= 30.0, "swordsman is not underpriced")
-	expect_true(float(swordsman_stats.damage) / float(swordsman_stats.interval) <= 12.0, "swordsman DPS is capped")
+	expect_true(float(swordsman_stats.damage) / float(swordsman_stats.interval) <= 8.0, "swordsman DPS is nerfed below the old value")
+	expect_true(float(BattleModel.UNIT_STATS.shield.hp) >= 450.0, "shield has roughly 2.5x the previous health")
 	expect_true(
 		(float(swordsman_stats.damage) / float(swordsman_stats.interval)) / float(swordsman_stats.cost)
 		<= (float(archer_stats.damage) / float(archer_stats.interval)) / float(archer_stats.cost) * 1.6,
 		"swordsman cost efficiency stays near other damage units"
 	)
+	expect_true(float(BattleModel.UNIT_STATS.archer.range) >= 250.0, "archer range is greatly extended")
+	expect_true(float(BattleModel.UNIT_STATS.archer.damage) < 20.0, "archer damage is reduced from its old value")
 	for kind in BattleModel.UNIT_STATS:
 		expect_true(float(BattleModel.UNIT_STATS[kind].interval) >= 1.2, "%s respects the minimum attack/heal interval" % kind)
 	expect_true(BattleModel.new().has_method("unit_stat_summary"), "unit stat summary API exists")
@@ -65,6 +68,7 @@ func _init() -> void:
 		var battle_summary: String = BattleModel.battle_stat_summary()
 		expect_true(battle_summary.contains("방벽") and battle_summary.contains("점프대") and battle_summary.contains("늪"), "battle stat summary exposes every structure")
 		expect_true(battle_summary.contains("기지 체력") and battle_summary.contains("자원") and battle_summary.contains("제한시간"), "battle stat summary exposes global combat rules")
+		expect_true(battle_summary.contains("회복장판"), "battle stat summary exposes the healer pad mechanic")
 
 	var structures = BattleModel.new()
 	structures.resources[0] = 200.0
@@ -89,12 +93,30 @@ func _init() -> void:
 	expect_true(healer_spawned, "healer can be produced")
 	if healer_spawned:
 		healing.units[0].x = 400.0
-		healing.units[1].x = 360.0
+		healing.units[1].x = 400.0
 		healing.units[0].hp -= 50.0
 		var wounded_hp: float = healing.units[0].hp
 		healing.tick(float(healing.units[1].interval) + 0.01)
-		expect_true(healing.units[0].hp > wounded_hp, "healer restores a wounded ally in range")
+		expect_true(healing.heal_pads.size() == 1, "healer casting drops a timed heal pad")
+		healing.tick(1.0)
+		expect_true(healing.units[0].hp > wounded_hp, "heal pad restores a wounded ally standing on it")
 		expect_true(healing.units[0].hp <= healing.units[0].max_hp, "healing never exceeds maximum health")
+		var pad_model = BattleModel.new()
+		pad_model.resources[0] = 150.0
+		pad_model.spawn_unit(0, "shield")
+		pad_model.spawn_unit(0, "healer")
+		pad_model.units[0].x = 400.0
+		pad_model.units[0].hp -= 80.0
+		pad_model.units[1].x = 400.0
+		var pad_wounded: float = pad_model.units[0].hp
+		pad_model.tick(float(pad_model.units[1].interval) + 0.01)
+		expect_true(pad_model.heal_pads.size() == 1, "healer casting drops a timed heal pad")
+		# Heal pad keeps restoring allies standing on it for the full duration.
+		pad_model.tick(1.0)
+		expect_true(pad_model.units[0].hp > pad_wounded, "heal pad restores wounded allies each tick while active")
+		expect_true(pad_model.heal_pads.size() == 1, "heal pad persists through its duration")
+		pad_model.tick(4.0)
+		expect_true(pad_model.heal_pads.size() == 0, "heal pad expires after its duration")
 
 	var MatchRegistry = load("res://scripts/MatchRegistry.gd")
 	expect_true(MatchRegistry != null, "MatchRegistry script loads")

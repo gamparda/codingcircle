@@ -10,11 +10,14 @@ const BASE_MAX_HP := 500.0
 const STRUCTURE_LIMIT := 3
 const MATCH_LIMIT := 300.0
 const MIN_ATTACK_INTERVAL := 1.2
+const HEAL_PAD_DURATION := 4.0
+const HEAL_PAD_RADIUS := 80.0
+const HEAL_PAD_PER_SECOND := 18.0
 
 const UNIT_STATS := {
-	"shield": {"cost": 40.0, "hp": 190.0, "damage": 8.0, "interval": 1.5, "speed": 30.0, "range": 34.0},
-	"swordsman": {"cost": 30.0, "hp": 82.0, "damage": 14.0, "interval": 1.25, "speed": 44.0, "range": 34.0},
-	"archer": {"cost": 45.0, "hp": 58.0, "damage": 18.0, "interval": 1.5, "speed": 34.0, "range": 150.0},
+	"shield": {"cost": 40.0, "hp": 480.0, "damage": 8.0, "interval": 1.5, "speed": 30.0, "range": 34.0},
+	"swordsman": {"cost": 30.0, "hp": 82.0, "damage": 10.0, "interval": 1.4, "speed": 44.0, "range": 34.0},
+	"archer": {"cost": 45.0, "hp": 58.0, "damage": 15.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
 	"healer": {"cost": 45.0, "hp": 60.0, "damage": 0.0, "heal": 14.0, "interval": 1.6, "speed": 34.0, "range": 125.0},
 }
 
@@ -34,6 +37,7 @@ var next_unit_id := 1
 var next_structure_id := 1
 var spawn_cooldowns: Array = [{}, {}]
 var jumped: Dictionary = {}
+var heal_pads: Array = []
 
 func reset() -> void:
 	resources = [START_RESOURCE, START_RESOURCE]
@@ -46,6 +50,7 @@ func reset() -> void:
 	next_structure_id = 1
 	spawn_cooldowns = [{}, {}]
 	jumped.clear()
+	heal_pads.clear()
 
 func spawn_unit(side: int, kind: String) -> bool:
 	if winner != -1 or side < 0 or side > 1 or not UNIT_STATS.has(kind):
@@ -79,7 +84,7 @@ static func unit_stat_summary(kind: String) -> String:
 	var interval: float = max(float(stats.interval), MIN_ATTACK_INTERVAL)
 	var output := "비용 %d  ·  체력 %d\n" % [int(stats.cost), int(stats.hp)]
 	if float(stats.get("heal", 0.0)) > 0.0:
-		output += "회복량 %d  ·  HPS %.1f\n" % [int(stats.heal), float(stats.heal) / interval]
+		output += "회복장판 %d/초  ·  %d초간\n" % [int(stats.heal), int(HEAL_PAD_DURATION)]
 	else:
 		output += "공격력 %d  ·  DPS %.1f\n" % [int(stats.damage), float(stats.damage) / interval]
 	output += "공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d" % [interval, int(stats.range), int(stats.speed)]
@@ -89,10 +94,11 @@ static func battle_stat_summary() -> String:
 	var wall: Dictionary = STRUCTURE_STATS.wall
 	var jump: Dictionary = STRUCTURE_STATS.jump_pad
 	var swamp: Dictionary = STRUCTURE_STATS.swamp
-	return "구조물  ·  방벽 %d / 체력 %d  ·  점프대 %d / 체력 %d / 이동 +%d  ·  늪 %d / 체력 %d / 이동속도 -%.0f%%\n전장  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  제한시간 %.0f초" % [
+	return "구조물  ·  방벽 %d / 체력 %d  ·  점프대 %d / 체력 %d / 이동 +%d  ·  늪 %d / 체력 %d / 이동속도 -%.0f%%\n힐러  ·  회복장판 %d/초  ·  %d초간  ·  반경 %d\n전장  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  제한시간 %.0f초" % [
 		int(wall.cost), int(wall.hp),
 		int(jump.cost), int(jump.hp), int(jump.x_shift),
 		int(swamp.cost), int(swamp.hp), (1.0 - float(swamp.speed_scale)) * 100.0,
+		int(UNIT_STATS.healer.heal), int(HEAL_PAD_DURATION), int(HEAL_PAD_RADIUS),
 		int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT, MATCH_LIMIT,
 	]
 
@@ -127,23 +133,29 @@ func tick(delta: float) -> void:
 	if winner != -1:
 		return
 	elapsed += delta
+	for pad in heal_pads:
+		pad.remaining = float(pad.remaining) - delta
+	heal_pads = heal_pads.filter(func(pad): return float(pad.remaining) > 0.0)
 	for side in 2:
 		resources[side] = min(MAX_RESOURCE, resources[side] + RESOURCE_RATE * delta)
 		for kind in spawn_cooldowns[side].keys():
 			spawn_cooldowns[side][kind] = max(0.0, float(spawn_cooldowns[side][kind]) - delta)
 
+	var heal_targets := _active_heal_pad_targets()
 	for unit in units:
 		unit.cooldown = max(0.0, float(unit.cooldown) - delta)
 		if unit.hp <= 0.0:
 			continue
+		if heal_targets.has(unit.id):
+			unit.hp = min(float(unit.max_hp), float(unit.hp) + HEAL_PAD_PER_SECOND * delta)
 		_apply_jump_pad(unit)
 		if unit.kind == "healer":
 			var heal_target = _find_heal_target(unit)
 			if heal_target != null:
 				if unit.cooldown <= 0.0:
-					heal_target.hp = min(heal_target.max_hp, heal_target.hp + unit.heal)
+					heal_pads.append({"x": unit.x, "side": unit.side, "remaining": HEAL_PAD_DURATION})
 					unit.cooldown = unit.interval
-				continue
+					continue
 			var healer_direction := 1.0 if unit.side == 0 else -1.0
 			unit.x = clamp(float(unit.x) + healer_direction * unit.speed * _swamp_scale(unit) * delta, FIELD_LEFT, FIELD_RIGHT)
 			continue
@@ -211,6 +223,18 @@ func _swamp_scale(unit: Dictionary) -> float:
 			return float(STRUCTURE_STATS.swamp.speed_scale)
 	return 1.0
 
+func _active_heal_pad_targets() -> Dictionary:
+	var ids := {}
+	for pad in heal_pads:
+		if float(pad.remaining) <= 0.0:
+			continue
+		for unit in units:
+			if unit.side != pad.side or unit.hp <= 0.0 or unit.hp >= unit.max_hp:
+				continue
+			if abs(float(unit.x) - float(pad.x)) <= HEAL_PAD_RADIUS:
+				ids[unit.id] = true
+	return ids
+
 func _apply_jump_pad(unit: Dictionary) -> void:
 	for structure in structures:
 		if structure.kind != "jump_pad" or structure.side != unit.side:
@@ -227,6 +251,7 @@ func snapshot() -> Dictionary:
 		"base_hp": base_hp.duplicate(),
 		"units": units.duplicate(true),
 		"structures": structures.duplicate(true),
+		"heal_pads": heal_pads.duplicate(true),
 		"winner": winner,
 		"elapsed": elapsed,
 	}
