@@ -36,16 +36,32 @@ var peer_connected_msec: Dictionary = {}
 var early_disconnect_events: Dictionary = {}
 var address_blocked_until: Dictionary = {}
 var server_forced_disconnects: Dictionary = {}
+var client_connection_state := "idle"
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
-	multiplayer.connected_to_server.connect(func(): connection_status.emit("서버에 연결됨 · 상대를 찾는 중..."))
-	multiplayer.connection_failed.connect(func(): connection_status.emit("서버 연결 실패"))
+	multiplayer.connected_to_server.connect(_on_connected_to_server)
+	multiplayer.connection_failed.connect(_on_connection_failed)
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
 
+static func disconnect_message_for_state(state: String) -> String:
+	return "서버 연결 실패" if state == "connecting" else "서버와 연결이 끊어졌습니다"
+
+func _on_connected_to_server() -> void:
+	client_connection_state = "connected"
+	connection_status.emit("서버에 연결됨 · 상대를 찾는 중...")
+
+func _on_connection_failed() -> void:
+	client_connection_state = "idle"
+	connection_status.emit("서버 연결 실패")
+
 func _on_server_disconnected() -> void:
-	connection_status.emit("서버와 연결이 끊어졌습니다")
+	if client_connection_state == "idle":
+		return
+	var previous_state := client_connection_state
+	client_connection_state = "idle"
+	connection_status.emit(disconnect_message_for_state(previous_state))
 	if client_in_match:
 		client_in_match = false
 		opponent_disconnected.emit()
@@ -63,9 +79,11 @@ func start_dedicated_server(port: int = DEFAULT_PORT) -> bool:
 
 func connect_to_server(address: String, port: int = DEFAULT_PORT) -> bool:
 	connection_status.emit("%s:%d 연결 중..." % [address, port])
+	client_connection_state = "connecting"
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_client(address, port)
 	if error != OK:
+		client_connection_state = "idle"
 		connection_status.emit("연결 설정 실패: %s" % error_string(error))
 		return false
 	multiplayer.multiplayer_peer = peer
@@ -73,6 +91,7 @@ func connect_to_server(address: String, port: int = DEFAULT_PORT) -> bool:
 
 func disconnect_from_server() -> void:
 	client_in_match = false
+	client_connection_state = "idle"
 	if multiplayer.multiplayer_peer is ENetMultiplayerPeer:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
@@ -202,7 +221,7 @@ static func _number_in_range(value: Variant, minimum: float, maximum: float) -> 
 	return _is_finite_number(value) and float(value) >= minimum and float(value) <= maximum
 
 static func is_valid_snapshot(data: Dictionary) -> bool:
-	if not _has_exact_keys(data, ["resources", "base_hp", "units", "structures", "heal_pads", "winner", "elapsed"]):
+	if not _has_exact_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"]):
 		return false
 	var resources = data.resources
 	var base_hp = data.base_hp

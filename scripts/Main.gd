@@ -405,7 +405,7 @@ func _build_battle_screen() -> void:
 	row.add_theme_constant_override("separation", 8)
 	controls.add_child(row)
 	_add_spawn_button(row, "탱커", "shield", Color("#5b8cff"))
-	_add_spawn_button(row, "힐러", "healer", Color("#d8b85a"))
+	_add_spawn_button(row, "마법사", "healer", Color("#d8b85a"))
 	_add_spawn_button(row, "궁수", "archer", Color("#8b72df"))
 	_add_spawn_button(row, "검사", "swordsman", Color("#d56b5f"))
 	var separator := VSeparator.new()
@@ -527,7 +527,7 @@ func _show_stats_panel() -> void:
 	grid.add_theme_constant_override("h_separation", 12)
 	grid.add_theme_constant_override("v_separation", 10)
 	content.add_child(grid)
-	var names := {"shield": "탱커", "healer": "힐러", "archer": "궁수", "swordsman": "검사"}
+	var names := {"shield": "탱커", "healer": "마법사", "archer": "궁수", "swordsman": "검사"}
 	for kind in ["shield", "healer", "archer", "swordsman"]:
 		var card := PanelContainer.new()
 		card.custom_minimum_size = Vector2(455, 126)

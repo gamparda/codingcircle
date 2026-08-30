@@ -69,7 +69,7 @@ func run() -> void:
 		expect_true(stats_panel != null, "unit stats button opens the detailed panel")
 		if stats_panel != null:
 			var stats_text := tree_text(stats_panel)
-			for required in ["탱커", "힐러", "궁수", "검사", "체력", "공격력", "DPS", "공격 간격", "사거리", "이동", "구조물", "기지 체력"]:
+			for required in ["탱커", "마법사", "궁수", "검사", "체력", "공격력", "회복량", "DPS", "공격 간격", "사거리", "이동", "구조물", "기지 체력"]:
 				expect_true(stats_text.contains(required), "stats panel exposes %s" % required)
 	main.queue_free()
 	await process_frame

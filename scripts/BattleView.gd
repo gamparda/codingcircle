@@ -9,8 +9,6 @@ const RED := Color("#ff627d")
 const RED_LIGHT := Color("#ff9aad")
 const GOLD := Color("#f6c85f")
 const INK := Color("#080a10")
-const HEAL_PAD_RADIUS := 80.0
-const HEAL_PAD_DURATION := 4.0
 const UNIT_TEXTURES := {
 	"shield": preload("res://assets/units/tanker.png"),
 	"healer": preload("res://assets/units/healer.png"),
@@ -81,8 +79,6 @@ func _draw() -> void:
 
 	for structure in snapshot.get("structures", []):
 		_draw_structure(structure, scale_x, lane_y)
-	for pad in snapshot.get("heal_pads", []):
-		_draw_heal_pad(pad, scale_x, lane_y)
 	for unit in snapshot.get("units", []):
 		_draw_unit(unit, scale_x, lane_y)
 
@@ -233,26 +229,9 @@ func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> vo
 
 func _draw_build_preview(lane_y: float) -> void:
 	var world_x: float = mouse_position.x / max(size.x, 1.0) * 1280.0
-	var valid: bool = (own_side == 0 and world_x >= 180.0 and world_x <= 600.0) or (own_side == 1 and world_x >= 680.0 and world_x <= 1100.0)
+	var valid: bool = (own_side == 0 and world_x >= BattleModel.BLUE_BUILD_MIN and world_x <= BattleModel.BLUE_BUILD_MAX) or (own_side == 1 and world_x >= BattleModel.RED_BUILD_MIN and world_x <= BattleModel.RED_BUILD_MAX)
 
 	var build_color := Color(0.30, 0.94, 0.60, 0.24) if valid else Color(1.0, 0.30, 0.40, 0.24)
 	draw_circle(Vector2(mouse_position.x, lane_y - 28.0), 42.0, build_color)
 	draw_arc(Vector2(mouse_position.x, lane_y - 28.0), 42.0, 0.0, TAU, 40, build_color.lightened(0.45), 2.0)
 	draw_line(Vector2(mouse_position.x, lane_y - 70.0), Vector2(mouse_position.x, lane_y + 5.0), build_color.lightened(0.5), 1.0)
-
-func _draw_heal_pad(pad: Dictionary, scale_x: float, lane_y: float, preview: bool = false) -> void:
-	var x := float(pad.x) * scale_x
-	var side := int(pad.side)
-	var color := Color(0.30, 0.94, 0.60, 0.22) if side == 0 else Color(0.98, 0.42, 0.55, 0.20)
-	var radius := HEAL_PAD_RADIUS * scale_x
-	var remaining: float = float(pad.get("remaining", HEAL_PAD_DURATION))
-	var ratio: float = clamp(remaining / HEAL_PAD_DURATION, 0.0, 1.0)
-	draw_ellipse(Vector2(x, lane_y - 4.0), radius, radius * 0.22, Color(color.r, color.g, color.b, 0.18))
-	draw_arc(Vector2(x, lane_y - 4.0), radius, 0.0, TAU, 48, Color(color.r, color.g, color.b, 0.55), 2.0)
-	draw_arc(Vector2(x, lane_y - 4.0), radius * ratio, 0.0, TAU, 48, Color(0.55, 1.0, 0.74, 0.85), 3.0)
-	if not preview:
-		for i in 3:
-			var t := float(i) / 3.0 + (animation_time * 0.25)
-			var pulse := (sin(t * TAU) * 0.5 + 0.5) * 0.5 + 0.2
-			draw_ellipse(Vector2(x, lane_y - 4.0), radius * pulse, radius * 0.22 * pulse, Color(0.55, 1.0, 0.74, 0.12))
-

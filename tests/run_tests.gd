@@ -48,15 +48,17 @@ func _init() -> void:
 	var swordsman_stats: Dictionary = BattleModel.UNIT_STATS.swordsman
 	var archer_stats: Dictionary = BattleModel.UNIT_STATS.archer
 	expect_true(float(swordsman_stats.cost) >= 30.0, "swordsman is not underpriced")
-	expect_true(float(swordsman_stats.damage) / float(swordsman_stats.interval) <= 8.0, "swordsman DPS is nerfed below the old value")
-	expect_true(float(BattleModel.UNIT_STATS.shield.hp) >= 450.0, "shield has roughly 2.5x the previous health")
+	expect_true(float(swordsman_stats.damage) / float(swordsman_stats.interval) <= 8.0, "swordsman keeps the currently deployed DPS cap")
+	expect_eq(int(BattleModel.UNIT_STATS.shield.hp), 185, "shield receives only a slight health nerf")
 	expect_true(
 		(float(swordsman_stats.damage) / float(swordsman_stats.interval)) / float(swordsman_stats.cost)
 		<= (float(archer_stats.damage) / float(archer_stats.interval)) / float(archer_stats.cost) * 1.6,
 		"swordsman cost efficiency stays near other damage units"
 	)
-	expect_true(float(BattleModel.UNIT_STATS.archer.range) >= 250.0, "archer range is greatly extended")
-	expect_true(float(BattleModel.UNIT_STATS.archer.damage) < 20.0, "archer damage is reduced from its old value")
+	expect_eq(int(BattleModel.UNIT_STATS.archer.range), 150, "archer keeps its established range")
+	expect_eq(int(BattleModel.UNIT_STATS.archer.damage), 15, "archer damage is reduced")
+	expect_true(float(BattleModel.UNIT_STATS.healer.damage) > 0.0, "mage can damage enemies")
+	expect_true(float(BattleModel.UNIT_STATS.healer.heal) > 0.0, "mage can heal allies")
 	for kind in BattleModel.UNIT_STATS:
 		expect_true(float(BattleModel.UNIT_STATS[kind].interval) >= 1.2, "%s respects the minimum attack/heal interval" % kind)
 	expect_true(BattleModel.new().has_method("unit_stat_summary"), "unit stat summary API exists")
@@ -68,7 +70,7 @@ func _init() -> void:
 		var battle_summary: String = BattleModel.battle_stat_summary()
 		expect_true(battle_summary.contains("방벽") and battle_summary.contains("점프대") and battle_summary.contains("늪"), "battle stat summary exposes every structure")
 		expect_true(battle_summary.contains("기지 체력") and battle_summary.contains("자원") and battle_summary.contains("제한시간"), "battle stat summary exposes global combat rules")
-		expect_true(battle_summary.contains("회복장판"), "battle stat summary exposes the healer pad mechanic")
+		expect_true(battle_summary.contains("마법사"), "battle stat summary exposes the mage role")
 
 	var structures = BattleModel.new()
 	structures.resources[0] = 200.0
@@ -77,6 +79,12 @@ func _init() -> void:
 	expect_true(structures.place_structure(0, "swamp", 520.0), "swamp can be placed")
 	expect_true(structures.place_structure(0, "jump_pad", 540.0), "jump pad can be placed")
 	expect_true(not structures.place_structure(0, "wall", 560.0), "structure limit is enforced")
+	var placement_bounds = BattleModel.new()
+	placement_bounds.resources = [200.0, 200.0]
+	expect_true(placement_bounds.place_structure(0, "wall", 610.0), "blue placement boundary moves 10 units toward center")
+	expect_true(placement_bounds.place_structure(1, "wall", 670.0), "red placement boundary moves 10 units toward center")
+	expect_true(not placement_bounds.place_structure(0, "wall", 611.0), "blue cannot place beyond its reduced boundary")
+	expect_true(not placement_bounds.place_structure(1, "wall", 669.0), "red cannot place beyond its reduced boundary")
 
 	var base_rush = BattleModel.new()
 	base_rush.resources[0] = 100.0
@@ -86,37 +94,40 @@ func _init() -> void:
 	base_rush.tick(float(base_rush.units[0].interval) + 0.01)
 	expect_eq(base_rush.winner, 0, "destroying the enemy base ends the match")
 
-	var healing = BattleModel.new()
-	healing.resources[0] = 150.0
-	healing.spawn_unit(0, "shield")
-	var healer_spawned: bool = healing.spawn_unit(0, "healer")
-	expect_true(healer_spawned, "healer can be produced")
-	if healer_spawned:
-		healing.units[0].x = 400.0
-		healing.units[1].x = 400.0
-		healing.units[0].hp -= 50.0
-		var wounded_hp: float = healing.units[0].hp
-		healing.tick(float(healing.units[1].interval) + 0.01)
-		expect_true(healing.heal_pads.size() == 1, "healer casting drops a timed heal pad")
-		healing.tick(1.0)
-		expect_true(healing.units[0].hp > wounded_hp, "heal pad restores a wounded ally standing on it")
-		expect_true(healing.units[0].hp <= healing.units[0].max_hp, "healing never exceeds maximum health")
-		var pad_model = BattleModel.new()
-		pad_model.resources[0] = 150.0
-		pad_model.spawn_unit(0, "shield")
-		pad_model.spawn_unit(0, "healer")
-		pad_model.units[0].x = 400.0
-		pad_model.units[0].hp -= 80.0
-		pad_model.units[1].x = 400.0
-		var pad_wounded: float = pad_model.units[0].hp
-		pad_model.tick(float(pad_model.units[1].interval) + 0.01)
-		expect_true(pad_model.heal_pads.size() == 1, "healer casting drops a timed heal pad")
-		# Heal pad keeps restoring allies standing on it for the full duration.
-		pad_model.tick(1.0)
-		expect_true(pad_model.units[0].hp > pad_wounded, "heal pad restores wounded allies each tick while active")
-		expect_true(pad_model.heal_pads.size() == 1, "heal pad persists through its duration")
-		pad_model.tick(4.0)
-		expect_true(pad_model.heal_pads.size() == 0, "heal pad expires after its duration")
+	var mage_attack = BattleModel.new()
+	mage_attack.resources = [150.0, 150.0]
+	mage_attack.spawn_unit(0, "healer")
+	mage_attack.spawn_unit(1, "swordsman")
+	mage_attack.units[0].x = 400.0
+	mage_attack.units[1].x = 500.0
+	var enemy_hp_before: float = mage_attack.units[1].hp
+	var mage_x_before: float = mage_attack.units[0].x
+	mage_attack.tick(float(mage_attack.units[0].interval) + 0.01)
+	expect_true(mage_attack.units[1].hp < enemy_hp_before, "mage damages an enemy in range")
+	expect_eq(mage_attack.units[0].x, mage_x_before, "mage stops instead of passing through an enemy")
+
+	var mage_heal = BattleModel.new()
+	mage_heal.resources[0] = 150.0
+	mage_heal.spawn_unit(0, "shield")
+	mage_heal.spawn_unit(0, "healer")
+	mage_heal.units[0].x = 400.0
+	mage_heal.units[1].x = 400.0
+	mage_heal.units[0].hp -= 50.0
+	var ally_hp_before: float = mage_heal.units[0].hp
+	mage_heal.tick(float(mage_heal.units[1].interval) + 0.01)
+	expect_true(mage_heal.units[0].hp > ally_hp_before, "mage heals a wounded ally in range")
+	expect_true(mage_heal.units[0].hp <= mage_heal.units[0].max_hp, "mage healing never exceeds maximum health")
+
+	var mage_wall = BattleModel.new()
+	mage_wall.resources = [150.0, 200.0]
+	mage_wall.spawn_unit(0, "healer")
+	mage_wall.place_structure(1, "wall", 680.0)
+	mage_wall.units[0].x = 560.0
+	var wall_hp_before: float = mage_wall.structures[0].hp
+	var wall_block_x: float = mage_wall.units[0].x
+	mage_wall.tick(float(mage_wall.units[0].interval) + 0.01)
+	expect_true(mage_wall.structures[0].hp < wall_hp_before, "mage damages an enemy wall in range")
+	expect_eq(mage_wall.units[0].x, wall_block_x, "mage stops instead of passing through an enemy wall")
 
 	var MatchRegistry = load("res://scripts/MatchRegistry.gd")
 	expect_true(MatchRegistry != null, "MatchRegistry script loads")
@@ -143,6 +154,8 @@ func _init() -> void:
 
 	var NetworkController = load("res://scripts/NetworkController.gd")
 	expect_true(NetworkController != null, "NetworkController script loads")
+	expect_eq(NetworkController.disconnect_message_for_state("connecting"), "서버 연결 실패", "failed handshake is not mislabeled as an established-server disconnect")
+	expect_eq(NetworkController.disconnect_message_for_state("connected"), "서버와 연결이 끊어졌습니다", "established connection loss keeps the disconnect message")
 	var network_policy = NetworkController.new()
 	var active_model = BattleModel.new()
 	expect_true(not network_policy.can_accept_rematch(active_model), "active matches reject rematch requests")
@@ -165,7 +178,11 @@ func _init() -> void:
 	expect_true(not NetworkController.is_safe_position(NAN), "NaN structure position is rejected")
 	expect_true(not NetworkController.is_safe_position(INF), "infinite structure position is rejected")
 	var safe_snapshot: Dictionary = BattleModel.new().snapshot()
+	expect_true(not safe_snapshot.has("heal_pads"), "authoritative snapshot keeps the deployed stable key set")
 	expect_true(NetworkController.is_valid_snapshot(safe_snapshot), "authoritative model snapshot is accepted")
+	var deployed_snapshot: Dictionary = safe_snapshot.duplicate(true)
+	deployed_snapshot.erase("heal_pads")
+	expect_true(NetworkController.is_valid_snapshot(deployed_snapshot), "client accepts the deployed server snapshot schema")
 	var short_snapshot: Dictionary = safe_snapshot.duplicate(true)
 	short_snapshot.resources = [10.0]
 	expect_true(not NetworkController.is_valid_snapshot(short_snapshot), "short resource arrays are rejected")
