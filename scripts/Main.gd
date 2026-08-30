@@ -1,5 +1,8 @@
 extends Control
 
+const OFFICIAL_SERVER_ADDRESS := "ruellyya.kr"
+const OFFICIAL_SERVER_PORT := 7777
+
 @onready var network: NetworkController = $NetworkController
 @onready var updater: UpdateManager = $UpdateManager
 
@@ -28,6 +31,9 @@ var running_as_server := false
 var update_overlay: Control
 var update_message_label: Label
 var update_progress_bar: ProgressBar
+var server_state_dir := ""
+var server_status_accumulator := 0.0
+var server_draining := false
 
 func _ready() -> void:
 	network.connection_status.connect(_on_connection_status)
@@ -38,6 +44,8 @@ func _ready() -> void:
 	updater.update_status.connect(_on_update_status)
 	updater.update_failed.connect(_on_update_failed)
 	var args := OS.get_cmdline_user_args()
+	smoke_mode = args.has("--smoke-client")
+	ai_smoke_mode = args.has("--ai-smoke")
 	if args.has("--server"):
 		running_as_server = true
 		# Headless mode has no display refresh rate to pace the main loop.
@@ -47,17 +55,19 @@ func _ready() -> void:
 		var port := _arg_int(args, "--port=", NetworkController.DEFAULT_PORT)
 		if not network.start_dedicated_server(port):
 			get_tree().quit(1)
+		server_state_dir = OS.get_environment("CATWAR_STATE_DIR").strip_edges()
+		if not server_state_dir.is_empty():
+			DirAccess.make_dir_recursive_absolute(server_state_dir)
+		_update_server_lifecycle(1.0)
 		updater.set_safe_to_update(true)
 		updater.check_for_update()
 		return
 	_build_connect_screen()
-	smoke_mode = args.has("--smoke-client")
-	ai_smoke_mode = args.has("--ai-smoke")
 	if args.has("--offline-ai") or ai_smoke_mode:
 		_start_local_ai_battle()
 		return
-	var auto_address := _arg_string(args, "--connect=", "")
-	if not auto_address.is_empty():
+	var auto_address := _arg_string(args, "--connect=", "") if smoke_mode and OS.has_feature("editor") else ""
+	if smoke_mode and OS.has_feature("editor") and not auto_address.is_empty():
 		network.connect_to_server(auto_address, _arg_int(args, "--port=", NetworkController.DEFAULT_PORT))
 
 func _arg_int(args: PackedStringArray, prefix: String, fallback: int) -> int:
@@ -74,6 +84,7 @@ func _arg_string(args: PackedStringArray, prefix: String, fallback: String) -> S
 
 func _process(delta: float) -> void:
 	if running_as_server:
+		_update_server_lifecycle(delta)
 		updater.set_safe_to_update(_server_can_update())
 	if local_ai_mode and battle_active and is_instance_valid(local_model):
 		local_ai.update(local_model, delta)
@@ -90,6 +101,41 @@ func _server_can_update() -> bool:
 		if model.winner == -1:
 			return false
 	return true
+
+func _active_match_count() -> int:
+	var count := 0
+	for model in network.models.values():
+		if model.winner == -1:
+			count += 1
+	return count
+
+func _update_server_lifecycle(delta: float) -> void:
+	if server_state_dir.is_empty():
+		return
+	var draining := FileAccess.file_exists(server_state_dir.path_join("update.pending"))
+	if draining != server_draining:
+		server_draining = draining
+		network.set_accepting_players(not draining)
+		print("SERVER_DRAINING enabled=%s" % draining)
+	server_status_accumulator += delta
+	if server_status_accumulator < 1.0:
+		return
+	server_status_accumulator = 0.0
+	var status := {
+		"active_matches": _active_match_count(),
+		"accepting_players": not server_draining,
+		"safe_to_update": _server_can_update(),
+	}
+	var status_path := server_state_dir.path_join("server-status.json")
+	var temporary_path := status_path + ".tmp"
+	var file := FileAccess.open(temporary_path, FileAccess.WRITE)
+	if file == null:
+		return
+	file.store_string(JSON.stringify(status) + "\n")
+	file.close()
+	if FileAccess.file_exists(status_path):
+		DirAccess.remove_absolute(status_path)
+	DirAccess.rename_absolute(temporary_path, status_path)
 
 func _clear_screen() -> void:
 	for child in get_children():
@@ -163,28 +209,19 @@ func _build_connect_screen(message: String = "") -> void:
 	online_label.add_theme_color_override("font_color", Color("#6f7890"))
 	column.add_child(online_label)
 
-	var endpoint_row := HBoxContainer.new()
-	endpoint_row.add_theme_constant_override("separation", 10)
-	column.add_child(endpoint_row)
-	var address := LineEdit.new()
-	address.placeholder_text = "서버 주소 또는 도메인"
-	address.text = "127.0.0.1"
-	address.custom_minimum_size = Vector2(390, 48)
-	address.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	address.add_theme_font_size_override("font_size", 16)
-	_apply_input_style(address)
-	endpoint_row.add_child(address)
-	var port := SpinBox.new()
-	port.min_value = 1
-	port.max_value = 65535
-	port.value = NetworkController.DEFAULT_PORT
-	port.custom_minimum_size = Vector2(105, 48)
-	endpoint_row.add_child(port)
+	var endpoint_label := Label.new()
+	endpoint_label.text = "공식 서버  ·  %s:%d" % [OFFICIAL_SERVER_ADDRESS, OFFICIAL_SERVER_PORT]
+	endpoint_label.custom_minimum_size = Vector2(0, 48)
+	endpoint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	endpoint_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	endpoint_label.add_theme_font_size_override("font_size", 16)
+	endpoint_label.add_theme_color_override("font_color", Color("#a7afc0"))
+	column.add_child(endpoint_label)
 	var connect_button := _styled_button("온라인 아레나 입장", Color("#5e6ad2"), true)
 	connect_button_ref = connect_button
 	connect_button.pressed.connect(func():
 		connect_button.disabled = true
-		network.connect_to_server(address.text.strip_edges(), int(port.value))
+		network.connect_to_server(OFFICIAL_SERVER_ADDRESS, OFFICIAL_SERVER_PORT)
 	)
 	column.add_child(connect_button)
 	var or_label := Label.new()
@@ -205,21 +242,6 @@ func _build_connect_screen(message: String = "") -> void:
 	column.add_child(status_label)
 	updater.set_safe_to_update(true)
 	updater.check_for_update()
-
-func _apply_input_style(input: LineEdit) -> void:
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color("#151821")
-	normal.border_color = Color(1.0, 1.0, 1.0, 0.10)
-	normal.set_border_width_all(1)
-	normal.set_corner_radius_all(8)
-	normal.content_margin_left = 14
-	normal.content_margin_right = 14
-	input.add_theme_stylebox_override("normal", normal)
-	var focus := normal.duplicate()
-	focus.border_color = Color("#7170ff")
-	input.add_theme_stylebox_override("focus", focus)
-	input.add_theme_color_override("font_color", Color("#e8eaf0"))
-	input.add_theme_color_override("font_placeholder_color", Color("#636b7d"))
 
 func _styled_button(text_value: String, color: Color, filled: bool = false) -> Button:
 	var button := Button.new()

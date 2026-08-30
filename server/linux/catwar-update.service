@@ -1,0 +1,13 @@
+[Unit]
+Description=Check and deploy tested Cat War server releases
+Documentation=https://github.com/gamparda/codingcircle
+After=network-online.target catwar-server.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/catwar/app/server/linux/update-server.sh
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=50%
+MemoryMax=768M

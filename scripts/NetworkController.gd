@@ -14,6 +14,7 @@ var registry := MatchRegistry.new()
 var models: Dictionary = {}
 var rematch_ready: Dictionary = {}
 var server_mode := false
+var accepting_players := true
 var tick_accumulator := 0.0
 var snapshot_accumulator := 0.0
 
@@ -45,6 +46,16 @@ func connect_to_server(address: String, port: int = DEFAULT_PORT) -> bool:
 	multiplayer.multiplayer_peer = peer
 	return true
 
+func set_accepting_players(value: bool) -> void:
+	if accepting_players == value:
+		return
+	accepting_players = value
+	if not accepting_players and registry.waiting_peer != 0:
+		var waiting_peer := registry.waiting_peer
+		registry.remove_player(waiting_peer)
+		if multiplayer.get_peers().has(waiting_peer):
+			(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(waiting_peer)
+
 func _process(delta: float) -> void:
 	if not server_mode:
 		return
@@ -61,6 +72,10 @@ func _process(delta: float) -> void:
 
 func _on_peer_connected(peer_id: int) -> void:
 	if not server_mode:
+		return
+	if not accepting_players:
+		print("PLAYER_REJECTED_UPDATE peer=%d" % peer_id)
+		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(peer_id)
 		return
 	print("PLAYER_CONNECTED peer=%d" % peer_id)
 	var paired := registry.add_player(peer_id)

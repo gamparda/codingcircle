@@ -143,7 +143,7 @@ godot --headless --path . --export-release "Windows Desktop" "$PWD\builds\CatWar
 .\builds\CatWar.exe
 ```
 
-온라인 대전에서는 시작 화면에 전용 서버의 IP 또는 도메인을 입력합니다.
+온라인 대전은 주소 입력 없이 공식 서버 `ruellyya.kr:7777`에 연결됩니다. 일반 클라이언트에서는 다른 서버 주소로 변경할 수 없습니다.
 
 ### 전용 서버
 
@@ -183,6 +183,7 @@ tools/build_release.ps1       테스트·EXE·설치 파일 통합 빌드
 installer/CatWar.iss          Inno Setup 설치 프로그램 정의
 .github/workflows/            푸시별 자동 테스트·빌드·Pages 배포
 server/StartServer.cmd        Windows 서버 실행 런처
+server/linux/                 Linux 자동 업데이트 서비스·타이머
 tests/run_tests.gd            전투·회복·구조물·매칭 테스트
 ```
 

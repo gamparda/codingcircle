@@ -105,6 +105,12 @@ func _init() -> void:
 		expect_true(not UpdateManager.is_newer_version("0.3.1", "0.3.1"), "same version is not an update")
 		expect_true(not UpdateManager.is_newer_version("0.2.9", "0.3.0"), "older version is rejected")
 
+	var Main = load("res://scripts/Main.gd")
+	expect_true(Main != null, "Main script loads")
+	if Main != null:
+		expect_eq(Main.OFFICIAL_SERVER_ADDRESS, "ruellyya.kr", "official server address is fixed")
+		expect_eq(Main.OFFICIAL_SERVER_PORT, 7777, "official server port is fixed")
+
 	finish()
 
 func finish() -> void:

@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically update the Cat War dedicated server
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=catwar-update.service
+
+[Install]
+WantedBy=timers.target
