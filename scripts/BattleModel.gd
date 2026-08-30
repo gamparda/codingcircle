@@ -9,18 +9,19 @@ const RESOURCE_RATE := 8.0
 const BASE_MAX_HP := 500.0
 const STRUCTURE_LIMIT := 3
 const MATCH_LIMIT := 300.0
+const MIN_ATTACK_INTERVAL := 1.2
 
 const UNIT_STATS := {
-	"shield": {"cost": 40.0, "hp": 180.0, "damage": 12.0, "interval": 1.1, "speed": 34.0, "range": 34.0},
-	"swordsman": {"cost": 25.0, "hp": 95.0, "damage": 18.0, "interval": 0.8, "speed": 48.0, "range": 34.0},
-	"archer": {"cost": 45.0, "hp": 60.0, "damage": 22.0, "interval": 1.25, "speed": 37.0, "range": 150.0},
-	"healer": {"cost": 45.0, "hp": 62.0, "damage": 0.0, "heal": 20.0, "interval": 1.2, "speed": 36.0, "range": 125.0},
+	"shield": {"cost": 40.0, "hp": 190.0, "damage": 8.0, "interval": 1.5, "speed": 30.0, "range": 34.0},
+	"swordsman": {"cost": 30.0, "hp": 82.0, "damage": 14.0, "interval": 1.25, "speed": 44.0, "range": 34.0},
+	"archer": {"cost": 45.0, "hp": 58.0, "damage": 18.0, "interval": 1.5, "speed": 34.0, "range": 150.0},
+	"healer": {"cost": 45.0, "hp": 60.0, "damage": 0.0, "heal": 14.0, "interval": 1.6, "speed": 34.0, "range": 125.0},
 }
 
 const STRUCTURE_STATS := {
 	"wall": {"cost": 35.0, "hp": 170.0},
-	"jump_pad": {"cost": 30.0, "hp": 90.0},
-	"swamp": {"cost": 30.0, "hp": 90.0},
+	"jump_pad": {"cost": 30.0, "hp": 90.0, "x_shift": 125.0},
+	"swamp": {"cost": 30.0, "hp": 90.0, "speed_scale": 0.45},
 }
 
 var resources: Array = [START_RESOURCE, START_RESOURCE]
@@ -64,12 +65,36 @@ func spawn_unit(side: int, kind: String) -> bool:
 		"damage": stats.damage,
 		"heal": stats.get("heal", 0.0),
 		"interval": stats.interval,
-		"cooldown": 0.0,
+		"cooldown": max(MIN_ATTACK_INTERVAL, float(stats.interval)),
 		"speed": stats.speed,
 		"range": stats.range,
 	})
 	next_unit_id += 1
 	return true
+
+static func unit_stat_summary(kind: String) -> String:
+	if not UNIT_STATS.has(kind):
+		return ""
+	var stats: Dictionary = UNIT_STATS[kind]
+	var interval: float = max(float(stats.interval), MIN_ATTACK_INTERVAL)
+	var output := "비용 %d  ·  체력 %d\n" % [int(stats.cost), int(stats.hp)]
+	if float(stats.get("heal", 0.0)) > 0.0:
+		output += "회복량 %d  ·  HPS %.1f\n" % [int(stats.heal), float(stats.heal) / interval]
+	else:
+		output += "공격력 %d  ·  DPS %.1f\n" % [int(stats.damage), float(stats.damage) / interval]
+	output += "공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d" % [interval, int(stats.range), int(stats.speed)]
+	return output
+
+static func battle_stat_summary() -> String:
+	var wall: Dictionary = STRUCTURE_STATS.wall
+	var jump: Dictionary = STRUCTURE_STATS.jump_pad
+	var swamp: Dictionary = STRUCTURE_STATS.swamp
+	return "구조물  ·  방벽 %d / 체력 %d  ·  점프대 %d / 체력 %d / 이동 +%d  ·  늪 %d / 체력 %d / 이동속도 -%.0f%%\n전장  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  제한시간 %.0f초" % [
+		int(wall.cost), int(wall.hp),
+		int(jump.cost), int(jump.hp), int(jump.x_shift),
+		int(swamp.cost), int(swamp.hp), (1.0 - float(swamp.speed_scale)) * 100.0,
+		int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT, MATCH_LIMIT,
+	]
 
 func place_structure(side: int, kind: String, x: float) -> bool:
 	if winner != -1 or side < 0 or side > 1 or not STRUCTURE_STATS.has(kind):
@@ -183,7 +208,7 @@ func _find_heal_target(unit: Dictionary):
 func _swamp_scale(unit: Dictionary) -> float:
 	for structure in structures:
 		if structure.kind == "swamp" and structure.side != unit.side and abs(float(structure.x) - float(unit.x)) <= 90.0:
-			return 0.45
+			return float(STRUCTURE_STATS.swamp.speed_scale)
 	return 1.0
 
 func _apply_jump_pad(unit: Dictionary) -> void:
@@ -192,7 +217,8 @@ func _apply_jump_pad(unit: Dictionary) -> void:
 			continue
 		var key := "%s:%s" % [unit.id, structure.id]
 		if not jumped.has(key) and abs(float(structure.x) - float(unit.x)) <= 24.0:
-			unit.x += 125.0 if unit.side == 0 else -125.0
+			var shift: float = STRUCTURE_STATS.jump_pad.x_shift
+			unit.x += shift if unit.side == 0 else -shift
 			jumped[key] = true
 
 func snapshot() -> Dictionary:

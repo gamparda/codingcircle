@@ -27,7 +27,7 @@ func _init() -> void:
 	expect_eq(model.spawn_unit(0, "swordsman"), false, "cannot spawn without resources")
 	model.resources[0] = 100.0
 	expect_eq(model.spawn_unit(0, "swordsman"), true, "spawns with enough resources")
-	expect_eq(int(model.resources[0]), 75, "cost is deducted once")
+	expect_eq(int(model.resources[0]), 70, "cost is deducted once")
 	expect_eq(model.units.size(), 1, "exactly one unit is created")
 
 	var income_before: float = model.resources[0]
@@ -41,8 +41,30 @@ func _init() -> void:
 	duel.units[0].x = 620.0
 	duel.units[1].x = 650.0
 	var hp_before: float = duel.units[1].hp
-	duel.tick(1.0)
+	duel.tick(0.01)
+	expect_eq(duel.units[1].hp, hp_before, "newly engaged units wait for their first attack tick")
+	duel.tick(float(duel.units[0].interval))
 	expect_true(duel.units[1].hp < hp_before, "units attack enemies in range")
+	var swordsman_stats: Dictionary = BattleModel.UNIT_STATS.swordsman
+	var archer_stats: Dictionary = BattleModel.UNIT_STATS.archer
+	expect_true(float(swordsman_stats.cost) >= 30.0, "swordsman is not underpriced")
+	expect_true(float(swordsman_stats.damage) / float(swordsman_stats.interval) <= 12.0, "swordsman DPS is capped")
+	expect_true(
+		(float(swordsman_stats.damage) / float(swordsman_stats.interval)) / float(swordsman_stats.cost)
+		<= (float(archer_stats.damage) / float(archer_stats.interval)) / float(archer_stats.cost) * 1.6,
+		"swordsman cost efficiency stays near other damage units"
+	)
+	for kind in BattleModel.UNIT_STATS:
+		expect_true(float(BattleModel.UNIT_STATS[kind].interval) >= 1.2, "%s respects the minimum attack/heal interval" % kind)
+	expect_true(BattleModel.new().has_method("unit_stat_summary"), "unit stat summary API exists")
+	if BattleModel.new().has_method("unit_stat_summary"):
+		var stat_summary: String = BattleModel.unit_stat_summary("swordsman")
+		expect_true(stat_summary.contains("체력") and stat_summary.contains("공격력") and stat_summary.contains("DPS") and stat_summary.contains("공격 간격") and stat_summary.contains("사거리") and stat_summary.contains("이동"), "unit stat summary exposes all combat stats")
+	expect_true(BattleModel.new().has_method("battle_stat_summary"), "battle stat summary API exists")
+	if BattleModel.new().has_method("battle_stat_summary"):
+		var battle_summary: String = BattleModel.battle_stat_summary()
+		expect_true(battle_summary.contains("방벽") and battle_summary.contains("점프대") and battle_summary.contains("늪"), "battle stat summary exposes every structure")
+		expect_true(battle_summary.contains("기지 체력") and battle_summary.contains("자원") and battle_summary.contains("제한시간"), "battle stat summary exposes global combat rules")
 
 	var structures = BattleModel.new()
 	structures.resources[0] = 200.0
@@ -57,7 +79,7 @@ func _init() -> void:
 	base_rush.spawn_unit(0, "swordsman")
 	base_rush.units[0].x = 1170.0
 	base_rush.units[0].damage = 999.0
-	base_rush.tick(1.0)
+	base_rush.tick(float(base_rush.units[0].interval) + 0.01)
 	expect_eq(base_rush.winner, 0, "destroying the enemy base ends the match")
 
 	var healing = BattleModel.new()
@@ -70,7 +92,7 @@ func _init() -> void:
 		healing.units[1].x = 360.0
 		healing.units[0].hp -= 50.0
 		var wounded_hp: float = healing.units[0].hp
-		healing.tick(1.3)
+		healing.tick(float(healing.units[1].interval) + 0.01)
 		expect_true(healing.units[0].hp > wounded_hp, "healer restores a wounded ally in range")
 		expect_true(healing.units[0].hp <= healing.units[0].max_hp, "healing never exceeds maximum health")
 

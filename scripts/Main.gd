@@ -19,6 +19,8 @@ var status_label: Label
 var current_snapshot: Dictionary = {}
 var battle_active := false
 var result_shown := false
+var result_overlay: Control
+var stats_overlay: Control
 var root_background: ColorRect
 var smoke_mode := false
 var smoke_elapsed := 0.0
@@ -146,6 +148,8 @@ func _clear_screen() -> void:
 			child.queue_free()
 	battle_view = null
 	status_label = null
+	result_overlay = null
+	stats_overlay = null
 
 func _make_background() -> ColorRect:
 	var bg := ColorRect.new()
@@ -340,6 +344,13 @@ func _build_battle_screen() -> void:
 	mode_label.add_theme_font_size_override("font_size", 10)
 	mode_label.add_theme_color_override("font_color", Color("#747d91"))
 	timer_inner.add_child(mode_label)
+	var stats_button := _styled_button("유닛 스탯", Color("#3d8f83"), false)
+	stats_button.name = "UnitStatsButton"
+	stats_button.position = Vector2(758, 18)
+	stats_button.size = Vector2(80, 52)
+	stats_button.add_theme_font_size_override("font_size", 12)
+	stats_button.pressed.connect(_toggle_stats_panel)
+	top.add_child(stats_button)
 
 	battle_view = BattleView.new()
 	battle_view.position = Vector2(0, 88)
@@ -393,10 +404,10 @@ func _build_battle_screen() -> void:
 	row.size = Vector2(1058, 102)
 	row.add_theme_constant_override("separation", 8)
 	controls.add_child(row)
-	_add_spawn_button(row, "탱커\n40 자원", "shield", Color("#5b8cff"))
-	_add_spawn_button(row, "힐러\n45 자원", "healer", Color("#d8b85a"))
-	_add_spawn_button(row, "궁수\n45 자원", "archer", Color("#8b72df"))
-	_add_spawn_button(row, "검사\n25 자원", "swordsman", Color("#d56b5f"))
+	_add_spawn_button(row, "탱커", "shield", Color("#5b8cff"))
+	_add_spawn_button(row, "힐러", "healer", Color("#d8b85a"))
+	_add_spawn_button(row, "궁수", "archer", Color("#8b72df"))
+	_add_spawn_button(row, "검사", "swordsman", Color("#d56b5f"))
 	var separator := VSeparator.new()
 	separator.modulate = Color(1.0, 1.0, 1.0, 0.10)
 	separator.custom_minimum_size.x = 5
@@ -454,7 +465,10 @@ func _create_hp_card(parent: Control, position_value: Vector2, side: int) -> voi
 		red_hp_label = value_label
 
 func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: Color) -> void:
-	var button := _styled_button(title, color)
+	var stats: Dictionary = BattleModel.UNIT_STATS[kind]
+	var primary := "회복 %d" % int(stats.heal) if float(stats.get("heal", 0.0)) > 0.0 else "공격 %d" % int(stats.damage)
+	var button := _styled_button("%s  ·  %d\n체력 %d  ·  %s" % [title, int(stats.cost), int(stats.hp), primary], color)
+	button.tooltip_text = BattleModel.unit_stat_summary(kind)
 	button.custom_minimum_size = Vector2(136, 102)
 	button.pressed.connect(func():
 		if local_ai_mode:
@@ -463,6 +477,83 @@ func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: C
 			network.send_spawn(kind)
 	)
 	row.add_child(button)
+
+func _toggle_stats_panel() -> void:
+	if is_instance_valid(stats_overlay):
+		_dismiss_stats_panel()
+	else:
+		_show_stats_panel()
+
+func _dismiss_stats_panel() -> void:
+	if is_instance_valid(stats_overlay):
+		stats_overlay.queue_free()
+	stats_overlay = null
+
+func _show_stats_panel() -> void:
+	_dismiss_stats_panel()
+	stats_overlay = ColorRect.new()
+	stats_overlay.name = "UnitStatsPanel"
+	stats_overlay.color = Color(0.02, 0.025, 0.045, 0.94)
+	stats_overlay.position = Vector2.ZERO
+	stats_overlay.size = Vector2(1280, 720)
+	stats_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	stats_overlay.z_index = 120
+	root_background.add_child(stats_overlay)
+	var panel := PanelContainer.new()
+	panel.position = Vector2(145, 72)
+	panel.size = Vector2(990, 576)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("#10141e"), Color("#3d8f83"), 16))
+	stats_overlay.add_child(panel)
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 28)
+	margin.add_theme_constant_override("margin_right", 28)
+	margin.add_theme_constant_override("margin_top", 22)
+	margin.add_theme_constant_override("margin_bottom", 22)
+	panel.add_child(margin)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 10)
+	margin.add_child(content)
+	var title := Label.new()
+	title.text = "유닛 상세 스탯"
+	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_color_override("font_color", Color("#f5f7fb"))
+	content.add_child(title)
+	var subtitle := Label.new()
+	subtitle.text = "현재 서버 전투 수치 · DPS/HPS는 1회 수치 ÷ 공격 간격"
+	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
+	content.add_child(subtitle)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 10)
+	content.add_child(grid)
+	var names := {"shield": "탱커", "healer": "힐러", "archer": "궁수", "swordsman": "검사"}
+	for kind in ["shield", "healer", "archer", "swordsman"]:
+		var card := PanelContainer.new()
+		card.custom_minimum_size = Vector2(455, 126)
+		card.add_theme_stylebox_override("panel", _panel_style(Color("#171c28"), Color(1.0, 1.0, 1.0, 0.09), 10))
+		grid.add_child(card)
+		var card_margin := MarginContainer.new()
+		card_margin.add_theme_constant_override("margin_left", 16)
+		card_margin.add_theme_constant_override("margin_right", 16)
+		card_margin.add_theme_constant_override("margin_top", 12)
+		card_margin.add_theme_constant_override("margin_bottom", 12)
+		card.add_child(card_margin)
+		var label := Label.new()
+		label.text = "%s\n%s" % [names[kind], BattleModel.unit_stat_summary(kind)]
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.add_theme_font_size_override("font_size", 15)
+		label.add_theme_color_override("font_color", Color("#dce1ec"))
+		card_margin.add_child(label)
+	var world_stats := Label.new()
+	world_stats.text = BattleModel.battle_stat_summary()
+	world_stats.add_theme_font_size_override("font_size", 13)
+	world_stats.add_theme_color_override("font_color", Color("#9ba5b8"))
+	content.add_child(world_stats)
+	var close := _styled_button("닫기", Color("#3d8f83"), true)
+	close.custom_minimum_size = Vector2(160, 44)
+	close.pressed.connect(_dismiss_stats_panel)
+	content.add_child(close)
 
 func _add_structure_button(row: HBoxContainer, title: String, kind: String, color: Color) -> void:
 	var button := _styled_button(title, color)
@@ -509,14 +600,18 @@ func _on_snapshot(data: Dictionary) -> void:
 	if winner != -1 and not result_shown:
 		_show_result(winner)
 	elif winner == -1 and result_shown:
-		result_shown = false
+		_dismiss_result_overlay()
 		updater.set_safe_to_update(false)
 
 func _show_result(winner: int) -> void:
+	_dismiss_result_overlay()
+	_dismiss_stats_panel()
 	result_shown = true
 	updater.set_safe_to_update(true)
 	updater.check_for_update()
 	var overlay := PanelContainer.new()
+	overlay.name = "ResultOverlay"
+	result_overlay = overlay
 	overlay.position = Vector2(350, 190)
 	overlay.size = Vector2(580, 330)
 	var result_color := Color("#f6c85f") if winner == own_side else Color("#8f98ad")
@@ -552,21 +647,44 @@ func _show_result(winner: int) -> void:
 	note.add_theme_color_override("font_color", Color("#8f98ad"))
 	inner.add_child(note)
 	var rematch := _styled_button("재경기 준비", Color("#5e6ad2"), true)
-	rematch.position = Vector2(170, 218)
-	rematch.size = Vector2(240, 58)
+	rematch.position = Vector2(65, 218)
+	rematch.size = Vector2(215, 58)
 	rematch.pressed.connect(func():
 		rematch.disabled = true
 		if local_ai_mode:
 			updater.set_safe_to_update(false)
 			local_model.reset()
 			local_ai = ServerAI.new(1)
-			overlay.queue_free()
-			result_shown = false
+			_dismiss_result_overlay()
 		else:
 			rematch.text = "상대 준비 대기 중"
 			network.send_rematch()
 	)
 	inner.add_child(rematch)
+	var back := _styled_button("이전 화면으로", Color("#697386"), false)
+	back.name = "BackToMenuButton"
+	back.position = Vector2(300, 218)
+	back.size = Vector2(215, 58)
+	back.pressed.connect(_exit_battle_to_menu)
+	inner.add_child(back)
+
+func _dismiss_result_overlay() -> void:
+	if is_instance_valid(result_overlay):
+		result_overlay.queue_free()
+	result_overlay = null
+	result_shown = false
+
+func _exit_battle_to_menu() -> void:
+	battle_active = false
+	_dismiss_result_overlay()
+	_dismiss_stats_panel()
+	if not local_ai_mode:
+		network.disconnect_from_server()
+	local_ai_mode = false
+	local_model = null
+	local_ai = null
+	current_snapshot.clear()
+	_build_connect_screen()
 
 func _on_update_started(version: String) -> void:
 	if running_as_server:

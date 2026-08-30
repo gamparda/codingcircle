@@ -71,6 +71,12 @@ func connect_to_server(address: String, port: int = DEFAULT_PORT) -> bool:
 	multiplayer.multiplayer_peer = peer
 	return true
 
+func disconnect_from_server() -> void:
+	client_in_match = false
+	if multiplayer.multiplayer_peer is ENetMultiplayerPeer:
+		multiplayer.multiplayer_peer.close()
+	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
+
 func set_accepting_players(value: bool) -> void:
 	if accepting_players == value:
 		return
