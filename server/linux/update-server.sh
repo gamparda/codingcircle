@@ -11,8 +11,6 @@ SERVER_PORT="${CATWAR_SERVER_PORT:-}"
 GODOT_BIN="${CATWAR_GODOT_BIN:-/opt/godot/godot-4.7.2}"
 REPOSITORY_URL="${CATWAR_REPOSITORY_URL:-https://github.com/gamparda/codingcircle.git}"
 MANIFEST_URL="${CATWAR_MANIFEST_URL:-https://gamparda.github.io/codingcircle/update.json}"
-MANIFEST_SIGNATURE_URL="${CATWAR_MANIFEST_SIGNATURE_URL:-${MANIFEST_URL}.sig}"
-PUBLIC_KEY="${CATWAR_UPDATE_PUBLIC_KEY:-/etc/catwar/update-signing-key.pem}"
 LOCK_FILE="${CATWAR_UPDATE_LOCK:-${CONTROL_DIR}/update.lock}"
 PYTHON_BIN="${CATWAR_PYTHON_BIN:-python3}"
 
@@ -60,28 +58,6 @@ valid_commit() {
   [[ "$1" =~ ^[0-9a-f]{40}$ ]]
 }
 
-verify_key_file() {
-  local key=$1 expected_uid=$2 owner mode parent
-  [[ -f "$key" && ! -L "$key" ]] || fail "signing key must be a regular, non-symlink file"
-  owner=$(stat -c %u -- "$key")
-  mode=$(stat -c %a -- "$key")
-  [[ "$owner" == "$expected_uid" ]] || fail "signing key has an untrusted owner"
-  (( (8#$mode & 8#022) == 0 )) || fail "signing key is group/other writable"
-
-  # Production keys must also be reached only through root-controlled directories.
-  if [[ "$expected_uid" == 0 ]]; then
-    parent=$(dirname -- "$key")
-    while [[ "$parent" != "/" ]]; do
-      [[ ! -L "$parent" && -d "$parent" ]] || fail "signing key parent is not a trusted directory"
-      owner=$(stat -c %u -- "$parent")
-      mode=$(stat -c %a -- "$parent")
-      [[ "$owner" == 0 ]] || fail "signing key parent is not root-owned"
-      (( (8#$mode & 8#022) == 0 )) || fail "signing key parent is group/other writable"
-      parent=$(dirname -- "$parent")
-    done
-  fi
-}
-
 read_manifest_commit() {
   local manifest=$1
   [[ -f "$manifest" && ! -L "$manifest" ]] || fail "manifest must be a regular file"
@@ -94,27 +70,6 @@ if not re.fullmatch(r"[0-9a-f]{40}", commit):
     raise SystemExit("update manifest contains an invalid commit")
 print(commit)
 PY
-}
-
-verify_manifest() {
-  local manifest=$1 signature=$2 key=$3 expected_uid=${4:-0} raw_signature
-  verify_key_file "$key" "$expected_uid"
-  [[ -f "$manifest" && ! -L "$manifest" && -f "$signature" && ! -L "$signature" ]] || \
-    fail "manifest and signature must be regular files"
-  raw_signature="${signature}.raw.$$"
-  rm -f -- "$raw_signature"
-  if ! openssl base64 -d -A -in "$signature" -out "$raw_signature"; then
-    rm -f -- "$raw_signature"
-    fail "manifest signature is not valid base64"
-    return 1
-  fi
-  if ! openssl dgst -sha256 -verify "$key" -signature "$raw_signature" "$manifest" >/dev/null; then
-    rm -f -- "$raw_signature"
-    fail "manifest signature verification failed"
-    return 1
-  fi
-  rm -f -- "$raw_signature"
-  read_manifest_commit "$manifest"
 }
 
 validate_update_graph() {
@@ -149,11 +104,6 @@ check_readiness() {
 }
 
 case "${1:-}" in
-  --verify-manifest)
-    [[ $# -eq 5 ]] || fail "usage: --verify-manifest MANIFEST SIGNATURE KEY TRUSTED_UID"
-    verify_manifest "$2" "$3" "$4" "$5"
-    exit
-    ;;
   --validate-update-graph)
     [[ $# -ge 4 && $# -le 5 ]] || fail "usage: --validate-update-graph REPO CURRENT TARGET [TRUSTED]"
     validate_update_graph "$2" "$3" "$4" "${5:-}"

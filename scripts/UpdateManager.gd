@@ -10,19 +10,6 @@ const BUILD_INFO_PATH := "res://build_info.json"
 const DEFAULT_UPDATE_URL := "https://gamparda.github.io/codingcircle/update.json"
 const OFFICIAL_DOWNLOAD_PREFIX := "https://gamparda.github.io/codingcircle/"
 const CHECK_INTERVAL := 60.0
-# RSA public key matching the private key stored only in the GitHub Actions secret.
-const MANIFEST_PUBLIC_KEY_PEM := """-----BEGIN PUBLIC KEY-----
-MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEArm+MpT9w+e3oLJNNrSFX
-4AY1MfxXaSTIeiydHiP148kLCJvkXb8ModOwSsQkNAdlIVc3/OQBdUTBMy1McAOC
-oESf+0Hslb4QUoQkImTHCHG6Q7UiUG35aWUxW9bRNSAPFPUapiBMp/jkK1GDBGg4
-4DGBAxpvd3rd9LpMbeKUtCwh6ypMyNzdNF1Gxt02XEeizWaKD1EB+fmBMompKSMR
-C/jT9izQZhsa0oksZ5pBGJu0nZnqjqsD0evE6M2iVj44eQ8nUjqBBzFWKnsvKeua
-OVUD/OXX/DOeTfDl8qhI20/UjM0PGgPfLIWXb5wWxywiZLqRS/dyVnpir4S5MV9y
-ntekchg4zBCv1zo7AqES2W6GFCcitELBK5zFPAPnWDNUaDqd16MLa/NBWpEnkPhk
-8XFre1PgiUq3rhzKwX1JAx5Q3/V9Y16cKb2Rx84B+fGmOLa2ssLXfzFqMnv/m/NI
-OTSlXr+8Km1Y8w2HS9658W9u+8sodjw0YFEhOI07WRPZAgMBAAE=
------END PUBLIC KEY-----
-"""
 
 var current_version := "0.0.0"
 var current_commit := "unknown"
@@ -33,8 +20,6 @@ var allow_insecure_update := false
 var state := "idle"
 var countdown := 0.5
 var manifest: Dictionary = {}
-var manifest_public_key_pem := MANIFEST_PUBLIC_KEY_PEM
-var pending_manifest_body := PackedByteArray()
 var installer_path := ""
 var http: HTTPRequest
 
@@ -134,12 +119,6 @@ func accept_manifest(body: PackedByteArray) -> bool:
 	if safe_to_update:
 		_begin_download()
 	return true
-
-func accept_signed_manifest(body: PackedByteArray, signature_base64: String) -> bool:
-	if not verify_manifest_signature(body, signature_base64, manifest_public_key_pem):
-		_fail_update("업데이트 서명을 확인할 수 없습니다.")
-		return false
-	return accept_manifest(body)
 
 func _begin_download() -> void:
 	var version := String(manifest.get("version", "new"))

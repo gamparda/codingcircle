@@ -12,6 +12,7 @@ func _init() -> void:
 	expect_true(UpdateManager != null, "UpdateManager loads")
 	if UpdateManager != null:
 		var updater = UpdateManager.new()
+		expect_true(not updater.has_method("accept_signed_manifest"), "deprecated GitHub manifest signing path is removed")
 		var has_policy: bool = updater.has_method("is_trusted_manifest_url") and updater.has_method("is_trusted_installer_url") and updater.has_method("validate_manifest") and updater.has_method("accept_manifest") and updater.has_method("validated_port") and updater.has_method("random_update_basename") and updater.has_method("build_update_helper_batch")
 		expect_true(has_policy, "origin policy methods exist")
 		if has_policy:

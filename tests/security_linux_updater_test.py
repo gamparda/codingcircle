@@ -1,8 +1,6 @@
-import base64
 import json
 import os
 from pathlib import Path
-import shutil
 import stat
 import subprocess
 import tempfile
@@ -62,32 +60,11 @@ class LinuxUpdaterSecurityTests(unittest.TestCase):
         self.assertIn('run_as_service_user "$GODOT_BIN" --headless', script)
         self.assertNotIn("GODOT_SILENCE_ROOT_WARNING=1", script)
 
-    def test_manifest_signature_verification_accepts_only_valid_signature(self):
-        if shutil.which("openssl") is None:
-            self.skipTest("openssl is required")
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            private_key = root / "private.pem"
-            public_key = root / "public.pem"
-            manifest = root / "update.json"
-            signature = root / "update.json.sig"
-            manifest.write_text(json.dumps({"commit": "a" * 40}), encoding="utf-8")
-            run("openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", private_key, check=True)
-            run("openssl", "pkey", "-in", private_key, "-pubout", "-out", public_key, check=True)
-            raw_signature = root / "raw.sig"
-            run("openssl", "dgst", "-sha256", "-sign", private_key, "-out", raw_signature, manifest, check=True)
-            signature.write_text(base64.b64encode(raw_signature.read_bytes()).decode("ascii") + "\n", encoding="ascii")
-            trusted_uid = run("stat", "-c", "%u", public_key, check=True).stdout.strip()
-
-            test_env = os.environ.copy()
-            test_env["CATWAR_PYTHON_BIN"] = os.sys.executable
-            valid = run(BASH, UPDATER, "--verify-manifest", manifest, signature, public_key, trusted_uid, env=test_env)
-            self.assertEqual(valid.returncode, 0, valid.stderr)
-            self.assertEqual(valid.stdout.strip(), "a" * 40)
-
-            manifest.write_text(json.dumps({"commit": "b" * 40}), encoding="utf-8")
-            invalid = run(BASH, UPDATER, "--verify-manifest", manifest, signature, public_key, trusted_uid, env=test_env)
-            self.assertNotEqual(invalid.returncode, 0)
+    def test_deprecated_github_manifest_signing_path_is_removed(self):
+        script = UPDATER.read_text(encoding="utf-8")
+        self.assertNotIn("verify_manifest", script)
+        self.assertNotIn("MANIFEST_SIGNATURE_URL", script)
+        self.assertNotIn("CATWAR_UPDATE_PUBLIC_KEY", script)
 
     def test_manifest_update_path_does_not_require_detached_signature(self):
         script = UPDATER.read_text(encoding="utf-8")
