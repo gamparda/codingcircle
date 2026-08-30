@@ -111,6 +111,16 @@ func _init() -> void:
 		expect_eq(Main.OFFICIAL_SERVER_ADDRESS, "ruellyya.kr", "official server address is fixed")
 		expect_eq(Main.OFFICIAL_SERVER_PORT, 7777, "official server port is fixed")
 
+	var BattleView = load("res://scripts/BattleView.gd")
+	expect_true(BattleView != null, "BattleView loads with animated unit textures")
+	for role in ["tanker", "healer", "archer", "swordsman"]:
+		for frame in range(6):
+			var texture_path := "res://assets/units/animations/%s/walk_%d.png" % [role, frame]
+			var texture = load(texture_path)
+			expect_true(texture != null, "%s walk frame %d loads" % [role, frame])
+			if texture != null:
+				expect_true(texture.get_width() > 0 and texture.get_height() > 0, "%s walk frame %d has dimensions" % [role, frame])
+
 	finish()
 
 func finish() -> void:

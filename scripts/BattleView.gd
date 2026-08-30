@@ -15,6 +15,28 @@ const UNIT_TEXTURES := {
 	"archer": preload("res://assets/units/archer.png"),
 	"swordsman": preload("res://assets/units/swordsman.png"),
 }
+const UNIT_WALK_TEXTURES := {
+	"shield": [
+		preload("res://assets/units/animations/tanker/walk_0.png"), preload("res://assets/units/animations/tanker/walk_1.png"),
+		preload("res://assets/units/animations/tanker/walk_2.png"), preload("res://assets/units/animations/tanker/walk_3.png"),
+		preload("res://assets/units/animations/tanker/walk_4.png"), preload("res://assets/units/animations/tanker/walk_5.png"),
+	],
+	"healer": [
+		preload("res://assets/units/animations/healer/walk_0.png"), preload("res://assets/units/animations/healer/walk_1.png"),
+		preload("res://assets/units/animations/healer/walk_2.png"), preload("res://assets/units/animations/healer/walk_3.png"),
+		preload("res://assets/units/animations/healer/walk_4.png"), preload("res://assets/units/animations/healer/walk_5.png"),
+	],
+	"archer": [
+		preload("res://assets/units/animations/archer/walk_0.png"), preload("res://assets/units/animations/archer/walk_1.png"),
+		preload("res://assets/units/animations/archer/walk_2.png"), preload("res://assets/units/animations/archer/walk_3.png"),
+		preload("res://assets/units/animations/archer/walk_4.png"), preload("res://assets/units/animations/archer/walk_5.png"),
+	],
+	"swordsman": [
+		preload("res://assets/units/animations/swordsman/walk_0.png"), preload("res://assets/units/animations/swordsman/walk_1.png"),
+		preload("res://assets/units/animations/swordsman/walk_2.png"), preload("res://assets/units/animations/swordsman/walk_3.png"),
+		preload("res://assets/units/animations/swordsman/walk_4.png"), preload("res://assets/units/animations/swordsman/walk_5.png"),
+	],
+}
 const STARS := [
 	Vector2(0.08, 0.16), Vector2(0.15, 0.29), Vector2(0.23, 0.11),
 	Vector2(0.34, 0.23), Vector2(0.43, 0.13), Vector2(0.57, 0.21),
@@ -26,6 +48,7 @@ var snapshot: Dictionary = {}
 var own_side := 0
 var selected_structure := ""
 var mouse_position := Vector2.ZERO
+var animation_time := 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -35,9 +58,10 @@ func set_snapshot(data: Dictionary) -> void:
 	snapshot = data
 	queue_redraw()
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	animation_time += delta
 	mouse_position = get_local_mouse_position()
-	if not selected_structure.is_empty():
+	if not selected_structure.is_empty() or not snapshot.get("units", []).is_empty():
 		queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
@@ -142,7 +166,13 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	var side := int(unit.side)
 	var facing := 1.0 if side == 0 else -1.0
 	var color := BLUE if side == 0 else RED
-	var texture: Texture2D = UNIT_TEXTURES.get(String(unit.kind))
+	var kind := String(unit.kind)
+	var texture: Texture2D = UNIT_TEXTURES.get(kind)
+	var walk_frames: Array = UNIT_WALK_TEXTURES.get(kind, [])
+	if not walk_frames.is_empty():
+		var frame_rate: float = clamp(5.0 + float(unit.speed) / 20.0, 5.0, 10.0)
+		var frame_index: int = (int(animation_time * frame_rate) + int(unit.id) * 2) % walk_frames.size()
+		texture = walk_frames[frame_index]
 	var sprite_height: float = 86.0
 	if unit.kind == "shield":
 		sprite_height = 92.0

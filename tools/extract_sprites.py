@@ -31,6 +31,30 @@ SELECTED_BOUNDS = {
     "swordsman": (56, 231, 255, 493),
 }
 
+# Six right-facing walk frames per role, ordered from left to right.
+WALK_BOUNDS = {
+    "tanker": [
+        (84, 485, 217, 694), (279, 483, 411, 694),
+        (468, 487, 604, 694), (667, 487, 799, 694),
+        (862, 487, 994, 694), (1056, 487, 1189, 694),
+    ],
+    "healer": [
+        (93, 591, 280, 829), (318, 591, 500, 829),
+        (534, 591, 722, 829), (771, 591, 958, 828),
+        (1008, 591, 1194, 829), (1245, 591, 1430, 829),
+    ],
+    "archer": [
+        (76, 502, 229, 710), (265, 503, 419, 710),
+        (454, 503, 606, 710), (650, 503, 801, 707),
+        (841, 503, 994, 710), (1039, 503, 1189, 710),
+    ],
+    "swordsman": [
+        (104, 594, 254, 845), (337, 594, 478, 845),
+        (568, 599, 723, 845), (801, 599, 930, 845),
+        (1031, 599, 1183, 845), (1267, 599, 1436, 845),
+    ],
+}
+
 # White background pockets completely enclosed by thin equipment outlines.
 # Coordinates are relative to the padded extracted crop.
 INTERNAL_BACKGROUND_REGIONS = {
@@ -110,6 +134,48 @@ def clear_internal_background(
     return Image.fromarray(rgba, "RGBA")
 
 
+def clear_enclosed_white(image: Image.Image) -> Image.Image:
+    """Clear enclosed white pockets in archer bow shapes."""
+    rgba = np.array(image)
+    rgb = rgba[:, :, :3].astype(np.int16)
+    minimum = rgb.min(axis=2)
+    chroma = rgb.max(axis=2) - minimum
+    candidate = (minimum >= 210) & (chroma <= 28) & (rgba[:, :, 3] > 0)
+    labels, count = ndimage.label(candidate)
+    for label_id in range(1, count + 1):
+        region = labels == label_id
+        if np.count_nonzero(region) < 30:
+            continue
+        rgba[region, 3] = 0
+        fringe = ndimage.binary_dilation(region, iterations=2) & ~region
+        distance = np.linalg.norm(rgb.astype(np.float32) - 255.0, axis=2)
+        fringe_alpha = np.clip((distance - 3.0) * 8.0, 0.0, 255.0).astype(np.uint8)
+        rgba[fringe, 3] = np.minimum(rgba[fringe, 3], fringe_alpha[fringe])
+    return Image.fromarray(rgba, "RGBA")
+
+
+def extract_walk_frames(role: str, rgba: Image.Image) -> None:
+    """Write six bottom-aligned frames on a stable per-role canvas."""
+    padding = 8
+    crops = []
+    for left, top, right, bottom in WALK_BOUNDS[role]:
+        crop = rgba.crop((left - padding, top - padding, right + padding, bottom + padding))
+        if role == "archer":
+            crop = clear_enclosed_white(crop)
+        crops.append(crop)
+
+    canvas_width = max(frame.width for frame in crops)
+    canvas_height = max(frame.height for frame in crops)
+    animation_dir = OUTPUT / "animations" / role
+    animation_dir.mkdir(parents=True, exist_ok=True)
+    for index, frame in enumerate(crops):
+        canvas = Image.new("RGBA", (canvas_width, canvas_height), (0, 0, 0, 0))
+        x = (canvas_width - frame.width) // 2
+        y = canvas_height - frame.height
+        canvas.alpha_composite(frame, (x, y))
+        canvas.save(animation_dir / f"walk_{index}.png")
+
+
 def main() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     extracted: dict[str, Image.Image] = {}
@@ -134,6 +200,7 @@ def main() -> None:
         )
         crop.save(OUTPUT / f"{role}.png")
         extracted[role] = crop
+        extract_walk_frames(role, rgba)
 
     # A dark preview catches pale halos that are invisible on the white sources.
     preview = Image.new("RGBA", (960, 360), (10, 13, 22, 255))
