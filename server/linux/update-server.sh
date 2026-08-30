@@ -194,7 +194,7 @@ install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 -- "$test_dir"
 run_as_service_user git clone --quiet --filter=blob:none --no-checkout "$REPOSITORY_URL" "$test_dir"
 run_as_service_user git -C "$test_dir" fetch --quiet origin main
 run_as_service_user git -C "$test_dir" checkout --quiet --detach "$target_commit"
-validate_update_graph "$test_dir" "$current_commit" "$target_commit" "$trusted_commit"
+run_as_service_user "$0" --validate-update-graph "$test_dir" "$current_commit" "$target_commit" "$trusted_commit"
 run_as_service_user "$GODOT_BIN" --headless --path "$test_dir" --import >/dev/null
 run_as_service_user "$GODOT_BIN" --headless --path "$test_dir" --script res://tests/run_tests.gd
 rm -rf -- "$test_dir"
@@ -208,8 +208,12 @@ git -C "$staging_dir" fetch --quiet origin main
 validate_update_graph "$staging_dir" "$current_commit" "$target_commit" "$trusted_commit"
 git -C "$staging_dir" -c core.hooksPath=/dev/null checkout --quiet --detach "$target_commit"
 [[ "$(git -C "$staging_dir" rev-parse HEAD)" == "$target_commit" ]] || fail "staged checkout changed unexpectedly"
+chmod -R a-w,a+rX -- "$staging_dir"
+[[ ! -e "$staging_dir/.godot" && ! -L "$staging_dir/.godot" ]] || fail "staged checkout controls .godot path"
+install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 -- "$staging_dir/.godot"
+run_as_service_user "$GODOT_BIN" --headless --path "$staging_dir" --import >/dev/null
 chown -hR root:root -- "$staging_dir"
-chmod -R a-w -- "$staging_dir"
+chmod -R a-w,a+rX -- "$staging_dir"
 
 # The writable state directory is never accessed as root: a malicious symlink can
 # at worst exercise the already-unprivileged catwar account.

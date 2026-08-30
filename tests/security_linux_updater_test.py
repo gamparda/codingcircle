@@ -10,6 +10,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 UPDATER = REPO / "server" / "linux" / "update-server.sh"
 UNIT = REPO / "server" / "linux" / "catwar-update.service"
+GIT_ATTRIBUTES = REPO / ".gitattributes"
 BASH = Path(r"C:\Program Files\Git\usr\bin\bash.exe") if os.name == "nt" else Path("/bin/bash")
 
 
@@ -26,6 +27,12 @@ def run(*args, cwd=None, env=None, check=False):
 
 
 class LinuxUpdaterSecurityTests(unittest.TestCase):
+    def test_linux_deployment_files_are_checked_out_with_lf_endings(self):
+        attributes = GIT_ATTRIBUTES.read_text(encoding="utf-8")
+        self.assertIn("server/linux/*.sh text eol=lf", attributes)
+        self.assertIn("server/linux/*.service text eol=lf", attributes)
+        self.assertIn("server/linux/*.timer text eol=lf", attributes)
+
     def test_systemd_runs_immutable_installed_updater(self):
         unit = UNIT.read_text(encoding="utf-8")
         self.assertIn("ExecStart=/usr/local/libexec/catwar/update-server.sh", unit)
@@ -55,9 +62,37 @@ class LinuxUpdaterSecurityTests(unittest.TestCase):
         self.assertNotIn('chown catwar:catwar "$pending_file"', script)
         self.assertIn('[[ ! -L "$STATE_DIR" ]]', script)
 
+    def test_staged_tree_is_readable_and_traversable_by_service_user(self):
+        script = UPDATER.read_text(encoding="utf-8")
+        self.assertIn('chmod -R a-w,a+rX -- "$staging_dir"', script)
+
+    def test_staged_tree_is_imported_without_root_executing_checkout_code(self):
+        script = UPDATER.read_text(encoding="utf-8")
+        checkout = script.index('checkout --quiet --detach "$target_commit"')
+        reject_existing_import_dir = script.index(
+            '[[ ! -e "$staging_dir/.godot" && ! -L "$staging_dir/.godot" ]] || fail "staged checkout controls .godot path"',
+            checkout,
+        )
+        import_dir = script.index(
+            'install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 -- "$staging_dir/.godot"',
+            reject_existing_import_dir,
+        )
+        import_run = script.index(
+            'run_as_service_user "$GODOT_BIN" --headless --path "$staging_dir" --import',
+            import_dir,
+        )
+        seal = script.index('chown -hR root:root -- "$staging_dir"', import_run)
+        self.assertLess(checkout, import_dir)
+        self.assertLess(import_dir, import_run)
+        self.assertLess(import_run, seal)
+
     def test_untrusted_checkout_is_never_executed_as_root(self):
         script = UPDATER.read_text(encoding="utf-8")
         self.assertIn('run_as_service_user "$GODOT_BIN" --headless', script)
+        self.assertIn(
+            'run_as_service_user "$0" --validate-update-graph "$test_dir"',
+            script,
+        )
         self.assertNotIn("GODOT_SILENCE_ROOT_WARNING=1", script)
 
     def test_deprecated_github_manifest_signing_path_is_removed(self):

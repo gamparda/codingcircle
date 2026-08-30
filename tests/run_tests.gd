@@ -242,11 +242,17 @@ func _init() -> void:
 	if Main != null:
 		expect_eq(Main.OFFICIAL_SERVER_ADDRESS, "ruellyya.kr", "official server address is fixed")
 		expect_eq(Main.OFFICIAL_SERVER_FALLBACK_ADDRESS, "211.176.222.145", "official server has a DNS-failure fallback address")
+		expect_eq(Main.OFFICIAL_SERVER_LAN_ADDRESS, "192.168.0.4", "official server LAN route targets the dedicated Linux host")
+		expect_eq(Main.official_connection_candidates(["192.168.0.3"]), ["192.168.0.4", "ruellyya.kr", "211.176.222.145"], "same-LAN clients try the dedicated server private route first")
+		expect_eq(Main.official_connection_candidates(PackedStringArray(["192.168.0.3"])), ["192.168.0.4", "ruellyya.kr", "211.176.222.145"], "runtime packed local-address lists use the LAN route")
+		expect_eq(Main.official_connection_candidates(["10.0.0.2"]), ["ruellyya.kr", "211.176.222.145"], "external clients keep domain and public-IP candidates")
 		expect_eq(Main.OFFICIAL_SERVER_PORT, 7777, "official server port is fixed")
 		expect_true(Main.smoke_connect_allowed(true, "127.0.0.1"), "exported smoke client may connect to loopback")
 		expect_true(Main.smoke_connect_allowed(true, "127.0.0.2"), "exported fallback smoke may use another loopback address")
 		expect_true(Main.smoke_connect_allowed(true, "dns-failure.invalid"), "exported fallback smoke may use the reserved non-resolving test domain")
 		expect_true(Main.smoke_connect_allowed(true, "localhost"), "exported smoke client may connect to localhost")
+		expect_true(Main.smoke_connect_allowed(true, "192.168.0.4"), "exported smoke client may verify the fixed LAN route to the dedicated server")
+		expect_true(not Main.smoke_connect_allowed(true, "192.168.0.5"), "exported smoke client cannot target arbitrary private hosts")
 		expect_true(not Main.smoke_connect_allowed(true, "example.com"), "smoke client cannot target external hosts")
 		expect_true(not Main.smoke_connect_allowed(false, "127.0.0.1"), "normal clients cannot use smoke connect arguments")
 

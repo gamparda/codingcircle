@@ -92,7 +92,14 @@ func start_dedicated_server(port: int = DEFAULT_PORT) -> bool:
 	return true
 
 func connect_to_server(address: String, port: int = DEFAULT_PORT, fallback_address: String = "") -> bool:
-	client_connection_candidates = connection_candidates(address, fallback_address)
+	return connect_to_candidates(connection_candidates(address, fallback_address), port)
+
+func connect_to_candidates(candidates: Array, port: int = DEFAULT_PORT) -> bool:
+	client_connection_candidates = []
+	for candidate in candidates:
+		var address := String(candidate).strip_edges()
+		if not address.is_empty() and not client_connection_candidates.has(address):
+			client_connection_candidates.append(address)
 	client_connection_index = 0
 	client_connection_port = port
 	if client_connection_candidates.is_empty():
