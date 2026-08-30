@@ -37,6 +37,9 @@ var early_disconnect_events: Dictionary = {}
 var address_blocked_until: Dictionary = {}
 var server_forced_disconnects: Dictionary = {}
 var client_connection_state := "idle"
+var client_connection_candidates: Array = []
+var client_connection_index := -1
+var client_connection_port := DEFAULT_PORT
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -48,11 +51,20 @@ func _ready() -> void:
 static func disconnect_message_for_state(state: String) -> String:
 	return "서버 연결 실패" if state == "connecting" else "서버와 연결이 끊어졌습니다"
 
+static func connection_candidates(primary_address: String, fallback_address: String = "") -> Array:
+	var candidates: Array = []
+	for address in [primary_address.strip_edges(), fallback_address.strip_edges()]:
+		if not address.is_empty() and not candidates.has(address):
+			candidates.append(address)
+	return candidates
+
 func _on_connected_to_server() -> void:
 	client_connection_state = "connected"
 	connection_status.emit("서버에 연결됨 · 상대를 찾는 중...")
 
 func _on_connection_failed() -> void:
+	if _retry_next_connection_candidate():
+		return
 	client_connection_state = "idle"
 	connection_status.emit("서버 연결 실패")
 
@@ -60,6 +72,8 @@ func _on_server_disconnected() -> void:
 	if client_connection_state == "idle":
 		return
 	var previous_state := client_connection_state
+	if previous_state == "connecting" and _retry_next_connection_candidate():
+		return
 	client_connection_state = "idle"
 	connection_status.emit(disconnect_message_for_state(previous_state))
 	if client_in_match:
@@ -77,21 +91,44 @@ func start_dedicated_server(port: int = DEFAULT_PORT) -> bool:
 	print("DEDICATED_SERVER_READY port=%d" % port)
 	return true
 
-func connect_to_server(address: String, port: int = DEFAULT_PORT) -> bool:
-	connection_status.emit("%s:%d 연결 중..." % [address, port])
+func connect_to_server(address: String, port: int = DEFAULT_PORT, fallback_address: String = "") -> bool:
+	client_connection_candidates = connection_candidates(address, fallback_address)
+	client_connection_index = 0
+	client_connection_port = port
+	if client_connection_candidates.is_empty():
+		connection_status.emit("서버 주소가 비어 있습니다")
+		return false
+	return _start_client_attempt(String(client_connection_candidates[0]))
+
+func _start_client_attempt(address: String) -> bool:
+	connection_status.emit("%s:%d 연결 중..." % [address, client_connection_port])
 	client_connection_state = "connecting"
 	var peer := ENetMultiplayerPeer.new()
-	var error := peer.create_client(address, port)
+	var error := peer.create_client(address, client_connection_port)
 	if error != OK:
+		if _retry_next_connection_candidate():
+			return true
 		client_connection_state = "idle"
 		connection_status.emit("연결 설정 실패: %s" % error_string(error))
 		return false
 	multiplayer.multiplayer_peer = peer
 	return true
 
+func _retry_next_connection_candidate() -> bool:
+	if client_connection_index + 1 >= client_connection_candidates.size():
+		return false
+	client_connection_index += 1
+	var fallback := String(client_connection_candidates[client_connection_index])
+	connection_status.emit("DNS 응답 실패 · 공식 서버 우회 주소로 다시 연결 중...")
+	print("CLIENT_CONNECTION_FALLBACK address=%s" % fallback)
+	_start_client_attempt.call_deferred(fallback)
+	return true
+
 func disconnect_from_server() -> void:
 	client_in_match = false
 	client_connection_state = "idle"
+	client_connection_candidates.clear()
+	client_connection_index = -1
 	if multiplayer.multiplayer_peer is ENetMultiplayerPeer:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()

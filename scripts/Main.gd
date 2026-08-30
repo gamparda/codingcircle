@@ -1,6 +1,7 @@
 extends Control
 
 const OFFICIAL_SERVER_ADDRESS := "ruellyya.kr"
+const OFFICIAL_SERVER_FALLBACK_ADDRESS := "211.176.222.145"
 const OFFICIAL_SERVER_PORT := 7777
 
 @onready var network: NetworkController = $NetworkController
@@ -69,11 +70,12 @@ func _ready() -> void:
 		_start_local_ai_battle()
 		return
 	var auto_address := _arg_string(args, "--connect=", "")
-	if smoke_connect_allowed(smoke_mode, auto_address):
-		network.connect_to_server(auto_address, _arg_int(args, "--port=", NetworkController.DEFAULT_PORT))
+	var auto_fallback := _arg_string(args, "--fallback=", "")
+	if smoke_connect_allowed(smoke_mode, auto_address) and (auto_fallback.is_empty() or smoke_connect_allowed(smoke_mode, auto_fallback)):
+		network.connect_to_server(auto_address, _arg_int(args, "--port=", NetworkController.DEFAULT_PORT), auto_fallback)
 
 static func smoke_connect_allowed(is_smoke: bool, address: String) -> bool:
-	return is_smoke and (address == "127.0.0.1" or address == "localhost" or address == "::1")
+	return is_smoke and (address.begins_with("127.") or address == "localhost" or address == "::1" or address.ends_with(".invalid"))
 
 func _arg_int(args: PackedStringArray, prefix: String, fallback: int) -> int:
 	for arg in args:
@@ -228,7 +230,7 @@ func _build_connect_screen(message: String = "") -> void:
 	connect_button_ref = connect_button
 	connect_button.pressed.connect(func():
 		connect_button.disabled = true
-		network.connect_to_server(OFFICIAL_SERVER_ADDRESS, OFFICIAL_SERVER_PORT)
+		network.connect_to_server(OFFICIAL_SERVER_ADDRESS, OFFICIAL_SERVER_PORT, OFFICIAL_SERVER_FALLBACK_ADDRESS)
 	)
 	column.add_child(connect_button)
 	var or_label := Label.new()
