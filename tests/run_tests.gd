@@ -49,13 +49,13 @@ func _init() -> void:
 	var archer_stats: Dictionary = BattleModel.UNIT_STATS.archer
 	expect_true(float(swordsman_stats.cost) >= 30.0, "swordsman is not underpriced")
 	expect_true(float(swordsman_stats.damage) / float(swordsman_stats.interval) <= 8.0, "swordsman keeps the currently deployed DPS cap")
-	expect_eq(int(BattleModel.UNIT_STATS.shield.hp), 185, "shield receives only a slight health nerf")
+	expect_eq(int(BattleModel.UNIT_STATS.shield.hp), 400, "shield health is reduced moderately from 480")
 	expect_true(
 		(float(swordsman_stats.damage) / float(swordsman_stats.interval)) / float(swordsman_stats.cost)
 		<= (float(archer_stats.damage) / float(archer_stats.interval)) / float(archer_stats.cost) * 1.6,
 		"swordsman cost efficiency stays near other damage units"
 	)
-	expect_eq(int(BattleModel.UNIT_STATS.archer.range), 150, "archer keeps its established range")
+	expect_eq(int(BattleModel.UNIT_STATS.archer.range), 280, "archer keeps its established long range")
 	expect_eq(int(BattleModel.UNIT_STATS.archer.damage), 15, "archer damage is reduced")
 	expect_true(float(BattleModel.UNIT_STATS.healer.damage) > 0.0, "mage can damage enemies")
 	expect_true(float(BattleModel.UNIT_STATS.healer.heal) > 0.0, "mage can heal allies")

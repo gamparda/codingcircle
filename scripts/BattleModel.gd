@@ -16,9 +16,9 @@ const RED_BUILD_MIN := 670.0
 const RED_BUILD_MAX := 1100.0
 
 const UNIT_STATS := {
-	"shield": {"cost": 40.0, "hp": 185.0, "damage": 8.0, "interval": 1.5, "speed": 30.0, "range": 34.0},
+	"shield": {"cost": 40.0, "hp": 400.0, "damage": 8.0, "interval": 1.5, "speed": 30.0, "range": 34.0},
 	"swordsman": {"cost": 30.0, "hp": 82.0, "damage": 10.0, "interval": 1.4, "speed": 44.0, "range": 34.0},
-	"archer": {"cost": 45.0, "hp": 58.0, "damage": 15.0, "interval": 1.5, "speed": 34.0, "range": 150.0},
+	"archer": {"cost": 45.0, "hp": 58.0, "damage": 15.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
 	"healer": {"cost": 45.0, "hp": 60.0, "damage": 9.0, "heal": 12.0, "interval": 1.6, "speed": 34.0, "range": 125.0},
 }
 
