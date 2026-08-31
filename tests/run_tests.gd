@@ -144,13 +144,26 @@ func _init() -> void:
 	var ServerAI = load("res://scripts/ServerAI.gd")
 	expect_true(ServerAI != null, "ServerAI script loads")
 	if ServerAI != null:
+		expect_eq(ServerAI.stage_name(1), "입문", "AI stage 1 has a label")
+		expect_eq(ServerAI.stage_name(10), "최종전", "AI stage 10 has a label")
 		var ai_model = BattleModel.new()
 		ai_model.resources[1] = 150.0
-		var ai = ServerAI.new(1)
+		var ai = ServerAI.new(1, 5)
 		ai.update(ai_model, 1.0)
 		expect_true(ai_model.units.any(func(unit): return unit.side == 1), "AI spends server-owned resources to spawn a unit")
 		ai.update(ai_model, 6.0)
-		expect_true(ai_model.structures.any(func(structure): return structure.side == 1), "AI places a structure through normal game rules")
+		expect_true(ai_model.structures.any(func(structure): return structure.side == 1), "unlocked AI stages place structures through normal game rules")
+
+		var easy_model = BattleModel.new()
+		var hard_model = BattleModel.new()
+		easy_model.resources[1] = 150.0
+		hard_model.resources[1] = 150.0
+		var easy_ai = ServerAI.new(1, 1)
+		var hard_ai = ServerAI.new(1, 10)
+		easy_ai.update(easy_model, 0.1)
+		hard_ai.update(hard_model, 0.1)
+		expect_true(float(hard_model.units[0].max_hp) > float(easy_model.units[0].max_hp), "higher stages strengthen AI unit health")
+		expect_true(float(hard_model.units[0].damage) > float(easy_model.units[0].damage), "higher stages strengthen AI unit damage")
 
 	var NetworkController = load("res://scripts/NetworkController.gd")
 	expect_true(NetworkController != null, "NetworkController script loads")
@@ -255,6 +268,8 @@ func _init() -> void:
 		expect_true(not Main.smoke_connect_allowed(true, "192.168.0.5"), "exported smoke client cannot target arbitrary private hosts")
 		expect_true(not Main.smoke_connect_allowed(true, "example.com"), "smoke client cannot target external hosts")
 		expect_true(not Main.smoke_connect_allowed(false, "127.0.0.1"), "normal clients cannot use smoke connect arguments")
+		expect_true(Main.BATTLE_BGM is AudioStreamWAV, "provided WAV is imported as the battle BGM")
+		expect_true(Main.BATTLE_BGM.get_length() > 13.0, "battle BGM contains the full supplied audio")
 
 	var BattleView = load("res://scripts/BattleView.gd")
 	expect_true(BattleView != null, "BattleView loads with animated unit textures")

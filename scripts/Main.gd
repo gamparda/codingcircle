@@ -4,6 +4,7 @@ const OFFICIAL_SERVER_ADDRESS := "ruellyya.kr"
 const OFFICIAL_SERVER_FALLBACK_ADDRESS := "211.176.222.145"
 const OFFICIAL_SERVER_LAN_ADDRESS := "192.168.0.4"
 const OFFICIAL_SERVER_PORT := 7777
+const BATTLE_BGM := preload("res://assets/audio/battle_bgm.wav")
 
 @onready var network: NetworkController = $NetworkController
 @onready var updater: UpdateManager = $UpdateManager
@@ -31,6 +32,8 @@ var local_ai_mode := false
 var ai_smoke_mode := false
 var local_model: BattleModel
 var local_ai: ServerAI
+var current_ai_stage := 1
+var bgm_player: AudioStreamPlayer
 var running_as_server := false
 var update_overlay: Control
 var update_message_label: Label
@@ -66,9 +69,10 @@ func _ready() -> void:
 		updater.set_safe_to_update(true)
 		updater.check_for_update()
 		return
+	_setup_bgm()
 	_build_connect_screen()
 	if args.has("--offline-ai") or ai_smoke_mode:
-		_start_local_ai_battle()
+		_start_local_ai_battle(_arg_int(args, "--ai-stage=", 1))
 		return
 	var auto_address := _arg_string(args, "--connect=", "")
 	var auto_fallback := _arg_string(args, "--fallback=", "")
@@ -158,7 +162,7 @@ func _update_server_lifecycle(delta: float) -> void:
 
 func _clear_screen() -> void:
 	for child in get_children():
-		if child != network and child != updater:
+		if child != network and child != updater and child != bgm_player:
 			child.queue_free()
 	battle_view = null
 	status_label = null
@@ -251,11 +255,11 @@ func _build_connect_screen(message: String = "") -> void:
 	or_label.add_theme_color_override("font_color", Color("#454b5a"))
 	or_label.add_theme_font_size_override("font_size", 12)
 	column.add_child(or_label)
-	var ai_button := _styled_button("AI 훈련장  ·  오프라인 즉시 시작", Color("#8b5cf6"), false)
-	ai_button.pressed.connect(_start_local_ai_battle)
+	var ai_button := _styled_button("AI 대전  ·  1단계부터 10단계", Color("#8b5cf6"), false)
+	ai_button.pressed.connect(_build_ai_stage_screen)
 	column.add_child(ai_button)
 	status_label = Label.new()
-	status_label.text = message if not message.is_empty() else "온라인은 전용 서버 매칭  ·  AI 훈련장은 인터넷 없이 작동합니다"
+	status_label.text = message if not message.is_empty() else "온라인은 전용 서버 매칭  ·  AI 대전은 인터넷 없이 작동합니다"
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_label.add_theme_font_size_override("font_size", 13)
@@ -263,6 +267,80 @@ func _build_connect_screen(message: String = "") -> void:
 	column.add_child(status_label)
 	updater.set_safe_to_update(true)
 	updater.check_for_update()
+
+func _setup_bgm() -> void:
+	if DisplayServer.get_name() == "headless" or is_instance_valid(bgm_player):
+		return
+	var stream := BATTLE_BGM.duplicate() as AudioStreamWAV
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = int(stream.get_length() * float(stream.mix_rate))
+	bgm_player = AudioStreamPlayer.new()
+	bgm_player.name = "BattleBGM"
+	bgm_player.stream = stream
+	bgm_player.volume_db = -9.0
+	add_child(bgm_player)
+	bgm_player.play()
+
+func _build_ai_stage_screen() -> void:
+	battle_active = false
+	result_shown = false
+	local_ai_mode = false
+	local_model = null
+	local_ai = null
+	current_snapshot.clear()
+	updater.set_safe_to_update(true)
+	_clear_screen()
+	root_background = _make_background()
+	var backdrop := MenuBackdrop.new()
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root_background.add_child(backdrop)
+	var panel := PanelContainer.new()
+	panel.position = Vector2(140, 48)
+	panel.size = Vector2(1000, 624)
+	var panel_style := _panel_style(Color("#0f1119"), Color(0.55, 0.36, 0.96, 0.55), 20)
+	panel_style.content_margin_left = 38
+	panel_style.content_margin_right = 38
+	panel_style.content_margin_top = 30
+	panel_style.content_margin_bottom = 30
+	panel.add_theme_stylebox_override("panel", panel_style)
+	root_background.add_child(panel)
+	var stage_column := VBoxContainer.new()
+	stage_column.add_theme_constant_override("separation", 14)
+	panel.add_child(stage_column)
+	var title := Label.new()
+	title.text = "AI 대전 단계 선택"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 34)
+	title.add_theme_color_override("font_color", Color("#f5f7fb"))
+	stage_column.add_child(title)
+	var subtitle := Label.new()
+	subtitle.text = "단계가 오를수록 AI의 병력, 자원 수급과 전술 속도가 강해집니다."
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.add_theme_font_size_override("font_size", 14)
+	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
+	stage_column.add_child(subtitle)
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	stage_column.add_child(grid)
+	for stage in range(ServerAI.MIN_STAGE, ServerAI.MAX_STAGE + 1):
+		var intensity := float(stage - 1) / 9.0
+		var color := Color("#5b8cff").lerp(Color("#ff627d"), intensity)
+		var stage_button := _styled_button(
+			"%02d단계  ·  %s\n%s" % [stage, ServerAI.stage_name(stage), ServerAI.stage_summary(stage)],
+			color,
+			stage == current_ai_stage
+		)
+		stage_button.custom_minimum_size = Vector2(174, 148)
+		stage_button.add_theme_font_size_override("font_size", 14)
+		stage_button.pressed.connect(_start_local_ai_battle.bind(stage))
+		grid.add_child(stage_button)
+	var back_button := _styled_button("메인 화면으로", Color("#596174"), false)
+	back_button.custom_minimum_size.y = 48
+	back_button.pressed.connect(_build_connect_screen)
+	stage_column.add_child(back_button)
 
 func _styled_button(text_value: String, color: Color, filled: bool = false) -> Button:
 	var button := Button.new()
@@ -305,11 +383,14 @@ func _on_match_found(side: int) -> void:
 		print("CLIENT_MATCH_FOUND side=%d" % side)
 		network.send_spawn("swordsman")
 
-func _start_local_ai_battle() -> void:
+func _start_local_ai_battle(stage: int = 1) -> void:
 	local_ai_mode = true
+	current_ai_stage = clampi(stage, ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
 	own_side = 0
 	local_model = BattleModel.new()
-	local_ai = ServerAI.new(1)
+	local_model.resources[1] = min(BattleModel.MAX_RESOURCE, 35.0 + float(current_ai_stage) * 10.0)
+	local_model.base_hp[1] = 300.0 + float(current_ai_stage) * 20.0
+	local_ai = ServerAI.new(1, current_ai_stage)
 	_build_battle_screen()
 	if ai_smoke_mode:
 		local_model.spawn_unit(0, "swordsman")
@@ -351,7 +432,7 @@ func _build_battle_screen() -> void:
 	timer_label.add_theme_color_override("font_color", Color("#f5f7fb"))
 	timer_inner.add_child(timer_label)
 	var mode_label := Label.new()
-	mode_label.text = "AI TRAINING" if local_ai_mode else "ONLINE MATCH"
+	mode_label.text = "AI STAGE %02d" % current_ai_stage if local_ai_mode else "ONLINE MATCH"
 	mode_label.position = Vector2(0, 39)
 	mode_label.size = Vector2(220, 18)
 	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -653,33 +734,38 @@ func _show_result(winner: int) -> void:
 	result.add_theme_font_size_override("font_size", 52)
 	result.add_theme_color_override("font_color", result_color)
 	inner.add_child(result)
+	var advances := local_ai_mode and winner == own_side and current_ai_stage < ServerAI.MAX_STAGE
 	var note := Label.new()
-	note.text = "누르면 즉시 새로운 전투를 시작합니다." if local_ai_mode else "두 플레이어가 모두 준비하면 다시 시작합니다."
+	if local_ai_mode:
+		note.text = "%02d단계 승리 · 다음 단계로 이동합니다." % current_ai_stage if advances else "%02d단계 · 같은 단계에 다시 도전합니다." % current_ai_stage
+	else:
+		note.text = "두 플레이어가 모두 준비하면 다시 시작합니다."
 	note.position = Vector2(0, 157)
 	note.size = Vector2(580, 34)
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	note.add_theme_color_override("font_color", Color("#8f98ad"))
 	inner.add_child(note)
-	var rematch := _styled_button("재경기 준비", Color("#5e6ad2"), true)
+	var rematch_text := "다음 단계" if advances else ("다시 도전" if local_ai_mode else "재경기 준비")
+	var rematch := _styled_button(rematch_text, Color("#5e6ad2"), true)
 	rematch.position = Vector2(65, 218)
 	rematch.size = Vector2(215, 58)
 	rematch.pressed.connect(func():
 		rematch.disabled = true
 		if local_ai_mode:
-			updater.set_safe_to_update(false)
-			local_model.reset()
-			local_ai = ServerAI.new(1)
-			_dismiss_result_overlay()
+			_start_local_ai_battle(current_ai_stage + 1 if advances else current_ai_stage)
 		else:
 			rematch.text = "상대 준비 대기 중"
 			network.send_rematch()
 	)
 	inner.add_child(rematch)
-	var back := _styled_button("이전 화면으로", Color("#697386"), false)
+	var back := _styled_button("단계 선택" if local_ai_mode else "이전 화면으로", Color("#697386"), false)
 	back.name = "BackToMenuButton"
 	back.position = Vector2(300, 218)
 	back.size = Vector2(215, 58)
-	back.pressed.connect(_exit_battle_to_menu)
+	if local_ai_mode:
+		back.pressed.connect(_build_ai_stage_screen)
+	else:
+		back.pressed.connect(_exit_battle_to_menu)
 	inner.add_child(back)
 
 func _dismiss_result_overlay() -> void:

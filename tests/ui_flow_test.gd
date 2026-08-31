@@ -38,15 +38,15 @@ func run() -> void:
 	main.local_model.winner = 0
 	main._on_snapshot(main.local_model.snapshot())
 	await process_frame
-	var back_button := find_button(main, "이전 화면")
-	expect_true(back_button != null, "AI result overlay provides a previous-screen button")
+	var back_button := find_button(main, "단계 선택")
+	expect_true(back_button != null, "AI result overlay provides a stage-selection button")
 	expect_true(main.has_method("_exit_battle_to_menu"), "result flow exposes a menu return action")
 	if back_button != null:
 		back_button.pressed.emit()
 		await process_frame
 		await process_frame
-		expect_true(find_button(main, "AI 훈련장") != null, "AI result back action returns to the mode menu")
-		expect_true(not main.battle_active and not main.local_ai_mode, "AI result back action clears battle state")
+		expect_true(find_button(main, "01단계") != null, "AI result back action returns to stage selection")
+		expect_true(not main.battle_active and not main.local_ai_mode, "AI stage-selection action clears battle state")
 
 	main._on_match_found(0)
 	await process_frame
