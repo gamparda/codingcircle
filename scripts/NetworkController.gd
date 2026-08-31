@@ -4,6 +4,7 @@ extends Node
 signal connection_status(text: String)
 signal match_found(side: int)
 signal snapshot_received(data: Dictionary)
+signal combat_events_received(events: Array)
 signal opponent_disconnected
 
 const DEFAULT_PORT := 7777
@@ -19,7 +20,7 @@ const EARLY_DISCONNECT_WINDOW_MSEC := 60000
 const QUICK_DISCONNECT_MSEC := 15000
 const ABUSE_BLOCK_MSEC := 120000
 const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer"]
-const VALID_STRUCTURE_KINDS := ["wall", "jump_pad", "swamp"]
+const VALID_STRUCTURE_KINDS := ["wall", "jump_pad", "swamp", "turret", "generator"]
 
 var registry := MatchRegistry.new()
 var models: Dictionary = {}
@@ -36,6 +37,9 @@ var peer_connected_msec: Dictionary = {}
 var early_disconnect_events: Dictionary = {}
 var address_blocked_until: Dictionary = {}
 var server_forced_disconnects: Dictionary = {}
+var peer_decks: Dictionary = {}
+var client_unit_deck: Array = BattleModel.DEFAULT_UNIT_DECK.duplicate()
+var client_structure_deck: Array = BattleModel.DEFAULT_STRUCTURE_DECK.duplicate()
 var client_connection_state := "idle"
 var client_connection_candidates: Array = []
 var client_connection_index := -1
@@ -60,7 +64,18 @@ static func connection_candidates(primary_address: String, fallback_address: Str
 
 func _on_connected_to_server() -> void:
 	client_connection_state = "connected"
-	connection_status.emit("서버에 연결됨 · 상대를 찾는 중...")
+	connection_status.emit("서버에 연결됨 · 덱 검증 중...")
+	request_submit_deck.rpc_id(1, client_unit_deck, client_structure_deck)
+
+static func validate_deck_payload(unit_deck: Array, structure_deck: Array) -> bool:
+	return BattleModel._valid_deck(unit_deck, BattleModel.UNIT_STATS) and BattleModel._valid_deck(structure_deck, BattleModel.STRUCTURE_STATS)
+
+func set_client_deck(unit_deck: Array, structure_deck: Array) -> bool:
+	if not validate_deck_payload(unit_deck, structure_deck):
+		return false
+	client_unit_deck = unit_deck.duplicate()
+	client_structure_deck = structure_deck.duplicate()
+	return true
 
 func _on_connection_failed() -> void:
 	if _retry_next_connection_candidate():
@@ -329,8 +344,12 @@ func _process(delta: float) -> void:
 	tick_accumulator += delta
 	snapshot_accumulator += delta
 	while tick_accumulator >= TICK_RATE:
-		for model in models.values():
+		for match_id in models.keys():
+			var model: BattleModel = models[match_id]
 			model.tick(TICK_RATE)
+			var events := model.drain_combat_events()
+			if not events.is_empty():
+				_broadcast_combat_events(int(match_id), events)
 		tick_accumulator -= TICK_RATE
 	if snapshot_accumulator >= SNAPSHOT_RATE:
 		for match_id in models.keys():
@@ -349,11 +368,18 @@ func _on_peer_connected(peer_id: int) -> void:
 		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(peer_id)
 		return
 	print("PLAYER_CONNECTED peer=%d" % peer_id)
+	# Matching starts only after the authoritative server validates a 3+3 deck.
+
+func _queue_validated_player(peer_id: int) -> void:
 	var paired := registry.add_player(peer_id)
 	if paired.is_empty():
 		return
 	var match_id := registry.get_match_id(peer_id)
-	models[match_id] = BattleModel.new()
+	var model := BattleModel.new()
+	for player_id in paired.keys():
+		var deck: Dictionary = peer_decks[int(player_id)]
+		model.configure_deck(int(paired[player_id]), deck.units, deck.structures)
+	models[match_id] = model
 	rematch_ready[match_id] = {}
 	for player_id in paired.keys():
 		match_started.rpc_id(int(player_id), int(paired[player_id]))
@@ -375,9 +401,25 @@ func _on_peer_disconnected(peer_id: int) -> void:
 		record_early_disconnect(address, now)
 	models.erase(match_id)
 	rematch_ready.erase(match_id)
+	peer_decks.erase(peer_id)
 	request_windows.erase(peer_id)
 	release_peer_address(peer_id)
 	print("PLAYER_DISCONNECTED peer=%d" % peer_id)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_submit_deck(unit_deck: Array, structure_deck: Array) -> void:
+	if not server_mode:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if peer_decks.has(sender) or not can_process_request(sender):
+		return
+	if not validate_deck_payload(unit_deck, structure_deck):
+		print("PLAYER_REJECTED_DECK peer=%d" % sender)
+		mark_server_forced_disconnect(sender)
+		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(sender)
+		return
+	peer_decks[sender] = {"units": unit_deck.duplicate(), "structures": structure_deck.duplicate()}
+	_queue_validated_player(sender)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_spawn(kind: String) -> void:
@@ -390,7 +432,9 @@ func request_spawn(kind: String) -> void:
 		return
 	var match_id := registry.get_match_id(sender)
 	if models.has(match_id):
-		models[match_id].spawn_unit(registry.get_side(sender), kind)
+		var side := registry.get_side(sender)
+		if models[match_id].unit_decks[side].has(kind):
+			models[match_id].spawn_unit(side, kind)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_place_structure(kind: String, x: float) -> void:
@@ -403,7 +447,9 @@ func request_place_structure(kind: String, x: float) -> void:
 		return
 	var match_id := registry.get_match_id(sender)
 	if models.has(match_id):
-		models[match_id].place_structure(registry.get_side(sender), kind, clamp(x, 0.0, 1280.0))
+		var side := registry.get_side(sender)
+		if models[match_id].structure_decks[side].has(kind):
+			models[match_id].place_structure(side, kind, clamp(x, 0.0, 1280.0))
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_rematch() -> void:
@@ -445,6 +491,11 @@ func _broadcast_snapshot(match_id: int) -> void:
 		if _peer_is_connected(int(player_id)):
 			receive_snapshot.rpc_id(int(player_id), data)
 
+func _broadcast_combat_events(match_id: int, events: Array) -> void:
+	for player_id in registry.matches.get(match_id, []):
+		if _peer_is_connected(int(player_id)):
+			receive_combat_events.rpc_id(int(player_id), events)
+
 @rpc("authority", "call_remote", "reliable")
 func match_started(side: int) -> void:
 	if is_valid_match_side(side):
@@ -455,6 +506,11 @@ func match_started(side: int) -> void:
 func receive_snapshot(data: Dictionary) -> void:
 	if is_valid_snapshot(data):
 		snapshot_received.emit(data)
+
+@rpc("authority", "call_remote", "unreliable_ordered")
+func receive_combat_events(events: Array) -> void:
+	if events.size() <= 128:
+		combat_events_received.emit(events)
 
 @rpc("authority", "call_remote", "reliable")
 func opponent_left() -> void:

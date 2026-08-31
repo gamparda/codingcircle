@@ -49,6 +49,10 @@ var own_side := 0
 var selected_structure := ""
 var mouse_position := Vector2.ZERO
 var animation_time := 0.0
+var visual_events: Array = []
+var show_damage_numbers := true
+var show_battle_effects := true
+var effect_intensity := 0.65
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -58,10 +62,40 @@ func set_snapshot(data: Dictionary) -> void:
 	snapshot = data
 	queue_redraw()
 
+func push_combat_events(events: Array) -> void:
+	for event in events:
+		if event is Dictionary:
+			var visual: Dictionary = event.duplicate(true)
+			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else 0.7
+			visual_events.append(visual)
+	queue_redraw()
+
+func placement_error(kind: String, world_x: float) -> String:
+	var valid_zone := (own_side == 0 and world_x >= BattleModel.BLUE_BUILD_MIN and world_x <= BattleModel.BLUE_BUILD_MAX) or (own_side == 1 and world_x >= BattleModel.RED_BUILD_MIN and world_x <= BattleModel.RED_BUILD_MAX)
+	if not valid_zone:
+		return "자신의 건설 구역에만 설치할 수 있습니다."
+	if kind == "generator" and not ((own_side == 0 and world_x <= BattleModel.BLUE_REAR_MAX) or (own_side == 1 and world_x >= BattleModel.RED_REAR_MIN)):
+		return "발전기는 후방에만 설치할 수 있습니다."
+	for structure in snapshot.get("structures", []):
+		if abs(float(structure.x) - world_x) < BattleModel.STRUCTURE_MIN_SPACING:
+			return "구조물이 너무 가깝습니다."
+	var owned: Array = snapshot.get("structures", []).filter(func(structure): return int(structure.side) == own_side)
+	if owned.size() >= BattleModel.STRUCTURE_LIMIT:
+		return "구조물은 최대 3개까지 설치할 수 있습니다."
+	var same_count := owned.filter(func(structure): return String(structure.kind) == kind).size()
+	if kind in ["turret", "generator"] and same_count >= 1:
+		return ("포탑" if kind == "turret" else "발전기") + "은 1개만 설치할 수 있습니다."
+	if kind == "wall" and same_count >= 2:
+		return "방벽은 2개만 설치할 수 있습니다."
+	return ""
+
 func _process(delta: float) -> void:
 	animation_time += delta
+	for event in visual_events:
+		event.life = float(event.life) - delta
+	visual_events = visual_events.filter(func(event): return float(event.life) > 0.0)
 	mouse_position = get_local_mouse_position()
-	if not selected_structure.is_empty() or not snapshot.get("units", []).is_empty():
+	if not selected_structure.is_empty() or not snapshot.get("units", []).is_empty() or not visual_events.is_empty():
 		queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
@@ -81,6 +115,8 @@ func _draw() -> void:
 		_draw_structure(structure, scale_x, lane_y)
 	for unit in snapshot.get("units", []):
 		_draw_unit(unit, scale_x, lane_y)
+	if show_battle_effects or show_damage_numbers:
+		_draw_combat_events(scale_x, lane_y)
 
 	if not selected_structure.is_empty():
 		_draw_build_preview(lane_y)
@@ -222,14 +258,49 @@ func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> vo
 				Vector2(x - 8.0, lane_y - 18.0), Vector2(x + 1.0, lane_y - 35.0), Vector2(x + 10.0, lane_y - 18.0)
 			]), Color("#fff0b8"))
 		"swamp":
+			draw_circle(Vector2(x, lane_y - 4.0), float(BattleModel.STRUCTURE_STATS.swamp.radius) * scale_x, Color(0.42, 0.28, 0.70, 0.10))
+			draw_arc(Vector2(x, lane_y - 4.0), float(BattleModel.STRUCTURE_STATS.swamp.radius) * scale_x, 0.0, TAU, 48, Color(0.62, 0.47, 0.86, 0.35), 1.0)
 			draw_ellipse(Vector2(x, lane_y - 4.0), 64.0, 16.0, Color("#392f59"))
 			draw_ellipse(Vector2(x - 12.0, lane_y - 7.0), 38.0, 8.0, Color("#7256a5"))
 			for bubble in [Vector2(-31, -16), Vector2(16, -19), Vector2(35, -12)]:
 				draw_circle(Vector2(x, lane_y) + bubble, 4.0, Color(0.62, 0.47, 0.86, 0.56))
+		"turret":
+			draw_rect(Rect2(x - 24.0, lane_y - 38.0, 48.0, 38.0), Color("#303847"))
+			draw_circle(Vector2(x, lane_y - 43.0), 20.0, color.darkened(0.18))
+			var facing := 1.0 if side == 0 else -1.0
+			draw_line(Vector2(x, lane_y - 45.0), Vector2(x + 38.0 * facing, lane_y - 52.0), Color("#e8edf5"), 7.0)
+			if fmod(animation_time, 1.5) < 0.16:
+				draw_circle(Vector2(x + 41.0 * facing, lane_y - 53.0), 8.0, Color("#ffd36a"))
+		"generator":
+			draw_rect(Rect2(x - 27.0, lane_y - 58.0, 54.0, 58.0), Color("#263d3b"))
+			draw_rect(Rect2(x - 20.0, lane_y - 50.0, 40.0, 32.0), Color("#3d8f83"))
+			var pulse := 5.0 + sin(animation_time * 4.0) * 2.0
+			draw_circle(Vector2(x, lane_y - 34.0), pulse, Color("#8dffd8"))
+			draw_line(Vector2(x, lane_y - 58.0), Vector2(x, lane_y - 78.0), Color("#8dffd8"), 2.0)
+
+func _draw_combat_events(scale_x: float, lane_y: float) -> void:
+	for event in visual_events:
+		var event_type := String(event.get("type", ""))
+		var x := float(event.get("x", 640.0)) * scale_x
+		var life := float(event.life)
+		if show_battle_effects:
+			if event_type in ["ATTACK", "DAMAGE", "BASE_HIT"]:
+				draw_circle(Vector2(x, lane_y - 55.0), 9.0 + life * 10.0, Color(1.0, 0.72, 0.28, life * effect_intensity))
+			elif event_type == "HEAL":
+				draw_circle(Vector2(x, lane_y - 60.0), 18.0, Color(0.35, 1.0, 0.58, life * effect_intensity))
+			elif event_type in ["DEATH", "STRUCTURE_DESTROYED"]:
+				draw_circle(Vector2(x, lane_y - 35.0), 32.0 * (1.0 - life), Color(0.8, 0.84, 0.92, life * effect_intensity))
+			elif event_type == "JUMP":
+				draw_arc(Vector2(x, lane_y - 28.0), 34.0, PI, TAU, 24, Color(1.0, 0.82, 0.32, life), 4.0)
+		if show_damage_numbers and event_type in ["DAMAGE", "HEAL", "BASE_HIT"]:
+			var amount := int(event.get("amount", 0))
+			var text := "+%d" % amount if event_type == "HEAL" else "-%d" % amount
+			var color := Color("#75f0a4") if event_type == "HEAL" else Color("#ff8a96")
+			draw_string(ThemeDB.fallback_font, Vector2(x - 14.0, lane_y - 95.0 - (0.7 - life) * 34.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, color)
 
 func _draw_build_preview(lane_y: float) -> void:
 	var world_x: float = mouse_position.x / max(size.x, 1.0) * 1280.0
-	var valid: bool = (own_side == 0 and world_x >= BattleModel.BLUE_BUILD_MIN and world_x <= BattleModel.BLUE_BUILD_MAX) or (own_side == 1 and world_x >= BattleModel.RED_BUILD_MIN and world_x <= BattleModel.RED_BUILD_MAX)
+	var valid := placement_error(selected_structure, world_x).is_empty()
 
 	var build_color := Color(0.30, 0.94, 0.60, 0.24) if valid else Color(1.0, 0.30, 0.40, 0.24)
 	draw_circle(Vector2(mouse_position.x, lane_y - 28.0), 42.0, build_color)

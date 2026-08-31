@@ -41,11 +41,17 @@ var update_progress_bar: ProgressBar
 var server_state_dir := ""
 var server_status_accumulator := 0.0
 var server_draining := false
+var save_data: Dictionary = {}
+var campaign_mode := false
+var result_recorded := false
+var placement_status_label: Label
+var structure_count_label: Label
 
 func _ready() -> void:
 	network.connection_status.connect(_on_connection_status)
 	network.match_found.connect(_on_match_found)
 	network.snapshot_received.connect(_on_snapshot)
+	network.combat_events_received.connect(_on_combat_events)
 	network.opponent_disconnected.connect(_on_opponent_left)
 	updater.update_started.connect(_on_update_started)
 	updater.update_status.connect(_on_update_status)
@@ -69,6 +75,8 @@ func _ready() -> void:
 		updater.set_safe_to_update(true)
 		updater.check_for_update()
 		return
+	save_data = SaveData.load_data()
+	_apply_settings()
 	_setup_bgm()
 	_build_connect_screen()
 	if args.has("--offline-ai") or ai_smoke_mode:
@@ -112,6 +120,7 @@ func _process(delta: float) -> void:
 	if local_ai_mode and battle_active and is_instance_valid(local_model):
 		local_ai.update(local_model, delta)
 		local_model.tick(delta)
+		_on_combat_events(local_model.drain_combat_events())
 		_on_snapshot(local_model.snapshot())
 	if smoke_mode or ai_smoke_mode:
 		smoke_elapsed += delta
@@ -168,6 +177,37 @@ func _clear_screen() -> void:
 	status_label = null
 	result_overlay = null
 	stats_overlay = null
+	placement_status_label = null
+	structure_count_label = null
+
+static func build_version() -> String:
+	var file := FileAccess.open("res://build_info.json", FileAccess.READ)
+	if file == null:
+		return "0.4.0"
+	var data = JSON.parse_string(file.get_as_text())
+	return String(data.get("version", "0.4.0")) if data is Dictionary else "0.4.0"
+
+func _active_preset() -> Dictionary:
+	return save_data.deck_presets[clampi(int(save_data.last_deck), 0, 2)]
+
+func _apply_settings() -> void:
+	var settings: Dictionary = save_data.settings
+	for pair in [["Master", settings.master_volume], ["BGM", settings.bgm_volume], ["SFX", settings.sfx_volume]]:
+		var bus_index: int = AudioServer.get_bus_index(String(pair[0]))
+		if bus_index >= 0:
+			AudioServer.set_bus_volume_db(bus_index, linear_to_db(max(float(pair[1]), 0.001)))
+	var master_bus := AudioServer.get_bus_index("Master")
+	if master_bus >= 0:
+		AudioServer.set_bus_mute(master_bus, bool(settings.muted))
+	Engine.max_fps = clampi(int(settings.fps_limit), 30, 240)
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if settings.vsync else DisplayServer.VSYNC_DISABLED)
+	if bool(settings.fullscreen):
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	else:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		var parts := String(settings.window_size).split("x")
+		if parts.size() == 2:
+			DisplayServer.window_set_size(Vector2i(int(parts[0]), int(parts[1])))
 
 func _make_background() -> ColorRect:
 	var bg := ColorRect.new()
@@ -185,8 +225,8 @@ func _build_connect_screen(message: String = "") -> void:
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root_background.add_child(backdrop)
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(600, 570)
-	panel.position = Vector2(340, 70)
+	panel.custom_minimum_size = Vector2(680, 674)
+	panel.position = Vector2(300, 23)
 	root_background.add_child(panel)
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color("#0f1119")
@@ -198,17 +238,17 @@ func _build_connect_screen(message: String = "") -> void:
 	style.corner_radius_bottom_right = 22
 	style.content_margin_left = 48
 	style.content_margin_right = 48
-	style.content_margin_top = 32
-	style.content_margin_bottom = 30
+	style.content_margin_top = 20
+	style.content_margin_bottom = 18
 	style.shadow_color = Color(0.0, 0.0, 0.0, 0.45)
 	style.shadow_size = 24
 	panel.add_theme_stylebox_override("panel", style)
 
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 12)
+	column.add_theme_constant_override("separation", 8)
 	panel.add_child(column)
 	var badge := Label.new()
-	badge.text = "  ✦  BATTLEFIELD PROTOCOL  ·  v0.2  "
+	badge.text = "  ✦  BATTLEFIELD PROTOCOL  ·  v%s  " % build_version()
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	badge.add_theme_font_size_override("font_size", 12)
 	badge.add_theme_color_override("font_color", Color("#8f98ad"))
@@ -216,7 +256,7 @@ func _build_connect_screen(message: String = "") -> void:
 	var title := Label.new()
 	title.text = "CAT  WAR"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 50)
+	title.add_theme_font_size_override("font_size", 42)
 	title.add_theme_color_override("font_color", Color("#f5f7fb"))
 	column.add_child(title)
 	var subtitle := Label.new()
@@ -246,6 +286,8 @@ func _build_connect_screen(message: String = "") -> void:
 	connect_button_ref = connect_button
 	connect_button.pressed.connect(func():
 		connect_button.disabled = true
+		var preset := _active_preset()
+		network.set_client_deck(preset.units, preset.structures)
 		network.connect_to_candidates(official_connection_candidates(IP.get_local_addresses()), OFFICIAL_SERVER_PORT)
 	)
 	column.add_child(connect_button)
@@ -255,11 +297,27 @@ func _build_connect_screen(message: String = "") -> void:
 	or_label.add_theme_color_override("font_color", Color("#454b5a"))
 	or_label.add_theme_font_size_override("font_size", 12)
 	column.add_child(or_label)
-	var ai_button := _styled_button("AI 대전  ·  1단계부터 10단계", Color("#8b5cf6"), false)
-	ai_button.pressed.connect(_build_ai_stage_screen)
-	column.add_child(ai_button)
+	var ai_row := HBoxContainer.new()
+	ai_row.add_theme_constant_override("separation", 8)
+	column.add_child(ai_row)
+	var campaign_button := _styled_button("AI 캠페인", Color("#8b5cf6"), false)
+	campaign_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	campaign_button.pressed.connect(_build_ai_stage_screen.bind(true))
+	ai_row.add_child(campaign_button)
+	var practice_button := _styled_button("AI 연습", Color("#6d5bd0"), false)
+	practice_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	practice_button.pressed.connect(_build_ai_stage_screen.bind(false))
+	ai_row.add_child(practice_button)
+	var management_row := HBoxContainer.new()
+	management_row.add_theme_constant_override("separation", 8)
+	column.add_child(management_row)
+	for entry in [["덱 편성", _build_deck_screen], ["전적", _build_records_screen], ["설정", _build_settings_screen], ["종료", _quit_game]]:
+		var menu_button := _styled_button(entry[0], Color("#3d8f83"), false)
+		menu_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		menu_button.pressed.connect(entry[1])
+		management_row.add_child(menu_button)
 	status_label = Label.new()
-	status_label.text = message if not message.is_empty() else "온라인은 전용 서버 매칭  ·  AI 대전은 인터넷 없이 작동합니다"
+	status_label.text = message if not message.is_empty() else "선택 덱: %s  ·  온라인은 전용 서버 권한형  ·  AI는 완전 오프라인" % _active_preset().name
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_label.add_theme_font_size_override("font_size", 13)
@@ -267,6 +325,9 @@ func _build_connect_screen(message: String = "") -> void:
 	column.add_child(status_label)
 	updater.set_safe_to_update(true)
 	updater.check_for_update()
+
+func _quit_game() -> void:
+	get_tree().quit()
 
 func _setup_bgm() -> void:
 	if DisplayServer.get_name() == "headless" or is_instance_valid(bgm_player):
@@ -277,12 +338,14 @@ func _setup_bgm() -> void:
 	stream.loop_end = int(stream.get_length() * float(stream.mix_rate))
 	bgm_player = AudioStreamPlayer.new()
 	bgm_player.name = "BattleBGM"
+	bgm_player.bus = &"BGM"
 	bgm_player.stream = stream
-	bgm_player.volume_db = -9.0
+	bgm_player.volume_db = 0.0
 	add_child(bgm_player)
 	bgm_player.play()
 
-func _build_ai_stage_screen() -> void:
+func _build_ai_stage_screen(as_campaign: bool = false) -> void:
+	campaign_mode = as_campaign
 	battle_active = false
 	result_shown = false
 	local_ai_mode = false
@@ -309,13 +372,13 @@ func _build_ai_stage_screen() -> void:
 	stage_column.add_theme_constant_override("separation", 14)
 	panel.add_child(stage_column)
 	var title := Label.new()
-	title.text = "AI 대전 단계 선택"
+	title.text = "AI 캠페인" if campaign_mode else "AI 연습"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 34)
 	title.add_theme_color_override("font_color", Color("#f5f7fb"))
 	stage_column.add_child(title)
 	var subtitle := Label.new()
-	subtitle.text = "단계가 오를수록 AI의 병력, 자원 수급과 전술 속도가 강해집니다."
+	subtitle.text = "승리하여 다음 단계를 해금하고 별과 기록을 남기세요." if campaign_mode else "진행도와 무관하게 원하는 AI 단계와 즉시 대전합니다."
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", 14)
 	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
@@ -328,19 +391,184 @@ func _build_ai_stage_screen() -> void:
 	for stage in range(ServerAI.MIN_STAGE, ServerAI.MAX_STAGE + 1):
 		var intensity := float(stage - 1) / 9.0
 		var color := Color("#5b8cff").lerp(Color("#ff627d"), intensity)
+		var record: Dictionary = save_data.campaign_records[stage - 1]
+		var stars := "★".repeat(int(record.best_stars)) + "☆".repeat(3 - int(record.best_stars))
+		var locked := campaign_mode and stage > int(save_data.campaign_unlocked)
 		var stage_button := _styled_button(
-			"%02d단계  ·  %s\n%s" % [stage, ServerAI.stage_name(stage), ServerAI.stage_summary(stage)],
+			"%02d  %s  %s\n%s" % [stage, ServerAI.stage_name(stage), "🔒" if locked else stars, ServerAI.stage_summary(stage)],
 			color,
 			stage == current_ai_stage
 		)
 		stage_button.custom_minimum_size = Vector2(174, 148)
 		stage_button.add_theme_font_size_override("font_size", 14)
+		stage_button.disabled = locked
 		stage_button.pressed.connect(_start_local_ai_battle.bind(stage))
 		grid.add_child(stage_button)
 	var back_button := _styled_button("메인 화면으로", Color("#596174"), false)
 	back_button.custom_minimum_size.y = 48
 	back_button.pressed.connect(_build_connect_screen)
 	stage_column.add_child(back_button)
+
+func _submenu(title_text: String, subtitle_text: String) -> VBoxContainer:
+	battle_active = false
+	_clear_screen()
+	root_background = _make_background()
+	var panel := PanelContainer.new()
+	panel.position = Vector2(110, 35)
+	panel.size = Vector2(1060, 650)
+	var style := _panel_style(Color("#0f1119"), Color(0.36, 0.55, 0.70, 0.5), 18)
+	style.content_margin_left = 32
+	style.content_margin_right = 32
+	style.content_margin_top = 24
+	style.content_margin_bottom = 24
+	panel.add_theme_stylebox_override("panel", style)
+	root_background.add_child(panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	panel.add_child(column)
+	var title := Label.new()
+	title.text = title_text
+	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", Color("#f5f7fb"))
+	column.add_child(title)
+	var subtitle := Label.new()
+	subtitle.text = subtitle_text
+	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
+	column.add_child(subtitle)
+	return column
+
+func _build_deck_screen(preset_index: int = -1) -> void:
+	var index := int(save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, 2)
+	var column := _submenu("덱 편성", "유닛 4종 중 3종, 구조물 5종 중 3종을 선택합니다. 온라인에서도 서버가 이 덱을 검증합니다.")
+	var tabs := HBoxContainer.new()
+	column.add_child(tabs)
+	for tab_index in 3:
+		var tab := _styled_button(String(save_data.deck_presets[tab_index].name), Color("#5e6ad2"), tab_index == index)
+		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tab.pressed.connect(_build_deck_screen.bind(tab_index))
+		tabs.add_child(tab)
+	var name_edit := LineEdit.new()
+	name_edit.text = String(save_data.deck_presets[index].name)
+	name_edit.placeholder_text = "프리셋 이름"
+	column.add_child(name_edit)
+	var selected: Dictionary = save_data.deck_presets[index]
+	var unit_buttons := {}
+	var structure_buttons := {}
+	var unit_row := HBoxContainer.new()
+	unit_row.add_theme_constant_override("separation", 8)
+	column.add_child(unit_row)
+	var unit_names := {"shield": "탱커", "swordsman": "검사", "archer": "궁수", "healer": "마법사"}
+	for kind in BattleModel.UNIT_STATS.keys():
+		var stats: Dictionary = BattleModel.UNIT_STATS[kind]
+		var role := "회복/지원" if kind == "healer" else "원거리" if kind == "archer" else "방어" if kind == "shield" else "근접 공격"
+		var card := _styled_button("%s\n비용 %d · HP %d · 공격 %d\nDPS %.1f · 사거리 %d · %s" % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), float(stats.damage) / float(stats.interval), int(stats.range), role], Color("#5b8cff"), false)
+		card.toggle_mode = true
+		card.button_pressed = selected.units.has(kind)
+		card.custom_minimum_size = Vector2(240, 105)
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		unit_buttons[kind] = card
+		unit_row.add_child(card)
+	var structure_grid := GridContainer.new()
+	structure_grid.columns = 5
+	structure_grid.add_theme_constant_override("h_separation", 8)
+	column.add_child(structure_grid)
+	var structure_names := {"wall": "방벽", "jump_pad": "점프대", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
+	var roles := {"wall": "뒤 대상을 차폐 · 최대 2", "jump_pad": "유닛별 1회 +165 이동", "swamp": "반경 95 · 이동 45%", "turret": "유닛만 공격 · 최대 1", "generator": "후방 전용 · 초당 +1"}
+	for kind in BattleModel.STRUCTURE_STATS.keys():
+		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
+		var card := _styled_button("%s\n비용 %d · HP %d\n%s" % [structure_names[kind], int(stats.cost), int(stats.hp), roles[kind]], Color("#3d8f83"), false)
+		card.toggle_mode = true
+		card.button_pressed = selected.structures.has(kind)
+		card.custom_minimum_size = Vector2(190, 92)
+		structure_buttons[kind] = card
+		structure_grid.add_child(card)
+	var status := Label.new()
+	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status.add_theme_color_override("font_color", Color("#ff8a96"))
+	column.add_child(status)
+	var actions := HBoxContainer.new()
+	column.add_child(actions)
+	var save_button := _styled_button("덱 저장 및 사용", Color("#5e6ad2"), true)
+	save_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_button.pressed.connect(func():
+		var selected_units: Array = []
+		var selected_structures: Array = []
+		for kind in unit_buttons:
+			if unit_buttons[kind].button_pressed: selected_units.append(kind)
+		for kind in structure_buttons:
+			if structure_buttons[kind].button_pressed: selected_structures.append(kind)
+		if not NetworkController.validate_deck_payload(selected_units, selected_structures):
+			status.text = "유닛과 구조물을 각각 정확히 3종 선택해야 합니다."
+			return
+		save_data.deck_presets[index] = {"name": name_edit.text.strip_edges().left(20) if not name_edit.text.strip_edges().is_empty() else "덱 %d" % (index + 1), "units": selected_units, "structures": selected_structures}
+		save_data.last_deck = index
+		SaveData.save_data(save_data)
+		_build_connect_screen("덱을 저장했습니다.")
+	)
+	actions.add_child(save_button)
+	var back := _styled_button("취소", Color("#697386"), false)
+	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	back.pressed.connect(_build_connect_screen)
+	actions.add_child(back)
+
+func _build_records_screen() -> void:
+	var column := _submenu("개인 전적", "user:// 로컬 기록이며 공식 랭킹이나 경쟁 기록으로 사용하지 않습니다.")
+	var stats: Dictionary = save_data.stats
+	var online_rate := 0.0 if int(stats.online_completed) == 0 else float(stats.online_wins) / float(stats.online_completed) * 100.0
+	var summary := Label.new()
+	summary.text = "AI  ·  경기 %d  /  승 %d  /  패 %d  /  최고 캠페인 %02d  /  별 %d\n\n온라인  ·  완료 %d  /  승 %d  /  패 %d  /  무 %d  /  중단 %d  /  승률 %.1f%%" % [stats.ai_matches, stats.ai_wins, stats.ai_losses, stats.highest_campaign, stats.total_stars, stats.online_completed, stats.online_wins, stats.online_losses, stats.online_draws, stats.online_interrupted, online_rate]
+	summary.add_theme_font_size_override("font_size", 20)
+	column.add_child(summary)
+	var records := Label.new()
+	var lines: Array = []
+	for stage in 10:
+		var record: Dictionary = save_data.campaign_records[stage]
+		lines.append("%02d %-5s  %s  도전 %d / 승 %d  최단 %.1f초  최고 기지 HP %d" % [stage + 1, ServerAI.stage_name(stage + 1), "★".repeat(record.best_stars) + "☆".repeat(3 - record.best_stars), record.attempts, record.wins, record.fastest_win, int(record.best_base_hp)])
+	records.text = "\n".join(lines)
+	records.add_theme_font_size_override("font_size", 16)
+	column.add_child(records)
+	var back := _styled_button("메인 화면으로", Color("#697386"), false)
+	back.pressed.connect(_build_connect_screen)
+	column.add_child(back)
+
+func _build_settings_screen() -> void:
+	var column := _submenu("설정", "오디오 · 화면 · 전투 연출 설정은 즉시 저장됩니다.")
+	var settings: Dictionary = save_data.settings
+	var controls := GridContainer.new()
+	controls.columns = 2
+	column.add_child(controls)
+	var master := HSlider.new(); master.min_value = 0.0; master.max_value = 1.0; master.step = 0.05; master.value = settings.master_volume
+	var bgm := HSlider.new(); bgm.min_value = 0.0; bgm.max_value = 1.0; bgm.step = 0.05; bgm.value = settings.bgm_volume
+	var sfx := HSlider.new(); sfx.min_value = 0.0; sfx.max_value = 1.0; sfx.step = 0.05; sfx.value = settings.sfx_volume
+	for pair in [["전체 음량", master], ["BGM 음량", bgm], ["효과음 음량", sfx]]:
+		var label := Label.new(); label.text = pair[0]; controls.add_child(label); pair[1].custom_minimum_size.x = 600; controls.add_child(pair[1])
+	var muted := CheckButton.new(); muted.text = "음소거"; muted.button_pressed = settings.muted; column.add_child(muted)
+	var fullscreen := CheckButton.new(); fullscreen.text = "전체화면"; fullscreen.button_pressed = settings.fullscreen; column.add_child(fullscreen)
+	var vsync := CheckButton.new(); vsync.text = "VSync"; vsync.button_pressed = settings.vsync; column.add_child(vsync)
+	var window_size := OptionButton.new()
+	for option in ["1280x720", "1600x900", "1920x1080"]: window_size.add_item(option)
+	window_size.select(max(0, ["1280x720", "1600x900", "1920x1080"].find(String(settings.window_size))))
+	column.add_child(window_size)
+	var fps_limit := OptionButton.new()
+	for option in [30, 60, 120, 144, 240]: fps_limit.add_item("FPS 제한 %d" % option, option)
+	var fps_options := [30, 60, 120, 144, 240]
+	fps_limit.select(max(0, fps_options.find(int(settings.fps_limit))))
+	column.add_child(fps_limit)
+	var damage_numbers := CheckButton.new(); damage_numbers.text = "피해/회복 숫자"; damage_numbers.button_pressed = settings.damage_numbers; column.add_child(damage_numbers)
+	var shake := CheckButton.new(); shake.text = "화면 흔들림"; shake.button_pressed = settings.screen_shake; column.add_child(shake)
+	var effects := CheckButton.new(); effects.text = "전투 효과"; effects.button_pressed = settings.battle_effects; column.add_child(effects)
+	var intensity := HSlider.new(); intensity.min_value = 0.2; intensity.max_value = 1.0; intensity.step = 0.1; intensity.value = settings.effect_intensity; intensity.tooltip_text = "효과 강도"; column.add_child(intensity)
+	var save_button := _styled_button("설정 저장", Color("#5e6ad2"), true)
+	save_button.pressed.connect(func():
+		settings.master_volume = master.value; settings.bgm_volume = bgm.value; settings.sfx_volume = sfx.value
+		settings.muted = muted.button_pressed; settings.fullscreen = fullscreen.button_pressed; settings.vsync = vsync.button_pressed
+		settings.window_size = window_size.get_item_text(window_size.selected); settings.fps_limit = fps_limit.get_item_id(fps_limit.selected)
+		settings.damage_numbers = damage_numbers.button_pressed; settings.screen_shake = shake.button_pressed; settings.battle_effects = effects.button_pressed; settings.effect_intensity = intensity.value
+		SaveData.save_data(save_data); _apply_settings()
+		_build_connect_screen("설정을 저장했습니다.")
+	)
+	column.add_child(save_button)
+	var back := _styled_button("취소", Color("#697386"), false); back.pressed.connect(_build_connect_screen); column.add_child(back)
 
 func _styled_button(text_value: String, color: Color, filled: bool = false) -> Button:
 	var button := Button.new()
@@ -385,15 +613,21 @@ func _on_match_found(side: int) -> void:
 
 func _start_local_ai_battle(stage: int = 1) -> void:
 	local_ai_mode = true
+	result_recorded = false
 	current_ai_stage = clampi(stage, ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
 	own_side = 0
 	local_model = BattleModel.new()
+	var preset := _active_preset()
+	local_model.configure_deck(0, preset.units, preset.structures)
+	var ai_units := ["shield", "archer", "healer"] if current_ai_stage >= 5 else ["swordsman", "shield", "archer"]
+	var ai_structures := ["wall", "swamp", "turret"] if current_ai_stage >= 6 else ["wall", "jump_pad", "generator"]
+	local_model.configure_deck(1, ai_units, ai_structures)
 	local_model.resources[1] = min(BattleModel.MAX_RESOURCE, 35.0 + float(current_ai_stage) * 10.0)
 	local_model.base_hp[1] = 300.0 + float(current_ai_stage) * 20.0
 	local_ai = ServerAI.new(1, current_ai_stage)
 	_build_battle_screen()
 	if ai_smoke_mode:
-		local_model.spawn_unit(0, "swordsman")
+		local_model.spawn_unit(0, String(preset.units[0]))
 	_on_snapshot(local_model.snapshot())
 
 func _build_battle_screen() -> void:
@@ -451,8 +685,24 @@ func _build_battle_screen() -> void:
 	battle_view.position = Vector2(0, 88)
 	battle_view.size = Vector2(1280, 492)
 	battle_view.own_side = own_side
+	battle_view.show_damage_numbers = bool(save_data.settings.damage_numbers)
+	battle_view.show_battle_effects = bool(save_data.settings.battle_effects)
+	battle_view.effect_intensity = float(save_data.settings.effect_intensity)
 	battle_view.battlefield_clicked.connect(_on_battlefield_clicked)
 	root_background.add_child(battle_view)
+	placement_status_label = Label.new()
+	placement_status_label.position = Vector2(360, 548)
+	placement_status_label.size = Vector2(560, 28)
+	placement_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	placement_status_label.add_theme_color_override("font_color", Color("#ff8a96"))
+	root_background.add_child(placement_status_label)
+	structure_count_label = Label.new()
+	structure_count_label.position = Vector2(1030, 548)
+	structure_count_label.size = Vector2(220, 28)
+	structure_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	structure_count_label.text = "구조물 0 / 3"
+	structure_count_label.add_theme_color_override("font_color", Color("#a7afc0"))
+	root_background.add_child(structure_count_label)
 
 	var controls := ColorRect.new()
 	controls.color = Color("#0b0d13")
@@ -499,17 +749,20 @@ func _build_battle_screen() -> void:
 	row.size = Vector2(1058, 102)
 	row.add_theme_constant_override("separation", 8)
 	controls.add_child(row)
-	_add_spawn_button(row, "탱커", "shield", Color("#5b8cff"))
-	_add_spawn_button(row, "마법사", "healer", Color("#d8b85a"))
-	_add_spawn_button(row, "궁수", "archer", Color("#8b72df"))
-	_add_spawn_button(row, "검사", "swordsman", Color("#d56b5f"))
+	var preset := _active_preset()
+	var unit_names := {"shield": "탱커", "healer": "마법사", "archer": "궁수", "swordsman": "검사"}
+	var unit_colors := {"shield": Color("#5b8cff"), "healer": Color("#d8b85a"), "archer": Color("#8b72df"), "swordsman": Color("#d56b5f")}
+	for kind in preset.units:
+		_add_spawn_button(row, unit_names[kind], kind, unit_colors[kind])
 	var separator := VSeparator.new()
 	separator.modulate = Color(1.0, 1.0, 1.0, 0.10)
 	separator.custom_minimum_size.x = 5
 	row.add_child(separator)
-	_add_structure_button(row, "방벽\n35 자원", "wall", Color("#7c879d"))
-	_add_structure_button(row, "점프대\n30 자원", "jump_pad", Color("#e0a63d"))
-	_add_structure_button(row, "늪지대\n30 자원", "swamp", Color("#906bd1"))
+	var structure_names := {"wall": "방벽", "jump_pad": "점프대", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
+	var structure_colors := {"wall": Color("#7c879d"), "jump_pad": Color("#e0a63d"), "swamp": Color("#906bd1"), "turret": Color("#d56b5f"), "generator": Color("#3d8f83")}
+	for kind in preset.structures:
+		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
+		_add_structure_button(row, "%s\n%d 자원" % [structure_names[kind], int(stats.cost)], kind, structure_colors[kind])
 
 func _panel_style(background: Color, border: Color, radius: int) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
@@ -662,10 +915,18 @@ func _add_structure_button(row: HBoxContainer, title: String, kind: String, colo
 func _on_battlefield_clicked(world_x: float) -> void:
 	if not is_instance_valid(battle_view) or battle_view.selected_structure.is_empty():
 		return
+	var kind := battle_view.selected_structure
+	var error := local_model.structure_placement_error(own_side, kind, world_x) if local_ai_mode else battle_view.placement_error(kind, world_x)
+	if not error.is_empty():
+		if is_instance_valid(placement_status_label):
+			placement_status_label.text = error
+		return
 	if local_ai_mode:
-		local_model.place_structure(own_side, battle_view.selected_structure, world_x)
+		local_model.place_structure(own_side, kind, world_x)
 	else:
-		network.send_structure(battle_view.selected_structure, world_x)
+		network.send_structure(kind, world_x)
+	if is_instance_valid(placement_status_label):
+		placement_status_label.text = "설치 완료"
 	battle_view.selected_structure = ""
 
 func _on_snapshot(data: Dictionary) -> void:
@@ -684,6 +945,9 @@ func _on_snapshot(data: Dictionary) -> void:
 		get_tree().quit(0)
 	var resources: Array = data.get("resources", [0.0, 0.0])
 	var bases: Array = data.get("base_hp", [0.0, 0.0])
+	var own_structures: int = data.get("structures", []).filter(func(structure): return int(structure.side) == own_side).size()
+	if is_instance_valid(structure_count_label):
+		structure_count_label.text = "구조물 %d / 3" % own_structures
 	resource_label.text = "%d / 150" % int(resources[own_side])
 	blue_hp_bar.value = float(bases[0])
 	red_hp_bar.value = float(bases[1])
@@ -696,7 +960,17 @@ func _on_snapshot(data: Dictionary) -> void:
 		_show_result(winner)
 	elif winner == -1 and result_shown:
 		_dismiss_result_overlay()
+		result_recorded = false
 		updater.set_safe_to_update(false)
+
+func _on_combat_events(events: Array) -> void:
+	if is_instance_valid(battle_view) and not events.is_empty():
+		battle_view.push_combat_events(events)
+		if bool(save_data.settings.screen_shake) and events.any(func(event): return String(event.get("type", "")) == "BASE_HIT"):
+			var strength := 3.0 * float(save_data.settings.effect_intensity)
+			var tween := create_tween()
+			tween.tween_property(battle_view, "position", Vector2(strength, 88.0), 0.04)
+			tween.tween_property(battle_view, "position", Vector2.ZERO + Vector2(0.0, 88.0), 0.08)
 
 func _show_result(winner: int) -> void:
 	_dismiss_result_overlay()
@@ -704,6 +978,22 @@ func _show_result(winner: int) -> void:
 	result_shown = true
 	updater.set_safe_to_update(true)
 	updater.check_for_update()
+	var awarded_stars := 0
+	if not result_recorded:
+		result_recorded = true
+		if local_ai_mode:
+			if campaign_mode:
+				awarded_stars = SaveData.record_campaign(save_data, current_ai_stage, winner == own_side, float(current_snapshot.elapsed), float(current_snapshot.base_hp[own_side]))
+			else:
+				save_data.stats.ai_matches += 1
+				save_data.stats.ai_wins += 1 if winner == own_side else 0
+				save_data.stats.ai_losses += 0 if winner == own_side else 1
+		else:
+			save_data.stats.online_completed += 1
+			save_data.stats.online_wins += 1 if winner == own_side else 0
+			save_data.stats.online_losses += 1 if winner != own_side and winner != 2 else 0
+			save_data.stats.online_draws += 1 if winner == 2 else 0
+		SaveData.save_data(save_data)
 	var overlay := PanelContainer.new()
 	overlay.name = "ResultOverlay"
 	result_overlay = overlay
@@ -734,10 +1024,10 @@ func _show_result(winner: int) -> void:
 	result.add_theme_font_size_override("font_size", 52)
 	result.add_theme_color_override("font_color", result_color)
 	inner.add_child(result)
-	var advances := local_ai_mode and winner == own_side and current_ai_stage < ServerAI.MAX_STAGE
+	var advances := local_ai_mode and campaign_mode and winner == own_side and current_ai_stage < ServerAI.MAX_STAGE
 	var note := Label.new()
 	if local_ai_mode:
-		note.text = "%02d단계 승리 · 다음 단계로 이동합니다." % current_ai_stage if advances else "%02d단계 · 같은 단계에 다시 도전합니다." % current_ai_stage
+		note.text = "%02d단계 승리 · 최고 ★ %d · 다음 단계 해금" % [current_ai_stage, awarded_stars] if campaign_mode and winner == own_side else "%02d단계 결과가 개인 전적에 저장되었습니다." % current_ai_stage
 	else:
 		note.text = "두 플레이어가 모두 준비하면 다시 시작합니다."
 	note.position = Vector2(0, 157)
@@ -763,7 +1053,7 @@ func _show_result(winner: int) -> void:
 	back.position = Vector2(300, 218)
 	back.size = Vector2(215, 58)
 	if local_ai_mode:
-		back.pressed.connect(_build_ai_stage_screen)
+		back.pressed.connect(_build_ai_stage_screen.bind(campaign_mode))
 	else:
 		back.pressed.connect(_exit_battle_to_menu)
 	inner.add_child(back)
@@ -869,6 +1159,9 @@ func _on_update_failed(message: String) -> void:
 		update_progress_bar.value = 0.0
 
 func _on_opponent_left() -> void:
+	if battle_active and not result_shown and not save_data.is_empty():
+		save_data.stats.online_interrupted += 1
+		SaveData.save_data(save_data)
 	if multiplayer.multiplayer_peer is ENetMultiplayerPeer:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()

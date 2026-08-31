@@ -32,6 +32,14 @@ func run() -> void:
 	var main = scene.instantiate()
 	root.add_child(main)
 	await process_frame
+	expect_true(tree_text(main).contains("v0.4.0"), "main menu reads the v0.4.0 build version")
+	for required_button in ["온라인 아레나", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
+		expect_true(find_button(main, required_button) != null, "main menu exposes %s" % required_button)
+	main._build_deck_screen()
+	await process_frame
+	var deck_text := tree_text(main)
+	for required_card in ["탱커", "검사", "궁수", "마법사", "방벽", "점프대", "늪", "포탑", "발전기"]:
+		expect_true(deck_text.contains(required_card), "deck editor exposes %s" % required_card)
 
 	main._start_local_ai_battle()
 	await process_frame
@@ -45,7 +53,7 @@ func run() -> void:
 		back_button.pressed.emit()
 		await process_frame
 		await process_frame
-		expect_true(find_button(main, "01단계") != null, "AI result back action returns to stage selection")
+		expect_true(find_button(main, "01  입문") != null, "AI result back action returns to the practice stage selection")
 		expect_true(not main.battle_active and not main.local_ai_mode, "AI stage-selection action clears battle state")
 
 	main._on_match_found(0)

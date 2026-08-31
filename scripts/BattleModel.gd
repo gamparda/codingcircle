@@ -8,12 +8,15 @@ const MAX_RESOURCE := 150.0
 const RESOURCE_RATE := 8.0
 const BASE_MAX_HP := 500.0
 const STRUCTURE_LIMIT := 3
+const STRUCTURE_MIN_SPACING := 75.0
 const MATCH_LIMIT := 300.0
 const MIN_ATTACK_INTERVAL := 1.2
 const BLUE_BUILD_MIN := 180.0
 const BLUE_BUILD_MAX := 610.0
 const RED_BUILD_MIN := 670.0
 const RED_BUILD_MAX := 1100.0
+const BLUE_REAR_MAX := 350.0
+const RED_REAR_MIN := 930.0
 
 const UNIT_STATS := {
 	"shield": {"cost": 40.0, "hp": 400.0, "damage": 8.0, "interval": 1.5, "speed": 30.0, "range": 34.0},
@@ -21,12 +24,15 @@ const UNIT_STATS := {
 	"archer": {"cost": 45.0, "hp": 58.0, "damage": 15.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
 	"healer": {"cost": 45.0, "hp": 60.0, "damage": 9.0, "heal": 12.0, "interval": 1.6, "speed": 34.0, "range": 125.0},
 }
-
 const STRUCTURE_STATS := {
-	"wall": {"cost": 35.0, "hp": 170.0},
-	"jump_pad": {"cost": 30.0, "hp": 90.0, "x_shift": 125.0},
-	"swamp": {"cost": 30.0, "hp": 90.0, "speed_scale": 0.45},
+	"wall": {"cost": 35.0, "hp": 230.0, "max_count": 2},
+	"jump_pad": {"cost": 30.0, "hp": 95.0, "x_shift": 165.0},
+	"swamp": {"cost": 30.0, "hp": 100.0, "speed_scale": 0.45, "radius": 95.0},
+	"turret": {"cost": 50.0, "hp": 115.0, "damage": 8.0, "interval": 1.5, "range": 180.0, "max_count": 1},
+	"generator": {"cost": 50.0, "hp": 90.0, "income": 1.0, "max_count": 1},
 }
+const DEFAULT_UNIT_DECK := ["shield", "swordsman", "archer"]
+const DEFAULT_STRUCTURE_DECK := ["wall", "jump_pad", "swamp"]
 
 var resources: Array = [START_RESOURCE, START_RESOURCE]
 var base_hp: Array = [BASE_MAX_HP, BASE_MAX_HP]
@@ -38,6 +44,12 @@ var next_unit_id := 1
 var next_structure_id := 1
 var spawn_cooldowns: Array = [{}, {}]
 var jumped: Dictionary = {}
+var unit_decks: Array = [DEFAULT_UNIT_DECK.duplicate(), DEFAULT_UNIT_DECK.duplicate()]
+var structure_decks: Array = [DEFAULT_STRUCTURE_DECK.duplicate(), DEFAULT_STRUCTURE_DECK.duplicate()]
+var combat_events: Array = []
+var structure_cooldowns: Dictionary = {}
+var announced_deaths: Dictionary = {}
+var announced_structure_deaths: Dictionary = {}
 
 func reset() -> void:
 	resources = [START_RESOURCE, START_RESOURCE]
@@ -50,29 +62,43 @@ func reset() -> void:
 	next_structure_id = 1
 	spawn_cooldowns = [{}, {}]
 	jumped.clear()
+	combat_events.clear()
+	structure_cooldowns.clear()
+	announced_deaths.clear()
+	announced_structure_deaths.clear()
+
+static func _valid_deck(values: Array, allowed: Dictionary) -> bool:
+	if values.size() != 3:
+		return false
+	var unique := {}
+	for value in values:
+		var kind := String(value)
+		if not allowed.has(kind) or unique.has(kind):
+			return false
+		unique[kind] = true
+	return true
+
+func configure_deck(side: int, selected_units: Array, selected_structures: Array) -> bool:
+	if side < 0 or side > 1 or not _valid_deck(selected_units, UNIT_STATS) or not _valid_deck(selected_structures, STRUCTURE_STATS):
+		return false
+	unit_decks[side] = selected_units.duplicate()
+	structure_decks[side] = selected_structures.duplicate()
+	return true
 
 func spawn_unit(side: int, kind: String) -> bool:
-	if winner != -1 or side < 0 or side > 1 or not UNIT_STATS.has(kind):
+	if winner != -1 or side < 0 or side > 1 or not UNIT_STATS.has(kind) or not unit_decks[side].has(kind):
 		return false
 	var stats: Dictionary = UNIT_STATS[kind]
 	if resources[side] < stats.cost or float(spawn_cooldowns[side].get(kind, 0.0)) > 0.0:
 		return false
 	resources[side] -= stats.cost
 	spawn_cooldowns[side][kind] = 0.35
-	units.append({
-		"id": next_unit_id,
-		"side": side,
-		"kind": kind,
+	units.append({"id": next_unit_id, "side": side, "kind": kind,
 		"x": FIELD_LEFT + 35.0 if side == 0 else FIELD_RIGHT - 35.0,
-		"hp": stats.hp,
-		"max_hp": stats.hp,
-		"damage": stats.damage,
-		"heal": stats.get("heal", 0.0),
-		"interval": stats.interval,
+		"hp": stats.hp, "max_hp": stats.hp, "damage": stats.damage,
+		"heal": stats.get("heal", 0.0), "interval": stats.interval,
 		"cooldown": max(MIN_ATTACK_INTERVAL, float(stats.interval)),
-		"speed": stats.speed,
-		"range": stats.range,
-	})
+		"speed": stats.speed, "range": stats.range})
 	next_unit_id += 1
 	return true
 
@@ -86,44 +112,53 @@ static func unit_stat_summary(kind: String) -> String:
 		output += "공격력 %d  ·  회복량 %d  ·  DPS %.1f / HPS %.1f\n" % [int(stats.damage), int(stats.heal), float(stats.damage) / interval, float(stats.heal) / interval]
 	else:
 		output += "공격력 %d  ·  DPS %.1f\n" % [int(stats.damage), float(stats.damage) / interval]
-	output += "공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d" % [interval, int(stats.range), int(stats.speed)]
-	return output
+	return output + "공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d" % [interval, int(stats.range), int(stats.speed)]
 
 static func battle_stat_summary() -> String:
-	var wall: Dictionary = STRUCTURE_STATS.wall
-	var jump: Dictionary = STRUCTURE_STATS.jump_pad
-	var swamp: Dictionary = STRUCTURE_STATS.swamp
-	return "구조물  ·  방벽 %d / 체력 %d  ·  점프대 %d / 체력 %d / 이동 +%d  ·  늪 %d / 체력 %d / 이동속도 -%.0f%%\n마법사  ·  공격과 아군 회복 가능  ·  적군과 방벽 앞에서 정지\n전장  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  제한시간 %.0f초" % [
-		int(wall.cost), int(wall.hp),
-		int(jump.cost), int(jump.hp), int(jump.x_shift),
-		int(swamp.cost), int(swamp.hp), (1.0 - float(swamp.speed_scale)) * 100.0,
-		int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT, MATCH_LIMIT,
-	]
+	return "구조물  ·  방벽 35/체력 230  ·  점프대 30/체력 95/이동 +165  ·  늪 30/체력 100/이동 45%%\n포탑 50/체력 115/공격 8  ·  발전기 50/체력 90/+1 자원\n마법사  ·  공격과 아군 회복 가능\n전장  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  제한시간 %.0f초" % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT, MATCH_LIMIT]
 
-func place_structure(side: int, kind: String, x: float) -> bool:
+func _owned_structure_count(side: int, kind: String = "") -> int:
+	var count := 0
+	for structure in structures:
+		if int(structure.side) == side and (kind.is_empty() or String(structure.kind) == kind) and float(structure.hp) > 0.0:
+			count += 1
+	return count
+
+func structure_placement_error(side: int, kind: String, x: float) -> String:
 	if winner != -1 or side < 0 or side > 1 or not STRUCTURE_STATS.has(kind):
-		return false
+		return "설치할 수 없는 구조물입니다."
+	if not structure_decks[side].has(kind):
+		return "현재 덱에 없는 구조물입니다."
 	var valid_zone := (side == 0 and x >= BLUE_BUILD_MIN and x <= BLUE_BUILD_MAX) or (side == 1 and x >= RED_BUILD_MIN and x <= RED_BUILD_MAX)
 	if not valid_zone:
-		return false
-	var owned := 0
+		return "자신의 건설 구역에만 설치할 수 있습니다."
+	if kind == "generator" and not ((side == 0 and x <= BLUE_REAR_MAX) or (side == 1 and x >= RED_REAR_MIN)):
+		return "발전기는 후방에만 설치할 수 있습니다."
 	for structure in structures:
-		if structure.side == side:
-			owned += 1
-	if owned >= STRUCTURE_LIMIT:
+		if float(structure.hp) > 0.0 and abs(float(structure.x) - x) < STRUCTURE_MIN_SPACING:
+			return "구조물이 너무 가깝습니다."
+	if _owned_structure_count(side) >= STRUCTURE_LIMIT:
+		return "구조물은 최대 3개까지 설치할 수 있습니다."
+	var max_count := int(STRUCTURE_STATS[kind].get("max_count", STRUCTURE_LIMIT))
+	if _owned_structure_count(side, kind) >= max_count:
+		if kind == "turret":
+			return "포탑은 1개만 설치할 수 있습니다."
+		if kind == "generator":
+			return "발전기는 1개만 설치할 수 있습니다."
+		return "방벽은 2개만 설치할 수 있습니다."
+	if resources[side] < float(STRUCTURE_STATS[kind].cost):
+		return "자원이 부족합니다."
+	return ""
+
+func place_structure(side: int, kind: String, x: float) -> bool:
+	if not structure_placement_error(side, kind, x).is_empty():
 		return false
 	var stats: Dictionary = STRUCTURE_STATS[kind]
-	if resources[side] < stats.cost:
-		return false
 	resources[side] -= stats.cost
-	structures.append({
-		"id": next_structure_id,
-		"side": side,
-		"kind": kind,
-		"x": x,
-		"hp": stats.hp,
-		"max_hp": stats.hp,
-	})
+	structures.append({"id": next_structure_id, "side": side, "kind": kind, "x": x, "hp": stats.hp, "max_hp": stats.hp})
+	if kind == "turret":
+		structure_cooldowns[next_structure_id] = float(stats.interval)
+	combat_events.append({"type": "STRUCTURE_PLACED", "structure_id": next_structure_id, "kind": kind, "x": x})
 	next_structure_id += 1
 	return true
 
@@ -132,10 +167,15 @@ func tick(delta: float) -> void:
 		return
 	elapsed += delta
 	for side in 2:
-		resources[side] = min(MAX_RESOURCE, resources[side] + RESOURCE_RATE * delta)
+		var income := RESOURCE_RATE
+		for structure in structures:
+			if int(structure.side) == side and String(structure.kind) == "generator" and float(structure.hp) > 0.0:
+				income += float(STRUCTURE_STATS.generator.income)
+		resources[side] = min(MAX_RESOURCE, float(resources[side]) + income * delta)
 		for kind in spawn_cooldowns[side].keys():
 			spawn_cooldowns[side][kind] = max(0.0, float(spawn_cooldowns[side][kind]) - delta)
 
+	_tick_turrets(delta)
 	for unit in units:
 		unit.cooldown = max(0.0, float(unit.cooldown) - delta)
 		if unit.hp <= 0.0:
@@ -144,53 +184,89 @@ func tick(delta: float) -> void:
 		var target = _find_target(unit)
 		if target != null:
 			if unit.cooldown <= 0.0:
-				target.hp -= unit.damage
+				_damage_target(unit, target, float(unit.damage))
 				unit.cooldown = unit.interval
 			continue
 		if unit.kind == "healer":
 			var heal_target = _find_heal_target(unit)
 			if heal_target != null:
 				if unit.cooldown <= 0.0:
-					heal_target.hp = min(float(heal_target.max_hp), float(heal_target.hp) + float(unit.heal))
+					var amount: float = min(float(unit.heal), float(heal_target.max_hp) - float(heal_target.hp))
+					heal_target.hp += amount
+					combat_events.append({"type": "HEAL", "source_id": unit.id, "target_id": heal_target.id, "amount": amount, "x": heal_target.x})
 					unit.cooldown = unit.interval
 				continue
 		var enemy_base_x := FIELD_RIGHT if unit.side == 0 else FIELD_LEFT
-		if abs(unit.x - enemy_base_x) <= unit.range:
+		var blocking_wall = _blocking_wall(unit, enemy_base_x)
+		if blocking_wall != null and abs(float(blocking_wall.x) - float(unit.x)) <= float(unit.range) + 12.0:
 			if unit.cooldown <= 0.0:
-				base_hp[1 - unit.side] -= unit.damage
+				_damage_target(unit, blocking_wall, float(unit.damage))
 				unit.cooldown = unit.interval
-				if base_hp[1 - unit.side] <= 0.0:
-					base_hp[1 - unit.side] = 0.0
-					winner = unit.side
 			continue
-		var speed_scale := _swamp_scale(unit)
+		if abs(float(unit.x) - enemy_base_x) <= float(unit.range):
+			if unit.cooldown <= 0.0:
+				var enemy_side: int = 1 - int(unit.side)
+				base_hp[enemy_side] = max(0.0, float(base_hp[enemy_side]) - float(unit.damage))
+				combat_events.append({"type": "BASE_HIT", "side": enemy_side, "amount": unit.damage, "x": enemy_base_x})
+				unit.cooldown = unit.interval
+				if base_hp[enemy_side] <= 0.0:
+					winner = int(unit.side)
+			continue
 		var direction := 1.0 if unit.side == 0 else -1.0
-		unit.x = clamp(float(unit.x) + direction * unit.speed * speed_scale * delta, FIELD_LEFT, FIELD_RIGHT)
+		unit.x = clamp(float(unit.x) + direction * float(unit.speed) * _swamp_scale(unit) * delta, FIELD_LEFT, FIELD_RIGHT)
 
+	_emit_death_events()
 	units = units.filter(func(unit): return unit.hp > 0.0)
 	structures = structures.filter(func(structure): return structure.hp > 0.0)
 	if elapsed >= MATCH_LIMIT and winner == -1:
 		winner = 0 if base_hp[0] > base_hp[1] else 1 if base_hp[1] > base_hp[0] else 2
 
-func _find_target(unit: Dictionary):
+func _damage_target(attacker: Dictionary, target: Dictionary, damage: float) -> void:
+	target.hp = max(0.0, float(target.hp) - damage)
+	combat_events.append({"type": "ATTACK", "attacker_id": attacker.id, "target_id": target.id, "attack_kind": attacker.kind, "x": attacker.x})
+	combat_events.append({"type": "DAMAGE", "target_id": target.id, "amount": damage, "x": target.x})
+
+func _blocking_wall(attacker: Dictionary, target_x: float):
 	var best = null
+	var best_distance := INF
+	var origin := float(attacker.x)
+	for structure in structures:
+		if int(structure.side) == int(attacker.side) or String(structure.kind) != "wall" or float(structure.hp) <= 0.0:
+			continue
+		var wall_x := float(structure.x)
+		var between := (origin < wall_x and wall_x < target_x) or (target_x < wall_x and wall_x < origin)
+		var distance: float = abs(wall_x - origin)
+		if between and distance < best_distance:
+			best = structure
+			best_distance = distance
+	return best
+
+func _find_target(unit: Dictionary):
+	var best_unit = null
 	var best_distance := INF
 	for enemy in units:
 		if enemy.side == unit.side or enemy.hp <= 0.0:
 			continue
 		var distance: float = abs(float(enemy.x) - float(unit.x))
-		if distance <= unit.range and distance < best_distance:
-			best = enemy
+		if distance <= float(unit.range) and distance < best_distance:
+			best_unit = enemy
 			best_distance = distance
+	if best_unit != null:
+		var wall = _blocking_wall(unit, float(best_unit.x))
+		if wall != null:
+			return wall if abs(float(wall.x) - float(unit.x)) <= float(unit.range) + 12.0 else null
+		return best_unit
+	var best_structure = null
+	best_distance = INF
 	for structure in structures:
-		if structure.side == unit.side or structure.kind != "wall" or structure.hp <= 0.0:
+		if structure.side == unit.side or structure.hp <= 0.0:
 			continue
-		var ahead := float(structure.x) >= float(unit.x) if unit.side == 0 else float(structure.x) <= float(unit.x)
 		var distance: float = abs(float(structure.x) - float(unit.x))
-		if ahead and distance <= unit.range + 12.0 and distance < best_distance:
-			best = structure
-			best_distance = distance
-	return best
+		if distance <= float(unit.range) + 12.0 and distance < best_distance:
+			var wall = _blocking_wall(unit, float(structure.x))
+			best_structure = wall if wall != null else structure
+			best_distance = abs(float(best_structure.x) - float(unit.x))
+	return best_structure
 
 func _find_heal_target(unit: Dictionary):
 	var best = null
@@ -206,28 +282,61 @@ func _find_heal_target(unit: Dictionary):
 			lowest_ratio = ratio
 	return best
 
+func _tick_turrets(delta: float) -> void:
+	for structure in structures:
+		if String(structure.kind) != "turret" or float(structure.hp) <= 0.0:
+			continue
+		var id := int(structure.id)
+		structure_cooldowns[id] = max(0.0, float(structure_cooldowns.get(id, STRUCTURE_STATS.turret.interval)) - delta)
+		if structure_cooldowns[id] > 0.0:
+			continue
+		var target = null
+		var nearest := INF
+		for enemy in units:
+			if int(enemy.side) == int(structure.side) or float(enemy.hp) <= 0.0:
+				continue
+			var distance: float = abs(float(enemy.x) - float(structure.x))
+			if distance <= float(STRUCTURE_STATS.turret.range) and distance < nearest:
+				target = enemy
+				nearest = distance
+		if target != null:
+			target.hp = max(0.0, float(target.hp) - float(STRUCTURE_STATS.turret.damage))
+			combat_events.append({"type": "ATTACK", "attacker_id": id, "target_id": target.id, "attack_kind": "turret", "x": structure.x})
+			combat_events.append({"type": "DAMAGE", "target_id": target.id, "amount": STRUCTURE_STATS.turret.damage, "x": target.x})
+			structure_cooldowns[id] = float(STRUCTURE_STATS.turret.interval)
+
 func _swamp_scale(unit: Dictionary) -> float:
 	for structure in structures:
-		if structure.kind == "swamp" and structure.side != unit.side and abs(float(structure.x) - float(unit.x)) <= 90.0:
+		if structure.kind == "swamp" and structure.side != unit.side and structure.hp > 0.0 and abs(float(structure.x) - float(unit.x)) <= float(STRUCTURE_STATS.swamp.radius):
 			return float(STRUCTURE_STATS.swamp.speed_scale)
 	return 1.0
 
 func _apply_jump_pad(unit: Dictionary) -> void:
 	for structure in structures:
-		if structure.kind != "jump_pad" or structure.side != unit.side:
+		if structure.kind != "jump_pad" or structure.side != unit.side or structure.hp <= 0.0:
 			continue
 		var key := "%s:%s" % [unit.id, structure.id]
 		if not jumped.has(key) and abs(float(structure.x) - float(unit.x)) <= 24.0:
+			var origin := float(unit.x)
 			var shift: float = STRUCTURE_STATS.jump_pad.x_shift
-			unit.x += shift if unit.side == 0 else -shift
+			unit.x = clamp(origin + (shift if unit.side == 0 else -shift), FIELD_LEFT, FIELD_RIGHT)
 			jumped[key] = true
+			combat_events.append({"type": "JUMP", "unit_id": unit.id, "from_x": origin, "x": unit.x})
+
+func _emit_death_events() -> void:
+	for unit in units:
+		if float(unit.hp) <= 0.0 and not announced_deaths.has(unit.id):
+			announced_deaths[unit.id] = true
+			combat_events.append({"type": "DEATH", "unit_id": unit.id, "x": unit.x})
+	for structure in structures:
+		if float(structure.hp) <= 0.0 and not announced_structure_deaths.has(structure.id):
+			announced_structure_deaths[structure.id] = true
+			combat_events.append({"type": "STRUCTURE_DESTROYED", "structure_id": structure.id, "kind": structure.kind, "x": structure.x})
+
+func drain_combat_events() -> Array:
+	var result := combat_events.duplicate(true)
+	combat_events.clear()
+	return result
 
 func snapshot() -> Dictionary:
-	return {
-		"resources": resources.duplicate(),
-		"base_hp": base_hp.duplicate(),
-		"units": units.duplicate(true),
-		"structures": structures.duplicate(true),
-		"winner": winner,
-		"elapsed": elapsed,
-	}
+	return {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "units": units.duplicate(true), "structures": structures.duplicate(true), "winner": winner, "elapsed": elapsed}

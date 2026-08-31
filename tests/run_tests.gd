@@ -76,13 +76,16 @@ func _init() -> void:
 	structures.resources[0] = 200.0
 	expect_true(structures.place_structure(0, "wall", 500.0), "wall can be placed in own zone")
 	expect_true(not structures.place_structure(0, "wall", 900.0), "wall cannot be placed in enemy zone")
-	expect_true(structures.place_structure(0, "swamp", 520.0), "swamp can be placed")
-	expect_true(structures.place_structure(0, "jump_pad", 540.0), "jump pad can be placed")
-	expect_true(not structures.place_structure(0, "wall", 560.0), "structure limit is enforced")
+	expect_true(not structures.place_structure(0, "swamp", 520.0), "v0.4 minimum structure spacing is enforced")
+	expect_true(structures.place_structure(0, "swamp", 400.0), "swamp can be placed with valid spacing")
+	expect_true(structures.place_structure(0, "jump_pad", 300.0), "jump pad can be placed with valid spacing")
+	expect_true(not structures.place_structure(0, "wall", 200.0), "structure limit is enforced")
 	var placement_bounds = BattleModel.new()
 	placement_bounds.resources = [200.0, 200.0]
 	expect_true(placement_bounds.place_structure(0, "wall", 610.0), "blue placement boundary moves 10 units toward center")
-	expect_true(placement_bounds.place_structure(1, "wall", 670.0), "red placement boundary moves 10 units toward center")
+	var red_placement_bounds = BattleModel.new()
+	red_placement_bounds.resources = [200.0, 200.0]
+	expect_true(red_placement_bounds.place_structure(1, "wall", 670.0), "red placement boundary moves 10 units toward center")
 	expect_true(not placement_bounds.place_structure(0, "wall", 611.0), "blue cannot place beyond its reduced boundary")
 	expect_true(not placement_bounds.place_structure(1, "wall", 669.0), "red cannot place beyond its reduced boundary")
 
@@ -96,6 +99,7 @@ func _init() -> void:
 
 	var mage_attack = BattleModel.new()
 	mage_attack.resources = [150.0, 150.0]
+	mage_attack.configure_deck(0, ["healer", "shield", "archer"], ["wall", "jump_pad", "swamp"])
 	mage_attack.spawn_unit(0, "healer")
 	mage_attack.spawn_unit(1, "swordsman")
 	mage_attack.units[0].x = 400.0
@@ -108,6 +112,7 @@ func _init() -> void:
 
 	var mage_heal = BattleModel.new()
 	mage_heal.resources[0] = 150.0
+	mage_heal.configure_deck(0, ["healer", "shield", "archer"], ["wall", "jump_pad", "swamp"])
 	mage_heal.spawn_unit(0, "shield")
 	mage_heal.spawn_unit(0, "healer")
 	mage_heal.units[0].x = 400.0
@@ -120,6 +125,7 @@ func _init() -> void:
 
 	var mage_wall = BattleModel.new()
 	mage_wall.resources = [150.0, 200.0]
+	mage_wall.configure_deck(0, ["healer", "shield", "archer"], ["wall", "jump_pad", "swamp"])
 	mage_wall.spawn_unit(0, "healer")
 	mage_wall.place_structure(1, "wall", 680.0)
 	mage_wall.units[0].x = 560.0
@@ -151,7 +157,7 @@ func _init() -> void:
 		var ai = ServerAI.new(1, 5)
 		ai.update(ai_model, 1.0)
 		expect_true(ai_model.units.any(func(unit): return unit.side == 1), "AI spends server-owned resources to spawn a unit")
-		ai.update(ai_model, 6.0)
+		ai.update(ai_model, 8.0)
 		expect_true(ai_model.structures.any(func(structure): return structure.side == 1), "unlocked AI stages place structures through normal game rules")
 
 		var easy_model = BattleModel.new()

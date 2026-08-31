@@ -8,7 +8,7 @@ const STAGE_NAMES := [
 	"공세", "정예", "맹공", "지휘관", "최종전",
 ]
 const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer"]
-const STRUCTURE_ORDER := ["wall", "swamp", "jump_pad"]
+const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret", "jump_pad"]
 
 var side: int
 var stage: int
@@ -63,19 +63,18 @@ func _try_spawn(model: BattleModel) -> void:
 		elif int(unit.side) == enemy_side:
 			enemy_count += 1
 
-	var unlocked_count := 1
-	if stage >= 2:
-		unlocked_count = 2
-	if stage >= 3:
-		unlocked_count = 3
-	if stage >= 5:
-		unlocked_count = 4
-	var preferred := String(ATTACK_ORDER[unit_cursor % unlocked_count])
-	if stage >= 2 and enemy_count >= own_count + 2:
+	var available: Array = []
+	for kind in ATTACK_ORDER:
+		if model.unit_decks[side].has(kind):
+			available.append(kind)
+	if available.is_empty():
+		return
+	var preferred := String(available[unit_cursor % available.size()])
+	if stage >= 2 and enemy_count >= own_count + 2 and available.has("shield"):
 		preferred = "shield"
-	elif stage >= 3 and enemy_count > own_count:
+	elif stage >= 3 and enemy_count > own_count and available.has("archer"):
 		preferred = "archer"
-	elif stage >= 5 and own_count >= 2 and own_healers == 0:
+	elif stage >= 5 and own_count >= 2 and own_healers == 0 and available.has("healer"):
 		preferred = "healer"
 
 	if model.spawn_unit(side, preferred):
@@ -95,16 +94,34 @@ func _apply_stage_unit_bonus(unit: Dictionary) -> void:
 		unit.heal = float(unit.heal) * damage_scale
 
 func _try_place_structure(model: BattleModel) -> void:
-	var unlocked_count := 1
-	if stage >= 5:
-		unlocked_count = 2
-	if stage >= 7:
-		unlocked_count = 3
-	var kind := String(STRUCTURE_ORDER[structure_cursor % unlocked_count])
-	var positions := [920.0, 1000.0, 840.0] if side == 1 else [360.0, 280.0, 440.0]
-	var x := float(positions[structure_cursor % positions.size()])
-	if model.place_structure(side, kind, x):
-		structure_cursor += 1
+	var available: Array = []
+	for candidate in STRUCTURE_ORDER:
+		if model.structure_decks[side].has(candidate):
+			available.append(candidate)
+	if available.is_empty():
+		structure_timer = 0.0
+		return
+	var enemy_side := 1 - side
+	var own_units := model.units.filter(func(unit): return int(unit.side) == side).size()
+	var enemy_units := model.units.filter(func(unit): return int(unit.side) == enemy_side).size()
+	var kind := String(available[structure_cursor % available.size()])
+	if model.elapsed < 35.0 and own_units >= enemy_units and available.has("generator") and model._owned_structure_count(side, "generator") == 0:
+		kind = "generator"
+	elif enemy_units >= own_units + 2 and available.has("wall"):
+		kind = "wall"
+	elif enemy_units > own_units and available.has("swamp"):
+		kind = "swamp"
+	elif enemy_units > 0 and available.has("turret"):
+		kind = "turret"
+	elif own_units > enemy_units and available.has("jump_pad"):
+		kind = "jump_pad"
+	var positions := [1000.0, 915.0, 835.0] if side == 1 else [280.0, 365.0, 445.0]
+	if kind == "generator":
+		positions = [1000.0] if side == 1 else [280.0]
+	for x in positions:
+		if model.place_structure(side, kind, float(x)):
+			structure_cursor += 1
+			break
 	structure_timer = 0.0
 
 func _spawn_interval() -> float:
