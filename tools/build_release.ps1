@@ -45,7 +45,7 @@ if (-not $Version) {
     $Version = [string]$BuildInfo.version
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "Version must use numeric major.minor.patch format, for example 0.3.12"
+    throw "Version must use numeric major.minor.patch format, for example 0.4.2"
 }
 $BuildInfo = [ordered]@{
     version = $Version
@@ -69,6 +69,10 @@ if ($LASTEXITCODE -ne 0) { throw "Godot project initialization failed with exit 
 Write-Host "[1/4] Running game rule tests..." -ForegroundColor Cyan
 & $Godot --headless --path $Root --script res://tests/run_tests.gd
 if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE" }
+& $Godot --headless --path $Root --script res://tests/v04_test.gd
+if ($LASTEXITCODE -ne 0) { throw "v0.4 tests failed with exit code $LASTEXITCODE" }
+& $Godot --headless --path $Root --script res://tests/ui_flow_test.gd
+if ($LASTEXITCODE -ne 0) { throw "UI flow tests failed with exit code $LASTEXITCODE" }
 
 Write-Host "[2/4] Exporting Windows game/server executable..." -ForegroundColor Cyan
 & $Godot --headless --path $Root --export-release "Windows Desktop" (Join-Path $Builds "CatWar.exe")

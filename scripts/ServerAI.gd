@@ -28,13 +28,13 @@ static func stage_name(difficulty_stage: int) -> String:
 static func stage_summary(difficulty_stage: int) -> String:
 	var value := clampi(difficulty_stage, MIN_STAGE, MAX_STAGE)
 	if value <= 2:
-		return "느린 기본 병력"
+		return "기본 병력 운용"
 	if value <= 4:
-		return "원거리와 방벽 해금"
+		return "적극적 방어와 구조물 운용"
 	if value <= 6:
-		return "회복과 지형 전술"
+		return "회복·경제·지형 전술"
 	if value <= 8:
-		return "강화 병력과 빠른 공세"
+		return "고속 공세와 강화 전력"
 	return "최대 전력·자원 보너스"
 
 func update(model: BattleModel, delta: float) -> void:

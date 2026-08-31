@@ -135,7 +135,7 @@ func structure_placement_error(side: int, kind: String, x: float) -> String:
 	if kind == "generator" and not ((side == 0 and x <= BLUE_REAR_MAX) or (side == 1 and x >= RED_REAR_MIN)):
 		return "발전기는 후방에만 설치할 수 있습니다."
 	for structure in structures:
-		if float(structure.hp) > 0.0 and abs(float(structure.x) - x) < STRUCTURE_MIN_SPACING:
+		if int(structure.side) == side and float(structure.hp) > 0.0 and abs(float(structure.x) - x) < STRUCTURE_MIN_SPACING:
 			return "구조물이 너무 가깝습니다."
 	if _owned_structure_count(side) >= STRUCTURE_LIMIT:
 		return "구조물은 최대 3개까지 설치할 수 있습니다."
@@ -295,10 +295,15 @@ func _tick_turrets(delta: float) -> void:
 		for enemy in units:
 			if int(enemy.side) == int(structure.side) or float(enemy.hp) <= 0.0:
 				continue
-			var distance: float = abs(float(enemy.x) - float(structure.x))
-			if distance <= float(STRUCTURE_STATS.turret.range) and distance < nearest:
-				target = enemy
-				nearest = distance
+			var enemy_distance: float = abs(float(enemy.x) - float(structure.x))
+			if enemy_distance > float(STRUCTURE_STATS.turret.range):
+				continue
+			var wall = _blocking_wall(structure, float(enemy.x))
+			var candidate = wall if wall != null else enemy
+			var candidate_distance: float = abs(float(candidate.x) - float(structure.x))
+			if candidate_distance < nearest:
+				target = candidate
+				nearest = candidate_distance
 		if target != null:
 			target.hp = max(0.0, float(target.hp) - float(STRUCTURE_STATS.turret.damage))
 			combat_events.append({"type": "ATTACK", "attacker_id": id, "target_id": target.id, "attack_kind": "turret", "x": structure.x})

@@ -18,11 +18,14 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 
 - 중앙 전용 서버의 자동 1대1 매칭
 - 서버 판정 자원, 생산, 이동, 공격, 회복, 피해, 승패
-- 인터넷 없이 실행되는 1~10단계 오프라인 AI 대전
-- 단계별 AI 병력 강화, 자원 보너스, 유닛·구조물 전술 해금
+- 인터넷 없이 실행되는 10단계 AI 캠페인과 자유 연습
+- 단계별 AI 병력 강화, 자원 보너스, 전술 변화
+- 승리·기지 HP·완료 시간에 따른 단계식 1~3성 평가와 캠페인 진행 저장
+- 유닛 4종 중 3종, 구조물 5종 중 3종을 고르는 3개 덱 프리셋
 - 제공 WAV 음원을 반복 재생하는 게임 BGM
 - 탱커 / 힐러 / 궁수 / 검사
-- 벽 / 점프대 / 늪과 진영별 설치 구역
+- 방벽 / 점프대 / 늪 / 포탑 / 자원 발전기와 진영별 설치 구역
+- 전체 음량·BGM·효과음, 전체화면(F11), 해상도, VSync, FPS 및 전투 효과 설정
 - 실시간 상태 스냅샷 동기화
 - 연결 종료 처리와 양쪽 동의 재경기
 - 투명 PNG 캐릭터와 픽셀아트 렌더링
@@ -46,8 +49,8 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 
 `main` 브랜치에 코드가 푸시될 때마다 `.github/workflows/build-and-deploy.yml`이 다음 작업을 수행합니다.
 
-1. 테스트 실행
-2. 커밋과 GitHub Actions 실행 번호가 들어간 새 버전 빌드
+1. 전투 규칙·v0.4 기능·UI 흐름 테스트와 오프라인 AI 검증
+2. workflow에 지정된 출시 버전과 대상 커밋으로 새 빌드 생성
 3. Windows 게임/서버 EXE와 설치 프로그램 생성
 4. 설치 프로그램 SHA-256 계산
 5. 버전 태그와 GitHub Release 생성
@@ -60,7 +63,7 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 - 전용 서버: 활성 매치가 없을 때만 설치 및 재시작
 - 업데이트 서버 접속 실패: 현재 실행은 유지하고 나중에 자동 재시도
 
-테스트를 통과한 최신 `main` 빌드가 곧 자동 업데이트 채널이자 GitHub Release가 됩니다. GitHub Pages 배포가 처음이라면 저장소의 **Settings → Pages → Source**가 `GitHub Actions`로 설정되어 있어야 합니다.
+테스트를 통과한 최신 `main` 빌드가 곧 자동 업데이트 채널이자 GitHub Release가 됩니다. 출시할 때는 `.github/workflows/build-and-deploy.yml`의 `$version`, `build_info.json`, `export_presets.cfg`를 같은 버전으로 맞춥니다. 빌드 스크립트는 `build_info.json`의 커밋 값을 실제 대상 SHA로 교체하고, Pages용 `update.json`은 workflow가 SHA-256과 배포 시각을 포함해 생성합니다. GitHub Pages 배포가 처음이라면 저장소의 **Settings → Pages → Source**가 `GitHub Actions`로 설정되어 있어야 합니다.
 
 각 Release에는 다음 파일이 포함됩니다.
 
@@ -92,7 +95,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1
 
 스크립트가 순서대로 수행하는 작업:
 
-1. 게임 규칙 테스트 실행
+1. 게임 규칙·v0.4 기능·UI 흐름 테스트 실행
 2. Windows용 게임/서버 겸용 `CatWar.exe` 생성
 3. 생성된 EXE의 오프라인 AI 모드 실행 검증
 4. Inno Setup으로 설치 프로그램 생성
@@ -114,7 +117,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1 -GodotPath "C
 버전을 직접 지정해 빌드할 수도 있습니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1 -Version "0.3.12" -Commit "테스트커밋SHA"
+powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1 -Version "0.4.2" -Commit "테스트커밋SHA"
 ```
 
 ## 수동 빌드
@@ -163,7 +166,7 @@ godot --headless --path . --export-release "Windows Desktop" "$PWD\builds\CatWar
 
 ### 오프라인 AI 대전
 
-`CatWar.exe`를 실행하고 **AI 훈련장**을 선택합니다. 서버나 인터넷 연결이 필요하지 않습니다.
+`CatWar.exe`를 실행하고 **AI 캠페인** 또는 **AI 연습**을 선택합니다. 서버나 인터넷 연결이 필요하지 않습니다.
 
 ## 소스 구조
 
@@ -175,6 +178,7 @@ scripts/BattleModel.gd        서버 권한형 전투 규칙
 scripts/NetworkController.gd  ENet 연결, RPC, 서버 스냅샷
 scripts/MatchRegistry.gd      1대1 매칭과 진영 배정
 scripts/ServerAI.gd           오프라인 AI 판단
+scripts/SaveData.gd           덱·캠페인·전적·설정 저장 및 검증
 scripts/UpdateManager.gd      버전 확인, 다운로드, 해시 검증, 무인 업데이트
 scripts/BattleView.gd         전장과 캐릭터 렌더링
 build_info.json               현재 빌드 버전·커밋·업데이트 주소
@@ -187,6 +191,8 @@ installer/CatWar.iss          Inno Setup 설치 프로그램 정의
 server/StartServer.cmd        Windows 서버 실행 런처
 server/linux/                 Linux 자동 업데이트 서비스·타이머
 tests/run_tests.gd            전투·회복·구조물·매칭 테스트
+tests/v04_test.gd             덱·구조물·캠페인·저장 회귀 테스트
+tests/ui_flow_test.gd         메뉴·설정·온라인 응답 UI 테스트
 ```
 
 ## 캐릭터 PNG 재생성
@@ -200,8 +206,8 @@ python -m pip install -r .\tools\requirements.txt; python .\tools\extract_sprite
 ## 온라인 배포 체크리스트
 
 1. 서버와 클라이언트를 같은 커밋에서 빌드합니다.
-2. 공인 IP가 있는 Windows 서버에 `CatWar.exe`와 `StartServer.cmd`를 복사합니다.
-3. UDP 7777 또는 선택한 포트를 허용합니다.
-4. 서버를 먼저 실행합니다.
-5. 클라이언트에서 서버 IP와 포트를 입력합니다.
-6. 두 클라이언트가 접속해 한 경기를 완료하는지 확인합니다.
+2. 중앙 Linux 전용 서버의 updater가 최신 `main`을 설치하도록 합니다. 플레이어 호스트/LAN 대전은 지원하지 않습니다.
+3. 외부 UDP 7777을 전용 서버로 전달하고 방화벽에서 허용합니다.
+4. `catwar-server.service`와 `catwar-update.timer`가 활성 상태인지 확인합니다.
+5. 두 클라이언트가 공식 서버에 접속해 서로 다른 진영과 같은 매치 스냅샷을 받는지 확인합니다.
+6. 같은 LAN에서는 NAT loopback 우회를 위해 `192.168.0.4:7777`, 외부에서는 `ruellyya.kr:7777`과 공인 IP fallback을 사용합니다. 모두 동일한 중앙 서버 경로입니다.

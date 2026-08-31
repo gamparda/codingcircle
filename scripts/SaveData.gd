@@ -3,6 +3,8 @@ extends RefCounted
 
 const SAVE_VERSION := 1
 const SAVE_PATH := "user://catwar_save.json"
+const WINDOW_SIZES := ["1280x720", "1600x900", "1920x1080"]
+const FPS_LIMITS := [30, 60, 120, 144, 240]
 const CAMPAIGN_TARGETS := [
 	{"time": 90.0, "base_hp": 400.0}, {"time": 100.0, "base_hp": 390.0},
 	{"time": 110.0, "base_hp": 380.0}, {"time": 120.0, "base_hp": 365.0},
@@ -70,8 +72,17 @@ static func sanitize(raw: Variant) -> Dictionary:
 				if BattleModel._valid_deck(preset.units, BattleModel.UNIT_STATS) and BattleModel._valid_deck(preset.structures, BattleModel.STRUCTURE_STATS):
 					clean.deck_presets[index] = {"name": String(preset.get("name", "덱 %d" % (index + 1))).left(20), "units": preset.units.duplicate(), "structures": preset.structures.duplicate()}
 	if raw.get("settings") is Dictionary:
-		for key in clean.settings.keys():
-			if raw.settings.has(key) and typeof(raw.settings[key]) == typeof(clean.settings[key]):
+		for key in ["master_volume", "bgm_volume", "sfx_volume"]:
+			if raw.settings.get(key) is int or raw.settings.get(key) is float:
+				clean.settings[key] = clamp(float(raw.settings[key]), 0.0, 1.0)
+		if raw.settings.get("effect_intensity") is int or raw.settings.get("effect_intensity") is float:
+			clean.settings.effect_intensity = clamp(float(raw.settings.effect_intensity), 0.2, 1.0)
+		if raw.settings.get("window_size") is String and WINDOW_SIZES.has(String(raw.settings.window_size)):
+			clean.settings.window_size = String(raw.settings.window_size)
+		if raw.settings.get("fps_limit") is int and FPS_LIMITS.has(int(raw.settings.fps_limit)):
+			clean.settings.fps_limit = int(raw.settings.fps_limit)
+		for key in ["muted", "fullscreen", "vsync", "damage_numbers", "screen_shake", "battle_effects"]:
+			if raw.settings.get(key) is bool:
 				clean.settings[key] = raw.settings[key]
 	if raw.get("stats") is Dictionary:
 		for key in clean.stats.keys():
@@ -102,7 +113,7 @@ static func campaign_stars(stage: int, won: bool, elapsed: float, remaining_base
 	var stars := 1
 	if remaining_base_hp >= float(target.base_hp):
 		stars = 2
-	if elapsed <= float(target.time):
+	if stars == 2 and elapsed <= float(target.time):
 		stars = 3
 	return stars
 

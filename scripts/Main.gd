@@ -46,6 +46,7 @@ var campaign_mode := false
 var result_recorded := false
 var placement_status_label: Label
 var structure_count_label: Label
+var placement_pending := false
 
 func _ready() -> void:
 	network.connection_status.connect(_on_connection_status)
@@ -53,6 +54,7 @@ func _ready() -> void:
 	network.snapshot_received.connect(_on_snapshot)
 	network.combat_events_received.connect(_on_combat_events)
 	network.opponent_disconnected.connect(_on_opponent_left)
+	network.structure_placement_result.connect(_on_structure_placement_result)
 	updater.update_started.connect(_on_update_started)
 	updater.update_status.connect(_on_update_status)
 	updater.update_failed.connect(_on_update_failed)
@@ -192,13 +194,14 @@ func _clear_screen() -> void:
 	stats_overlay = null
 	placement_status_label = null
 	structure_count_label = null
+	placement_pending = false
 
 static func build_version() -> String:
 	var file := FileAccess.open("res://build_info.json", FileAccess.READ)
 	if file == null:
-		return "0.4.1"
+		return "0.4.2"
 	var data = JSON.parse_string(file.get_as_text())
-	return String(data.get("version", "0.4.1")) if data is Dictionary else "0.4.1"
+	return String(data.get("version", "0.4.2")) if data is Dictionary else "0.4.2"
 
 func _active_preset() -> Dictionary:
 	return save_data.deck_presets[clampi(int(save_data.last_deck), 0, 2)]
@@ -970,7 +973,7 @@ func _add_structure_button(row: HBoxContainer, title: String, kind: String, colo
 	row.add_child(button)
 
 func _on_battlefield_clicked(world_x: float) -> void:
-	if not is_instance_valid(battle_view) or battle_view.selected_structure.is_empty():
+	if not is_instance_valid(battle_view) or battle_view.selected_structure.is_empty() or placement_pending:
 		return
 	var kind := battle_view.selected_structure
 	var error := local_model.structure_placement_error(own_side, kind, world_x) if local_ai_mode else battle_view.placement_error(kind, world_x)
@@ -979,12 +982,25 @@ func _on_battlefield_clicked(world_x: float) -> void:
 			placement_status_label.text = error
 		return
 	if local_ai_mode:
-		local_model.place_structure(own_side, kind, world_x)
+		if local_model.place_structure(own_side, kind, world_x):
+			if is_instance_valid(placement_status_label):
+				placement_status_label.text = "설치 완료"
+			battle_view.selected_structure = ""
 	else:
+		placement_pending = true
 		network.send_structure(kind, world_x)
+		if is_instance_valid(placement_status_label):
+			placement_status_label.text = "서버 확인 중..."
+
+func _on_structure_placement_result(success: bool, error: String) -> void:
+	placement_pending = false
+	if not battle_active or local_ai_mode or not is_instance_valid(battle_view):
+		return
+	if success:
+		battle_view.selected_structure = ""
+		battle_view.queue_redraw()
 	if is_instance_valid(placement_status_label):
-		placement_status_label.text = "설치 완료"
-	battle_view.selected_structure = ""
+		placement_status_label.text = "설치 완료" if success else (error if not error.is_empty() else "구조물을 설치하지 못했습니다.")
 
 func _on_snapshot(data: Dictionary) -> void:
 	if not battle_active or not is_instance_valid(battle_view):

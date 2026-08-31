@@ -6,6 +6,7 @@ signal match_found(side: int)
 signal snapshot_received(data: Dictionary)
 signal combat_events_received(events: Array)
 signal opponent_disconnected
+signal structure_placement_result(success: bool, error: String)
 
 const DEFAULT_PORT := 7777
 const TICK_RATE := 1.0 / 30.0
@@ -442,14 +443,22 @@ func request_place_structure(kind: String, x: float) -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	if not can_process_request(sender):
+		receive_structure_placement_result.rpc_id(sender, false, "요청이 너무 빠릅니다.")
 		return
 	if not is_safe_command_text(kind) or not is_safe_position(x):
+		receive_structure_placement_result.rpc_id(sender, false, "잘못된 설치 요청입니다.")
 		return
 	var match_id := registry.get_match_id(sender)
-	if models.has(match_id):
-		var side := registry.get_side(sender)
-		if models[match_id].structure_decks[side].has(kind):
-			models[match_id].place_structure(side, kind, clamp(x, 0.0, 1280.0))
+	if not models.has(match_id):
+		receive_structure_placement_result.rpc_id(sender, false, "진행 중인 경기가 없습니다.")
+		return
+	var side := registry.get_side(sender)
+	var model: BattleModel = models[match_id]
+	var error := model.structure_placement_error(side, kind, clamp(x, 0.0, 1280.0))
+	var success := error.is_empty() and model.place_structure(side, kind, clamp(x, 0.0, 1280.0))
+	if not success and error.is_empty():
+		error = "구조물을 설치하지 못했습니다."
+	receive_structure_placement_result.rpc_id(sender, success, error)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_rematch() -> void:
@@ -511,6 +520,11 @@ func receive_snapshot(data: Dictionary) -> void:
 func receive_combat_events(events: Array) -> void:
 	if events.size() <= 128:
 		combat_events_received.emit(events)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_structure_placement_result(success: bool, error: String) -> void:
+	if error.length() <= 100:
+		structure_placement_result.emit(success, error)
 
 @rpc("authority", "call_remote", "reliable")
 func opponent_left() -> void:

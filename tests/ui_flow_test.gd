@@ -38,7 +38,7 @@ func run() -> void:
 	var main = scene.instantiate()
 	root.add_child(main)
 	await process_frame
-	expect_true(tree_text(main).contains("v0.4.1"), "main menu reads the v0.4.1 build version")
+	expect_true(tree_text(main).contains("v0.4.2"), "main menu reads the v0.4.2 build version")
 	for required_button in ["온라인 아레나", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
 		expect_true(find_button(main, required_button) != null, "main menu exposes %s" % required_button)
 	main._build_deck_screen()
@@ -88,6 +88,15 @@ func run() -> void:
 
 	main._on_match_found(0)
 	await process_frame
+	main.battle_view.selected_structure = "turret"
+	expect_true(main.has_method("_on_structure_placement_result"), "battle UI handles authoritative structure placement results")
+	if main.has_method("_on_structure_placement_result"):
+		main._on_structure_placement_result(false, "자원이 부족합니다.")
+		expect_true(main.battle_view.selected_structure == "turret", "failed online placement keeps the selected structure")
+		expect_true(main.placement_status_label.text == "자원이 부족합니다.", "failed online placement shows the server reason")
+		main._on_structure_placement_result(true, "")
+		expect_true(main.battle_view.selected_structure.is_empty(), "successful online placement clears the selected structure")
+		expect_true(main.placement_status_label.text == "설치 완료", "success text appears only after server confirmation")
 	var finished := BattleModel.new().snapshot()
 	finished.winner = 0
 	main._on_snapshot(finished)

@@ -64,6 +64,31 @@ func _init() -> void:
 	expect_true(turret.units[0].hp < target_hp, "turret attacks enemy units")
 	expect_true(not turret.drain_combat_events().is_empty(), "combat events are separate from snapshot")
 	expect_eq(turret.snapshot().keys().size(), 6, "snapshot exact key set remains stable")
+	var turret_shielding = BattleModel.new()
+	turret_shielding.resources = [150.0, 150.0]
+	turret_shielding.configure_deck(0, ["shield", "archer", "healer"], ["turret", "wall", "swamp"])
+	turret_shielding.configure_deck(1, ["swordsman", "shield", "archer"], ["wall", "swamp", "jump_pad"])
+	turret_shielding.place_structure(0, "turret", 550.0)
+	turret_shielding.place_structure(1, "wall", 670.0)
+	turret_shielding.spawn_unit(1, "swordsman")
+	turret_shielding.units[0].x = 700.0
+	var turret_blocked_unit_hp: float = turret_shielding.units[0].hp
+	var turret_blocking_wall_hp: float = turret_shielding.structures[1].hp
+	turret_shielding.tick(1.6)
+	expect_eq(turret_shielding.units[0].hp, turret_blocked_unit_hp, "turret cannot shoot a unit behind an enemy wall")
+	expect_true(turret_shielding.structures[1].hp < turret_blocking_wall_hp, "turret attacks the blocking wall first")
+	var boundary_spacing = BattleModel.new()
+	boundary_spacing.resources = [150.0, 150.0]
+	expect_true(boundary_spacing.place_structure(0, "wall", 610.0), "blue can build at its forward boundary")
+	expect_true(boundary_spacing.place_structure(1, "wall", 670.0), "enemy structures do not block red boundary placement")
+	var BattleView = load("res://scripts/BattleView.gd")
+	var placement_view = BattleView.new()
+	placement_view.own_side = 0
+	placement_view.snapshot = {"resources": [10.0, 150.0], "structures": [{"id": 1, "side": 1, "kind": "wall", "x": 670.0, "hp": 230.0, "max_hp": 230.0}]}
+	expect_eq(placement_view.placement_error("turret", 500.0), "자원이 부족합니다.", "online preview rejects unaffordable structures")
+	placement_view.snapshot.resources[0] = 150.0
+	expect_eq(placement_view.placement_error("wall", 610.0), "", "enemy structures do not block the local placement preview")
+	placement_view.free()
 
 	var SaveData = load("res://scripts/SaveData.gd")
 	expect_true(SaveData != null, "versioned user save module loads")
@@ -77,12 +102,30 @@ func _init() -> void:
 		expect_eq(repaired.last_deck, 0, "invalid values recover to defaults")
 		expect_true(repaired.settings is Dictionary, "invalid settings recover independently")
 		expect_eq(SaveData.campaign_stars(1, true, 60.0, 450.0), 3, "stage-specific star targets work")
+		expect_eq(SaveData.campaign_stars(1, true, 60.0, 1.0), 1, "fast wins without the HP target do not skip to three stars")
+		expect_eq(SaveData.campaign_stars(1, true, 120.0, 450.0), 2, "HP target alone awards two stars")
+		var unsafe_settings := defaults.duplicate(true)
+		unsafe_settings.settings.master_volume = 999.0
+		unsafe_settings.settings.bgm_volume = -5.0
+		unsafe_settings.settings.effect_intensity = -500.0
+		unsafe_settings.settings.window_size = "99999x1"
+		unsafe_settings.settings.fps_limit = 999
+		var safe_settings: Dictionary = SaveData.sanitize(unsafe_settings).settings
+		expect_eq(safe_settings.master_volume, 1.0, "master volume is clamped")
+		expect_eq(safe_settings.bgm_volume, 0.0, "BGM volume is clamped")
+		expect_eq(safe_settings.effect_intensity, 0.2, "effect intensity is clamped")
+		expect_eq(safe_settings.window_size, "1280x720", "unknown window sizes recover to default")
+		expect_eq(safe_settings.fps_limit, 60, "unknown FPS limits recover to default")
+	var ServerAI = load("res://scripts/ServerAI.gd")
+	expect_true(not ServerAI.stage_summary(3).contains("해금"), "AI stage copy does not claim nonexistent unlocks")
+	expect_true(ServerAI.stage_summary(3).contains("방어"), "AI stage copy describes its actual defensive behavior")
 
 	var NetworkController = load("res://scripts/NetworkController.gd")
 	expect_true(NetworkController.validate_deck_payload(["shield", "archer", "healer"], ["wall", "turret", "generator"]), "server accepts a valid deck payload")
 	expect_true(not NetworkController.validate_deck_payload(["shield", "archer", "intruder"], ["wall", "turret", "generator"]), "server rejects unknown deck entries")
 	expect_true(not NetworkController.validate_deck_payload(["shield", "archer"], ["wall", "turret", "generator"]), "server rejects wrong deck counts")
 	var network = NetworkController.new()
+	expect_true(network.has_signal("structure_placement_result"), "server placement results have a client signal")
 	expect_true(network.set_client_deck(["shield", "archer", "healer"], ["wall", "turret", "generator"]), "client can select a valid deck before connecting")
 	expect_true(not network.set_client_deck(["shield"], ["wall", "turret", "generator"]), "client cannot select an invalid deck")
 	network.free()
