@@ -128,6 +128,19 @@ func _process(delta: float) -> void:
 			printerr("SMOKE_CLIENT_TIMEOUT")
 			get_tree().quit(2)
 
+func _input(event: InputEvent) -> void:
+	if not event is InputEventKey or not event.pressed or event.echo:
+		return
+	if event.keycode == KEY_F11:
+		_set_fullscreen(not bool(save_data.settings.fullscreen))
+		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_ESCAPE and battle_active and is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty():
+		battle_view.selected_structure = ""
+		battle_view.queue_redraw()
+		if is_instance_valid(placement_status_label):
+			placement_status_label.text = "건설을 취소했습니다."
+		get_viewport().set_input_as_handled()
+
 func _server_can_update() -> bool:
 	for model in network.models.values():
 		if model.winner == -1:
@@ -183,9 +196,9 @@ func _clear_screen() -> void:
 static func build_version() -> String:
 	var file := FileAccess.open("res://build_info.json", FileAccess.READ)
 	if file == null:
-		return "0.4.0"
+		return "0.4.1"
 	var data = JSON.parse_string(file.get_as_text())
-	return String(data.get("version", "0.4.0")) if data is Dictionary else "0.4.0"
+	return String(data.get("version", "0.4.1")) if data is Dictionary else "0.4.1"
 
 func _active_preset() -> Dictionary:
 	return save_data.deck_presets[clampi(int(save_data.last_deck), 0, 2)]
@@ -193,9 +206,7 @@ func _active_preset() -> Dictionary:
 func _apply_settings() -> void:
 	var settings: Dictionary = save_data.settings
 	for pair in [["Master", settings.master_volume], ["BGM", settings.bgm_volume], ["SFX", settings.sfx_volume]]:
-		var bus_index: int = AudioServer.get_bus_index(String(pair[0]))
-		if bus_index >= 0:
-			AudioServer.set_bus_volume_db(bus_index, linear_to_db(max(float(pair[1]), 0.001)))
+		_preview_bus_volume(float(pair[1]), String(pair[0]))
 	var master_bus := AudioServer.get_bus_index("Master")
 	if master_bus >= 0:
 		AudioServer.set_bus_mute(master_bus, bool(settings.muted))
@@ -208,6 +219,24 @@ func _apply_settings() -> void:
 		var parts := String(settings.window_size).split("x")
 		if parts.size() == 2:
 			DisplayServer.window_set_size(Vector2i(int(parts[0]), int(parts[1])))
+
+func _preview_bus_volume(value: float, bus_name: String) -> void:
+	var bus_index := AudioServer.get_bus_index(bus_name)
+	if bus_index >= 0:
+		AudioServer.set_bus_volume_db(bus_index, -80.0 if value <= 0.0 else linear_to_db(value))
+
+func _set_fullscreen(enabled: bool) -> void:
+	save_data.settings.fullscreen = enabled
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if enabled else DisplayServer.WINDOW_MODE_WINDOWED)
+		if not enabled:
+			var parts := String(save_data.settings.window_size).split("x")
+			if parts.size() == 2:
+				DisplayServer.window_set_size(Vector2i(int(parts[0]), int(parts[1])))
+	var toggle := find_child("FullscreenToggle", true, false) as CheckButton
+	if toggle != null:
+		toggle.set_pressed_no_signal(enabled)
+	SaveData.save_data(save_data)
 
 func _make_background() -> ColorRect:
 	var bg := ColorRect.new()
@@ -461,9 +490,9 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	for kind in BattleModel.UNIT_STATS.keys():
 		var stats: Dictionary = BattleModel.UNIT_STATS[kind]
 		var role := "회복/지원" if kind == "healer" else "원거리" if kind == "archer" else "방어" if kind == "shield" else "근접 공격"
-		var card := _styled_button("%s\n비용 %d · HP %d · 공격 %d\nDPS %.1f · 사거리 %d · %s" % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), float(stats.damage) / float(stats.interval), int(stats.range), role], Color("#5b8cff"), false)
-		card.toggle_mode = true
-		card.button_pressed = selected.units.has(kind)
+		var card_text := "%s\n비용 %d · HP %d · 공격 %d\nDPS %.1f · 사거리 %d · %s" % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), float(stats.damage) / float(stats.interval), int(stats.range), role]
+		var card := _styled_button(card_text, Color("#5b8cff"), false)
+		_configure_deck_card(card, card_text, Color("#5b8cff"), selected.units.has(kind))
 		card.custom_minimum_size = Vector2(240, 105)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		unit_buttons[kind] = card
@@ -476,9 +505,9 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	var roles := {"wall": "뒤 대상을 차폐 · 최대 2", "jump_pad": "유닛별 1회 +165 이동", "swamp": "반경 95 · 이동 45%", "turret": "유닛만 공격 · 최대 1", "generator": "후방 전용 · 초당 +1"}
 	for kind in BattleModel.STRUCTURE_STATS.keys():
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
-		var card := _styled_button("%s\n비용 %d · HP %d\n%s" % [structure_names[kind], int(stats.cost), int(stats.hp), roles[kind]], Color("#3d8f83"), false)
-		card.toggle_mode = true
-		card.button_pressed = selected.structures.has(kind)
+		var card_text := "%s\n비용 %d · HP %d\n%s" % [structure_names[kind], int(stats.cost), int(stats.hp), roles[kind]]
+		var card := _styled_button(card_text, Color("#3d8f83"), false)
+		_configure_deck_card(card, card_text, Color("#3d8f83"), selected.structures.has(kind))
 		card.custom_minimum_size = Vector2(190, 92)
 		structure_buttons[kind] = card
 		structure_grid.add_child(card)
@@ -537,13 +566,16 @@ func _build_settings_screen() -> void:
 	var controls := GridContainer.new()
 	controls.columns = 2
 	column.add_child(controls)
-	var master := HSlider.new(); master.min_value = 0.0; master.max_value = 1.0; master.step = 0.05; master.value = settings.master_volume
-	var bgm := HSlider.new(); bgm.min_value = 0.0; bgm.max_value = 1.0; bgm.step = 0.05; bgm.value = settings.bgm_volume
-	var sfx := HSlider.new(); sfx.min_value = 0.0; sfx.max_value = 1.0; sfx.step = 0.05; sfx.value = settings.sfx_volume
+	var master := HSlider.new(); master.name = "MasterVolumeSlider"; master.min_value = 0.0; master.max_value = 1.0; master.step = 0.05; master.value = settings.master_volume
+	var bgm := HSlider.new(); bgm.name = "BGMVolumeSlider"; bgm.min_value = 0.0; bgm.max_value = 1.0; bgm.step = 0.05; bgm.value = settings.bgm_volume
+	var sfx := HSlider.new(); sfx.name = "SFXVolumeSlider"; sfx.min_value = 0.0; sfx.max_value = 1.0; sfx.step = 0.05; sfx.value = settings.sfx_volume
+	master.value_changed.connect(_preview_bus_volume.bind("Master"))
+	bgm.value_changed.connect(_preview_bus_volume.bind("BGM"))
+	sfx.value_changed.connect(_preview_bus_volume.bind("SFX"))
 	for pair in [["전체 음량", master], ["BGM 음량", bgm], ["효과음 음량", sfx]]:
 		var label := Label.new(); label.text = pair[0]; controls.add_child(label); pair[1].custom_minimum_size.x = 600; controls.add_child(pair[1])
-	var muted := CheckButton.new(); muted.text = "음소거"; muted.button_pressed = settings.muted; column.add_child(muted)
-	var fullscreen := CheckButton.new(); fullscreen.text = "전체화면"; fullscreen.button_pressed = settings.fullscreen; column.add_child(fullscreen)
+	var muted := CheckButton.new(); muted.text = "음소거"; muted.button_pressed = settings.muted; muted.toggled.connect(func(enabled): AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), enabled)); column.add_child(muted)
+	var fullscreen := CheckButton.new(); fullscreen.name = "FullscreenToggle"; fullscreen.text = "전체화면 (F11)"; fullscreen.button_pressed = settings.fullscreen; column.add_child(fullscreen)
 	var vsync := CheckButton.new(); vsync.text = "VSync"; vsync.button_pressed = settings.vsync; column.add_child(vsync)
 	var window_size := OptionButton.new()
 	for option in ["1280x720", "1600x900", "1920x1080"]: window_size.add_item(option)
@@ -568,7 +600,32 @@ func _build_settings_screen() -> void:
 		_build_connect_screen("설정을 저장했습니다.")
 	)
 	column.add_child(save_button)
-	var back := _styled_button("취소", Color("#697386"), false); back.pressed.connect(_build_connect_screen); column.add_child(back)
+	var back := _styled_button("취소", Color("#697386"), false); back.pressed.connect(func(): _apply_settings(); _build_connect_screen()); column.add_child(back)
+
+func _configure_deck_card(card: Button, base_text: String, color: Color, selected: bool) -> void:
+	card.toggle_mode = true
+	card.set_meta("deck_base_text", base_text)
+	card.set_meta("deck_color", color)
+	var selected_style := StyleBoxFlat.new()
+	selected_style.bg_color = color.darkened(0.48)
+	selected_style.border_color = color.lightened(0.28)
+	selected_style.set_border_width_all(3)
+	selected_style.set_corner_radius_all(8)
+	selected_style.content_margin_left = 10
+	selected_style.content_margin_right = 10
+	var selected_hover := selected_style.duplicate()
+	selected_hover.bg_color = color.darkened(0.36)
+	card.add_theme_stylebox_override("pressed", selected_style)
+	card.add_theme_stylebox_override("hover_pressed", selected_hover)
+	card.add_theme_color_override("font_pressed_color", Color.WHITE)
+	card.add_theme_color_override("font_hover_pressed_color", Color.WHITE)
+	card.set_pressed_no_signal(selected)
+	_refresh_deck_card(card)
+	card.toggled.connect(func(_pressed): _refresh_deck_card(card))
+
+func _refresh_deck_card(card: Button) -> void:
+	var marker := "✓ 선택됨" if card.button_pressed else "○ 선택 가능"
+	card.text = marker + "\n" + String(card.get_meta("deck_base_text", ""))
 
 func _styled_button(text_value: String, color: Color, filled: bool = false) -> Button:
 	var button := Button.new()

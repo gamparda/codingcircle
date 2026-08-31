@@ -33,7 +33,7 @@ static func default_data() -> Dictionary:
 		"last_deck": 0,
 		"settings": {
 			"master_volume": 0.8, "bgm_volume": 0.7, "sfx_volume": 0.8, "muted": false,
-			"window_size": "1280x720", "fullscreen": false, "vsync": true, "fps_limit": 60,
+			"window_size": "1280x720", "fullscreen": true, "vsync": true, "fps_limit": 60,
 			"damage_numbers": true, "screen_shake": true, "battle_effects": true, "effect_intensity": 0.65,
 		},
 		"stats": {

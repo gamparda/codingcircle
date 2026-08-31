@@ -69,6 +69,7 @@ func _init() -> void:
 	expect_true(SaveData != null, "versioned user save module loads")
 	if SaveData != null:
 		var defaults: Dictionary = SaveData.default_data()
+		expect_true(bool(defaults.settings.fullscreen), "new installs start in fullscreen mode")
 		expect_eq(defaults.save_version, 1, "save schema begins at version 1")
 		expect_eq(defaults.deck_presets.size(), 3, "three deck presets exist")
 		expect_eq(defaults.campaign_records.size(), 10, "ten campaign records exist")

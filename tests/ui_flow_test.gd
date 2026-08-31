@@ -24,6 +24,12 @@ func tree_text(node: Node) -> String:
 		output += "\n" + tree_text(child)
 	return output
 
+func key_event(keycode: Key) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.keycode = keycode
+	event.pressed = true
+	return event
+
 func _init() -> void:
 	call_deferred("run")
 
@@ -32,7 +38,7 @@ func run() -> void:
 	var main = scene.instantiate()
 	root.add_child(main)
 	await process_frame
-	expect_true(tree_text(main).contains("v0.4.0"), "main menu reads the v0.4.0 build version")
+	expect_true(tree_text(main).contains("v0.4.1"), "main menu reads the v0.4.1 build version")
 	for required_button in ["온라인 아레나", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
 		expect_true(find_button(main, required_button) != null, "main menu exposes %s" % required_button)
 	main._build_deck_screen()
@@ -40,9 +46,33 @@ func run() -> void:
 	var deck_text := tree_text(main)
 	for required_card in ["탱커", "검사", "궁수", "마법사", "방벽", "점프대", "늪", "포탑", "발전기"]:
 		expect_true(deck_text.contains(required_card), "deck editor exposes %s" % required_card)
+	expect_true(deck_text.contains("선택됨"), "selected deck cards have an explicit selected marker")
+	expect_true(deck_text.contains("선택 가능"), "unselected deck cards have an explicit available marker")
+
+	main._build_settings_screen()
+	await process_frame
+	var bgm_slider := main.find_child("BGMVolumeSlider", true, false) as HSlider
+	expect_true(bgm_slider != null, "settings expose a named BGM volume slider")
+	if bgm_slider != null:
+		bgm_slider.value = 0.25
+		await process_frame
+		var bgm_bus := AudioServer.get_bus_index("BGM")
+		expect_true(bgm_bus >= 0 and is_equal_approx(AudioServer.get_bus_volume_db(bgm_bus), linear_to_db(0.25)), "BGM slider previews volume immediately")
+	expect_true(int(ProjectSettings.get_setting("rendering/textures/canvas_textures/default_texture_filter", 0)) == 1, "window scaling uses linear canvas texture filtering")
+	expect_true(main.has_method("_input"), "main handles global fullscreen and cancel shortcuts")
+	if main.has_method("_input"):
+		var was_fullscreen := bool(main.save_data.settings.fullscreen)
+		main._input(key_event(KEY_F11))
+		expect_true(bool(main.save_data.settings.fullscreen) != was_fullscreen, "F11 toggles the saved fullscreen setting")
+		main._input(key_event(KEY_F11))
+		expect_true(bool(main.save_data.settings.fullscreen) == was_fullscreen, "a second F11 restores the previous fullscreen setting")
 
 	main._start_local_ai_battle()
 	await process_frame
+	main.battle_view.selected_structure = "wall"
+	if main.has_method("_input"):
+		main._input(key_event(KEY_ESCAPE))
+	expect_true(main.battle_view.selected_structure.is_empty(), "Escape cancels structure placement")
 	main.local_model.winner = 0
 	main._on_snapshot(main.local_model.snapshot())
 	await process_frame
