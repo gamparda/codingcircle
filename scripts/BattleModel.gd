@@ -1,6 +1,8 @@
 class_name BattleModel
 extends RefCounted
 
+const Localization = preload("res://scripts/Localization.gd")
+
 const FIELD_LEFT := 90.0
 const FIELD_RIGHT := 1190.0
 const START_RESOURCE := 60.0
@@ -105,15 +107,15 @@ static func unit_stat_summary(kind: String) -> String:
 		return ""
 	var stats: Dictionary = UNIT_STATS[kind]
 	var interval: float = max(float(stats.interval), MIN_ATTACK_INTERVAL)
-	var output := "비용 %d  ·  체력 %d\n" % [int(stats.cost), int(stats.hp)]
+	var output := Localization.text("비용 %d  ·  체력 %d\n") % [int(stats.cost), int(stats.hp)]
 	if float(stats.get("heal", 0.0)) > 0.0:
-		output += "공격력 %d  ·  회복량 %d  ·  DPS %.1f / HPS %.1f\n" % [int(stats.damage), int(stats.heal), float(stats.damage) / interval, float(stats.heal) / interval]
+		output += Localization.text("공격력 %d  ·  회복량 %d  ·  DPS %.1f / HPS %.1f\n") % [int(stats.damage), int(stats.heal), float(stats.damage) / interval, float(stats.heal) / interval]
 	else:
-		output += "공격력 %d  ·  DPS %.1f\n" % [int(stats.damage), float(stats.damage) / interval]
-	return output + "공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d" % [interval, int(stats.range), int(stats.speed)]
+		output += Localization.text("공격력 %d  ·  DPS %.1f\n") % [int(stats.damage), float(stats.damage) / interval]
+	return output + Localization.text("공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d") % [interval, int(stats.range), int(stats.speed)]
 
 static func battle_stat_summary() -> String:
-	return "구조물  ·  방벽 35/체력 230  ·  늪 30/체력 100/이동 45%%\n포탑 50/체력 115/공격 8/사거리 240  ·  발전기 50/체력 90/+1 자원\n마법사  ·  공격과 아군 회복 가능\n전장  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음" % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
+	return Localization.text("구조물  ·  방벽 35/체력 230  ·  늪 30/체력 100/이동 45%%\n포탑 50/체력 115/공격 8/사거리 240  ·  발전기 50/체력 90/+1 자원\n마법사  ·  공격과 아군 회복 가능\n전장  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
 
 func _owned_structure_count(side: int, kind: String = "") -> int:
 	var count := 0
@@ -124,28 +126,28 @@ func _owned_structure_count(side: int, kind: String = "") -> int:
 
 func structure_placement_error(side: int, kind: String, x: float) -> String:
 	if winner != -1 or side < 0 or side > 1 or not STRUCTURE_STATS.has(kind):
-		return "설치할 수 없는 구조물입니다."
+		return Localization.text("설치할 수 없는 구조물입니다.")
 	if not structure_decks[side].has(kind):
-		return "현재 덱에 없는 구조물입니다."
+		return Localization.text("현재 덱에 없는 구조물입니다.")
 	var valid_zone := (side == 0 and x >= BLUE_BUILD_MIN and x <= BLUE_BUILD_MAX) or (side == 1 and x >= RED_BUILD_MIN and x <= RED_BUILD_MAX)
 	if not valid_zone:
-		return "자신의 건설 구역에만 설치할 수 있습니다."
+		return Localization.text("자신의 건설 구역에만 설치할 수 있습니다.")
 	if kind == "generator" and not ((side == 0 and x <= BLUE_REAR_MAX) or (side == 1 and x >= RED_REAR_MIN)):
-		return "발전기는 후방에만 설치할 수 있습니다."
+		return Localization.text("발전기는 후방에만 설치할 수 있습니다.")
 	for structure in structures:
 		if int(structure.side) == side and float(structure.hp) > 0.0 and abs(float(structure.x) - x) < STRUCTURE_MIN_SPACING:
-			return "구조물이 너무 가깝습니다."
+			return Localization.text("구조물이 너무 가깝습니다.")
 	if _owned_structure_count(side) >= STRUCTURE_LIMIT:
-		return "구조물은 최대 3개까지 설치할 수 있습니다."
+		return Localization.text("구조물은 최대 3개까지 설치할 수 있습니다.")
 	var max_count := int(STRUCTURE_STATS[kind].get("max_count", STRUCTURE_LIMIT))
 	if _owned_structure_count(side, kind) >= max_count:
 		if kind == "turret":
-			return "포탑은 1개만 설치할 수 있습니다."
+			return Localization.text("포탑은 1개만 설치할 수 있습니다.")
 		if kind == "generator":
-			return "발전기는 1개만 설치할 수 있습니다."
-		return "방벽은 2개만 설치할 수 있습니다."
+			return Localization.text("발전기는 1개만 설치할 수 있습니다.")
+		return Localization.text("방벽은 2개만 설치할 수 있습니다.")
 	if resources[side] < float(STRUCTURE_STATS[kind].cost):
-		return "자원이 부족합니다."
+		return Localization.text("자원이 부족합니다.")
 	return ""
 
 func place_structure(side: int, kind: String, x: float) -> bool:

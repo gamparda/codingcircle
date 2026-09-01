@@ -25,7 +25,25 @@ func _init() -> void:
 	var model = BattleModel.new()
 	var SaveData = load("res://scripts/SaveData.gd")
 	expect_true(SaveData != null, "SaveData script loads")
+	var Localization = load("res://scripts/Localization.gd")
+	expect_true(Localization != null, "Localization script loads")
+	if Localization != null:
+		expect_eq(Localization.SUPPORTED_LOCALES, ["ko", "en", "fr", "zh_CN", "ru", "es"], "all requested locales are supported")
+		expect_true(Localization.catalog_is_complete(), "every locale contains the complete translation key set")
+		expect_eq(Localization.normalize_locale("en_US"), "en", "regional English locale resolves to English")
+		expect_eq(Localization.normalize_locale("zh-Hans-CN"), "zh_CN", "Simplified Chinese locale resolves correctly")
+		expect_eq(Localization.normalize_locale("de_DE"), "ko", "unsupported system locale falls back to Korean")
+		for locale in ["en", "fr", "zh_CN", "ru", "es"]:
+			Localization.install(locale)
+			expect_true(Localization.text("설정") != "설정", "%s translates a representative settings label" % locale)
+			expect_true(Localization.text("선택 덱: %s  ·  온라인은 전용 서버 권한형  ·  AI는 완전 오프라인").contains("%s"), "%s preserves format placeholders" % locale)
+		Localization.install("ko")
 	var legacy_save: Dictionary = SaveData.default_data()
+	expect_eq(legacy_save.settings.language, "ko", "new saves default to Korean")
+	legacy_save.settings.language = "fr"
+	expect_eq(SaveData.sanitize(legacy_save).settings.language, "fr", "selected language survives save sanitization")
+	legacy_save.settings.language = "invalid"
+	expect_eq(SaveData.sanitize(legacy_save).settings.language, "ko", "invalid saved language falls back safely")
 	legacy_save.deck_presets[0] = {
 		"name": "내 점프 덱",
 		"units": ["shield", "archer", "healer"],
@@ -293,8 +311,13 @@ func _init() -> void:
 	var Bootstrap = load("res://scripts/Bootstrap.gd")
 	expect_true(Bootstrap != null, "Android content bootstrap script loads")
 	if Bootstrap != null:
+		expect_eq(Bootstrap.build_versions({"version": "0.5.0", "binary_version": "0.4.9"}), {"content": "0.5.0", "binary": "0.4.9"}, "Android bootstrap keeps bundled content and APK versions independent")
+		expect_eq(Bootstrap.build_versions({"version": "0.4.8"}), {"content": "0.4.8", "binary": "0.4.8"}, "legacy bundled build metadata safely shares one version")
+		expect_eq(Bootstrap.preferred_locale({"settings": {"language": "ru"}}, "en_US"), "ru", "bootstrap honors the saved language before drawing update UI")
+		expect_eq(Bootstrap.preferred_locale({}, "zh-Hans-CN"), "zh_CN", "bootstrap uses the supported system language on first launch")
 		var content_manifest := {
-			"version": "0.4.4",
+			"version": "0.5.0",
+			"android_binary_version": "0.4.4",
 			"android_apk_url": "https://gamparda.github.io/codingcircle/CatWar.apk",
 			"android_sha256": "b".repeat(64),
 			"content_pack_version": "0.4.4",
@@ -303,6 +326,11 @@ func _init() -> void:
 			"content_pack_sha256": "a".repeat(64),
 		}
 		expect_true(Bootstrap.validate_content_manifest(content_manifest), "official signed-build content metadata is accepted")
+		expect_eq(Bootstrap.manifest_android_binary_version(content_manifest), "0.4.4", "Android APK gating uses its independent binary version")
+		expect_true(not Bootstrap.requires_apk_update(Bootstrap.manifest_android_binary_version(content_manifest), "0.4.4", "https://gamparda.github.io/codingcircle/CatWar.apk"), "a newer Windows installer version does not force an Android APK update")
+		var legacy_binary_manifest: Dictionary = content_manifest.duplicate(true)
+		legacy_binary_manifest.erase("android_binary_version")
+		expect_eq(Bootstrap.manifest_android_binary_version(legacy_binary_manifest), "0.5.0", "legacy manifests fall back to the shared binary version")
 		var untrusted_manifest: Dictionary = content_manifest.duplicate(true)
 		untrusted_manifest.content_pack_url = "https://example.com/CatWarContent.pck"
 		expect_true(not Bootstrap.validate_content_manifest(untrusted_manifest), "untrusted content pack origins are rejected")
@@ -324,6 +352,8 @@ func _init() -> void:
 
 	var Main = load("res://scripts/Main.gd")
 	expect_true(Main != null, "Main script loads")
+	expect_eq(Main.build_binary_version(), "0.4.9", "version-split migration advances the Android bootstrap once")
+	expect_eq(Main.build_version(), "0.4.9", "content pack version advances independently")
 	expect_true(NetworkController.is_valid_room_code(Main.DEFAULT_SMOKE_ROOM_CODE), "default smoke room code follows production room-code rules")
 	expect_true(Main.apk_update_required("Android", "0.4.4", "0.4.5"), "new content warns when it runs on an older Android APK")
 	expect_true(not Main.apk_update_required("Android", "0.4.5", "0.4.5"), "matching Android APK and content versions do not warn")

@@ -2,6 +2,8 @@ param(
     [string]$GodotPath = "",
     [string]$IsccPath = "",
     [string]$Version = "",
+    [string]$ContentVersion = "",
+    [string]$BinaryVersion = "",
     [string]$Commit = "local",
     [string]$UpdateUrl = "https://gamparda.github.io/codingcircle/update.json"
 )
@@ -40,15 +42,24 @@ $Iscc = Resolve-Iscc $IsccPath
 New-Item -ItemType Directory -Force $Builds, $Dist | Out-Null
 
 $BuildInfoPath = Join-Path $Root "build_info.json"
-if (-not $Version) {
-    $BuildInfo = Get-Content $BuildInfoPath -Raw | ConvertFrom-Json
-    $Version = [string]$BuildInfo.version
-}
+$ExistingBuildInfo = Get-Content $BuildInfoPath -Raw | ConvertFrom-Json
+if (-not $Version) { $Version = [string]$ExistingBuildInfo.version }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Version must use numeric major.minor.patch format, for example 0.4.2"
 }
+if (-not $ContentVersion) { $ContentVersion = [string]$ExistingBuildInfo.version }
+if ($ContentVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "ContentVersion must use numeric major.minor.patch format"
+}
+if (-not $BinaryVersion) {
+    $BinaryVersion = if ($ExistingBuildInfo.PSObject.Properties.Name -contains "binary_version") { [string]$ExistingBuildInfo.binary_version } else { $Version }
+}
+if ($BinaryVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "BinaryVersion must use numeric major.minor.patch format"
+}
 $BuildInfo = [ordered]@{
-    version = $Version
+    version = $ContentVersion
+    binary_version = $BinaryVersion
     commit = $Commit
     update_url = $UpdateUrl
 } | ConvertTo-Json

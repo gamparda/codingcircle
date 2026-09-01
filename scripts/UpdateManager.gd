@@ -1,6 +1,8 @@
 class_name UpdateManager
 extends Node
 
+const Localization = preload("res://scripts/Localization.gd")
+
 signal update_started(version: String)
 signal update_status(message: String, progress: float)
 signal update_failed(message: String)
@@ -47,7 +49,7 @@ func _process(delta: float) -> void:
 		var total: int = http.get_body_size()
 		var downloaded: int = http.get_downloaded_bytes()
 		var progress: float = -1.0 if total <= 0 else clamp(float(downloaded) / float(total), 0.0, 1.0)
-		update_status.emit("업데이트 설치 파일 다운로드 중...", progress)
+		update_status.emit(Localization.text("업데이트 설치 파일 다운로드 중..."), progress)
 		return
 	if state == "failed":
 		countdown -= delta
@@ -71,7 +73,7 @@ func check_for_update(force: bool = false) -> void:
 	if (not enabled and not force) or state != "idle":
 		return
 	if not is_trusted_manifest_url(update_url, allow_insecure_update):
-		_fail_update("신뢰할 수 없는 업데이트 주소입니다.")
+		_fail_update(Localization.text("신뢰할 수 없는 업데이트 주소입니다."))
 		return
 	state = "checking"
 	countdown = CHECK_INTERVAL
@@ -107,7 +109,7 @@ func accept_manifest(body: PackedByteArray) -> bool:
 	manifest.clear()
 	var parsed = JSON.parse_string(body.get_string_from_utf8())
 	if not parsed is Dictionary or not validate_manifest(parsed, allow_insecure_update):
-		_fail_update("신뢰할 수 없는 업데이트 정보입니다.")
+		_fail_update(Localization.text("신뢰할 수 없는 업데이트 정보입니다."))
 		return false
 	var candidate: Dictionary = parsed
 	var remote_version: String = candidate.version
@@ -123,7 +125,7 @@ func accept_manifest(body: PackedByteArray) -> bool:
 func _begin_download() -> void:
 	var version := String(manifest.get("version", "new"))
 	update_started.emit(version)
-	update_status.emit("필수 업데이트 준비 중...", 0.0)
+	update_status.emit(Localization.text("필수 업데이트 준비 중..."), 0.0)
 	var update_dir := ProjectSettings.globalize_path("user://updates")
 	DirAccess.make_dir_recursive_absolute(update_dir)
 	installer_path = update_dir.path_join(random_update_basename("exe"))
@@ -131,32 +133,32 @@ func _begin_download() -> void:
 	state = "downloading"
 	var error := http.request(String(manifest.installer_url), ["Cache-Control: no-cache"])
 	if error != OK:
-		_fail_update("업데이트 다운로드를 시작하지 못했습니다.")
+		_fail_update(Localization.text("업데이트 다운로드를 시작하지 못했습니다."))
 
 func _handle_installer_response(result: int, response_code: int) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200 or not FileAccess.file_exists(installer_path):
-		_fail_update("업데이트 설치 파일 다운로드에 실패했습니다.")
+		_fail_update(Localization.text("업데이트 설치 파일 다운로드에 실패했습니다."))
 		return
-	update_status.emit("다운로드 파일 무결성 확인 중...", 1.0)
+	update_status.emit(Localization.text("다운로드 파일 무결성 확인 중..."), 1.0)
 	var actual_hash := FileAccess.get_sha256(installer_path).to_lower()
 	var expected_hash := String(manifest.sha256).to_lower()
 	if actual_hash != expected_hash:
 		DirAccess.remove_absolute(installer_path)
-		_fail_update("업데이트 파일의 SHA-256 검증에 실패했습니다.")
+		_fail_update(Localization.text("업데이트 파일의 SHA-256 검증에 실패했습니다."))
 		return
 	state = "ready_to_install"
 	if safe_to_update:
 		_schedule_install_and_restart()
 	else:
-		update_status.emit("진행 중인 경기가 끝나면 업데이트를 설치합니다.", 1.0)
+		update_status.emit(Localization.text("진행 중인 경기가 끝나면 업데이트를 설치합니다."), 1.0)
 
 func _schedule_install_and_restart() -> void:
 	state = "installing"
-	update_status.emit("게임을 종료하고 업데이트를 설치합니다...", 1.0)
+	update_status.emit(Localization.text("게임을 종료하고 업데이트를 설치합니다..."), 1.0)
 	var expected_hash := String(manifest.get("sha256", "")).to_lower()
 	if FileAccess.get_sha256(installer_path).to_lower() != expected_hash:
 		DirAccess.remove_absolute(installer_path)
-		_fail_update("설치 직전 SHA-256 재검증에 실패했습니다.")
+		_fail_update(Localization.text("설치 직전 SHA-256 재검증에 실패했습니다."))
 		return
 	var executable := OS.get_executable_path()
 	var install_dir := executable.get_base_dir()
@@ -174,18 +176,18 @@ func _schedule_install_and_restart() -> void:
 		installer_path.get_file(), backup_name, executable, install_dir, expected_hash, restart_port
 	)
 	if batch.is_empty():
-		_fail_update("안전한 업데이트 실행 도우미를 만들지 못했습니다.")
+		_fail_update(Localization.text("안전한 업데이트 실행 도우미를 만들지 못했습니다."))
 		return
 	var helper := FileAccess.open(helper_path, FileAccess.WRITE)
 	if helper == null:
-		_fail_update("업데이트 실행 도우미를 만들지 못했습니다.")
+		_fail_update(Localization.text("업데이트 실행 도우미를 만들지 못했습니다."))
 		return
 	helper.store_string(batch)
 	helper.close()
 	var pid := OS.create_process("cmd.exe", ["/d", "/c", helper_path])
 	if pid <= 0:
 		DirAccess.remove_absolute(helper_path)
-		_fail_update("업데이트 설치 프로그램을 실행하지 못했습니다.")
+		_fail_update(Localization.text("업데이트 설치 프로그램을 실행하지 못했습니다."))
 		return
 	restart_scheduled.emit()
 	get_tree().quit(0)

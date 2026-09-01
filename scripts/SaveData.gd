@@ -1,6 +1,8 @@
 class_name SaveData
 extends RefCounted
 
+const Localization = preload("res://scripts/Localization.gd")
+
 const SAVE_VERSION := 1
 const SAVE_PATH := "user://catwar_save.json"
 const WINDOW_SIZES := ["1280x720", "1600x900", "1920x1080"]
@@ -28,15 +30,16 @@ static func default_data() -> Dictionary:
 		"campaign_unlocked": 1,
 		"campaign_records": campaign_records,
 		"deck_presets": [
-			_preset("덱 1", ["shield", "archer", "healer"], ["wall", "turret", "generator"]),
-			_preset("덱 2", ["swordsman", "archer", "healer"], ["wall", "swamp", "turret"]),
-			_preset("덱 3", ["shield", "swordsman", "archer"], ["swamp", "turret", "generator"]),
+			_preset(Localization.text("덱 1"), ["shield", "archer", "healer"], ["wall", "turret", "generator"]),
+			_preset(Localization.text("덱 2"), ["swordsman", "archer", "healer"], ["wall", "swamp", "turret"]),
+			_preset(Localization.text("덱 3"), ["shield", "swordsman", "archer"], ["swamp", "turret", "generator"]),
 		],
 		"last_deck": 0,
 		"settings": {
 			"master_volume": 0.8, "bgm_volume": 0.7, "sfx_volume": 0.8, "muted": false,
 			"window_size": "1280x720", "fullscreen": true, "vsync": true, "fps_limit": 60,
 			"damage_numbers": true, "screen_shake": true, "battle_effects": true, "effect_intensity": 0.65,
+			"language": "ko",
 		},
 		"stats": {
 			"ai_matches": 0, "ai_wins": 0, "ai_losses": 0, "highest_campaign": 0, "total_stars": 0,
@@ -91,7 +94,7 @@ static func sanitize(raw: Variant) -> Dictionary:
 			if preset is Dictionary and preset.get("units") is Array and preset.get("structures") is Array:
 				var structures := _migrate_removed_structures(preset.structures, clean.deck_presets[index].structures)
 				if BattleModel._valid_deck(preset.units, BattleModel.UNIT_STATS) and BattleModel._valid_deck(structures, BattleModel.STRUCTURE_STATS):
-					clean.deck_presets[index] = {"name": String(preset.get("name", "덱 %d" % (index + 1))).left(20), "units": preset.units.duplicate(), "structures": structures}
+					clean.deck_presets[index] = {"name": String(preset.get("name", Localization.text("덱 %d") % (index + 1))).left(20), "units": preset.units.duplicate(), "structures": structures}
 	if raw.get("settings") is Dictionary:
 		for key in ["master_volume", "bgm_volume", "sfx_volume"]:
 			if raw.settings.get(key) is int or raw.settings.get(key) is float:
@@ -102,6 +105,8 @@ static func sanitize(raw: Variant) -> Dictionary:
 			clean.settings.window_size = String(raw.settings.window_size)
 		if raw.settings.get("fps_limit") is int and FPS_LIMITS.has(int(raw.settings.fps_limit)):
 			clean.settings.fps_limit = int(raw.settings.fps_limit)
+		if raw.settings.get("language") is String:
+			clean.settings.language = Localization.normalize_locale(String(raw.settings.language))
 		for key in ["muted", "fullscreen", "vsync", "damage_numbers", "screen_shake", "battle_effects"]:
 			if raw.settings.get(key) is bool:
 				clean.settings[key] = raw.settings[key]

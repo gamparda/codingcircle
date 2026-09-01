@@ -1,7 +1,10 @@
 extends Control
 
+const Localization = preload("res://scripts/Localization.gd")
+
 const MAIN_SCENE := "res://scenes/Main.tscn"
 const BUILD_INFO_PATH := "res://build_info.json"
+const SAVE_PATH := "user://catwar_save.json"
 const UPDATE_URL := "https://gamparda.github.io/codingcircle/update.json"
 const OFFICIAL_CONTENT_PREFIX := "https://gamparda.github.io/codingcircle/"
 const CONTENT_DIR := "user://content"
@@ -13,6 +16,7 @@ const PREVIOUS_METADATA := CONTENT_DIR + "/previous.json"
 const PACK_BOOT_STABILITY_SECONDS := 5.0
 
 var bundled_version := "0.0.0"
+var bundled_binary_version := "0.0.0"
 var bundled_commit := "unknown"
 var active_version := "0.0.0"
 var active_commit := "unknown"
@@ -27,9 +31,12 @@ var offline_button: Button
 var apk_button: Button
 
 func _ready() -> void:
+	Localization.install(preferred_locale(_read_json(SAVE_PATH), OS.get_locale()))
 	_build_interface()
 	var build_info := _read_json(BUILD_INFO_PATH)
-	bundled_version = String(build_info.get("version", bundled_version))
+	var versions := build_versions(build_info)
+	bundled_version = String(versions.content)
+	bundled_binary_version = String(versions.binary)
 	bundled_commit = String(build_info.get("commit", bundled_commit))
 	active_version = bundled_version
 	active_commit = bundled_commit
@@ -42,6 +49,18 @@ func _ready() -> void:
 	_load_installed_pack()
 	_check_for_update()
 
+static func preferred_locale(saved_data: Dictionary, system_locale: String) -> String:
+	var settings = saved_data.get("settings", {})
+	if settings is Dictionary:
+		var saved := String(settings.get("language", ""))
+		if Localization.SUPPORTED_LOCALES.has(saved):
+			return saved
+	return Localization.normalize_locale(system_locale)
+
+static func build_versions(build_info: Dictionary) -> Dictionary:
+	var content := String(build_info.get("version", "0.0.0"))
+	return {"content": content, "binary": String(build_info.get("binary_version", content))}
+
 func _process(_delta: float) -> void:
 	if state != "downloading" or not is_instance_valid(http):
 		return
@@ -49,7 +68,7 @@ func _process(_delta: float) -> void:
 	var downloaded := http.get_downloaded_bytes()
 	progress_bar.value = 0.0 if total <= 0 else clamp(float(downloaded) / float(total) * 100.0, 0.0, 100.0)
 	if total > 0:
-		status_label.text = "게임 데이터 업데이트 다운로드 중 · %d%%" % int(progress_bar.value)
+		status_label.text = Localization.text("게임 데이터 업데이트 다운로드 중 · %d%%") % int(progress_bar.value)
 
 func _build_interface() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -70,7 +89,7 @@ func _build_interface() -> void:
 	title.add_theme_color_override("font_color", Color("#7ee8ff"))
 	panel.add_child(title)
 	status_label = Label.new()
-	status_label.text = "게임을 준비하는 중..."
+	status_label.text = Localization.text("게임을 준비하는 중...")
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_label.custom_minimum_size = Vector2(560, 54)
@@ -84,17 +103,17 @@ func _build_interface() -> void:
 	buttons.add_theme_constant_override("separation", 12)
 	panel.add_child(buttons)
 	retry_button = Button.new()
-	retry_button.text = "다시 시도"
+	retry_button.text = Localization.text("다시 시도")
 	retry_button.visible = false
 	retry_button.pressed.connect(_check_for_update)
 	buttons.add_child(retry_button)
 	offline_button = Button.new()
-	offline_button.text = "현재 버전으로 시작"
+	offline_button.text = Localization.text("현재 버전으로 시작")
 	offline_button.visible = false
 	offline_button.pressed.connect(_launch_game)
 	buttons.add_child(offline_button)
 	apk_button = Button.new()
-	apk_button.text = "APK 다운로드"
+	apk_button.text = Localization.text("APK 다운로드")
 	apk_button.visible = false
 	apk_button.pressed.connect(func(): OS.shell_open(String(manifest.get("android_apk_url", ""))))
 	buttons.add_child(apk_button)
@@ -106,7 +125,7 @@ func _check_for_update() -> void:
 	offline_button.visible = false
 	apk_button.visible = false
 	progress_bar.value = 0.0
-	status_label.text = "최신 게임 데이터를 확인하는 중..."
+	status_label.text = Localization.text("최신 게임 데이터를 확인하는 중...")
 	if is_instance_valid(http):
 		http.queue_free()
 	http = HTTPRequest.new()
@@ -118,7 +137,7 @@ func _check_for_update() -> void:
 	state = "checking"
 	var error := http.request(UPDATE_URL, ["Cache-Control: no-cache"])
 	if error != OK:
-		_show_recoverable_error("업데이트 확인을 시작하지 못했습니다.")
+		_show_recoverable_error(Localization.text("업데이트 확인을 시작하지 못했습니다."))
 
 func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if state == "checking":
@@ -128,58 +147,58 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 
 func _handle_manifest(result: int, response_code: int, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
-		_show_recoverable_error("업데이트 서버에 연결하지 못했습니다.")
+		_show_recoverable_error(Localization.text("업데이트 서버에 연결하지 못했습니다."))
 		return
 	var candidate = JSON.parse_string(body.get_string_from_utf8())
 	if not candidate is Dictionary or not validate_content_manifest(candidate):
-		_show_recoverable_error("업데이트 정보가 올바르지 않습니다.")
+		_show_recoverable_error(Localization.text("업데이트 정보가 올바르지 않습니다."))
 		return
 	manifest = candidate
-	if requires_apk_update(String(manifest.get("version", "")), bundled_version, String(manifest.get("android_apk_url", ""))):
+	if requires_apk_update(manifest_android_binary_version(manifest), bundled_binary_version, String(manifest.get("android_apk_url", ""))):
 		_show_apk_update_required()
 		return
 	var remote_version := String(manifest.content_pack_version)
 	var remote_commit := String(manifest.content_pack_commit)
 	if not should_install_content(remote_version, active_version, remote_commit, active_commit):
-		status_label.text = "최신 버전입니다."
+		status_label.text = Localization.text("최신 버전입니다.")
 		_launch_game()
 		return
 	_begin_pack_download()
 
 func _begin_pack_download() -> void:
-	status_label.text = "게임 데이터 업데이트 다운로드 중..."
+	status_label.text = Localization.text("게임 데이터 업데이트 다운로드 중...")
 	progress_bar.value = 0.0
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PENDING_PACK))
 	http.download_file = ProjectSettings.globalize_path(PENDING_PACK)
 	state = "downloading"
 	var error := http.request(String(manifest.content_pack_url), ["Cache-Control: no-cache"])
 	if error != OK:
-		_show_recoverable_error("게임 데이터 다운로드를 시작하지 못했습니다.")
+		_show_recoverable_error(Localization.text("게임 데이터 다운로드를 시작하지 못했습니다."))
 
 func _handle_pack_download(result: int, response_code: int) -> void:
 	var pending_path := ProjectSettings.globalize_path(PENDING_PACK)
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200 or not FileAccess.file_exists(pending_path):
 		DirAccess.remove_absolute(pending_path)
-		_show_recoverable_error("게임 데이터 다운로드에 실패했습니다.")
+		_show_recoverable_error(Localization.text("게임 데이터 다운로드에 실패했습니다."))
 		return
-	status_label.text = "다운로드한 게임 데이터를 검증하는 중..."
+	status_label.text = Localization.text("다운로드한 게임 데이터를 검증하는 중...")
 	progress_bar.value = 100.0
 	var expected_hash := String(manifest.content_pack_sha256).to_lower()
 	if FileAccess.get_sha256(pending_path).to_lower() != expected_hash:
 		DirAccess.remove_absolute(pending_path)
-		_show_recoverable_error("게임 데이터의 SHA-256 검증에 실패했습니다.")
+		_show_recoverable_error(Localization.text("게임 데이터의 SHA-256 검증에 실패했습니다."))
 		return
 	if not _activate_pending_pack(expected_hash):
-		_show_recoverable_error("게임 데이터 교체에 실패했습니다.")
+		_show_recoverable_error(Localization.text("게임 데이터 교체에 실패했습니다."))
 		return
 	active_version = String(manifest.content_pack_version)
 	active_commit = String(manifest.content_pack_commit)
 	active_pack_loaded = ProjectSettings.load_resource_pack(ACTIVE_PACK, true)
 	if not active_pack_loaded:
 		_rollback_pack()
-		_show_recoverable_error("새 게임 데이터를 불러오지 못해 이전 버전으로 복구했습니다.")
+		_show_recoverable_error(Localization.text("새 게임 데이터를 불러오지 못해 이전 버전으로 복구했습니다."))
 		return
-	status_label.text = "업데이트 완료 · 게임을 시작합니다."
+	status_label.text = Localization.text("업데이트 완료 · 게임을 시작합니다.")
 	_launch_game(true)
 
 func _activate_pending_pack(expected_hash: String) -> bool:
@@ -254,12 +273,12 @@ func _launch_game(confirm_new_pack: bool = false) -> void:
 	if packed_scene == null:
 		if active_pack_loaded:
 			_rollback_pack()
-		status_label.text = "게임 장면을 불러오지 못했습니다. 앱을 다시 실행해 주세요."
+		status_label.text = Localization.text("게임 장면을 불러오지 못했습니다. 앱을 다시 실행해 주세요.")
 		state = "failed"
 		return
 	var game := packed_scene.instantiate()
 	if game == null:
-		status_label.text = "게임을 시작하지 못했습니다."
+		status_label.text = Localization.text("게임을 시작하지 못했습니다.")
 		state = "failed"
 		return
 	for child in get_children():
@@ -290,7 +309,7 @@ func _show_recoverable_error(message: String) -> void:
 
 func _show_apk_update_required() -> void:
 	state = "apk_required"
-	status_label.text = "APK 업데이트가 필요합니다.\n새 APK를 설치한 뒤 다시 실행해 주세요."
+	status_label.text = Localization.text("APK 업데이트가 필요합니다.\n새 APK를 설치한 뒤 다시 실행해 주세요.")
 	progress_bar.value = 0.0
 	retry_button.visible = false
 	offline_button.visible = false
@@ -322,6 +341,9 @@ static func is_trusted_content_url(url: String) -> bool:
 static func requires_apk_update(remote_version: String, installed_version: String, apk_url: String) -> bool:
 	return is_newer_version(remote_version, installed_version) and apk_url == OFFICIAL_CONTENT_PREFIX + "CatWar.apk"
 
+static func manifest_android_binary_version(candidate: Dictionary) -> String:
+	return String(candidate.get("android_binary_version", candidate.get("version", "")))
+
 static func _validate_content_pack_fields(candidate: Dictionary) -> bool:
 	for field in ["content_pack_version", "content_pack_commit", "content_pack_url", "content_pack_sha256"]:
 		if not candidate.has(field) or not candidate[field] is String:
@@ -340,9 +362,12 @@ static func validate_content_manifest(candidate: Dictionary) -> bool:
 	for field in ["version", "android_apk_url", "android_sha256"]:
 		if not candidate.has(field) or not candidate[field] is String:
 			return false
+	if candidate.has("android_binary_version") and not candidate.android_binary_version is String:
+		return false
 	var version_pattern := RegEx.create_from_string("^[0-9]+\\.[0-9]+\\.[0-9]+$")
 	var hash_pattern := RegEx.create_from_string("^[0-9a-fA-F]{64}$")
 	return version_pattern.search(candidate.version) != null \
+		and version_pattern.search(manifest_android_binary_version(candidate)) != null \
 		and candidate.android_apk_url == OFFICIAL_CONTENT_PREFIX + "CatWar.apk" \
 		and hash_pattern.search(candidate.android_sha256) != null
 

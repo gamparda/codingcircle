@@ -1,6 +1,8 @@
 class_name BattleView
 extends Control
 
+const Localization = preload("res://scripts/Localization.gd")
+
 signal battlefield_clicked(world_x: float)
 
 const BLUE := Color("#5b8cff")
@@ -72,26 +74,26 @@ func push_combat_events(events: Array) -> void:
 
 func placement_error(kind: String, world_x: float) -> String:
 	if not BattleModel.STRUCTURE_STATS.has(kind):
-		return "설치할 수 없는 구조물입니다."
+		return Localization.text("설치할 수 없는 구조물입니다.")
 	var valid_zone := (own_side == 0 and world_x >= BattleModel.BLUE_BUILD_MIN and world_x <= BattleModel.BLUE_BUILD_MAX) or (own_side == 1 and world_x >= BattleModel.RED_BUILD_MIN and world_x <= BattleModel.RED_BUILD_MAX)
 	if not valid_zone:
-		return "자신의 건설 구역에만 설치할 수 있습니다."
+		return Localization.text("자신의 건설 구역에만 설치할 수 있습니다.")
 	if kind == "generator" and not ((own_side == 0 and world_x <= BattleModel.BLUE_REAR_MAX) or (own_side == 1 and world_x >= BattleModel.RED_REAR_MIN)):
-		return "발전기는 후방에만 설치할 수 있습니다."
+		return Localization.text("발전기는 후방에만 설치할 수 있습니다.")
 	for structure in snapshot.get("structures", []):
 		if int(structure.side) == own_side and float(structure.get("hp", 1.0)) > 0.0 and abs(float(structure.x) - world_x) < BattleModel.STRUCTURE_MIN_SPACING:
-			return "구조물이 너무 가깝습니다."
+			return Localization.text("구조물이 너무 가깝습니다.")
 	var owned: Array = snapshot.get("structures", []).filter(func(structure): return int(structure.side) == own_side)
 	if owned.size() >= BattleModel.STRUCTURE_LIMIT:
-		return "구조물은 최대 3개까지 설치할 수 있습니다."
+		return Localization.text("구조물은 최대 3개까지 설치할 수 있습니다.")
 	var same_count := owned.filter(func(structure): return String(structure.kind) == kind).size()
 	if kind in ["turret", "generator"] and same_count >= 1:
-		return ("포탑" if kind == "turret" else "발전기") + "은 1개만 설치할 수 있습니다."
+		return (Localization.text("포탑") if kind == "turret" else Localization.text("발전기")) + Localization.text("은 1개만 설치할 수 있습니다.")
 	if kind == "wall" and same_count >= 2:
-		return "방벽은 2개만 설치할 수 있습니다."
+		return Localization.text("방벽은 2개만 설치할 수 있습니다.")
 	var resources: Array = snapshot.get("resources", [0.0, 0.0])
 	if resources.size() <= own_side or float(resources[own_side]) < float(BattleModel.STRUCTURE_STATS[kind].cost):
-		return "자원이 부족합니다."
+		return Localization.text("자원이 부족합니다.")
 	return ""
 
 func _process(delta: float) -> void:

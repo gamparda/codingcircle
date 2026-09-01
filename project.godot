@@ -1,6 +1,6 @@
 [application]
 config/name="Cat War: Battlefield"
-config/version="0.4.8"
+config/version="0.4.9"
 run/main_scene="res://scenes/Bootstrap.tscn"
 config/icon="res://assets/app_icon.png"
 [display]

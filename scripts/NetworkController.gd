@@ -1,6 +1,8 @@
 class_name NetworkController
 extends Node
 
+const Localization = preload("res://scripts/Localization.gd")
+
 signal connection_status(text: String)
 signal match_found(side: int)
 signal snapshot_received(data: Dictionary)
@@ -61,7 +63,7 @@ func _ready() -> void:
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
 
 static func disconnect_message_for_state(state: String) -> String:
-	return "서버 연결 실패" if state == "connecting" else "서버와 연결이 끊어졌습니다"
+	return Localization.text("서버 연결 실패") if state == "connecting" else Localization.text("서버와 연결이 끊어졌습니다")
 
 static func connection_candidates(primary_address: String, fallback_address: String = "") -> Array:
 	var candidates: Array = []
@@ -72,7 +74,7 @@ static func connection_candidates(primary_address: String, fallback_address: Str
 
 func _on_connected_to_server() -> void:
 	client_connection_state = "connected"
-	connection_status.emit("서버에 연결됨 · 덱 검증 중...")
+	connection_status.emit(Localization.text("서버에 연결됨 · 덱 검증 중..."))
 	request_submit_deck.rpc_id(1, client_unit_deck, client_structure_deck)
 
 static func validate_deck_payload(unit_deck: Array, structure_deck: Array) -> bool:
@@ -99,7 +101,7 @@ func _on_connection_failed() -> void:
 	if _retry_next_connection_candidate():
 		return
 	client_connection_state = "idle"
-	connection_status.emit("서버 연결 실패")
+	connection_status.emit(Localization.text("서버 연결 실패"))
 
 func _on_server_disconnected() -> void:
 	if client_connection_state == "idle":
@@ -118,7 +120,7 @@ func start_dedicated_server(port: int = DEFAULT_PORT) -> bool:
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_server(port, 128)
 	if error != OK:
-		printerr("서버 시작 실패: %s" % error_string(error))
+		printerr(Localization.text("서버 시작 실패: %s") % error_string(error))
 		return false
 	multiplayer.multiplayer_peer = peer
 	server_mode = true
@@ -137,12 +139,12 @@ func connect_to_candidates(candidates: Array, port: int = DEFAULT_PORT) -> bool:
 	client_connection_index = 0
 	client_connection_port = port
 	if client_connection_candidates.is_empty():
-		connection_status.emit("서버 주소가 비어 있습니다")
+		connection_status.emit(Localization.text("서버 주소가 비어 있습니다"))
 		return false
 	return _start_client_attempt(String(client_connection_candidates[0]))
 
 func _start_client_attempt(address: String) -> bool:
-	connection_status.emit("%s:%d 연결 중..." % [address, client_connection_port])
+	connection_status.emit(Localization.text("%s:%d 연결 중...") % [address, client_connection_port])
 	client_connection_state = "connecting"
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_client(address, client_connection_port)
@@ -150,7 +152,7 @@ func _start_client_attempt(address: String) -> bool:
 		if _retry_next_connection_candidate():
 			return true
 		client_connection_state = "idle"
-		connection_status.emit("연결 설정 실패: %s" % error_string(error))
+		connection_status.emit(Localization.text("연결 설정 실패: %s") % error_string(error))
 		return false
 	multiplayer.multiplayer_peer = peer
 	return true
@@ -160,7 +162,7 @@ func _retry_next_connection_candidate() -> bool:
 		return false
 	client_connection_index += 1
 	var fallback := String(client_connection_candidates[client_connection_index])
-	connection_status.emit("DNS 응답 실패 · 공식 서버 우회 주소로 다시 연결 중...")
+	connection_status.emit(Localization.text("DNS 응답 실패 · 공식 서버 우회 주소로 다시 연결 중..."))
 	print("CLIENT_CONNECTION_FALLBACK address=%s" % fallback)
 	_start_client_attempt.call_deferred(fallback)
 	return true
@@ -479,14 +481,14 @@ func request_create_room() -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	if not can_accept_room_request():
-		receive_room_join_failed.rpc_id(sender, "서버가 업데이트 준비 중이거나 대전 수용량이 가득 찼습니다.")
+		receive_room_join_failed.rpc_id(sender, Localization.text("서버가 업데이트 준비 중이거나 대전 수용량이 가득 찼습니다."))
 		return
 	if not can_process_request(sender) or not peer_decks.has(sender) or registry.peer_to_room.has(sender) or registry.has_match(sender):
-		receive_room_join_failed.rpc_id(sender, "지금은 방을 만들 수 없습니다. 잠시 후 다시 시도하세요.")
+		receive_room_join_failed.rpc_id(sender, Localization.text("지금은 방을 만들 수 없습니다. 잠시 후 다시 시도하세요."))
 		return
 	var code := _generate_room_code()
 	if code.is_empty() or not registry.create_room(sender, code):
-		receive_room_join_failed.rpc_id(sender, "방을 만들지 못했습니다.")
+		receive_room_join_failed.rpc_id(sender, Localization.text("방을 만들지 못했습니다."))
 		return
 	print("ROOM_CREATED peer=%d" % sender)
 	receive_room_created.rpc_id(sender, code)
@@ -498,10 +500,10 @@ func request_join_room(code: String, create_if_missing: bool = false) -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	var normalized := code.strip_edges().to_upper()
 	if not can_accept_room_request():
-		receive_room_join_failed.rpc_id(sender, "서버가 업데이트 준비 중이거나 대전 수용량이 가득 찼습니다.")
+		receive_room_join_failed.rpc_id(sender, Localization.text("서버가 업데이트 준비 중이거나 대전 수용량이 가득 찼습니다."))
 		return
 	if not can_process_request(sender) or not peer_decks.has(sender) or not is_valid_room_code(normalized):
-		receive_room_join_failed.rpc_id(sender, "올바른 방 코드를 입력하세요.")
+		receive_room_join_failed.rpc_id(sender, Localization.text("올바른 방 코드를 입력하세요."))
 		return
 	if create_if_missing and allow_test_room_codes and not registry.rooms.has(normalized):
 		if registry.create_room(sender, normalized):
@@ -510,7 +512,7 @@ func request_join_room(code: String, create_if_missing: bool = false) -> void:
 			return
 	var paired := registry.join_room(sender, normalized)
 	if paired.is_empty():
-		receive_room_join_failed.rpc_id(sender, "방을 찾을 수 없거나 이미 시작된 방입니다.")
+		receive_room_join_failed.rpc_id(sender, Localization.text("방을 찾을 수 없거나 이미 시작된 방입니다."))
 		return
 	print("ROOM_JOINED peer=%d" % sender)
 	_start_paired_match(paired)
@@ -536,21 +538,21 @@ func request_place_structure(kind: String, x: float) -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	if not can_process_request(sender):
-		receive_structure_placement_result.rpc_id(sender, false, "요청이 너무 빠릅니다.")
+		receive_structure_placement_result.rpc_id(sender, false, Localization.text("요청이 너무 빠릅니다."))
 		return
 	if not is_safe_command_text(kind) or not is_safe_position(x):
-		receive_structure_placement_result.rpc_id(sender, false, "잘못된 설치 요청입니다.")
+		receive_structure_placement_result.rpc_id(sender, false, Localization.text("잘못된 설치 요청입니다."))
 		return
 	var match_id := registry.get_match_id(sender)
 	if not models.has(match_id):
-		receive_structure_placement_result.rpc_id(sender, false, "진행 중인 경기가 없습니다.")
+		receive_structure_placement_result.rpc_id(sender, false, Localization.text("진행 중인 경기가 없습니다."))
 		return
 	var side := registry.get_side(sender)
 	var model: BattleModel = models[match_id]
 	var error := model.structure_placement_error(side, kind, clamp(x, 0.0, 1280.0))
 	var success := error.is_empty() and model.place_structure(side, kind, clamp(x, 0.0, 1280.0))
 	if not success and error.is_empty():
-		error = "구조물을 설치하지 못했습니다."
+		error = Localization.text("구조물을 설치하지 못했습니다.")
 	receive_structure_placement_result.rpc_id(sender, success, error)
 
 @rpc("any_peer", "call_remote", "reliable")

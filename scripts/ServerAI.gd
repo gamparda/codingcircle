@@ -1,6 +1,8 @@
 class_name ServerAI
 extends RefCounted
 
+const Localization = preload("res://scripts/Localization.gd")
+
 const MIN_STAGE := 1
 const MAX_STAGE := 10
 const STAGE_NAMES := [
@@ -26,19 +28,19 @@ func _init(ai_side: int = 1, difficulty_stage: int = 1) -> void:
 
 static func stage_name(difficulty_stage: int) -> String:
 	var index := clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1
-	return String(STAGE_NAMES[index])
+	return Localization.text(String(STAGE_NAMES[index]))
 
 static func stage_summary(difficulty_stage: int) -> String:
 	var value := clampi(difficulty_stage, MIN_STAGE, MAX_STAGE)
 	if value <= 2:
-		return "기본 병력 운용"
+		return Localization.text("기본 병력 운용")
 	if value <= 4:
-		return "적극적 방어와 구조물 운용"
+		return Localization.text("적극적 방어와 구조물 운용")
 	if value <= 6:
-		return "회복·경제·지형 전술"
+		return Localization.text("회복·경제·지형 전술")
 	if value <= 8:
-		return "고속 공세와 강화 전력"
-	return "최대 전력·자원 보너스"
+		return Localization.text("고속 공세와 강화 전력")
+	return Localization.text("최대 전력·자원 보너스")
 
 func update(model: BattleModel, delta: float) -> void:
 	if model.winner != -1:
