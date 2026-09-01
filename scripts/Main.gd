@@ -245,9 +245,9 @@ func _show_placement_status(message: String, duration: float = 2.5) -> void:
 static func build_version() -> String:
 	var file := FileAccess.open("res://build_info.json", FileAccess.READ)
 	if file == null:
-		return "0.4.7"
+		return "0.4.8"
 	var data = JSON.parse_string(file.get_as_text())
-	return String(data.get("version", "0.4.7")) if data is Dictionary else "0.4.7"
+	return String(data.get("version", "0.4.8")) if data is Dictionary else "0.4.8"
 
 func _active_preset() -> Dictionary:
 	return save_data.deck_presets[clampi(int(save_data.last_deck), 0, 2)]

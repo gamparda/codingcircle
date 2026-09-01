@@ -294,6 +294,9 @@ func _init() -> void:
 	expect_true(Bootstrap != null, "Android content bootstrap script loads")
 	if Bootstrap != null:
 		var content_manifest := {
+			"version": "0.4.4",
+			"android_apk_url": "https://gamparda.github.io/codingcircle/CatWar.apk",
+			"android_sha256": "b".repeat(64),
 			"content_pack_version": "0.4.4",
 			"content_pack_commit": "0123456789abcdef0123456789abcdef01234567",
 			"content_pack_url": "https://gamparda.github.io/codingcircle/CatWarContent.pck",
@@ -303,6 +306,15 @@ func _init() -> void:
 		var untrusted_manifest: Dictionary = content_manifest.duplicate(true)
 		untrusted_manifest.content_pack_url = "https://example.com/CatWarContent.pck"
 		expect_true(not Bootstrap.validate_content_manifest(untrusted_manifest), "untrusted content pack origins are rejected")
+		var missing_apk_manifest: Dictionary = content_manifest.duplicate(true)
+		missing_apk_manifest.erase("android_apk_url")
+		expect_true(not Bootstrap.validate_content_manifest(missing_apk_manifest), "new content manifests cannot omit APK replacement metadata")
+		var untrusted_apk_manifest: Dictionary = content_manifest.duplicate(true)
+		untrusted_apk_manifest.android_apk_url = "https://example.com/CatWar.apk"
+		expect_true(not Bootstrap.validate_content_manifest(untrusted_apk_manifest), "APK replacement URL must use the official update origin")
+		var invalid_apk_hash_manifest: Dictionary = content_manifest.duplicate(true)
+		invalid_apk_hash_manifest.android_sha256 = "not-a-hash"
+		expect_true(not Bootstrap.validate_content_manifest(invalid_apk_hash_manifest), "APK replacement metadata requires a valid SHA-256")
 		expect_true(Bootstrap.should_install_content("0.4.5", "0.4.4", "a".repeat(40), "b".repeat(40)), "newer content versions are installed")
 		expect_true(Bootstrap.should_install_content("0.4.4", "0.4.4", "a".repeat(40), "b".repeat(40)), "rebuilt content with a new commit is installed")
 		expect_true(not Bootstrap.should_install_content("0.4.3", "0.4.4", "a".repeat(40), "b".repeat(40)), "older content packs never replace a newer version")

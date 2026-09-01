@@ -93,7 +93,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $version = "0.4.7"
+          $version = "0.4.8"
           $iscc = (Get-ChildItem "C:/Program Files (x86)/Inno Setup 6" -Filter ISCC.exe -Recurse | Select-Object -First 1).FullName
           if (-not $iscc) { throw "Inno Setup compiler was not found" }
           ./tools/build_release.ps1 -GodotPath $env:GODOT_CONSOLE -IsccPath $iscc -Version $version -Commit "${{ github.sha }}"

@@ -322,7 +322,7 @@ static func is_trusted_content_url(url: String) -> bool:
 static func requires_apk_update(remote_version: String, installed_version: String, apk_url: String) -> bool:
 	return is_newer_version(remote_version, installed_version) and apk_url == OFFICIAL_CONTENT_PREFIX + "CatWar.apk"
 
-static func validate_content_manifest(candidate: Dictionary) -> bool:
+static func _validate_content_pack_fields(candidate: Dictionary) -> bool:
 	for field in ["content_pack_version", "content_pack_commit", "content_pack_url", "content_pack_sha256"]:
 		if not candidate.has(field) or not candidate[field] is String:
 			return false
@@ -334,8 +334,20 @@ static func validate_content_manifest(candidate: Dictionary) -> bool:
 		and hash_pattern.search(candidate.content_pack_sha256) != null \
 		and is_trusted_content_url(candidate.content_pack_url)
 
+static func validate_content_manifest(candidate: Dictionary) -> bool:
+	if not _validate_content_pack_fields(candidate):
+		return false
+	for field in ["version", "android_apk_url", "android_sha256"]:
+		if not candidate.has(field) or not candidate[field] is String:
+			return false
+	var version_pattern := RegEx.create_from_string("^[0-9]+\\.[0-9]+\\.[0-9]+$")
+	var hash_pattern := RegEx.create_from_string("^[0-9a-fA-F]{64}$")
+	return version_pattern.search(candidate.version) != null \
+		and candidate.android_apk_url == OFFICIAL_CONTENT_PREFIX + "CatWar.apk" \
+		and hash_pattern.search(candidate.android_sha256) != null
+
 static func validate_active_metadata(candidate: Dictionary) -> bool:
-	if not validate_content_manifest({
+	if not _validate_content_pack_fields({
 		"content_pack_version": candidate.get("version", ""),
 		"content_pack_commit": candidate.get("commit", ""),
 		"content_pack_url": OFFICIAL_CONTENT_PREFIX + "CatWarContent.pck",
