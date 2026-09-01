@@ -1,20 +1,28 @@
 class_name MatchRegistry
 extends RefCounted
 
-var waiting_peer := 0
 var next_match_id := 1
 var peer_to_match: Dictionary = {}
 var peer_to_side: Dictionary = {}
 var matches: Dictionary = {}
+var rooms: Dictionary = {}
+var peer_to_room: Dictionary = {}
 
-func add_player(peer_id: int) -> Dictionary:
-	if peer_id <= 0 or peer_to_match.has(peer_id) or waiting_peer == peer_id:
+func create_room(peer_id: int, code: String) -> bool:
+	if peer_id <= 0 or code.is_empty() or rooms.has(code) or peer_to_match.has(peer_id) or peer_to_room.has(peer_id):
+		return false
+	rooms[code] = peer_id
+	peer_to_room[peer_id] = code
+	return true
+
+func join_room(peer_id: int, code: String) -> Dictionary:
+	if peer_id <= 0 or not rooms.has(code) or peer_to_match.has(peer_id) or peer_to_room.has(peer_id):
 		return {}
-	if waiting_peer == 0:
-		waiting_peer = peer_id
+	var first := int(rooms[code])
+	if first == peer_id:
 		return {}
-	var first := waiting_peer
-	waiting_peer = 0
+	rooms.erase(code)
+	peer_to_room.erase(first)
 	var match_id := next_match_id
 	next_match_id += 1
 	matches[match_id] = [first, peer_id]
@@ -38,8 +46,9 @@ func get_players_for_peer(peer_id: int) -> Array:
 	return matches.get(match_id, []).duplicate()
 
 func remove_player(peer_id: int) -> Array:
-	if waiting_peer == peer_id:
-		waiting_peer = 0
+	if peer_to_room.has(peer_id):
+		rooms.erase(String(peer_to_room[peer_id]))
+		peer_to_room.erase(peer_id)
 		return [peer_id]
 	if not peer_to_match.has(peer_id):
 		return []

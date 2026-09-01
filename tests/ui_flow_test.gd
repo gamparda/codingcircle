@@ -39,13 +39,21 @@ func run() -> void:
 	root.add_child(main)
 	await process_frame
 	expect_true(tree_text(main).contains("v%s" % main.build_version()), "main menu reads the configured build version")
-	for required_button in ["온라인 아레나", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
+	for required_button in ["방 만들기", "코드로 참가", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
 		expect_true(find_button(main, required_button) != null, "main menu exposes %s" % required_button)
+	var create_room_button := find_button(main, "방 만들기")
+	var join_room_button := find_button(main, "코드로 참가")
+	var room_code_input := main.find_child("RoomCodeInput", true, false) as LineEdit
+	main._set_room_controls_disabled(true)
+	expect_true(create_room_button.disabled and join_room_button.disabled and not room_code_input.editable, "a room connection locks both actions and its code input")
+	main._set_room_controls_disabled(false)
+	expect_true(not create_room_button.disabled and not join_room_button.disabled and room_code_input.editable, "room controls unlock together after a failed attempt")
 	main._build_deck_screen()
 	await process_frame
 	var deck_text := tree_text(main)
-	for required_card in ["탱커", "검사", "궁수", "마법사", "방벽", "점프대", "늪", "포탑", "발전기"]:
+	for required_card in ["탱커", "검사", "궁수", "마법사", "방벽", "늪", "포탑", "발전기"]:
 		expect_true(deck_text.contains(required_card), "deck editor exposes %s" % required_card)
+	expect_true(not deck_text.contains("점프대"), "deck editor removes jump pad")
 	expect_true(deck_text.contains("선택됨"), "selected deck cards have an explicit selected marker")
 	expect_true(deck_text.contains("선택 가능"), "unselected deck cards have an explicit available marker")
 
@@ -60,6 +68,12 @@ func run() -> void:
 		expect_true(bgm_bus >= 0 and is_equal_approx(AudioServer.get_bus_volume_db(bgm_bus), linear_to_db(0.25)), "BGM slider previews volume immediately")
 	expect_true(int(ProjectSettings.get_setting("rendering/textures/canvas_textures/default_texture_filter", 0)) == 1, "window scaling uses linear canvas texture filtering")
 	expect_true(main.has_method("_input"), "main handles global fullscreen and cancel shortcuts")
+	main._show_android_apk_notice()
+	await process_frame
+	expect_true(tree_text(main.update_overlay).contains("APK 업데이트가 필요합니다."), "older Android APKs receive the required update message")
+	expect_true(find_button(main.update_overlay, "APK 다운로드") != null, "APK update notice exposes a download action")
+	main.update_overlay.queue_free()
+	main.update_overlay = null
 	if main.has_method("_input"):
 		var was_fullscreen := bool(main.save_data.settings.fullscreen)
 		main._input(key_event(KEY_F11))
@@ -69,6 +83,10 @@ func run() -> void:
 
 	main._start_local_ai_battle()
 	await process_frame
+	expect_true(find_button(main, "대전 나가기") != null, "AI battles expose a mid-match exit button")
+	main._show_placement_status("임시 메시지", 0.01)
+	await create_timer(0.03).timeout
+	expect_true(main.placement_status_label.text.is_empty(), "placement messages disappear automatically")
 	main.battle_view.selected_structure = "wall"
 	if main.has_method("_input"):
 		main._input(key_event(KEY_ESCAPE))
@@ -96,7 +114,7 @@ func run() -> void:
 		expect_true(main.placement_status_label.text == "자원이 부족합니다.", "failed online placement shows the server reason")
 		main._on_structure_placement_result(true, "")
 		expect_true(main.battle_view.selected_structure.is_empty(), "successful online placement clears the selected structure")
-		expect_true(main.placement_status_label.text == "설치 완료", "success text appears only after server confirmation")
+		expect_true(main.placement_status_label.text == "건설 완료", "success text appears only after server confirmation")
 	var finished := BattleModel.new().snapshot()
 	finished.winner = 0
 	main._on_snapshot(finished)

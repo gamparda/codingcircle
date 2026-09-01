@@ -10,6 +10,7 @@ const PREVIOUS_PACK := CONTENT_DIR + "/previous.pck"
 const PENDING_PACK := CONTENT_DIR + "/pending.pck"
 const ACTIVE_METADATA := CONTENT_DIR + "/active.json"
 const PREVIOUS_METADATA := CONTENT_DIR + "/previous.json"
+const PACK_BOOT_STABILITY_SECONDS := 5.0
 
 var bundled_version := "0.0.0"
 var bundled_commit := "unknown"
@@ -23,6 +24,7 @@ var status_label: Label
 var progress_bar: ProgressBar
 var retry_button: Button
 var offline_button: Button
+var apk_button: Button
 
 func _ready() -> void:
 	_build_interface()
@@ -91,12 +93,18 @@ func _build_interface() -> void:
 	offline_button.visible = false
 	offline_button.pressed.connect(_launch_game)
 	buttons.add_child(offline_button)
+	apk_button = Button.new()
+	apk_button.text = "APK 다운로드"
+	apk_button.visible = false
+	apk_button.pressed.connect(func(): OS.shell_open(String(manifest.get("android_apk_url", ""))))
+	buttons.add_child(apk_button)
 
 func _check_for_update() -> void:
 	if state == "checking" or state == "downloading" or state == "launching":
 		return
 	retry_button.visible = false
 	offline_button.visible = false
+	apk_button.visible = false
 	progress_bar.value = 0.0
 	status_label.text = "최신 게임 데이터를 확인하는 중..."
 	if is_instance_valid(http):
@@ -127,6 +135,9 @@ func _handle_manifest(result: int, response_code: int, body: PackedByteArray) ->
 		_show_recoverable_error("업데이트 정보가 올바르지 않습니다.")
 		return
 	manifest = candidate
+	if requires_apk_update(String(manifest.get("version", "")), bundled_version, String(manifest.get("android_apk_url", ""))):
+		_show_apk_update_required()
+		return
 	var remote_version := String(manifest.content_pack_version)
 	var remote_commit := String(manifest.content_pack_commit)
 	if not should_install_content(remote_version, active_version, remote_commit, active_commit):
@@ -256,8 +267,9 @@ func _launch_game(confirm_new_pack: bool = false) -> void:
 			child.visible = false
 	add_child(game)
 	if confirm_new_pack:
-		await get_tree().process_frame
-		_confirm_pack_boot()
+		await get_tree().create_timer(PACK_BOOT_STABILITY_SECONDS).timeout
+		if is_instance_valid(game) and game.is_inside_tree() and game.is_node_ready():
+			_confirm_pack_boot()
 
 func _confirm_pack_boot() -> void:
 	var metadata := _read_json(ACTIVE_METADATA)
@@ -274,6 +286,15 @@ func _show_recoverable_error(message: String) -> void:
 	progress_bar.value = 0.0
 	retry_button.visible = true
 	offline_button.visible = true
+	apk_button.visible = false
+
+func _show_apk_update_required() -> void:
+	state = "apk_required"
+	status_label.text = "APK 업데이트가 필요합니다.\n새 APK를 설치한 뒤 다시 실행해 주세요."
+	progress_bar.value = 0.0
+	retry_button.visible = false
+	offline_button.visible = false
+	apk_button.visible = true
 
 func _read_json(path: String) -> Dictionary:
 	if not FileAccess.file_exists(path):
@@ -297,6 +318,9 @@ func _write_json_atomic(path: String, data: Dictionary) -> bool:
 
 static func is_trusted_content_url(url: String) -> bool:
 	return url.begins_with(OFFICIAL_CONTENT_PREFIX) and url.ends_with(".pck")
+
+static func requires_apk_update(remote_version: String, installed_version: String, apk_url: String) -> bool:
+	return is_newer_version(remote_version, installed_version) and apk_url == OFFICIAL_CONTENT_PREFIX + "CatWar.apk"
 
 static func validate_content_manifest(candidate: Dictionary) -> bool:
 	for field in ["content_pack_version", "content_pack_commit", "content_pack_url", "content_pack_sha256"]:

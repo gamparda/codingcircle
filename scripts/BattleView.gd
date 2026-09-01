@@ -104,7 +104,7 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 		var world_x: float = event.position.x / max(size.x, 1.0) * 1280.0
 		battlefield_clicked.emit(world_x)
 
@@ -253,15 +253,6 @@ func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> vo
 			for i in 3:
 				draw_line(Vector2(x - 18.0, lane_y - 51.0 + i * 20.0), Vector2(x + 18.0, lane_y - 51.0 + i * 20.0), Color("#596579"), 2.0)
 			draw_circle(Vector2(x, lane_y - 66.0), 4.0, Color("#e8edf5"))
-		"jump_pad":
-			draw_ellipse(Vector2(x, lane_y - 3.0), 42.0, 9.0, Color(0.0, 0.0, 0.0, 0.35))
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(x - 38.0, lane_y - 5.0), Vector2(x + 38.0, lane_y - 5.0),
-				Vector2(x + 27.0, lane_y - 22.0), Vector2(x - 27.0, lane_y - 22.0)
-			]), GOLD)
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(x - 8.0, lane_y - 18.0), Vector2(x + 1.0, lane_y - 35.0), Vector2(x + 10.0, lane_y - 18.0)
-			]), Color("#fff0b8"))
 		"swamp":
 			draw_circle(Vector2(x, lane_y - 4.0), float(BattleModel.STRUCTURE_STATS.swamp.radius) * scale_x, Color(0.42, 0.28, 0.70, 0.10))
 			draw_arc(Vector2(x, lane_y - 4.0), float(BattleModel.STRUCTURE_STATS.swamp.radius) * scale_x, 0.0, TAU, 48, Color(0.62, 0.47, 0.86, 0.35), 1.0)

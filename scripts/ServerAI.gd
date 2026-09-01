@@ -8,7 +8,10 @@ const STAGE_NAMES := [
 	"공세", "정예", "맹공", "지휘관", "최종전",
 ]
 const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer"]
-const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret", "jump_pad"]
+const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret"]
+const LONG_BATTLE_START := 180.0
+const LONG_BATTLE_STEP := 60.0
+const LONG_BATTLE_MAX_TIER := 6
 
 var side: int
 var stage: int
@@ -40,9 +43,13 @@ static func stage_summary(difficulty_stage: int) -> String:
 func update(model: BattleModel, delta: float) -> void:
 	if model.winner != -1:
 		return
+	_current_elapsed = model.elapsed
 	if stage > 1:
 		var bonus_income := float(stage - 1) * 0.40 * delta
 		model.resources[side] = min(BattleModel.MAX_RESOURCE, float(model.resources[side]) + bonus_income)
+	var endurance_tier := long_battle_tier(model.elapsed)
+	if endurance_tier > 0:
+		model.resources[side] = min(BattleModel.MAX_RESOURCE, float(model.resources[side]) + float(endurance_tier) * 0.5 * delta)
 	spawn_timer -= delta
 	structure_timer += delta
 	if spawn_timer <= 0.0:
@@ -85,8 +92,9 @@ func _try_spawn(model: BattleModel) -> void:
 		spawn_timer = 0.25
 
 func _apply_stage_unit_bonus(unit: Dictionary) -> void:
-	var hp_scale := 0.84 + float(stage) * 0.04
-	var damage_scale := 0.80 + float(stage) * 0.04
+	var endurance_scale := 1.0 + float(long_battle_tier_from_spawn_time()) * 0.05
+	var hp_scale := (0.84 + float(stage) * 0.04) * endurance_scale
+	var damage_scale := (0.80 + float(stage) * 0.04) * endurance_scale
 	unit.max_hp = float(unit.max_hp) * hp_scale
 	unit.hp = float(unit.max_hp)
 	unit.damage = float(unit.damage) * damage_scale
@@ -113,8 +121,7 @@ func _try_place_structure(model: BattleModel) -> void:
 		kind = "swamp"
 	elif enemy_units > 0 and available.has("turret"):
 		kind = "turret"
-	elif own_units > enemy_units and available.has("jump_pad"):
-		kind = "jump_pad"
+
 	var positions := [1000.0, 915.0, 835.0] if side == 1 else [280.0, 365.0, 445.0]
 	if kind == "generator":
 		positions = [1000.0] if side == 1 else [280.0]
@@ -129,3 +136,13 @@ func _spawn_interval() -> float:
 
 func _structure_interval() -> float:
 	return 9.0 - float(stage - 1) * 0.5
+
+func long_battle_tier(elapsed: float) -> int:
+	if elapsed < LONG_BATTLE_START:
+		return 0
+	return mini(LONG_BATTLE_MAX_TIER, 1 + int((elapsed - LONG_BATTLE_START) / LONG_BATTLE_STEP))
+
+var _current_elapsed := 0.0
+
+func long_battle_tier_from_spawn_time() -> int:
+	return long_battle_tier(_current_elapsed)

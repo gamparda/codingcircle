@@ -7,6 +7,8 @@ signal snapshot_received(data: Dictionary)
 signal combat_events_received(events: Array)
 signal opponent_disconnected
 signal structure_placement_result(success: bool, error: String)
+signal room_created(code: String)
+signal room_join_failed(error: String)
 
 const DEFAULT_PORT := 7777
 const TICK_RATE := 1.0 / 30.0
@@ -21,12 +23,15 @@ const EARLY_DISCONNECT_WINDOW_MSEC := 60000
 const QUICK_DISCONNECT_MSEC := 15000
 const ABUSE_BLOCK_MSEC := 120000
 const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer"]
-const VALID_STRUCTURE_KINDS := ["wall", "jump_pad", "swamp", "turret", "generator"]
+const VALID_STRUCTURE_KINDS := ["wall", "swamp", "turret", "generator"]
+const ROOM_CODE_LENGTH := 6
+const ROOM_CODE_ALPHABET := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 var registry := MatchRegistry.new()
 var models: Dictionary = {}
 var rematch_ready: Dictionary = {}
 var server_mode := false
+var allow_test_room_codes := false
 var client_in_match := false
 var accepting_players := true
 var tick_accumulator := 0.0
@@ -45,6 +50,8 @@ var client_connection_state := "idle"
 var client_connection_candidates: Array = []
 var client_connection_index := -1
 var client_connection_port := DEFAULT_PORT
+var client_room_mode := "create"
+var client_room_code := ""
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -78,6 +85,16 @@ func set_client_deck(unit_deck: Array, structure_deck: Array) -> bool:
 	client_structure_deck = structure_deck.duplicate()
 	return true
 
+func set_room_request(mode: String, code: String = "") -> bool:
+	if not ["create", "join", "enter"].has(mode):
+		return false
+	var normalized := code.strip_edges().to_upper()
+	if mode != "create" and not is_valid_room_code(normalized):
+		return false
+	client_room_mode = mode
+	client_room_code = normalized
+	return true
+
 func _on_connection_failed() -> void:
 	if _retry_next_connection_candidate():
 		return
@@ -97,6 +114,7 @@ func _on_server_disconnected() -> void:
 		opponent_disconnected.emit()
 
 func start_dedicated_server(port: int = DEFAULT_PORT) -> bool:
+	allow_test_room_codes = OS.get_cmdline_user_args().has("--allow-test-room-codes")
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_server(port, 128)
 	if error != OK:
@@ -160,11 +178,11 @@ func set_accepting_players(value: bool) -> void:
 	if accepting_players == value:
 		return
 	accepting_players = value
-	if not accepting_players and registry.waiting_peer != 0:
-		var waiting_peer := registry.waiting_peer
-		registry.remove_player(waiting_peer)
-		if multiplayer.get_peers().has(waiting_peer):
-			(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(waiting_peer)
+	if not accepting_players:
+		for waiting_peer in registry.peer_to_room.keys():
+			registry.remove_player(int(waiting_peer))
+			if multiplayer.get_peers().has(int(waiting_peer)):
+				(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(int(waiting_peer))
 
 func can_accept_rematch(model: BattleModel) -> bool:
 	return accepting_players and model.winner != -1
@@ -260,6 +278,14 @@ func _disconnect_orphaned_peer(peer_id: int) -> void:
 static func is_safe_command_text(value: String) -> bool:
 	return not value.is_empty() and value.length() <= 32 and value == value.to_lower() and value.is_valid_identifier()
 
+static func is_valid_room_code(value: String) -> bool:
+	if value.length() != ROOM_CODE_LENGTH:
+		return false
+	for character in value:
+		if not ROOM_CODE_ALPHABET.contains(character):
+			return false
+	return true
+
 static func is_safe_position(value: float) -> bool:
 	return is_finite(value)
 
@@ -337,7 +363,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 	var winner = data.winner
 	if not winner is int or int(winner) < -1 or int(winner) > 2:
 		return false
-	return _number_in_range(data.elapsed, 0.0, 300.1)
+	return _number_in_range(data.elapsed, 0.0, 604800.0)
 
 func _process(delta: float) -> void:
 	if not server_mode:
@@ -371,10 +397,10 @@ func _on_peer_connected(peer_id: int) -> void:
 	print("PLAYER_CONNECTED peer=%d" % peer_id)
 	# Matching starts only after the authoritative server validates a 3+3 deck.
 
-func _queue_validated_player(peer_id: int) -> void:
-	var paired := registry.add_player(peer_id)
-	if paired.is_empty():
+func _start_paired_match(paired: Dictionary) -> void:
+	if paired.size() != 2:
 		return
+	var peer_id := int(paired.keys()[0])
 	var match_id := registry.get_match_id(peer_id)
 	var model := BattleModel.new()
 	for player_id in paired.keys():
@@ -386,6 +412,19 @@ func _queue_validated_player(peer_id: int) -> void:
 		match_started.rpc_id(int(player_id), int(paired[player_id]))
 	_broadcast_snapshot(match_id)
 	print("MATCH_CREATED id=%d players=%s" % [match_id, paired.keys()])
+
+func _generate_room_code() -> String:
+	var crypto := Crypto.new()
+	for _attempt in 64:
+		var random_bytes := crypto.generate_random_bytes(ROOM_CODE_LENGTH)
+		if random_bytes.size() != ROOM_CODE_LENGTH:
+			return ""
+		var code := ""
+		for index in ROOM_CODE_LENGTH:
+			code += ROOM_CODE_ALPHABET[int(random_bytes[index]) % ROOM_CODE_ALPHABET.length()]
+		if not registry.rooms.has(code):
+			return code
+	return ""
 
 func _on_peer_disconnected(peer_id: int) -> void:
 	if not server_mode:
@@ -420,7 +459,56 @@ func request_submit_deck(unit_deck: Array, structure_deck: Array) -> void:
 		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(sender)
 		return
 	peer_decks[sender] = {"units": unit_deck.duplicate(), "structures": structure_deck.duplicate()}
-	_queue_validated_player(sender)
+	print("PLAYER_DECK_ACCEPTED peer=%d" % sender)
+	receive_deck_accepted.rpc_id(sender)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_create_room() -> void:
+	if not server_mode:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not peer_decks.has(sender) or registry.peer_to_room.has(sender) or registry.has_match(sender):
+		mark_server_forced_disconnect(sender)
+		receive_room_join_failed.rpc_id(sender, "지금은 방을 만들 수 없습니다. 잠시 후 다시 시도하세요.")
+		return
+	if not can_create_match():
+		mark_server_forced_disconnect(sender)
+		receive_room_join_failed.rpc_id(sender, "서버의 대전 수용량이 가득 찼습니다.")
+		return
+	var code := _generate_room_code()
+	if code.is_empty() or not registry.create_room(sender, code):
+		mark_server_forced_disconnect(sender)
+		receive_room_join_failed.rpc_id(sender, "방을 만들지 못했습니다.")
+		return
+	print("ROOM_CREATED peer=%d" % sender)
+	receive_room_created.rpc_id(sender, code)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_join_room(code: String, create_if_missing: bool = false) -> void:
+	if not server_mode:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	var normalized := code.strip_edges().to_upper()
+	if not can_process_request(sender) or not peer_decks.has(sender) or not is_valid_room_code(normalized):
+		mark_server_forced_disconnect(sender)
+		receive_room_join_failed.rpc_id(sender, "올바른 방 코드를 입력하세요.")
+		return
+	if not can_create_match():
+		mark_server_forced_disconnect(sender)
+		receive_room_join_failed.rpc_id(sender, "서버의 대전 수용량이 가득 찼습니다.")
+		return
+	if create_if_missing and allow_test_room_codes and not registry.rooms.has(normalized):
+		if registry.create_room(sender, normalized):
+			print("ROOM_CREATED peer=%d smoke=true" % sender)
+			receive_room_created.rpc_id(sender, normalized)
+			return
+	var paired := registry.join_room(sender, normalized)
+	if paired.is_empty():
+		mark_server_forced_disconnect(sender)
+		receive_room_join_failed.rpc_id(sender, "방을 찾을 수 없거나 이미 시작된 방입니다.")
+		return
+	print("ROOM_JOINED peer=%d" % sender)
+	_start_paired_match(paired)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_spawn(kind: String) -> void:
@@ -491,6 +579,23 @@ func send_structure(kind: String, x: float) -> void:
 func send_rematch() -> void:
 	if multiplayer.has_multiplayer_peer():
 		request_rematch.rpc_id(1)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_deck_accepted() -> void:
+	if client_room_mode == "join" or client_room_mode == "enter":
+		request_join_room.rpc_id(1, client_room_code, client_room_mode == "enter")
+	else:
+		request_create_room.rpc_id(1)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_room_created(code: String) -> void:
+	if is_valid_room_code(code):
+		room_created.emit(code)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_room_join_failed(error: String) -> void:
+	if error.length() <= 100:
+		room_join_failed.emit(error)
 
 func _broadcast_snapshot(match_id: int) -> void:
 	if not models.has(match_id):

@@ -68,8 +68,8 @@ func _init() -> void:
 	expect_true(BattleModel.new().has_method("battle_stat_summary"), "battle stat summary API exists")
 	if BattleModel.new().has_method("battle_stat_summary"):
 		var battle_summary: String = BattleModel.battle_stat_summary()
-		expect_true(battle_summary.contains("방벽") and battle_summary.contains("점프대") and battle_summary.contains("늪"), "battle stat summary exposes every structure")
-		expect_true(battle_summary.contains("기지 체력") and battle_summary.contains("자원") and battle_summary.contains("제한시간"), "battle stat summary exposes global combat rules")
+		expect_true(battle_summary.contains("방벽") and battle_summary.contains("늪") and not battle_summary.contains("점프대"), "battle stat summary exposes only active structures")
+		expect_true(battle_summary.contains("기지 체력") and battle_summary.contains("자원") and not battle_summary.contains("제한시간"), "battle stat summary reflects unlimited battle duration")
 		expect_true(battle_summary.contains("마법사"), "battle stat summary exposes the mage role")
 
 	var structures = BattleModel.new()
@@ -78,7 +78,7 @@ func _init() -> void:
 	expect_true(not structures.place_structure(0, "wall", 900.0), "wall cannot be placed in enemy zone")
 	expect_true(not structures.place_structure(0, "swamp", 520.0), "v0.4 minimum structure spacing is enforced")
 	expect_true(structures.place_structure(0, "swamp", 400.0), "swamp can be placed with valid spacing")
-	expect_true(structures.place_structure(0, "jump_pad", 300.0), "jump pad can be placed with valid spacing")
+	expect_true(structures.place_structure(0, "turret", 300.0), "turret can be placed with valid spacing")
 	expect_true(not structures.place_structure(0, "wall", 200.0), "structure limit is enforced")
 	var placement_bounds = BattleModel.new()
 	placement_bounds.resources = [200.0, 200.0]
@@ -99,7 +99,7 @@ func _init() -> void:
 
 	var mage_attack = BattleModel.new()
 	mage_attack.resources = [150.0, 150.0]
-	mage_attack.configure_deck(0, ["healer", "shield", "archer"], ["wall", "jump_pad", "swamp"])
+	mage_attack.configure_deck(0, ["healer", "shield", "archer"], ["wall", "turret", "swamp"])
 	mage_attack.spawn_unit(0, "healer")
 	mage_attack.spawn_unit(1, "swordsman")
 	mage_attack.units[0].x = 400.0
@@ -112,7 +112,7 @@ func _init() -> void:
 
 	var mage_heal = BattleModel.new()
 	mage_heal.resources[0] = 150.0
-	mage_heal.configure_deck(0, ["healer", "shield", "archer"], ["wall", "jump_pad", "swamp"])
+	mage_heal.configure_deck(0, ["healer", "shield", "archer"], ["wall", "turret", "swamp"])
 	mage_heal.spawn_unit(0, "shield")
 	mage_heal.spawn_unit(0, "healer")
 	mage_heal.units[0].x = 400.0
@@ -125,7 +125,7 @@ func _init() -> void:
 
 	var mage_wall = BattleModel.new()
 	mage_wall.resources = [150.0, 200.0]
-	mage_wall.configure_deck(0, ["healer", "shield", "archer"], ["wall", "jump_pad", "swamp"])
+	mage_wall.configure_deck(0, ["healer", "shield", "archer"], ["wall", "turret", "swamp"])
 	mage_wall.spawn_unit(0, "healer")
 	mage_wall.place_structure(1, "wall", 680.0)
 	mage_wall.units[0].x = 560.0
@@ -139,8 +139,9 @@ func _init() -> void:
 	expect_true(MatchRegistry != null, "MatchRegistry script loads")
 	if MatchRegistry != null:
 		var registry = MatchRegistry.new()
-		expect_eq(registry.add_player(11), {}, "first player waits")
-		var paired: Dictionary = registry.add_player(22)
+		expect_true(registry.create_room(11, "CAT234"), "server creates a coded room")
+		expect_true(not registry.create_room(22, "CAT234"), "duplicate room codes are rejected")
+		var paired: Dictionary = registry.join_room(22, "CAT234")
 		expect_eq(paired.get(11), 0, "first player is assigned side 0")
 		expect_eq(paired.get(22), 1, "second player is assigned side 1")
 		expect_true(registry.has_match(11) and registry.has_match(22), "both peers belong to a server match")
@@ -170,6 +171,14 @@ func _init() -> void:
 		hard_ai.update(hard_model, 0.1)
 		expect_true(float(hard_model.units[0].max_hp) > float(easy_model.units[0].max_hp), "higher stages strengthen AI unit health")
 		expect_true(float(hard_model.units[0].damage) > float(easy_model.units[0].damage), "higher stages strengthen AI unit damage")
+		var long_model = BattleModel.new()
+		long_model.elapsed = 240.0
+		long_model.resources[1] = 0.0
+		var long_ai = ServerAI.new(1, 1)
+		long_ai.spawn_timer = 999.0
+		long_ai.update(long_model, 1.0)
+		expect_true(long_ai.long_battle_tier(long_model.elapsed) >= 2, "long battles increase the AI buff tier")
+		expect_true(long_model.resources[1] > 0.0, "long-battle AI buff grants progressive income")
 
 	var NetworkController = load("res://scripts/NetworkController.gd")
 	expect_true(NetworkController != null, "NetworkController script loads")
@@ -198,6 +207,8 @@ func _init() -> void:
 	expect_true(NetworkController.is_safe_position(640.0), "finite structure position is accepted")
 	expect_true(not NetworkController.is_safe_position(NAN), "NaN structure position is rejected")
 	expect_true(not NetworkController.is_safe_position(INF), "infinite structure position is rejected")
+	expect_true(NetworkController.is_valid_room_code("CAT234"), "six-character room codes are accepted")
+	expect_true(not NetworkController.is_valid_room_code("cat123") and not NetworkController.is_valid_room_code("TOO-LONG"), "malformed room codes are rejected")
 	var safe_snapshot: Dictionary = BattleModel.new().snapshot()
 	expect_true(not safe_snapshot.has("heal_pads"), "authoritative snapshot keeps the deployed stable key set")
 	expect_true(NetworkController.is_valid_snapshot(safe_snapshot), "authoritative model snapshot is accepted")
@@ -230,6 +241,7 @@ func _init() -> void:
 	expect_true(NetworkController.is_valid_match_side(0) and NetworkController.is_valid_match_side(1), "valid match sides are accepted")
 	expect_true(not NetworkController.is_valid_match_side(-1) and not NetworkController.is_valid_match_side(2), "invalid match sides are rejected")
 	var admission_policy = NetworkController.new()
+	expect_true(not admission_policy.allow_test_room_codes, "production servers reject client-selected room creation by default")
 	for peer_id in range(1, NetworkController.MAX_CONNECTIONS_PER_ADDRESS + 1):
 		expect_true(admission_policy.register_peer_address(peer_id, "127.0.0.1"), "per-address admission accepts peer %d" % peer_id)
 	expect_true(not admission_policy.register_peer_address(99, "127.0.0.1"), "per-address admission rejects excess peers")
@@ -272,9 +284,16 @@ func _init() -> void:
 		expect_true(Bootstrap.should_install_content("0.4.5", "0.4.4", "a".repeat(40), "b".repeat(40)), "newer content versions are installed")
 		expect_true(Bootstrap.should_install_content("0.4.4", "0.4.4", "a".repeat(40), "b".repeat(40)), "rebuilt content with a new commit is installed")
 		expect_true(not Bootstrap.should_install_content("0.4.3", "0.4.4", "a".repeat(40), "b".repeat(40)), "older content packs never replace a newer version")
+		expect_true(Bootstrap.PACK_BOOT_STABILITY_SECONDS >= 3.0, "new content packs must survive a stability window before rollback is disabled")
+		expect_true(Bootstrap.requires_apk_update("0.4.5", "0.4.4", "https://gamparda.github.io/codingcircle/CatWar.apk"), "newer Android binary versions require an APK update message")
+		expect_true(not Bootstrap.requires_apk_update("0.4.4", "0.4.4", "https://gamparda.github.io/codingcircle/CatWar.apk"), "same Android binary version does not require APK replacement")
 
 	var Main = load("res://scripts/Main.gd")
 	expect_true(Main != null, "Main script loads")
+	expect_true(NetworkController.is_valid_room_code(Main.DEFAULT_SMOKE_ROOM_CODE), "default smoke room code follows production room-code rules")
+	expect_true(Main.apk_update_required("Android", "0.4.4", "0.4.5"), "new content warns when it runs on an older Android APK")
+	expect_true(not Main.apk_update_required("Android", "0.4.5", "0.4.5"), "matching Android APK and content versions do not warn")
+	expect_true(not Main.apk_update_required("Windows", "0.4.4", "0.4.5"), "desktop content never shows the APK warning")
 	if Main != null:
 		expect_eq(Main.OFFICIAL_SERVER_ADDRESS, "ruellyya.kr", "official server address is fixed")
 		expect_eq(Main.OFFICIAL_SERVER_FALLBACK_ADDRESS, "211.176.222.145", "official server has a DNS-failure fallback address")

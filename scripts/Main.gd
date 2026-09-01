@@ -4,6 +4,8 @@ const OFFICIAL_SERVER_ADDRESS := "ruellyya.kr"
 const OFFICIAL_SERVER_FALLBACK_ADDRESS := "211.176.222.145"
 const OFFICIAL_SERVER_LAN_ADDRESS := "192.168.0.4"
 const OFFICIAL_SERVER_PORT := 7777
+const ANDROID_APK_URL := "https://gamparda.github.io/codingcircle/CatWar.apk"
+const DEFAULT_SMOKE_ROOM_CODE := "CAT234"
 const BATTLE_BGM := preload("res://assets/audio/battle_bgm.wav")
 
 @onready var network: NetworkController = $NetworkController
@@ -28,6 +30,7 @@ var root_background: ColorRect
 var smoke_mode := false
 var smoke_elapsed := 0.0
 var connect_button_ref: Button
+var join_button_ref: Button
 var local_ai_mode := false
 var ai_smoke_mode := false
 var local_model: BattleModel
@@ -38,6 +41,7 @@ var running_as_server := false
 var update_overlay: Control
 var update_message_label: Label
 var update_progress_bar: ProgressBar
+var update_note_label: Label
 var server_state_dir := ""
 var server_status_accumulator := 0.0
 var server_draining := false
@@ -47,6 +51,8 @@ var result_recorded := false
 var placement_status_label: Label
 var structure_count_label: Label
 var placement_pending := false
+var placement_message_serial := 0
+var room_code_input: LineEdit
 
 func _ready() -> void:
 	network.connection_status.connect(_on_connection_status)
@@ -55,6 +61,8 @@ func _ready() -> void:
 	network.combat_events_received.connect(_on_combat_events)
 	network.opponent_disconnected.connect(_on_opponent_left)
 	network.structure_placement_result.connect(_on_structure_placement_result)
+	network.room_created.connect(_on_room_created)
+	network.room_join_failed.connect(_on_room_join_failed)
 	updater.update_started.connect(_on_update_started)
 	updater.update_status.connect(_on_update_status)
 	updater.update_failed.connect(_on_update_failed)
@@ -81,12 +89,15 @@ func _ready() -> void:
 	_apply_settings()
 	_setup_bgm()
 	_build_connect_screen()
+	if apk_update_required(OS.get_name(), String(ProjectSettings.get_setting("application/config/version", "0.0.0")), build_version()):
+		_show_android_apk_notice()
 	if args.has("--offline-ai") or ai_smoke_mode:
 		_start_local_ai_battle(_arg_int(args, "--ai-stage=", 1))
 		return
 	var auto_address := _arg_string(args, "--connect=", "")
 	var auto_fallback := _arg_string(args, "--fallback=", "")
 	if smoke_connect_allowed(smoke_mode, auto_address) and (auto_fallback.is_empty() or smoke_connect_allowed(smoke_mode, auto_fallback)):
+		network.set_room_request("enter", _arg_string(args, "--room-code=", DEFAULT_SMOKE_ROOM_CODE))
 		network.connect_to_server(auto_address, _arg_int(args, "--port=", NetworkController.DEFAULT_PORT), auto_fallback)
 
 static func official_connection_candidates(local_addresses) -> Array:
@@ -102,6 +113,9 @@ static func official_connection_candidates(local_addresses) -> Array:
 
 static func smoke_connect_allowed(is_smoke: bool, address: String) -> bool:
 	return is_smoke and (address.begins_with("127.") or address == "localhost" or address == "::1" or address.ends_with(".invalid") or address == OFFICIAL_SERVER_LAN_ADDRESS)
+
+static func apk_update_required(os_name: String, binary_version: String, content_version: String) -> bool:
+	return os_name == "Android" and UpdateManager.is_newer_version(content_version, binary_version)
 
 func _arg_int(args: PackedStringArray, prefix: String, fallback: int) -> int:
 	for arg in args:
@@ -126,11 +140,21 @@ func _process(delta: float) -> void:
 		_on_snapshot(local_model.snapshot())
 	if smoke_mode or ai_smoke_mode:
 		smoke_elapsed += delta
-		if smoke_elapsed > 15.0:
+		if smoke_elapsed > 45.0:
 			printerr("SMOKE_CLIENT_TIMEOUT")
 			get_tree().quit(2)
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventScreenDrag and battle_active and is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty():
+		battle_view.mouse_position = event.position - battle_view.get_global_rect().position
+		battle_view.queue_redraw()
+		return
+	if event is InputEventScreenTouch and not event.pressed and battle_active and is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty():
+		var local_position: Vector2 = event.position - battle_view.get_global_rect().position
+		if Rect2(Vector2.ZERO, battle_view.size).has_point(local_position):
+			_on_battlefield_clicked(local_position.x / max(battle_view.size.x, 1.0) * 1280.0)
+			get_viewport().set_input_as_handled()
+		return
 	if not event is InputEventKey or not event.pressed or event.echo:
 		return
 	if event.keycode == KEY_F11:
@@ -139,8 +163,7 @@ func _input(event: InputEvent) -> void:
 	elif event.keycode == KEY_ESCAPE and battle_active and is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty():
 		battle_view.selected_structure = ""
 		battle_view.queue_redraw()
-		if is_instance_valid(placement_status_label):
-			placement_status_label.text = "건설을 취소했습니다."
+		_show_placement_status("건설을 취소했습니다.")
 		get_viewport().set_input_as_handled()
 
 func _server_can_update() -> bool:
@@ -194,14 +217,32 @@ func _clear_screen() -> void:
 	stats_overlay = null
 	placement_status_label = null
 	structure_count_label = null
+	connect_button_ref = null
+	join_button_ref = null
+	room_code_input = null
 	placement_pending = false
+	placement_message_serial += 1
+
+func _show_placement_status(message: String, duration: float = 2.5) -> void:
+	if not is_instance_valid(placement_status_label):
+		return
+	placement_message_serial += 1
+	var serial := placement_message_serial
+	placement_status_label.text = message
+	if duration <= 0.0:
+		return
+	var timer := get_tree().create_timer(duration)
+	timer.timeout.connect(func():
+		if serial == placement_message_serial and is_instance_valid(placement_status_label):
+			placement_status_label.text = ""
+	)
 
 static func build_version() -> String:
 	var file := FileAccess.open("res://build_info.json", FileAccess.READ)
 	if file == null:
-		return "0.4.4"
+		return "0.4.5"
 	var data = JSON.parse_string(file.get_as_text())
-	return String(data.get("version", "0.4.4")) if data is Dictionary else "0.4.4"
+	return String(data.get("version", "0.4.5")) if data is Dictionary else "0.4.5"
 
 func _active_preset() -> Dictionary:
 	return save_data.deck_presets[clampi(int(save_data.last_deck), 0, 2)]
@@ -301,7 +342,7 @@ func _build_connect_screen(message: String = "") -> void:
 	divider.modulate = Color(1.0, 1.0, 1.0, 0.10)
 	column.add_child(divider)
 	var online_label := Label.new()
-	online_label.text = "ONLINE ARENA"
+	online_label.text = "온라인 아레나 · ROOM CODE"
 	online_label.add_theme_font_size_override("font_size", 12)
 	online_label.add_theme_color_override("font_color", Color("#6f7890"))
 	column.add_child(online_label)
@@ -314,15 +355,26 @@ func _build_connect_screen(message: String = "") -> void:
 	endpoint_label.add_theme_font_size_override("font_size", 16)
 	endpoint_label.add_theme_color_override("font_color", Color("#a7afc0"))
 	column.add_child(endpoint_label)
-	var connect_button := _styled_button("온라인 아레나 입장", Color("#5e6ad2"), true)
-	connect_button_ref = connect_button
-	connect_button.pressed.connect(func():
-		connect_button.disabled = true
-		var preset := _active_preset()
-		network.set_client_deck(preset.units, preset.structures)
-		network.connect_to_candidates(official_connection_candidates(IP.get_local_addresses()), OFFICIAL_SERVER_PORT)
-	)
-	column.add_child(connect_button)
+	var room_row := HBoxContainer.new()
+	room_row.add_theme_constant_override("separation", 8)
+	column.add_child(room_row)
+	var create_button := _styled_button("방 만들기", Color("#5e6ad2"), true)
+	connect_button_ref = create_button
+	create_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	create_button.pressed.connect(func(): _connect_for_room("create"))
+	room_row.add_child(create_button)
+	room_code_input = LineEdit.new()
+	room_code_input.name = "RoomCodeInput"
+	room_code_input.placeholder_text = "방 코드 6자리"
+	room_code_input.max_length = NetworkController.ROOM_CODE_LENGTH
+	room_code_input.custom_minimum_size = Vector2(190, 50)
+	room_code_input.text_changed.connect(func(value): room_code_input.text = value.to_upper())
+	room_row.add_child(room_code_input)
+	var join_button := _styled_button("코드로 참가", Color("#3d8f83"), false)
+	join_button_ref = join_button
+	join_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	join_button.pressed.connect(func(): _connect_for_room("join", room_code_input.text))
+	room_row.add_child(join_button)
 	var or_label := Label.new()
 	or_label.text = "──────────────   또는   ──────────────"
 	or_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -471,7 +523,7 @@ func _submenu(title_text: String, subtitle_text: String) -> VBoxContainer:
 
 func _build_deck_screen(preset_index: int = -1) -> void:
 	var index := int(save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, 2)
-	var column := _submenu("덱 편성", "유닛 4종 중 3종, 구조물 5종 중 3종을 선택합니다. 온라인에서도 서버가 이 덱을 검증합니다.")
+	var column := _submenu("덱 편성", "유닛 4종 중 3종, 구조물 4종 중 3종을 선택합니다. 온라인에서도 서버가 이 덱을 검증합니다.")
 	var tabs := HBoxContainer.new()
 	column.add_child(tabs)
 	for tab_index in 3:
@@ -504,8 +556,8 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	structure_grid.columns = 5
 	structure_grid.add_theme_constant_override("h_separation", 8)
 	column.add_child(structure_grid)
-	var structure_names := {"wall": "방벽", "jump_pad": "점프대", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
-	var roles := {"wall": "뒤 대상을 차폐 · 최대 2", "jump_pad": "유닛별 1회 +165 이동", "swamp": "반경 95 · 이동 45%", "turret": "유닛만 공격 · 최대 1", "generator": "후방 전용 · 초당 +1"}
+	var structure_names := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
+	var roles := {"wall": "뒤 대상을 차폐 · 최대 2", "swamp": "반경 95 · 이동 45%", "turret": "사거리 240 · 최대 1", "generator": "후방 전용 · 초당 +1"}
 	for kind in BattleModel.STRUCTURE_STATS.keys():
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 		var card_text := "%s\n비용 %d · HP %d\n%s" % [structure_names[kind], int(stats.cost), int(stats.hp), roles[kind]]
@@ -658,10 +710,38 @@ func _styled_button(text_value: String, color: Color, filled: bool = false) -> B
 	return button
 
 func _on_connection_status(text: String) -> void:
+	if smoke_mode:
+		print("SMOKE_STATUS %s" % text)
 	if is_instance_valid(status_label):
 		status_label.text = text
-	if (text.contains("실패") or text.contains("끊어졌")) and is_instance_valid(connect_button_ref):
-		connect_button_ref.disabled = false
+	if text.contains("실패") or text.contains("끊어졌"):
+		_set_room_controls_disabled(false)
+
+func _set_room_controls_disabled(disabled: bool) -> void:
+	if is_instance_valid(connect_button_ref):
+		connect_button_ref.disabled = disabled
+	if is_instance_valid(join_button_ref):
+		join_button_ref.disabled = disabled
+	if is_instance_valid(room_code_input):
+		room_code_input.editable = not disabled
+
+func _connect_for_room(mode: String, code: String = "") -> void:
+	var normalized := code.strip_edges().to_upper()
+	if not network.set_room_request(mode, normalized):
+		_on_connection_status("올바른 방 코드 6자리를 입력하세요.")
+		return
+	_set_room_controls_disabled(true)
+	var preset := _active_preset()
+	network.set_client_deck(preset.units, preset.structures)
+	network.connect_to_candidates(official_connection_candidates(IP.get_local_addresses()), OFFICIAL_SERVER_PORT)
+
+func _on_room_created(code: String) -> void:
+	_on_connection_status("방 코드 %s · 상대가 참가하기를 기다리는 중..." % code)
+
+func _on_room_join_failed(error: String) -> void:
+	network.disconnect_from_server()
+	_on_connection_status(error)
+	_set_room_controls_disabled(false)
 
 func _on_match_found(side: int) -> void:
 	local_ai_mode = false
@@ -680,7 +760,7 @@ func _start_local_ai_battle(stage: int = 1) -> void:
 	var preset := _active_preset()
 	local_model.configure_deck(0, preset.units, preset.structures)
 	var ai_units := ["shield", "archer", "healer"] if current_ai_stage >= 5 else ["swordsman", "shield", "archer"]
-	var ai_structures := ["wall", "swamp", "turret"] if current_ai_stage >= 6 else ["wall", "jump_pad", "generator"]
+	var ai_structures := ["wall", "swamp", "turret"] if current_ai_stage >= 6 else ["wall", "swamp", "generator"]
 	local_model.configure_deck(1, ai_units, ai_structures)
 	local_model.resources[1] = min(BattleModel.MAX_RESOURCE, 35.0 + float(current_ai_stage) * 10.0)
 	local_model.base_hp[1] = 300.0 + float(current_ai_stage) * 20.0
@@ -740,6 +820,14 @@ func _build_battle_screen() -> void:
 	stats_button.add_theme_font_size_override("font_size", 12)
 	stats_button.pressed.connect(_toggle_stats_panel)
 	top.add_child(stats_button)
+	if local_ai_mode:
+		var exit_button := _styled_button("대전 나가기", Color("#8f4652"), false)
+		exit_button.name = "ExitAIBattleButton"
+		exit_button.position = Vector2(430, 18)
+		exit_button.size = Vector2(92, 52)
+		exit_button.add_theme_font_size_override("font_size", 12)
+		exit_button.pressed.connect(_exit_ai_battle)
+		top.add_child(exit_button)
 
 	battle_view = BattleView.new()
 	battle_view.position = Vector2(0, 88)
@@ -818,8 +906,8 @@ func _build_battle_screen() -> void:
 	separator.modulate = Color(1.0, 1.0, 1.0, 0.10)
 	separator.custom_minimum_size.x = 5
 	row.add_child(separator)
-	var structure_names := {"wall": "방벽", "jump_pad": "점프대", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
-	var structure_colors := {"wall": Color("#7c879d"), "jump_pad": Color("#e0a63d"), "swamp": Color("#906bd1"), "turret": Color("#d56b5f"), "generator": Color("#3d8f83")}
+	var structure_names := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
+	var structure_colors := {"wall": Color("#7c879d"), "swamp": Color("#906bd1"), "turret": Color("#d56b5f"), "generator": Color("#3d8f83")}
 	for kind in preset.structures:
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 		_add_structure_button(row, "%s\n%d 자원" % [structure_names[kind], int(stats.cost)], kind, structure_colors[kind])
@@ -978,19 +1066,16 @@ func _on_battlefield_clicked(world_x: float) -> void:
 	var kind := battle_view.selected_structure
 	var error := local_model.structure_placement_error(own_side, kind, world_x) if local_ai_mode else battle_view.placement_error(kind, world_x)
 	if not error.is_empty():
-		if is_instance_valid(placement_status_label):
-			placement_status_label.text = error
+		_show_placement_status(error)
 		return
 	if local_ai_mode:
 		if local_model.place_structure(own_side, kind, world_x):
-			if is_instance_valid(placement_status_label):
-				placement_status_label.text = "설치 완료"
+			_show_placement_status("건설 완료")
 			battle_view.selected_structure = ""
 	else:
 		placement_pending = true
 		network.send_structure(kind, world_x)
-		if is_instance_valid(placement_status_label):
-			placement_status_label.text = "서버 확인 중..."
+		_show_placement_status("서버 확인 중...", 0.0)
 
 func _on_structure_placement_result(success: bool, error: String) -> void:
 	placement_pending = false
@@ -999,8 +1084,7 @@ func _on_structure_placement_result(success: bool, error: String) -> void:
 	if success:
 		battle_view.selected_structure = ""
 		battle_view.queue_redraw()
-	if is_instance_valid(placement_status_label):
-		placement_status_label.text = "설치 완료" if success else (error if not error.is_empty() else "구조물을 설치하지 못했습니다.")
+	_show_placement_status("건설 완료" if success else (error if not error.is_empty() else "구조물을 설치하지 못했습니다."))
 
 func _on_snapshot(data: Dictionary) -> void:
 	if not battle_active or not is_instance_valid(battle_view):
@@ -1026,8 +1110,8 @@ func _on_snapshot(data: Dictionary) -> void:
 	red_hp_bar.value = float(bases[1])
 	blue_hp_label.text = "%d / 500" % int(bases[0])
 	red_hp_label.text = "%d / 500" % int(bases[1])
-	var remaining: int = max(0, int(BattleModel.MATCH_LIMIT - float(data.get("elapsed", 0.0))))
-	timer_label.text = "%02d:%02d" % [remaining / 60, remaining % 60]
+	var elapsed_seconds := int(data.get("elapsed", 0.0))
+	timer_label.text = "%02d:%02d" % [elapsed_seconds / 60, elapsed_seconds % 60]
 	var winner: int = int(data.get("winner", -1))
 	if winner != -1 and not result_shown:
 		_show_result(winner)
@@ -1149,6 +1233,16 @@ func _exit_battle_to_menu() -> void:
 	current_snapshot.clear()
 	_build_connect_screen()
 
+func _exit_ai_battle() -> void:
+	if not local_ai_mode:
+		return
+	battle_active = false
+	local_model = null
+	local_ai = null
+	current_snapshot.clear()
+	updater.set_safe_to_update(true)
+	_build_ai_stage_screen(campaign_mode)
+
 func _on_update_started(version: String) -> void:
 	if running_as_server:
 		print("MANDATORY_UPDATE_FOUND version=%s" % version)
@@ -1204,14 +1298,27 @@ func _on_update_started(version: String) -> void:
 	update_progress_bar.add_theme_stylebox_override("background", _panel_style(Color("#080a0f"), Color(1.0, 1.0, 1.0, 0.06), 7))
 	update_progress_bar.add_theme_stylebox_override("fill", _panel_style(Color("#7170ff"), Color("#828fff"), 7))
 	inner.add_child(update_progress_bar)
-	var note := Label.new()
-	note.text = "경기 중에는 설치하지 않으며, 완료 후 게임이 자동으로 재시작됩니다."
-	note.position = Vector2(25, 232)
-	note.size = Vector2(550, 36)
-	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	note.add_theme_font_size_override("font_size", 12)
-	note.add_theme_color_override("font_color", Color("#747d91"))
-	inner.add_child(note)
+	update_note_label = Label.new()
+	update_note_label.text = "경기 중에는 설치하지 않으며, 완료 후 게임이 자동으로 재시작됩니다."
+	update_note_label.position = Vector2(25, 232)
+	update_note_label.size = Vector2(550, 36)
+	update_note_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	update_note_label.add_theme_font_size_override("font_size", 12)
+	update_note_label.add_theme_color_override("font_color", Color("#747d91"))
+	inner.add_child(update_note_label)
+
+func _show_android_apk_notice() -> void:
+	_on_update_started(build_version())
+	if not is_instance_valid(update_overlay):
+		return
+	update_message_label.text = "APK 업데이트가 필요합니다."
+	update_progress_bar.visible = false
+	update_note_label.text = "새 APK를 설치한 뒤 게임을 다시 실행해 주세요."
+	var download_button := _styled_button("APK 다운로드", Color("#7170ff"), true)
+	download_button.position = Vector2(580, 420)
+	download_button.size = Vector2(120, 50)
+	download_button.pressed.connect(func(): OS.shell_open(ANDROID_APK_URL))
+	update_overlay.add_child(download_button)
 
 func _on_update_status(message: String, progress: float) -> void:
 	if running_as_server:

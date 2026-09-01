@@ -30,7 +30,7 @@ static func default_data() -> Dictionary:
 		"deck_presets": [
 			_preset("덱 1", ["shield", "archer", "healer"], ["wall", "turret", "generator"]),
 			_preset("덱 2", ["swordsman", "archer", "healer"], ["wall", "swamp", "turret"]),
-			_preset("덱 3", ["shield", "swordsman", "archer"], ["wall", "jump_pad", "swamp"]),
+			_preset("덱 3", ["shield", "swordsman", "archer"], ["swamp", "turret", "generator"]),
 		],
 		"last_deck": 0,
 		"settings": {

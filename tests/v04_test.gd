@@ -19,10 +19,11 @@ func _init() -> void:
 	var BattleModel = load("res://scripts/BattleModel.gd")
 	var model = BattleModel.new()
 	expect_eq(BattleModel.STRUCTURE_STATS.wall.hp, 230.0, "v0.4 wall hp")
-	expect_eq(BattleModel.STRUCTURE_STATS.jump_pad.x_shift, 165.0, "v0.4 jump distance")
+	expect_true(not BattleModel.STRUCTURE_STATS.has("jump_pad"), "jump pad is removed")
 	expect_eq(BattleModel.STRUCTURE_STATS.swamp.radius, 95.0, "swamp displays its actual radius")
 	expect_true(BattleModel.STRUCTURE_STATS.has("turret"), "turret exists")
 	expect_true(BattleModel.STRUCTURE_STATS.has("generator"), "generator exists")
+	expect_eq(BattleModel.STRUCTURE_STATS.turret.range, 240.0, "turret range is useful but remains shorter than archer range")
 	expect_true(model.configure_deck(0, ["shield", "archer", "healer"], ["wall", "turret", "generator"]), "valid 3+3 deck accepted")
 	expect_true(not model.configure_deck(0, ["shield", "shield", "healer"], ["wall", "turret", "generator"]), "duplicate deck rejected")
 	model.resources[0] = 150.0
@@ -67,7 +68,7 @@ func _init() -> void:
 	var turret_shielding = BattleModel.new()
 	turret_shielding.resources = [150.0, 150.0]
 	turret_shielding.configure_deck(0, ["shield", "archer", "healer"], ["turret", "wall", "swamp"])
-	turret_shielding.configure_deck(1, ["swordsman", "shield", "archer"], ["wall", "swamp", "jump_pad"])
+	turret_shielding.configure_deck(1, ["swordsman", "shield", "archer"], ["wall", "swamp", "generator"])
 	turret_shielding.place_structure(0, "turret", 550.0)
 	turret_shielding.place_structure(1, "wall", 670.0)
 	turret_shielding.spawn_unit(1, "swordsman")
@@ -88,6 +89,17 @@ func _init() -> void:
 	expect_eq(placement_view.placement_error("turret", 500.0), "자원이 부족합니다.", "online preview rejects unaffordable structures")
 	placement_view.snapshot.resources[0] = 150.0
 	expect_eq(placement_view.placement_error("wall", 610.0), "", "enemy structures do not block the local placement preview")
+	var released_positions: Array = []
+	placement_view.battlefield_clicked.connect(func(x): released_positions.append(x))
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = Vector2(500.0, 100.0)
+	placement_view._gui_input(press)
+	expect_true(released_positions.is_empty(), "building placement does not fire on pointer press")
+	press.pressed = false
+	placement_view._gui_input(press)
+	expect_eq(released_positions.size(), 1, "building placement fires on pointer release")
 	placement_view.free()
 
 	var SaveData = load("res://scripts/SaveData.gd")
@@ -119,6 +131,9 @@ func _init() -> void:
 	var ServerAI = load("res://scripts/ServerAI.gd")
 	expect_true(not ServerAI.stage_summary(3).contains("해금"), "AI stage copy does not claim nonexistent unlocks")
 	expect_true(ServerAI.stage_summary(3).contains("방어"), "AI stage copy describes its actual defensive behavior")
+	var endless = BattleModel.new()
+	endless.tick(301.0)
+	expect_eq(endless.winner, -1, "battle no longer ends at a fixed time limit")
 
 	var NetworkController = load("res://scripts/NetworkController.gd")
 	expect_true(NetworkController.validate_deck_payload(["shield", "archer", "healer"], ["wall", "turret", "generator"]), "server accepts a valid deck payload")

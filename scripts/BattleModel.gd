@@ -9,7 +9,6 @@ const RESOURCE_RATE := 8.0
 const BASE_MAX_HP := 500.0
 const STRUCTURE_LIMIT := 3
 const STRUCTURE_MIN_SPACING := 75.0
-const MATCH_LIMIT := 300.0
 const MIN_ATTACK_INTERVAL := 1.2
 const BLUE_BUILD_MIN := 180.0
 const BLUE_BUILD_MAX := 610.0
@@ -26,13 +25,12 @@ const UNIT_STATS := {
 }
 const STRUCTURE_STATS := {
 	"wall": {"cost": 35.0, "hp": 230.0, "max_count": 2},
-	"jump_pad": {"cost": 30.0, "hp": 95.0, "x_shift": 165.0},
 	"swamp": {"cost": 30.0, "hp": 100.0, "speed_scale": 0.45, "radius": 95.0},
-	"turret": {"cost": 50.0, "hp": 115.0, "damage": 8.0, "interval": 1.5, "range": 180.0, "max_count": 1},
+	"turret": {"cost": 50.0, "hp": 115.0, "damage": 8.0, "interval": 1.5, "range": 240.0, "max_count": 1},
 	"generator": {"cost": 50.0, "hp": 90.0, "income": 1.0, "max_count": 1},
 }
 const DEFAULT_UNIT_DECK := ["shield", "swordsman", "archer"]
-const DEFAULT_STRUCTURE_DECK := ["wall", "jump_pad", "swamp"]
+const DEFAULT_STRUCTURE_DECK := ["wall", "swamp", "turret"]
 
 var resources: Array = [START_RESOURCE, START_RESOURCE]
 var base_hp: Array = [BASE_MAX_HP, BASE_MAX_HP]
@@ -43,7 +41,7 @@ var elapsed := 0.0
 var next_unit_id := 1
 var next_structure_id := 1
 var spawn_cooldowns: Array = [{}, {}]
-var jumped: Dictionary = {}
+
 var unit_decks: Array = [DEFAULT_UNIT_DECK.duplicate(), DEFAULT_UNIT_DECK.duplicate()]
 var structure_decks: Array = [DEFAULT_STRUCTURE_DECK.duplicate(), DEFAULT_STRUCTURE_DECK.duplicate()]
 var combat_events: Array = []
@@ -61,7 +59,7 @@ func reset() -> void:
 	next_unit_id = 1
 	next_structure_id = 1
 	spawn_cooldowns = [{}, {}]
-	jumped.clear()
+
 	combat_events.clear()
 	structure_cooldowns.clear()
 	announced_deaths.clear()
@@ -115,7 +113,7 @@ static func unit_stat_summary(kind: String) -> String:
 	return output + "공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d" % [interval, int(stats.range), int(stats.speed)]
 
 static func battle_stat_summary() -> String:
-	return "구조물  ·  방벽 35/체력 230  ·  점프대 30/체력 95/이동 +165  ·  늪 30/체력 100/이동 45%%\n포탑 50/체력 115/공격 8  ·  발전기 50/체력 90/+1 자원\n마법사  ·  공격과 아군 회복 가능\n전장  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  제한시간 %.0f초" % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT, MATCH_LIMIT]
+	return "구조물  ·  방벽 35/체력 230  ·  늪 30/체력 100/이동 45%%\n포탑 50/체력 115/공격 8/사거리 240  ·  발전기 50/체력 90/+1 자원\n마법사  ·  공격과 아군 회복 가능\n전장  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음" % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
 
 func _owned_structure_count(side: int, kind: String = "") -> int:
 	var count := 0
@@ -180,7 +178,6 @@ func tick(delta: float) -> void:
 		unit.cooldown = max(0.0, float(unit.cooldown) - delta)
 		if unit.hp <= 0.0:
 			continue
-		_apply_jump_pad(unit)
 		var target = _find_target(unit)
 		if target != null:
 			if unit.cooldown <= 0.0:
@@ -218,8 +215,7 @@ func tick(delta: float) -> void:
 	_emit_death_events()
 	units = units.filter(func(unit): return unit.hp > 0.0)
 	structures = structures.filter(func(structure): return structure.hp > 0.0)
-	if elapsed >= MATCH_LIMIT and winner == -1:
-		winner = 0 if base_hp[0] > base_hp[1] else 1 if base_hp[1] > base_hp[0] else 2
+
 
 func _damage_target(attacker: Dictionary, target: Dictionary, damage: float) -> void:
 	target.hp = max(0.0, float(target.hp) - damage)
@@ -316,17 +312,6 @@ func _swamp_scale(unit: Dictionary) -> float:
 			return float(STRUCTURE_STATS.swamp.speed_scale)
 	return 1.0
 
-func _apply_jump_pad(unit: Dictionary) -> void:
-	for structure in structures:
-		if structure.kind != "jump_pad" or structure.side != unit.side or structure.hp <= 0.0:
-			continue
-		var key := "%s:%s" % [unit.id, structure.id]
-		if not jumped.has(key) and abs(float(structure.x) - float(unit.x)) <= 24.0:
-			var origin := float(unit.x)
-			var shift: float = STRUCTURE_STATS.jump_pad.x_shift
-			unit.x = clamp(origin + (shift if unit.side == 0 else -shift), FIELD_LEFT, FIELD_RIGHT)
-			jumped[key] = true
-			combat_events.append({"type": "JUMP", "unit_id": unit.id, "from_x": origin, "x": unit.x})
 
 func _emit_death_events() -> void:
 	for unit in units:
