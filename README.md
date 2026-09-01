@@ -9,6 +9,7 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 | 실행 방식 | 동작 |
 |---|---|
 | `CatWar.exe` | 게임 클라이언트와 오프라인 AI 대전 |
+| `CatWar.apk` | Android 클라이언트와 오프라인 AI 대전 |
 | `CatWar.exe --headless -- --server --port=7777` | 화면 없는 전용 서버 |
 | 설치 후 시작 메뉴의 `Cat War Dedicated Server` | UDP 7777 전용 서버 실행 |
 
@@ -30,6 +31,7 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 - 연결 종료 처리와 양쪽 동의 재경기
 - 투명 PNG 캐릭터와 픽셀아트 렌더링
 - Windows 설치·제거 프로그램
+- Android ARMv7·ARM64용 서명 APK와 터치 조작
 
 ## 설치 프로그램 사용
 
@@ -45,16 +47,18 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 
 현재 설치 파일은 코드 서명 인증서로 서명하지 않았으므로 다른 PC에서는 Windows SmartScreen 경고가 표시될 수 있습니다.
 
+Android에서는 Release의 `CatWar.apk`를 내려받아 설치합니다. 최초 설치 시 브라우저나 파일 관리자의 **알 수 없는 앱 설치 허용**이 필요할 수 있습니다. APK는 릴리스마다 같은 전용 키로 서명되므로 기존 앱 위에 새 버전을 설치할 수 있습니다.
+
 ## 강제 자동 업데이트
 
 `main` 브랜치에 코드가 푸시될 때마다 `.github/workflows/build-and-deploy.yml`이 다음 작업을 수행합니다.
 
 1. 전투 규칙·v0.4 기능·UI 흐름 테스트와 오프라인 AI 검증
 2. workflow에 지정된 출시 버전과 대상 커밋으로 새 빌드 생성
-3. Windows 게임/서버 EXE와 설치 프로그램 생성
-4. 설치 프로그램 SHA-256 계산
+3. Windows 게임/서버 EXE·설치 프로그램과 Android APK 생성
+4. 설치 프로그램과 APK의 SHA-256 및 APK 서명 검증
 5. 버전 태그와 GitHub Release 생성
-6. GitHub Pages에 `update.json`과 `CatWarSetup.exe` 배포
+6. GitHub Pages에 `update.json`, `CatWarSetup.exe`, `CatWar.apk` 배포
 
 게임은 `https://gamparda.github.io/codingcircle/update.json`을 시작 시점과 비전투 상태에서 60초마다 확인합니다. 최신 버전이 발견되면 업데이트를 건너뛸 수 없으며, 설치 파일을 다운로드하고 SHA-256을 검증한 다음 게임을 종료해 무인 설치하고 자동 재실행합니다.
 
@@ -68,6 +72,7 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 각 Release에는 다음 파일이 포함됩니다.
 
 - `CatWarSetup.exe`
+- `CatWar.apk`
 - `update.json`
 - `SHA256SUMS.txt`
 - GitHub가 자동 생성하는 소스 ZIP과 TAR.GZ
@@ -166,7 +171,7 @@ godot --headless --path . --export-release "Windows Desktop" "$PWD\builds\CatWar
 
 ### 오프라인 AI 대전
 
-`CatWar.exe`를 실행하고 **AI 캠페인** 또는 **AI 연습**을 선택합니다. 서버나 인터넷 연결이 필요하지 않습니다.
+Windows 또는 Android 클라이언트를 실행하고 **AI 캠페인** 또는 **AI 연습**을 선택합니다. 서버나 인터넷 연결이 필요하지 않습니다.
 
 ## 소스 구조
 

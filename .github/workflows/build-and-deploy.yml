@@ -46,13 +46,44 @@ jobs:
 
           $templateDir = Join-Path $env:APPDATA "Godot/export_templates/${env:GODOT_VERSION}.stable"
           $windowsTemplate = Join-Path $templateDir "windows_release_x86_64.exe"
-          if (-not (Test-Path $windowsTemplate)) {
+          $androidTemplate = Join-Path $templateDir "android_release.apk"
+          if (-not (Test-Path $windowsTemplate) -or -not (Test-Path $androidTemplate)) {
             $templateZip = ".ci/templates.zip"
             Invoke-WebRequest "https://github.com/godotengine/godot/releases/download/$release/Godot_v${env:GODOT_VERSION}-${env:GODOT_STATUS}_export_templates.tpz" -OutFile $templateZip
             Expand-Archive $templateZip -DestinationPath .ci/templates -Force
             New-Item -ItemType Directory -Force $templateDir | Out-Null
             Copy-Item ".ci/templates/templates/*" $templateDir -Recurse -Force
           }
+
+      - name: Configure signed Android export
+        shell: pwsh
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.CATWAR_ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.CATWAR_ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.CATWAR_ANDROID_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not $env:ANDROID_KEYSTORE_BASE64 -or -not $env:ANDROID_KEY_ALIAS -or -not $env:ANDROID_KEY_PASSWORD) {
+            throw "Android signing secrets are not configured"
+          }
+          $keystore = Join-Path $PWD ".ci/catwar-release.keystore"
+          [System.IO.File]::WriteAllBytes($keystore, [Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64))
+          $settingsDir = Join-Path $env:APPDATA "Godot"
+          New-Item -ItemType Directory -Force $settingsDir | Out-Null
+          $javaHome = $env:JAVA_HOME -replace '\\', '/'
+          $androidHome = $env:ANDROID_HOME -replace '\\', '/'
+          $settings = @"
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+
+          export/android/java_sdk_path = "$javaHome"
+          export/android/android_sdk_path = "$androidHome"
+          "@
+          [System.IO.File]::WriteAllText((Join-Path $settingsDir "editor_settings-4.tres"), $settings, [System.Text.UTF8Encoding]::new($false))
+          "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$($keystore -replace '\\', '/')" | Out-File $env:GITHUB_ENV -Append
+          "GODOT_ANDROID_KEYSTORE_RELEASE_USER=$env:ANDROID_KEY_ALIAS" | Out-File $env:GITHUB_ENV -Append
+          "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=$env:ANDROID_KEY_PASSWORD" | Out-File $env:GITHUB_ENV -Append
 
       - name: Install Inno Setup
         shell: pwsh
@@ -66,6 +97,18 @@ jobs:
           $iscc = (Get-ChildItem "C:/Program Files (x86)/Inno Setup 6" -Filter ISCC.exe -Recurse | Select-Object -First 1).FullName
           if (-not $iscc) { throw "Inno Setup compiler was not found" }
           ./tools/build_release.ps1 -GodotPath $env:GODOT_CONSOLE -IsccPath $iscc -Version $version -Commit "${{ github.sha }}"
+          $presets = Get-Content export_presets.cfg -Raw
+          $presets = $presets -replace 'version/code=\d+', "version/code=${{ github.run_number }}"
+          $presets = $presets -replace 'version/name="[^"]+"', "version/name=`"$version`""
+          [System.IO.File]::WriteAllText((Join-Path $PWD "export_presets.cfg"), $presets, [System.Text.UTF8Encoding]::new($false))
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & $env:GODOT_CONSOLE --headless --path . --export-release Android dist/CatWar.apk
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWar.apk)) { throw "Android APK export failed" }
+          $buildTools = Get-ChildItem (Join-Path $env:ANDROID_HOME "build-tools") -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          & (Join-Path $buildTools.FullName "apksigner.bat") verify --verbose --print-certs dist/CatWar.apk
+          if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed" }
+          & (Join-Path $buildTools.FullName "aapt2.exe") dump badging dist/CatWar.apk
+          if ($LASTEXITCODE -ne 0) { throw "APK package inspection failed" }
           "BUILD_VERSION=$version" | Out-File $env:GITHUB_ENV -Append
 
       - name: Create public update channel
@@ -74,17 +117,21 @@ jobs:
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force site | Out-Null
           Copy-Item dist/CatWarSetup.exe site/CatWarSetup.exe
+          Copy-Item dist/CatWar.apk site/CatWar.apk
           $sha = (Get-FileHash site/CatWarSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $androidSha = (Get-FileHash site/CatWar.apk -Algorithm SHA256).Hash.ToLowerInvariant()
           $manifest = [ordered]@{
             version = $env:BUILD_VERSION
             commit = "${{ github.sha }}"
             installer_url = "https://gamparda.github.io/codingcircle/CatWarSetup.exe"
             sha256 = $sha
+            android_apk_url = "https://gamparda.github.io/codingcircle/CatWar.apk"
+            android_sha256 = $androidSha
             mandatory = $true
             published_at = (Get-Date).ToUniversalTime().ToString("o")
           } | ConvertTo-Json
           [System.IO.File]::WriteAllText((Join-Path $PWD "site/update.json"), $manifest + "`n", [System.Text.UTF8Encoding]::new($false))
-          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n", [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n$androidSha  CatWar.apk`n", [System.Text.UTF8Encoding]::new($false))
           New-Item -ItemType File -Force site/.nojekyll | Out-Null
 
       - name: Publish versioned GitHub Release
@@ -96,11 +143,11 @@ jobs:
           $tag = "v$env:BUILD_VERSION"
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag site/CatWarSetup.exe site/update.json site/SHA256SUMS.txt --clobber --repo $env:GITHUB_REPOSITORY
+            gh release upload $tag site/CatWarSetup.exe site/CatWar.apk site/update.json site/SHA256SUMS.txt --clobber --repo $env:GITHUB_REPOSITORY
             if ($LASTEXITCODE -ne 0) { throw "Failed to replace release assets" }
             gh release edit $tag --title "Cat War $env:BUILD_VERSION" --latest --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $tag site/CatWarSetup.exe site/update.json site/SHA256SUMS.txt --target $env:GITHUB_SHA --title "Cat War $env:BUILD_VERSION" --generate-notes --latest --repo $env:GITHUB_REPOSITORY
+            gh release create $tag site/CatWarSetup.exe site/CatWar.apk site/update.json site/SHA256SUMS.txt --target $env:GITHUB_SHA --title "Cat War $env:BUILD_VERSION" --generate-notes --latest --repo $env:GITHUB_REPOSITORY
           }
           if ($LASTEXITCODE -ne 0) { throw "Failed to publish GitHub Release" }
 
