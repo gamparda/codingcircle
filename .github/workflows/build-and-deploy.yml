@@ -93,7 +93,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $version = "0.4.3"
+          $version = "0.4.4"
           $iscc = (Get-ChildItem "C:/Program Files (x86)/Inno Setup 6" -Filter ISCC.exe -Recurse | Select-Object -First 1).FullName
           if (-not $iscc) { throw "Inno Setup compiler was not found" }
           ./tools/build_release.ps1 -GodotPath $env:GODOT_CONSOLE -IsccPath $iscc -Version $version -Commit "${{ github.sha }}"
@@ -104,6 +104,8 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           & $env:GODOT_CONSOLE --headless --path . --export-release Android dist/CatWar.apk
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWar.apk)) { throw "Android APK export failed" }
+          & $env:GODOT_CONSOLE --headless --path . --export-pack Android dist/CatWarContent.pck
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWarContent.pck)) { throw "Android content pack export failed" }
           $buildTools = Get-ChildItem (Join-Path $env:ANDROID_HOME "build-tools") -Directory | Sort-Object Name -Descending | Select-Object -First 1
           & (Join-Path $buildTools.FullName "apksigner.bat") verify --verbose --print-certs dist/CatWar.apk
           if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed" }
@@ -118,8 +120,10 @@ jobs:
           New-Item -ItemType Directory -Force site | Out-Null
           Copy-Item dist/CatWarSetup.exe site/CatWarSetup.exe
           Copy-Item dist/CatWar.apk site/CatWar.apk
+          Copy-Item dist/CatWarContent.pck site/CatWarContent.pck
           $sha = (Get-FileHash site/CatWarSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           $androidSha = (Get-FileHash site/CatWar.apk -Algorithm SHA256).Hash.ToLowerInvariant()
+          $contentSha = (Get-FileHash site/CatWarContent.pck -Algorithm SHA256).Hash.ToLowerInvariant()
           $manifest = [ordered]@{
             version = $env:BUILD_VERSION
             commit = "${{ github.sha }}"
@@ -127,11 +131,15 @@ jobs:
             sha256 = $sha
             android_apk_url = "https://gamparda.github.io/codingcircle/CatWar.apk"
             android_sha256 = $androidSha
+            content_pack_version = $env:BUILD_VERSION
+            content_pack_commit = "${{ github.sha }}"
+            content_pack_url = "https://gamparda.github.io/codingcircle/CatWarContent.pck"
+            content_pack_sha256 = $contentSha
             mandatory = $true
             published_at = (Get-Date).ToUniversalTime().ToString("o")
           } | ConvertTo-Json
           [System.IO.File]::WriteAllText((Join-Path $PWD "site/update.json"), $manifest + "`n", [System.Text.UTF8Encoding]::new($false))
-          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n$androidSha  CatWar.apk`n", [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n$androidSha  CatWar.apk`n$contentSha  CatWarContent.pck`n", [System.Text.UTF8Encoding]::new($false))
           New-Item -ItemType File -Force site/.nojekyll | Out-Null
 
       - name: Publish versioned GitHub Release
@@ -143,11 +151,11 @@ jobs:
           $tag = "v$env:BUILD_VERSION"
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag site/CatWarSetup.exe site/CatWar.apk site/update.json site/SHA256SUMS.txt --clobber --repo $env:GITHUB_REPOSITORY
+            gh release upload $tag site/CatWarSetup.exe site/CatWar.apk site/CatWarContent.pck site/update.json site/SHA256SUMS.txt --clobber --repo $env:GITHUB_REPOSITORY
             if ($LASTEXITCODE -ne 0) { throw "Failed to replace release assets" }
             gh release edit $tag --title "Cat War $env:BUILD_VERSION" --latest --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $tag site/CatWarSetup.exe site/CatWar.apk site/update.json site/SHA256SUMS.txt --target $env:GITHUB_SHA --title "Cat War $env:BUILD_VERSION" --generate-notes --latest --repo $env:GITHUB_REPOSITORY
+            gh release create $tag site/CatWarSetup.exe site/CatWar.apk site/CatWarContent.pck site/update.json site/SHA256SUMS.txt --target $env:GITHUB_SHA --title "Cat War $env:BUILD_VERSION" --generate-notes --latest --repo $env:GITHUB_REPOSITORY
           }
           if ($LASTEXITCODE -ne 0) { throw "Failed to publish GitHub Release" }
 

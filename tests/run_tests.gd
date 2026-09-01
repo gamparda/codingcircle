@@ -256,6 +256,23 @@ func _init() -> void:
 		expect_true(not UpdateManager.is_newer_version("0.3.1", "0.3.1"), "same version is not an update")
 		expect_true(not UpdateManager.is_newer_version("0.2.9", "0.3.0"), "older version is rejected")
 
+	var Bootstrap = load("res://scripts/Bootstrap.gd")
+	expect_true(Bootstrap != null, "Android content bootstrap script loads")
+	if Bootstrap != null:
+		var content_manifest := {
+			"content_pack_version": "0.4.4",
+			"content_pack_commit": "0123456789abcdef0123456789abcdef01234567",
+			"content_pack_url": "https://gamparda.github.io/codingcircle/CatWarContent.pck",
+			"content_pack_sha256": "a".repeat(64),
+		}
+		expect_true(Bootstrap.validate_content_manifest(content_manifest), "official signed-build content metadata is accepted")
+		var untrusted_manifest: Dictionary = content_manifest.duplicate(true)
+		untrusted_manifest.content_pack_url = "https://example.com/CatWarContent.pck"
+		expect_true(not Bootstrap.validate_content_manifest(untrusted_manifest), "untrusted content pack origins are rejected")
+		expect_true(Bootstrap.should_install_content("0.4.5", "0.4.4", "a".repeat(40), "b".repeat(40)), "newer content versions are installed")
+		expect_true(Bootstrap.should_install_content("0.4.4", "0.4.4", "a".repeat(40), "b".repeat(40)), "rebuilt content with a new commit is installed")
+		expect_true(not Bootstrap.should_install_content("0.4.3", "0.4.4", "a".repeat(40), "b".repeat(40)), "older content packs never replace a newer version")
+
 	var Main = load("res://scripts/Main.gd")
 	expect_true(Main != null, "Main script loads")
 	if Main != null:

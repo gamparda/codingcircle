@@ -32,6 +32,7 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 - 투명 PNG 캐릭터와 픽셀아트 렌더링
 - Windows 설치·제거 프로그램
 - Android ARMv7·ARM64용 서명 APK와 터치 조작
+- Android 실행 시 설치 화면 없이 자동 갱신되는 게임 콘텐츠 팩
 
 ## 설치 프로그램 사용
 
@@ -47,7 +48,7 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 
 현재 설치 파일은 코드 서명 인증서로 서명하지 않았으므로 다른 PC에서는 Windows SmartScreen 경고가 표시될 수 있습니다.
 
-Android에서는 Release의 `CatWar.apk`를 내려받아 설치합니다. 최초 설치 시 브라우저나 파일 관리자의 **알 수 없는 앱 설치 허용**이 필요할 수 있습니다. APK는 릴리스마다 같은 전용 키로 서명되므로 기존 앱 위에 새 버전을 설치할 수 있습니다.
+Android에서는 Release의 `CatWar.apk`를 내려받아 최초 한 번 설치합니다. 이후 일반적인 게임 코드·장면·이미지·음원 업데이트는 실행 시 `CatWarContent.pck`를 자동으로 내려받아 적용하므로 APK 설치 화면이 나타나지 않습니다. Godot 엔진, Android 권한 또는 네이티브 설정이 변경된 때만 새 APK 설치가 필요합니다. APK는 릴리스마다 같은 전용 키로 서명됩니다.
 
 ## 강제 자동 업데이트
 
@@ -55,12 +56,14 @@ Android에서는 Release의 `CatWar.apk`를 내려받아 설치합니다. 최초
 
 1. 전투 규칙·v0.4 기능·UI 흐름 테스트와 오프라인 AI 검증
 2. workflow에 지정된 출시 버전과 대상 커밋으로 새 빌드 생성
-3. Windows 게임/서버 EXE·설치 프로그램과 Android APK 생성
-4. 설치 프로그램과 APK의 SHA-256 및 APK 서명 검증
+3. Windows 게임/서버 EXE·설치 프로그램, Android APK와 콘텐츠 팩 생성
+4. 설치 프로그램·APK·콘텐츠 팩의 SHA-256 및 APK 서명 검증
 5. 버전 태그와 GitHub Release 생성
-6. GitHub Pages에 `update.json`, `CatWarSetup.exe`, `CatWar.apk` 배포
+6. GitHub Pages에 `update.json`, `CatWarSetup.exe`, `CatWar.apk`, `CatWarContent.pck` 배포
 
 게임은 `https://gamparda.github.io/codingcircle/update.json`을 시작 시점과 비전투 상태에서 60초마다 확인합니다. 최신 버전이 발견되면 업데이트를 건너뛸 수 없으며, 설치 파일을 다운로드하고 SHA-256을 검증한 다음 게임을 종료해 무인 설치하고 자동 재실행합니다.
+
+Android 부트스트랩은 실행 직후 같은 메타데이터를 확인합니다. 더 최신 콘텐츠 팩이 있으면 앱 전용 저장소로 자동 다운로드하고 SHA-256을 검증한 뒤 원자적으로 교체합니다. 새 팩으로 게임 장면을 시작하지 못하면 보관한 이전 팩 또는 APK 내장 버전으로 복구합니다. 네트워크가 끊겼을 때는 **현재 버전으로 시작**할 수 있으며 다음 실행에서 다시 자동 확인합니다.
 
 - 메뉴·매칭 대기·결과 화면: 즉시 강제 업데이트
 - 진행 중인 경기: 새 버전만 감지하고 다운로드·설치는 경기 종료까지 대기
@@ -73,6 +76,7 @@ Android에서는 Release의 `CatWar.apk`를 내려받아 설치합니다. 최초
 
 - `CatWarSetup.exe`
 - `CatWar.apk`
+- `CatWarContent.pck`
 - `update.json`
 - `SHA256SUMS.txt`
 - GitHub가 자동 생성하는 소스 ZIP과 TAR.GZ
@@ -177,7 +181,9 @@ Windows 또는 Android 클라이언트를 실행하고 **AI 캠페인** 또는 *
 
 ```text
 project.godot                 Godot 프로젝트 설정
-scenes/Main.tscn              메인 장면
+scenes/Bootstrap.tscn         Android 콘텐츠 확인·복구 후 게임을 여는 시작 장면
+scenes/Main.tscn              메인 게임 장면
+scripts/Bootstrap.gd          콘텐츠 팩 다운로드·SHA 검증·원자 교체·롤백
 scripts/Main.gd               메뉴, HUD, 클라이언트/서버 실행 모드
 scripts/BattleModel.gd        서버 권한형 전투 규칙
 scripts/NetworkController.gd  ENet 연결, RPC, 서버 스냅샷
