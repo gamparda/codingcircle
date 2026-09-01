@@ -167,7 +167,12 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func _server_can_update() -> bool:
-	for model in network.models.values():
+	return server_update_safe(network.models.values(), multiplayer.get_peers().size())
+
+static func server_update_safe(models: Array, connected_peer_count: int) -> bool:
+	if connected_peer_count > 0:
+		return false
+	for model in models:
 		if model.winner == -1:
 			return false
 	return true
@@ -240,9 +245,9 @@ func _show_placement_status(message: String, duration: float = 2.5) -> void:
 static func build_version() -> String:
 	var file := FileAccess.open("res://build_info.json", FileAccess.READ)
 	if file == null:
-		return "0.4.5"
+		return "0.4.6"
 	var data = JSON.parse_string(file.get_as_text())
-	return String(data.get("version", "0.4.5")) if data is Dictionary else "0.4.5"
+	return String(data.get("version", "0.4.6")) if data is Dictionary else "0.4.6"
 
 func _active_preset() -> Dictionary:
 	return save_data.deck_presets[clampi(int(save_data.last_deck), 0, 2)]

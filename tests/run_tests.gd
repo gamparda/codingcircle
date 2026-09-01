@@ -233,6 +233,11 @@ func _init() -> void:
 	var impossible_resource_snapshot: Dictionary = safe_snapshot.duplicate(true)
 	impossible_resource_snapshot.resources = [-1.0, 999999.0]
 	expect_true(not NetworkController.is_valid_snapshot(impossible_resource_snapshot), "implausible resource values are rejected")
+	var endless_snapshot: Dictionary = safe_snapshot.duplicate(true)
+	endless_snapshot.elapsed = 604801.0
+	expect_true(NetworkController.is_valid_snapshot(endless_snapshot), "endless battles keep accepting snapshots beyond seven days")
+	endless_snapshot.elapsed = INF
+	expect_true(not NetworkController.is_valid_snapshot(endless_snapshot), "non-finite elapsed times remain rejected")
 	var populated_model = BattleModel.new()
 	expect_true(populated_model.spawn_unit(0, "swordsman"), "snapshot fixture unit spawns")
 	var fractional_id_snapshot: Dictionary = populated_model.snapshot()
@@ -242,6 +247,10 @@ func _init() -> void:
 	expect_true(not NetworkController.is_valid_match_side(-1) and not NetworkController.is_valid_match_side(2), "invalid match sides are rejected")
 	var admission_policy = NetworkController.new()
 	expect_true(not admission_policy.allow_test_room_codes, "production servers reject client-selected room creation by default")
+	admission_policy.accepting_players = false
+	expect_true(not admission_policy.can_accept_room_request(), "draining servers reject room creation and joining")
+	admission_policy.accepting_players = true
+	expect_true(admission_policy.peer_should_disconnect_for_drain(500), "drain disconnects unmatched connected peers")
 	for peer_id in range(1, NetworkController.MAX_CONNECTIONS_PER_ADDRESS + 1):
 		expect_true(admission_policy.register_peer_address(peer_id, "127.0.0.1"), "per-address admission accepts peer %d" % peer_id)
 	expect_true(not admission_policy.register_peer_address(99, "127.0.0.1"), "per-address admission rejects excess peers")
@@ -294,6 +303,12 @@ func _init() -> void:
 	expect_true(Main.apk_update_required("Android", "0.4.4", "0.4.5"), "new content warns when it runs on an older Android APK")
 	expect_true(not Main.apk_update_required("Android", "0.4.5", "0.4.5"), "matching Android APK and content versions do not warn")
 	expect_true(not Main.apk_update_required("Windows", "0.4.4", "0.4.5"), "desktop content never shows the APK warning")
+	expect_true(not Main.server_update_safe([], 1), "connected pre-room peers block server update safety")
+	expect_true(Main.server_update_safe([], 0), "an idle disconnected server is safe to update")
+	var active_server_model: RefCounted = BattleModel.new()
+	expect_true(not Main.server_update_safe([active_server_model], 0), "an unfinished match blocks server update safety")
+	active_server_model.winner = 0
+	expect_true(Main.server_update_safe([active_server_model], 0), "finished matches no longer block server update safety")
 	if Main != null:
 		expect_eq(Main.OFFICIAL_SERVER_ADDRESS, "ruellyya.kr", "official server address is fixed")
 		expect_eq(Main.OFFICIAL_SERVER_FALLBACK_ADDRESS, "211.176.222.145", "official server has a DNS-failure fallback address")

@@ -179,10 +179,21 @@ func set_accepting_players(value: bool) -> void:
 		return
 	accepting_players = value
 	if not accepting_players:
-		for waiting_peer in registry.peer_to_room.keys():
-			registry.remove_player(int(waiting_peer))
-			if multiplayer.get_peers().has(int(waiting_peer)):
-				(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(int(waiting_peer))
+		for peer_id in multiplayer.get_peers():
+			if peer_should_disconnect_for_drain(int(peer_id)):
+				mark_server_forced_disconnect(int(peer_id))
+				registry.remove_player(int(peer_id))
+				(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(int(peer_id))
+
+func peer_should_disconnect_for_drain(peer_id: int) -> bool:
+	var match_id := registry.get_match_id(peer_id)
+	if match_id <= 0 or not models.has(match_id):
+		return true
+	var model: BattleModel = models[match_id]
+	return model.winner != -1
+
+func can_accept_room_request() -> bool:
+	return accepting_players and can_create_match()
 
 func can_accept_rematch(model: BattleModel) -> bool:
 	return accepting_players and model.winner != -1
@@ -363,7 +374,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 	var winner = data.winner
 	if not winner is int or int(winner) < -1 or int(winner) > 2:
 		return false
-	return _number_in_range(data.elapsed, 0.0, 604800.0)
+	return _is_finite_number(data.elapsed) and float(data.elapsed) >= 0.0
 
 func _process(delta: float) -> void:
 	if not server_mode:
@@ -467,13 +478,13 @@ func request_create_room() -> void:
 	if not server_mode:
 		return
 	var sender := multiplayer.get_remote_sender_id()
+	if not can_accept_room_request():
+		mark_server_forced_disconnect(sender)
+		receive_room_join_failed.rpc_id(sender, "서버가 업데이트 준비 중이거나 대전 수용량이 가득 찼습니다.")
+		return
 	if not can_process_request(sender) or not peer_decks.has(sender) or registry.peer_to_room.has(sender) or registry.has_match(sender):
 		mark_server_forced_disconnect(sender)
 		receive_room_join_failed.rpc_id(sender, "지금은 방을 만들 수 없습니다. 잠시 후 다시 시도하세요.")
-		return
-	if not can_create_match():
-		mark_server_forced_disconnect(sender)
-		receive_room_join_failed.rpc_id(sender, "서버의 대전 수용량이 가득 찼습니다.")
 		return
 	var code := _generate_room_code()
 	if code.is_empty() or not registry.create_room(sender, code):
@@ -489,13 +500,13 @@ func request_join_room(code: String, create_if_missing: bool = false) -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	var normalized := code.strip_edges().to_upper()
+	if not can_accept_room_request():
+		mark_server_forced_disconnect(sender)
+		receive_room_join_failed.rpc_id(sender, "서버가 업데이트 준비 중이거나 대전 수용량이 가득 찼습니다.")
+		return
 	if not can_process_request(sender) or not peer_decks.has(sender) or not is_valid_room_code(normalized):
 		mark_server_forced_disconnect(sender)
 		receive_room_join_failed.rpc_id(sender, "올바른 방 코드를 입력하세요.")
-		return
-	if not can_create_match():
-		mark_server_forced_disconnect(sender)
-		receive_room_join_failed.rpc_id(sender, "서버의 대전 수용량이 가득 찼습니다.")
 		return
 	if create_if_missing and allow_test_room_codes and not registry.rooms.has(normalized):
 		if registry.create_room(sender, normalized):
