@@ -44,6 +44,26 @@ static func default_data() -> Dictionary:
 		},
 	}
 
+static func _migrate_removed_structures(structures: Array, fallback: Array) -> Array:
+	var migrated := structures.duplicate()
+	for index in migrated.size():
+		if String(migrated[index]) != "jump_pad":
+			continue
+		var replacement := ""
+		for candidate in fallback:
+			var kind := String(candidate)
+			if BattleModel.STRUCTURE_STATS.has(kind) and not migrated.has(kind):
+				replacement = kind
+				break
+		if replacement.is_empty():
+			for candidate in BattleModel.STRUCTURE_STATS.keys():
+				var kind := String(candidate)
+				if not migrated.has(kind):
+					replacement = kind
+					break
+		migrated[index] = replacement
+	return migrated
+
 static func sanitize(raw: Variant) -> Dictionary:
 	var clean := default_data()
 	if not raw is Dictionary:
@@ -69,8 +89,9 @@ static func sanitize(raw: Variant) -> Dictionary:
 		for index in 3:
 			var preset = raw.deck_presets[index]
 			if preset is Dictionary and preset.get("units") is Array and preset.get("structures") is Array:
-				if BattleModel._valid_deck(preset.units, BattleModel.UNIT_STATS) and BattleModel._valid_deck(preset.structures, BattleModel.STRUCTURE_STATS):
-					clean.deck_presets[index] = {"name": String(preset.get("name", "덱 %d" % (index + 1))).left(20), "units": preset.units.duplicate(), "structures": preset.structures.duplicate()}
+				var structures := _migrate_removed_structures(preset.structures, clean.deck_presets[index].structures)
+				if BattleModel._valid_deck(preset.units, BattleModel.UNIT_STATS) and BattleModel._valid_deck(structures, BattleModel.STRUCTURE_STATS):
+					clean.deck_presets[index] = {"name": String(preset.get("name", "덱 %d" % (index + 1))).left(20), "units": preset.units.duplicate(), "structures": structures}
 	if raw.get("settings") is Dictionary:
 		for key in ["master_volume", "bgm_volume", "sfx_volume"]:
 			if raw.settings.get(key) is int or raw.settings.get(key) is float:

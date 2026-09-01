@@ -479,16 +479,13 @@ func request_create_room() -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	if not can_accept_room_request():
-		mark_server_forced_disconnect(sender)
 		receive_room_join_failed.rpc_id(sender, "서버가 업데이트 준비 중이거나 대전 수용량이 가득 찼습니다.")
 		return
 	if not can_process_request(sender) or not peer_decks.has(sender) or registry.peer_to_room.has(sender) or registry.has_match(sender):
-		mark_server_forced_disconnect(sender)
 		receive_room_join_failed.rpc_id(sender, "지금은 방을 만들 수 없습니다. 잠시 후 다시 시도하세요.")
 		return
 	var code := _generate_room_code()
 	if code.is_empty() or not registry.create_room(sender, code):
-		mark_server_forced_disconnect(sender)
 		receive_room_join_failed.rpc_id(sender, "방을 만들지 못했습니다.")
 		return
 	print("ROOM_CREATED peer=%d" % sender)
@@ -501,11 +498,9 @@ func request_join_room(code: String, create_if_missing: bool = false) -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	var normalized := code.strip_edges().to_upper()
 	if not can_accept_room_request():
-		mark_server_forced_disconnect(sender)
 		receive_room_join_failed.rpc_id(sender, "서버가 업데이트 준비 중이거나 대전 수용량이 가득 찼습니다.")
 		return
 	if not can_process_request(sender) or not peer_decks.has(sender) or not is_valid_room_code(normalized):
-		mark_server_forced_disconnect(sender)
 		receive_room_join_failed.rpc_id(sender, "올바른 방 코드를 입력하세요.")
 		return
 	if create_if_missing and allow_test_room_codes and not registry.rooms.has(normalized):
@@ -515,7 +510,6 @@ func request_join_room(code: String, create_if_missing: bool = false) -> void:
 			return
 	var paired := registry.join_room(sender, normalized)
 	if paired.is_empty():
-		mark_server_forced_disconnect(sender)
 		receive_room_join_failed.rpc_id(sender, "방을 찾을 수 없거나 이미 시작된 방입니다.")
 		return
 	print("ROOM_JOINED peer=%d" % sender)

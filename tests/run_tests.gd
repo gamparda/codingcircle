@@ -23,6 +23,19 @@ func _init() -> void:
 		return
 
 	var model = BattleModel.new()
+	var SaveData = load("res://scripts/SaveData.gd")
+	expect_true(SaveData != null, "SaveData script loads")
+	var legacy_save: Dictionary = SaveData.default_data()
+	legacy_save.deck_presets[0] = {
+		"name": "내 점프 덱",
+		"units": ["shield", "archer", "healer"],
+		"structures": ["jump_pad", "turret", "generator"],
+	}
+	var migrated_save: Dictionary = SaveData.sanitize(legacy_save)
+	expect_eq(migrated_save.deck_presets[0].name, "내 점프 덱", "removed jump-pad migration preserves preset name")
+	expect_true(not migrated_save.deck_presets[0].structures.has("jump_pad"), "removed jump pad is replaced during save migration")
+	expect_true(migrated_save.deck_presets[0].structures.has("turret") and migrated_save.deck_presets[0].structures.has("generator"), "save migration preserves remaining custom structures")
+	expect_true(BattleModel._valid_deck(migrated_save.deck_presets[0].structures, BattleModel.STRUCTURE_STATS), "migrated structure deck remains valid")
 	model.resources[0] = 0.0
 	expect_eq(model.spawn_unit(0, "swordsman"), false, "cannot spawn without resources")
 	model.resources[0] = 100.0
