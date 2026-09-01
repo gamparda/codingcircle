@@ -74,7 +74,7 @@ func _ready() -> void:
 	var has_saved_profile := FileAccess.file_exists(SaveData.SAVE_PATH)
 	save_data = SaveData.default_data() if args.has("--server") else SaveData.load_data()
 	if not args.has("--server") and not has_saved_profile:
-		save_data.settings.language = Localization.normalize_locale(OS.get_locale())
+		save_data.settings.language = Localization.normalize_locale(TranslationServer.get_locale())
 	Localization.install("ko" if args.has("--server") else String(save_data.settings.language))
 	if args.has("--server"):
 		running_as_server = true

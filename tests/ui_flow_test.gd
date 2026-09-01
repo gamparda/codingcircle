@@ -36,6 +36,7 @@ func _init() -> void:
 	call_deferred("run")
 
 func run() -> void:
+	Localization.install("ko")
 	var scene: PackedScene = load("res://scenes/Main.tscn")
 	var main = scene.instantiate()
 	root.add_child(main)
@@ -46,10 +47,13 @@ func run() -> void:
 	var create_room_button := find_button(main, "방 만들기")
 	var join_room_button := find_button(main, "코드로 참가")
 	var room_code_input := main.find_child("RoomCodeInput", true, false) as LineEdit
-	main._set_room_controls_disabled(true)
-	expect_true(create_room_button.disabled and join_room_button.disabled and not room_code_input.editable, "a room connection locks both actions and its code input")
-	main._set_room_controls_disabled(false)
-	expect_true(not create_room_button.disabled and not join_room_button.disabled and room_code_input.editable, "room controls unlock together after a failed attempt")
+	if create_room_button != null and join_room_button != null and room_code_input != null:
+		main._set_room_controls_disabled(true)
+		expect_true(create_room_button.disabled and join_room_button.disabled and not room_code_input.editable, "a room connection locks both actions and its code input")
+		main._set_room_controls_disabled(false)
+		expect_true(not create_room_button.disabled and not join_room_button.disabled and room_code_input.editable, "room controls unlock together after a failed attempt")
+	else:
+		expect_true(false, "room controls exist before lock-state checks")
 	main._build_deck_screen()
 	await process_frame
 	var deck_text := tree_text(main)
