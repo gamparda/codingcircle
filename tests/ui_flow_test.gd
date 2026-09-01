@@ -38,7 +38,7 @@ func run() -> void:
 	var main = scene.instantiate()
 	root.add_child(main)
 	await process_frame
-	expect_true(tree_text(main).contains("v0.4.2"), "main menu reads the v0.4.2 build version")
+	expect_true(tree_text(main).contains("v%s" % main.build_version()), "main menu reads the configured build version")
 	for required_button in ["온라인 아레나", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
 		expect_true(find_button(main, required_button) != null, "main menu exposes %s" % required_button)
 	main._build_deck_screen()
