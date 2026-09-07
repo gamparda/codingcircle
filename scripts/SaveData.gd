@@ -66,16 +66,19 @@ static func _migrate_removed_structures(structures: Array, fallback: Array) -> A
 					break
 		migrated[index] = replacement
 	return migrated
+# Godot JSON numbers decode as floats; only accept finite integral values.
+static func _is_integer(value: Variant) -> bool:
+	return (value is int or value is float) and is_finite(float(value)) and abs(float(value)) <= 9007199254740991.0 and float(value) == floor(float(value))
 
 static func sanitize(raw: Variant) -> Dictionary:
 	var clean := default_data()
 	if not raw is Dictionary:
 		return clean
-	if raw.get("save_version") is int:
+	if _is_integer(raw.get("save_version")):
 		clean.save_version = clampi(int(raw.save_version), 1, SAVE_VERSION)
-	if raw.get("campaign_unlocked") is int:
+	if _is_integer(raw.get("campaign_unlocked")):
 		clean.campaign_unlocked = clampi(int(raw.campaign_unlocked), 1, 10)
-	if raw.get("last_deck") is int and int(raw.last_deck) >= 0 and int(raw.last_deck) < 3:
+	if _is_integer(raw.get("last_deck")) and int(raw.last_deck) >= 0 and int(raw.last_deck) < 3:
 		clean.last_deck = int(raw.last_deck)
 	if raw.get("campaign_records") is Array:
 		for index in min(10, raw.campaign_records.size()):
@@ -83,11 +86,11 @@ static func sanitize(raw: Variant) -> Dictionary:
 				var source: Dictionary = raw.campaign_records[index]
 				var record: Dictionary = clean.campaign_records[index]
 				if source.get("cleared") is bool: record.cleared = source.cleared
-				if source.get("best_stars") is int: record.best_stars = clampi(source.best_stars, 0, 3)
+				if _is_integer(source.get("best_stars")): record.best_stars = clampi(source.best_stars, 0, 3)
 				if source.get("fastest_win") is int or source.get("fastest_win") is float: record.fastest_win = max(0.0, float(source.fastest_win))
 				if source.get("best_base_hp") is int or source.get("best_base_hp") is float: record.best_base_hp = clamp(float(source.best_base_hp), 0.0, 500.0)
-				if source.get("attempts") is int: record.attempts = max(0, int(source.attempts))
-				if source.get("wins") is int: record.wins = clampi(int(source.wins), 0, int(record.attempts))
+				if _is_integer(source.get("attempts")): record.attempts = max(0, int(source.attempts))
+				if _is_integer(source.get("wins")): record.wins = clampi(int(source.wins), 0, int(record.attempts))
 	if raw.get("deck_presets") is Array and raw.deck_presets.size() == 3:
 		for index in 3:
 			var preset = raw.deck_presets[index]
@@ -103,7 +106,7 @@ static func sanitize(raw: Variant) -> Dictionary:
 			clean.settings.effect_intensity = clamp(float(raw.settings.effect_intensity), 0.2, 1.0)
 		if raw.settings.get("window_size") is String and WINDOW_SIZES.has(String(raw.settings.window_size)):
 			clean.settings.window_size = String(raw.settings.window_size)
-		if raw.settings.get("fps_limit") is int and FPS_LIMITS.has(int(raw.settings.fps_limit)):
+		if _is_integer(raw.settings.get("fps_limit")) and FPS_LIMITS.has(int(raw.settings.fps_limit)):
 			clean.settings.fps_limit = int(raw.settings.fps_limit)
 		if raw.settings.get("language") is String:
 			clean.settings.language = Localization.normalize_locale(String(raw.settings.language))
@@ -112,7 +115,7 @@ static func sanitize(raw: Variant) -> Dictionary:
 				clean.settings[key] = raw.settings[key]
 	if raw.get("stats") is Dictionary:
 		for key in clean.stats.keys():
-			if raw.stats.get(key) is int:
+			if _is_integer(raw.stats.get(key)):
 				clean.stats[key] = max(0, int(raw.stats[key]))
 	return clean
 
@@ -125,11 +128,22 @@ static func load_data() -> Dictionary:
 	var parsed = JSON.parse_string(file.get_as_text())
 	return sanitize(parsed)
 
-static func save_data(data: Dictionary) -> bool:
-	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+static func save_data(data: Dictionary, path: String = SAVE_PATH) -> bool:
+	# Never truncate the active save before the replacement is fully written.
+	var temporary := path + ".tmp"
+	var file := FileAccess.open(temporary, FileAccess.WRITE)
 	if file == null:
 		return false
-	file.store_string(JSON.stringify(sanitize(data), "\t"))
+	file.store_string(JSON.stringify(sanitize(data), "	"))
+	file.flush()
+	var error := file.get_error()
+	file.close()
+	if error != OK:
+		DirAccess.remove_absolute(temporary)
+		return false
+	if DirAccess.rename_absolute(temporary, path) != OK:
+		DirAccess.remove_absolute(temporary)
+		return false
 	return true
 
 static func campaign_stars(stage: int, won: bool, elapsed: float, remaining_base_hp: float) -> int:

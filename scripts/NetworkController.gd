@@ -54,6 +54,7 @@ var client_connection_index := -1
 var client_connection_port := DEFAULT_PORT
 var client_room_mode := "create"
 var client_room_code := ""
+var client_connection_generation := 0
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -131,6 +132,7 @@ func connect_to_server(address: String, port: int = DEFAULT_PORT, fallback_addre
 	return connect_to_candidates(connection_candidates(address, fallback_address), port)
 
 func connect_to_candidates(candidates: Array, port: int = DEFAULT_PORT) -> bool:
+	disconnect_from_server()
 	client_connection_candidates = []
 	for candidate in candidates:
 		var address := String(candidate).strip_edges()
@@ -164,10 +166,15 @@ func _retry_next_connection_candidate() -> bool:
 	var fallback := String(client_connection_candidates[client_connection_index])
 	connection_status.emit(Localization.text("DNS 응답 실패 · 공식 서버 우회 주소로 다시 연결 중..."))
 	print("CLIENT_CONNECTION_FALLBACK address=%s" % fallback)
-	_start_client_attempt.call_deferred(fallback)
+	_start_fallback_if_current.call_deferred(fallback, client_connection_generation)
 	return true
 
+func _start_fallback_if_current(address: String, generation: int) -> void:
+	if generation == client_connection_generation and client_connection_state == "connecting":
+		_start_client_attempt(address)
+
 func disconnect_from_server() -> void:
+	client_connection_generation += 1
 	client_in_match = false
 	client_connection_state = "idle"
 	client_connection_candidates.clear()
@@ -267,6 +274,10 @@ func should_penalize_disconnect(peer_id: int, connected_at: int, now: int) -> bo
 
 func can_create_match() -> bool:
 	return models.size() < MAX_ACTIVE_MATCHES
+
+func can_admit_deck(peer_id: int) -> bool:
+	# Admission must be checked when the deck arrives, not just on connection.
+	return accepting_players and can_create_match() and peer_addresses.has(peer_id)
 
 func _remote_address(peer_id: int) -> String:
 	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
@@ -465,6 +476,10 @@ func request_submit_deck(unit_deck: Array, structure_deck: Array) -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	if peer_decks.has(sender) or not can_process_request(sender):
+		return
+	if not can_admit_deck(sender):
+		mark_server_forced_disconnect(sender)
+		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(sender)
 		return
 	if not validate_deck_payload(unit_deck, structure_deck):
 		print("PLAYER_REJECTED_DECK peer=%d" % sender)

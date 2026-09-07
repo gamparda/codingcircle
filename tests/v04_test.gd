@@ -128,6 +128,25 @@ func _init() -> void:
 		expect_eq(safe_settings.effect_intensity, 0.2, "effect intensity is clamped")
 		expect_eq(safe_settings.window_size, "1280x720", "unknown window sizes recover to default")
 		expect_eq(safe_settings.fps_limit, 60, "unknown FPS limits recover to default")
+		SaveData.record_campaign(defaults, 3, true, 60.0, 450.0)
+		defaults.last_deck = 2
+		defaults.settings.fps_limit = 144
+		var roundtrip: Dictionary = SaveData.sanitize(JSON.parse_string(JSON.stringify(defaults)))
+		expect_eq(roundtrip, defaults, "JSON roundtrip preserves every save field")
+		for invalid in [true, "3", 2.5, INF, NAN, 1e30]:
+			expect_true(not SaveData._is_integer(invalid), "invalid integer input rejected: %s" % invalid)
+		var test_path := "user://save-regression-%d.json" % OS.get_process_id()
+		expect_true(SaveData.save_data(defaults, test_path), "first save succeeds")
+		defaults.last_deck = 1
+		expect_true(SaveData.save_data(defaults, test_path), "replacement save succeeds")
+		var saved_text := FileAccess.get_file_as_string(test_path)
+		expect_eq(SaveData.sanitize(JSON.parse_string(saved_text)), defaults, "disk save preserves all fields")
+		expect_true(not FileAccess.file_exists(test_path + ".tmp"), "temporary save consumed on success")
+		DirAccess.make_dir_absolute(test_path + ".tmp")
+		expect_true(not SaveData.save_data(defaults, test_path), "unwritable staging path reports failure")
+		expect_eq(FileAccess.get_file_as_string(test_path), saved_text, "failed save preserves active file")
+		DirAccess.remove_absolute(test_path + ".tmp")
+		DirAccess.remove_absolute(test_path)
 	var ServerAI = load("res://scripts/ServerAI.gd")
 	expect_true(not ServerAI.stage_summary(3).contains("해금"), "AI stage copy does not claim nonexistent unlocks")
 	expect_true(ServerAI.stage_summary(3).contains("방어"), "AI stage copy describes its actual defensive behavior")
@@ -143,6 +162,21 @@ func _init() -> void:
 	expect_true(network.has_signal("structure_placement_result"), "server placement results have a client signal")
 	expect_true(network.set_client_deck(["shield", "archer", "healer"], ["wall", "turret", "generator"]), "client can select a valid deck before connecting")
 	expect_true(not network.set_client_deck(["shield"], ["wall", "turret", "generator"]), "client cannot select an invalid deck")
+	expect_true(not network.can_admit_deck(2), "unregistered connection cannot submit deck")
+	network.peer_addresses[2] = "127.0.0.1"
+	expect_true(network.can_admit_deck(2), "registered peer admitted below capacity")
+	network.accepting_players = false
+	expect_true(not network.can_admit_deck(2), "maintenance blocks already connected peer's late deck")
+	network.accepting_players = true
+	for index in NetworkController.MAX_ACTIVE_MATCHES:
+		network.models[index] = null
+	expect_true(not network.can_admit_deck(2), "capacity rechecked at deck submission")
+	network.client_connection_state = "idle"
+	network._start_fallback_if_current("127.0.0.1", network.client_connection_generation)
+	expect_eq(network.client_connection_state, "idle", "cancelled fallback cannot reconnect")
+	network.client_connection_state = "connecting"
+	network._start_fallback_if_current("127.0.0.1", network.client_connection_generation - 1)
+	expect_eq(network.client_connection_state, "connecting", "old connection generation ignored")
 	network.free()
 
 	if failures == 0:
