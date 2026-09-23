@@ -394,7 +394,8 @@ func _build_connect_screen(message: String = "") -> void:
 	room_code_input.placeholder_text = Localization.text("방 코드 6자리")
 	room_code_input.max_length = NetworkController.ROOM_CODE_LENGTH
 	room_code_input.custom_minimum_size = Vector2(190, 50)
-	room_code_input.text_changed.connect(func(value): room_code_input.text = value.to_upper())
+	room_code_input.text_direction = Control.TEXT_DIRECTION_LTR
+	room_code_input.text_changed.connect(_normalize_room_code_input)
 	room_row.add_child(room_code_input)
 	var join_button := _styled_button(Localization.text("코드로 참가"), Color("#3d8f83"), false)
 	join_button_ref = join_button
@@ -435,6 +436,13 @@ func _build_connect_screen(message: String = "") -> void:
 	column.add_child(status_label)
 	updater.set_safe_to_update(true)
 	updater.check_for_update()
+
+func _normalize_room_code_input(value: String) -> void:
+	if not is_instance_valid(room_code_input) or value == value.to_upper():
+		return
+	var caret := room_code_input.get_caret_column()
+	room_code_input.text = value.to_upper()
+	room_code_input.set_caret_column(caret)
 
 func _quit_game() -> void:
 	get_tree().quit()
@@ -642,7 +650,16 @@ func _build_records_screen() -> void:
 	column.add_child(back)
 
 func _build_settings_screen() -> void:
-	var column := _submenu(Localization.text("설정"), Localization.text("오디오 · 화면 · 전투 연출 설정은 즉시 저장됩니다."))
+	var outer := _submenu(Localization.text("설정"), Localization.text("오디오 · 화면 · 전투 연출 설정은 즉시 저장됩니다."))
+	var scroll := ScrollContainer.new()
+	scroll.name = "SettingsScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	outer.add_child(scroll)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(column)
 	var settings: Dictionary = save_data.settings
 	var language_row := HBoxContainer.new()
 	var language_label := Label.new()
@@ -683,7 +700,7 @@ func _build_settings_screen() -> void:
 	var damage_numbers := CheckButton.new(); damage_numbers.text = Localization.text("피해/회복 숫자"); damage_numbers.button_pressed = settings.damage_numbers; column.add_child(damage_numbers)
 	var shake := CheckButton.new(); shake.text = Localization.text("화면 흔들림"); shake.button_pressed = settings.screen_shake; column.add_child(shake)
 	var effects := CheckButton.new(); effects.text = Localization.text("전투 효과"); effects.button_pressed = settings.battle_effects; column.add_child(effects)
-	var intensity := HSlider.new(); intensity.min_value = 0.2; intensity.max_value = 1.0; intensity.step = 0.1; intensity.value = settings.effect_intensity; intensity.tooltip_text = Localization.text("효과 강도"); column.add_child(intensity)
+	var intensity := HSlider.new(); intensity.name = "EffectIntensitySlider"; intensity.min_value = 0.2; intensity.max_value = 1.0; intensity.step = 0.1; intensity.value = settings.effect_intensity; intensity.tooltip_text = Localization.text("효과 강도"); column.add_child(intensity)
 	var save_button := _styled_button(Localization.text("설정 저장"), Color("#5e6ad2"), true)
 	save_button.pressed.connect(func():
 		settings.master_volume = master.value; settings.bgm_volume = bgm.value; settings.sfx_volume = sfx.value
@@ -694,8 +711,8 @@ func _build_settings_screen() -> void:
 		SaveData.save_data(save_data); Localization.install(String(settings.language)); _apply_settings()
 		_build_connect_screen(Localization.text("설정을 저장했습니다."))
 	)
-	column.add_child(save_button)
-	var back := _styled_button(Localization.text("취소"), Color("#697386"), false); back.pressed.connect(func(): _apply_settings(); _build_connect_screen()); column.add_child(back)
+	outer.add_child(save_button)
+	var back := _styled_button(Localization.text("취소"), Color("#697386"), false); back.pressed.connect(func(): _apply_settings(); _build_connect_screen()); outer.add_child(back)
 
 func _configure_deck_card(card: Button, base_text: String, color: Color, selected: bool) -> void:
 	card.toggle_mode = true
@@ -860,19 +877,21 @@ func _build_battle_screen() -> void:
 	timer_inner.add_child(mode_label)
 	var stats_button := _styled_button(Localization.text("유닛 스탯"), Color("#3d8f83"), false)
 	stats_button.name = "UnitStatsButton"
-	stats_button.position = Vector2(758, 18)
-	stats_button.size = Vector2(80, 52)
+	stats_button.position = Vector2(1130, 98)
+	stats_button.size = Vector2(136, 48)
+	stats_button.z_index = 10
 	stats_button.add_theme_font_size_override("font_size", 12)
 	stats_button.pressed.connect(_toggle_stats_panel)
-	top.add_child(stats_button)
+	root_background.add_child(stats_button)
 	if local_ai_mode:
 		var exit_button := _styled_button(Localization.text("대전 나가기"), Color("#8f4652"), false)
 		exit_button.name = "ExitAIBattleButton"
-		exit_button.position = Vector2(430, 18)
-		exit_button.size = Vector2(92, 52)
+		exit_button.position = Vector2(14, 98)
+		exit_button.size = Vector2(136, 48)
+		exit_button.z_index = 10
 		exit_button.add_theme_font_size_override("font_size", 12)
 		exit_button.pressed.connect(_exit_ai_battle)
-		top.add_child(exit_button)
+		root_background.add_child(exit_button)
 
 	battle_view = BattleView.new()
 	battle_view.position = Vector2(0, 88)

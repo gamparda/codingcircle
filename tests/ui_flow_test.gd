@@ -48,6 +48,18 @@ func run() -> void:
 	var join_room_button := find_button(main, "코드로 참가")
 	var room_code_input := main.find_child("RoomCodeInput", true, false) as LineEdit
 	if create_room_button != null and join_room_button != null and room_code_input != null:
+		expect_true(room_code_input.text_direction == Control.TEXT_DIRECTION_LTR, "room code always uses left-to-right typing")
+		room_code_input.text = "ab"
+		room_code_input.set_caret_column(2)
+		main._normalize_room_code_input(room_code_input.text)
+		expect_true(room_code_input.text == "AB" and room_code_input.get_caret_column() == 2, "uppercase conversion keeps the caret after typed characters")
+		room_code_input.text = "ac"
+		room_code_input.set_caret_column(1)
+		main._normalize_room_code_input(room_code_input.text)
+		expect_true(room_code_input.text == "AC" and room_code_input.get_caret_column() == 1, "editing in the middle keeps the caret position")
+		room_code_input.insert_text_at_caret("b")
+		room_code_input.text_changed.emit(room_code_input.text)
+		expect_true(room_code_input.text == "ABC" and room_code_input.get_caret_column() == 2, "room code characters enter in order without deleting earlier text")
 		main._set_room_controls_disabled(true)
 		expect_true(create_room_button.disabled and join_room_button.disabled and not room_code_input.editable, "a room connection locks both actions and its code input")
 		main._set_room_controls_disabled(false)
@@ -65,6 +77,18 @@ func run() -> void:
 
 	main._build_settings_screen()
 	await process_frame
+	var settings_scroll := main.find_child("SettingsScroll", true, false) as ScrollContainer
+	var settings_save := find_button(main, "설정 저장")
+	var settings_cancel := find_button(main, "취소")
+	var viewport_bounds := Rect2(Vector2.ZERO, Vector2(1280, 720))
+	expect_true(settings_scroll != null and settings_scroll.size.y > 0 and settings_scroll.get_child(0).size.y > settings_scroll.size.y, "settings overflowing the panel are scrollable")
+	expect_true(settings_save != null and viewport_bounds.encloses(settings_save.get_global_rect()), "settings save action stays fully visible")
+	expect_true(settings_cancel != null and viewport_bounds.encloses(settings_cancel.get_global_rect()), "settings cancel action stays fully visible")
+	settings_scroll.scroll_vertical = int(settings_scroll.get_v_scroll_bar().max_value)
+	await process_frame
+	expect_true(settings_scroll.scroll_vertical > 0 and viewport_bounds.encloses(settings_save.get_global_rect()), "scrolling does not move the settings footer offscreen")
+	var intensity := main.find_child("EffectIntensitySlider", true, false) as HSlider
+	expect_true(intensity != null and settings_scroll.get_global_rect().encloses(intensity.get_global_rect()), "last settings slider is reachable by scrolling")
 	var language_selector := main.find_child("LanguageSelector", true, false) as OptionButton
 	expect_true(language_selector != null, "settings expose a language selector")
 	if language_selector != null:
@@ -97,6 +121,15 @@ func run() -> void:
 	main._start_local_ai_battle()
 	await process_frame
 	expect_true(find_button(main, "대전 나가기") != null, "AI battles expose a mid-match exit button")
+	var exit_button := find_button(main, "대전 나가기")
+	var unit_stats_button := find_button(main, "유닛 스탯")
+	var blue_hp_card := main.blue_hp_bar.get_parent().get_parent() as Control
+	var red_hp_card := main.red_hp_bar.get_parent().get_parent() as Control
+	var timer_card := main.timer_label.get_parent().get_parent() as Control
+	for button in [exit_button, unit_stats_button]:
+		var bounds: Rect2 = button.get_global_rect()
+		expect_true(not bounds.intersects(blue_hp_card.get_global_rect()) and not bounds.intersects(red_hp_card.get_global_rect()) and not bounds.intersects(timer_card.get_global_rect()), "battle action does not overlap fortress HP or timer")
+		expect_true(viewport_bounds.encloses(bounds) and bounds.position.y >= 88 and bounds.end.y < 580, "battle action stays inside the field and clear of bottom controls")
 	expect_true(main.tutorial_step == 0 and main.tutorial_hint.text.contains("유닛"), "first AI battle guides unit spawning")
 	expect_true(main.tutorial_banner.position.y < 580 and main.tutorial_banner.position.y + main.tutorial_banner.size.y < 580, "tutorial never covers bottom battle controls")
 	main.local_model.resources[0] = 0.0
