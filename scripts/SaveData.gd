@@ -35,6 +35,7 @@ static func default_data() -> Dictionary:
 			_preset(Localization.text("덱 3"), ["shield", "swordsman", "archer"], ["swamp", "turret", "generator"]),
 		],
 		"last_deck": 0,
+		"tutorial_completed": false,
 		"settings": {
 			"master_volume": 0.8, "bgm_volume": 0.7, "sfx_volume": 0.8, "muted": false,
 			"window_size": "1280x720", "fullscreen": true, "vsync": true, "fps_limit": 60,
@@ -80,6 +81,8 @@ static func sanitize(raw: Variant) -> Dictionary:
 		clean.campaign_unlocked = clampi(int(raw.campaign_unlocked), 1, 10)
 	if _is_integer(raw.get("last_deck")) and int(raw.last_deck) >= 0 and int(raw.last_deck) < 3:
 		clean.last_deck = int(raw.last_deck)
+	if raw.get("tutorial_completed") is bool:
+		clean.tutorial_completed = raw.tutorial_completed
 	if raw.get("campaign_records") is Array:
 		for index in min(10, raw.campaign_records.size()):
 			if raw.campaign_records[index] is Dictionary:

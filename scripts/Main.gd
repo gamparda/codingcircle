@@ -55,6 +55,11 @@ var structure_count_label: Label
 var placement_pending := false
 var placement_message_serial := 0
 var room_code_input: LineEdit
+var battle_preset: Dictionary = {}
+var tutorial_step := -1
+var tutorial_low_resource := 0.0
+var tutorial_banner: Control
+var tutorial_hint: Label
 
 func _ready() -> void:
 	network.connection_status.connect(_on_connection_status)
@@ -231,6 +236,9 @@ func _clear_screen() -> void:
 	connect_button_ref = null
 	join_button_ref = null
 	room_code_input = null
+	tutorial_banner = null
+	tutorial_hint = null
+	tutorial_step = -1
 	placement_pending = false
 	placement_message_serial += 1
 
@@ -777,19 +785,22 @@ func _on_room_join_failed(error: String) -> void:
 
 func _on_match_found(side: int) -> void:
 	local_ai_mode = false
+	battle_preset = _active_preset().duplicate(true)
 	own_side = side
 	_build_battle_screen()
 	if smoke_mode:
 		print("CLIENT_MATCH_FOUND side=%d" % side)
 		network.send_spawn("swordsman")
 
-func _start_local_ai_battle(stage: int = 1) -> void:
+func _start_local_ai_battle(stage: int = 1, reuse_deck: bool = false) -> void:
 	local_ai_mode = true
 	result_recorded = false
 	current_ai_stage = clampi(stage, ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
 	own_side = 0
 	local_model = BattleModel.new()
-	var preset := _active_preset()
+	if not reuse_deck or battle_preset.is_empty():
+		battle_preset = _active_preset().duplicate(true)
+	var preset := battle_preset
 	local_model.configure_deck(0, preset.units, preset.structures)
 	var ai_units := ["shield", "archer", "healer"] if current_ai_stage >= 5 else ["swordsman", "shield", "archer"]
 	var ai_structures := ["wall", "swamp", "turret"] if current_ai_stage >= 6 else ["wall", "swamp", "generator"]
@@ -798,6 +809,8 @@ func _start_local_ai_battle(stage: int = 1) -> void:
 	local_model.base_hp[1] = 300.0 + float(current_ai_stage) * 20.0
 	local_ai = ServerAI.new(1, current_ai_stage)
 	_build_battle_screen()
+	if not ai_smoke_mode and not bool(save_data.get("tutorial_completed", false)):
+		_begin_tutorial()
 	if ai_smoke_mode:
 		local_model.spawn_unit(0, String(preset.units[0]))
 	_on_snapshot(local_model.snapshot())
@@ -929,7 +942,7 @@ func _build_battle_screen() -> void:
 	row.size = Vector2(1058, 102)
 	row.add_theme_constant_override("separation", 8)
 	controls.add_child(row)
-	var preset := _active_preset()
+	var preset := battle_preset if not battle_preset.is_empty() else _active_preset()
 	var unit_names := {"shield": Localization.text("탱커"), "healer": Localization.text("마법사"), "archer": Localization.text("궁수"), "swordsman": Localization.text("검사")}
 	var unit_colors := {"shield": Color("#5b8cff"), "healer": Color("#d8b85a"), "archer": Color("#8b72df"), "swordsman": Color("#d56b5f")}
 	for kind in preset.units:
@@ -943,6 +956,73 @@ func _build_battle_screen() -> void:
 	for kind in preset.structures:
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 		_add_structure_button(row, Localization.text("%s\n%d 자원") % [structure_names[kind], int(stats.cost)], kind, structure_colors[kind])
+
+func _begin_tutorial() -> void:
+	tutorial_step = 0
+	var banner := PanelContainer.new()
+	banner.name = "FirstBattleGuide"
+	banner.position = Vector2(320, 94)
+	banner.size = Vector2(640, 68)
+	banner.z_index = 20
+	banner.add_theme_stylebox_override("panel", _panel_style(Color("#151c2c"), Color("#f6c85f"), 12))
+	root_background.add_child(banner)
+	tutorial_banner = banner
+	var inner := Control.new()
+	inner.custom_minimum_size = Vector2(640, 68)
+	banner.add_child(inner)
+	tutorial_hint = Label.new()
+	tutorial_hint.name = "FirstBattleHint"
+	tutorial_hint.position = Vector2(14, 7)
+	tutorial_hint.size = Vector2(506, 54)
+	tutorial_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	tutorial_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tutorial_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tutorial_hint.add_theme_font_size_override("font_size", 16)
+	tutorial_hint.add_theme_color_override("font_color", Color("#f5f7fb"))
+	inner.add_child(tutorial_hint)
+	var skip := _styled_button(Localization.text("건너뛰기"), Color("#697386"), false)
+	skip.name = "SkipFirstBattleGuide"
+	skip.position = Vector2(524, 12)
+	skip.size = Vector2(104, 44)
+	skip.pressed.connect(_finish_tutorial)
+	inner.add_child(skip)
+	_update_tutorial_hint()
+
+func _update_tutorial_hint() -> void:
+	if not is_instance_valid(tutorial_hint):
+		return
+	match tutorial_step:
+		0: tutorial_hint.text = Localization.text("첫 전투: 아래 유닛을 눌러 소환하세요.")
+		1: tutorial_hint.text = Localization.text("구조물을 고른 뒤 전장에 설치하세요.")
+		2: tutorial_hint.text = Localization.text("자원은 시간이 지나면 회복됩니다. 잠시 기다려 보세요.")
+
+func _tutorial_advance(completed_step: int) -> void:
+	if not local_ai_mode or tutorial_step != completed_step:
+		return
+	if tutorial_step == 2:
+		_finish_tutorial()
+		return
+	tutorial_step += 1
+	if tutorial_step == 2:
+		tutorial_low_resource = float(local_model.resources[own_side])
+	_update_tutorial_hint()
+
+func _finish_tutorial() -> void:
+	if tutorial_step < 0:
+		return
+	save_data.tutorial_completed = true
+	SaveData.save_data(save_data)
+	tutorial_step = -1
+	if is_instance_valid(tutorial_banner):
+		tutorial_banner.queue_free()
+	tutorial_banner = null
+	tutorial_hint = null
+
+static func result_details(snapshot: Dictionary, side: int, deck_name: String) -> String:
+	var bases: Array = snapshot.get("base_hp", [])
+	var hp := maxi(0, int(bases[side])) if side >= 0 and side < bases.size() else 0
+	var elapsed := maxi(0, int(snapshot.get("elapsed", 0.0)))
+	return Localization.text("기지 체력 %d  ·  전투 시간 %02d:%02d\n사용 덱: %s") % [hp, elapsed / 60, elapsed % 60, deck_name]
 
 func _panel_style(background: Color, border: Color, radius: int) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
@@ -1000,7 +1080,8 @@ func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: C
 	button.custom_minimum_size = Vector2(136, 102)
 	button.pressed.connect(func():
 		if local_ai_mode:
-			local_model.spawn_unit(own_side, kind)
+			if local_model.spawn_unit(own_side, kind):
+				_tutorial_advance(0)
 		else:
 			network.send_spawn(kind)
 	)
@@ -1104,6 +1185,7 @@ func _on_battlefield_clicked(world_x: float) -> void:
 		if local_model.place_structure(own_side, kind, world_x):
 			_show_placement_status(Localization.text("건설 완료"))
 			battle_view.selected_structure = ""
+			_tutorial_advance(1)
 	else:
 		placement_pending = true
 		network.send_structure(kind, world_x)
@@ -1138,6 +1220,8 @@ func _on_snapshot(data: Dictionary) -> void:
 	if is_instance_valid(structure_count_label):
 		structure_count_label.text = Localization.text("구조물 %d / 3") % own_structures
 	resource_label.text = "%d / 150" % int(resources[own_side])
+	if local_ai_mode and tutorial_step == 2 and float(resources[own_side]) > tutorial_low_resource + 0.5:
+		_tutorial_advance(2)
 	blue_hp_bar.value = float(bases[0])
 	red_hp_bar.value = float(bases[1])
 	blue_hp_label.text = "%d / 500" % int(bases[0])
@@ -1164,6 +1248,11 @@ func _on_combat_events(events: Array) -> void:
 func _show_result(winner: int) -> void:
 	_dismiss_result_overlay()
 	_dismiss_stats_panel()
+	if is_instance_valid(tutorial_banner):
+		tutorial_banner.queue_free()
+	tutorial_banner = null
+	tutorial_hint = null
+	tutorial_step = -1
 	result_shown = true
 	updater.set_safe_to_update(true)
 	updater.check_for_update()
@@ -1186,8 +1275,8 @@ func _show_result(winner: int) -> void:
 	var overlay := PanelContainer.new()
 	overlay.name = "ResultOverlay"
 	result_overlay = overlay
-	overlay.position = Vector2(350, 190)
-	overlay.size = Vector2(580, 330)
+	overlay.position = Vector2(350, 175)
+	overlay.size = Vector2(580, 370)
 	var result_color := Color("#f6c85f") if winner == own_side else Color("#8f98ad")
 	var overlay_style := _panel_style(Color("#0f1119"), Color(result_color.r, result_color.g, result_color.b, 0.55), 18)
 	overlay_style.shadow_color = Color(0.0, 0.0, 0.0, 0.58)
@@ -1195,7 +1284,7 @@ func _show_result(winner: int) -> void:
 	overlay.add_theme_stylebox_override("panel", overlay_style)
 	root_background.add_child(overlay)
 	var inner := Control.new()
-	inner.custom_minimum_size = Vector2(580, 330)
+	inner.custom_minimum_size = Vector2(580, 370)
 	overlay.add_child(inner)
 	var overline := Label.new()
 	overline.text = "MATCH COMPLETE"
@@ -1224,23 +1313,41 @@ func _show_result(winner: int) -> void:
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	note.add_theme_color_override("font_color", Color("#8f98ad"))
 	inner.add_child(note)
-	var rematch_text := Localization.text("다음 단계") if advances else (Localization.text("다시 도전") if local_ai_mode else Localization.text("재경기 준비"))
+	var details := Label.new()
+	details.name = "ResultDetails"
+	details.text = result_details(current_snapshot, own_side, String(battle_preset.get("name", "")))
+	details.position = Vector2(32, 193)
+	details.size = Vector2(516, 54)
+	details.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	details.add_theme_font_size_override("font_size", 15)
+	details.add_theme_color_override("font_color", Color("#dce1ec"))
+	inner.add_child(details)
+	var rematch_text := Localization.text("다시 도전") if local_ai_mode else Localization.text("재경기 준비")
 	var rematch := _styled_button(rematch_text, Color("#5e6ad2"), true)
-	rematch.position = Vector2(65, 218)
-	rematch.size = Vector2(215, 58)
+	rematch.position = Vector2(25 if advances else 65, 268)
+	rematch.size = Vector2(165 if advances else 215, 58)
 	rematch.pressed.connect(func():
 		rematch.disabled = true
 		if local_ai_mode:
-			_start_local_ai_battle(current_ai_stage + 1 if advances else current_ai_stage)
+			_start_local_ai_battle(current_ai_stage, true)
 		else:
 			rematch.text = Localization.text("상대 준비 대기 중")
 			network.send_rematch()
 	)
 	inner.add_child(rematch)
+	if advances:
+		var next_stage := _styled_button(Localization.text("다음 단계"), Color("#3d8f83"), true)
+		next_stage.position = Vector2(207, 268)
+		next_stage.size = Vector2(165, 58)
+		next_stage.pressed.connect(func():
+			next_stage.disabled = true
+			_start_local_ai_battle(current_ai_stage + 1, true)
+		)
+		inner.add_child(next_stage)
 	var back := _styled_button(Localization.text("단계 선택") if local_ai_mode else Localization.text("이전 화면으로"), Color("#697386"), false)
 	back.name = "BackToMenuButton"
-	back.position = Vector2(300, 218)
-	back.size = Vector2(215, 58)
+	back.position = Vector2(389 if advances else 300, 268)
+	back.size = Vector2(165 if advances else 215, 58)
 	if local_ai_mode:
 		back.pressed.connect(_build_ai_stage_screen.bind(campaign_mode))
 	else:

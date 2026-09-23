@@ -91,9 +91,36 @@ func run() -> void:
 		main._input(key_event(KEY_F11))
 		expect_true(bool(main.save_data.settings.fullscreen) == was_fullscreen, "a second F11 restores the previous fullscreen setting")
 
+	main.save_data.tutorial_completed = false
+	main.save_data.last_deck = 0
+	main.campaign_mode = true
 	main._start_local_ai_battle()
 	await process_frame
 	expect_true(find_button(main, "대전 나가기") != null, "AI battles expose a mid-match exit button")
+	expect_true(main.tutorial_step == 0 and main.tutorial_hint.text.contains("유닛"), "first AI battle guides unit spawning")
+	expect_true(main.tutorial_banner.position.y < 580 and main.tutorial_banner.position.y + main.tutorial_banner.size.y < 580, "tutorial never covers bottom battle controls")
+	main.local_model.resources[0] = 0.0
+	find_button(main, "탱커").pressed.emit()
+	expect_true(main.tutorial_step == 0, "unaffordable spawn does not advance tutorial")
+	main.local_model.resources[0] = 150.0
+	find_button(main, "탱커").pressed.emit()
+	expect_true(main.tutorial_step == 1 and main.tutorial_hint.text.contains("구조물"), "successful spawn advances to placement")
+	find_button(main, "방벽").pressed.emit()
+	main._on_battlefield_clicked(500.0)
+	expect_true(main.tutorial_step == 2 and main.tutorial_hint.text.contains("자원"), "successful placement advances to regeneration")
+	var tutorial_resource_baseline: float = main.tutorial_low_resource
+	main.local_model.resources[0] = tutorial_resource_baseline + 1.0
+	main._on_snapshot(main.local_model.snapshot())
+	expect_true(main.tutorial_step == -1 and main.save_data.tutorial_completed, "resource increase completes and saves the tutorial")
+	await process_frame
+	expect_true(main.find_child("FirstBattleGuide", true, false) == null, "completed guide disappears")
+	main._start_local_ai_battle()
+	expect_true(main.tutorial_step == -1, "completed tutorial does not reappear")
+	main.save_data.tutorial_completed = false
+	main._start_local_ai_battle()
+	expect_true(find_button(main, "건너뛰기") != null, "first battle guide has a skip button")
+	find_button(main, "건너뛰기").pressed.emit()
+	expect_true(main.save_data.tutorial_completed and main.tutorial_step == -1, "skip marks the guide complete")
 	main._show_placement_status("임시 메시지", 0.01)
 	await create_timer(0.03).timeout
 	expect_true(main.placement_status_label.text.is_empty(), "placement messages disappear automatically")
@@ -101,6 +128,26 @@ func run() -> void:
 	if main.has_method("_input"):
 		main._input(key_event(KEY_ESCAPE))
 	expect_true(main.battle_view.selected_structure.is_empty(), "Escape cancels structure placement")
+	main.local_model.winner = 0
+	var campaign_result: Dictionary = main.local_model.snapshot()
+	campaign_result.base_hp[0] = 321.0
+	campaign_result.elapsed = 125.0
+	main._on_snapshot(campaign_result)
+	await process_frame
+	expect_true(tree_text(main.result_overlay).contains("321") and tree_text(main.result_overlay).contains("02:05"), "result shows remaining base HP and elapsed time")
+	expect_true(tree_text(main.result_overlay).contains(String(main.battle_preset.name)), "result shows the actual battle deck")
+	expect_true(find_button(main.result_overlay, "다시 도전") != null and find_button(main.result_overlay, "다음 단계") != null, "campaign win offers both same-stage retry and next stage")
+	var played_deck: Dictionary = main.battle_preset.duplicate(true)
+	main.save_data.last_deck = 1
+	find_button(main.result_overlay, "다시 도전").pressed.emit()
+	await process_frame
+	expect_true(main.current_ai_stage == 1 and main.battle_preset == played_deck, "retry keeps the same stage and deck even if selected preset changes")
+	main.local_model.winner = 0
+	main._on_snapshot(main.local_model.snapshot())
+	await process_frame
+	find_button(main.result_overlay, "다음 단계").pressed.emit()
+	await process_frame
+	expect_true(main.current_ai_stage == 2 and main.battle_preset == played_deck, "next stage preserves the played deck")
 	main.local_model.winner = 0
 	main._on_snapshot(main.local_model.snapshot())
 	await process_frame

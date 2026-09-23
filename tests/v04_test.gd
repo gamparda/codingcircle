@@ -109,6 +109,9 @@ func _init() -> void:
 		expect_true(bool(defaults.settings.fullscreen), "new installs start in fullscreen mode")
 		expect_eq(defaults.save_version, 1, "save schema begins at version 1")
 		expect_eq(defaults.deck_presets.size(), 3, "three deck presets exist")
+		expect_true(not defaults.tutorial_completed, "new profiles show the first battle guide")
+		expect_true(SaveData.sanitize({"tutorial_completed": true}).tutorial_completed, "tutorial completion survives sanitization")
+		expect_true(not SaveData.sanitize({"tutorial_completed": 1}).tutorial_completed, "non-boolean tutorial flag is rejected")
 		expect_eq(defaults.campaign_records.size(), 10, "ten campaign records exist")
 		var repaired: Dictionary = SaveData.sanitize({"save_version": 1, "last_deck": 99, "settings": "broken"})
 		expect_eq(repaired.last_deck, 0, "invalid values recover to defaults")
@@ -131,6 +134,7 @@ func _init() -> void:
 		SaveData.record_campaign(defaults, 3, true, 60.0, 450.0)
 		defaults.last_deck = 2
 		defaults.settings.fps_limit = 144
+		defaults.tutorial_completed = true
 		var roundtrip: Dictionary = SaveData.sanitize(JSON.parse_string(JSON.stringify(defaults)))
 		expect_eq(roundtrip, defaults, "JSON roundtrip preserves every save field")
 		for invalid in [true, "3", 2.5, INF, NAN, 1e30]:

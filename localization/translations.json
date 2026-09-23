@@ -184,7 +184,12 @@
     "설치 직전 SHA-256 재검증에 실패했습니다.": "설치 직전 SHA-256 재검증에 실패했습니다.",
     "안전한 업데이트 실행 도우미를 만들지 못했습니다.": "안전한 업데이트 실행 도우미를 만들지 못했습니다.",
     "업데이트 실행 도우미를 만들지 못했습니다.": "업데이트 실행 도우미를 만들지 못했습니다.",
-    "업데이트 설치 프로그램을 실행하지 못했습니다.": "업데이트 설치 프로그램을 실행하지 못했습니다."
+    "업데이트 설치 프로그램을 실행하지 못했습니다.": "업데이트 설치 프로그램을 실행하지 못했습니다.",
+    "첫 전투: 아래 유닛을 눌러 소환하세요.": "첫 전투: 아래 유닛을 눌러 소환하세요.",
+    "구조물을 고른 뒤 전장에 설치하세요.": "구조물을 고른 뒤 전장에 설치하세요.",
+    "자원은 시간이 지나면 회복됩니다. 잠시 기다려 보세요.": "자원은 시간이 지나면 회복됩니다. 잠시 기다려 보세요.",
+    "건너뛰기": "건너뛰기",
+    "기지 체력 %d  ·  전투 시간 %02d:%02d\n사용 덱: %s": "기지 체력 %d  ·  전투 시간 %02d:%02d\n사용 덱: %s"
   },
   "en": {
     "비용 %d  ·  체력 %d\n": "Cost %d  ·  HP %d\n",
@@ -371,7 +376,12 @@
     "설치 직전 SHA-256 재검증에 실패했습니다.": "Final SHA-256 verification failed before installation.",
     "안전한 업데이트 실행 도우미를 만들지 못했습니다.": "Could not create a secure update helper.",
     "업데이트 실행 도우미를 만들지 못했습니다.": "Could not create the update helper.",
-    "업데이트 설치 프로그램을 실행하지 못했습니다.": "Could not run the update installer."
+    "업데이트 설치 프로그램을 실행하지 못했습니다.": "Could not run the update installer.",
+    "첫 전투: 아래 유닛을 눌러 소환하세요.": "First battle: tap a unit below to summon it.",
+    "구조물을 고른 뒤 전장에 설치하세요.": "Choose a structure, then place it on the battlefield.",
+    "자원은 시간이 지나면 회복됩니다. 잠시 기다려 보세요.": "Resources regenerate over time. Watch the energy meter.",
+    "건너뛰기": "Skip",
+    "기지 체력 %d  ·  전투 시간 %02d:%02d\n사용 덱: %s": "Base HP %d  ·  Battle time %02d:%02d\nDeck: %s"
   },
   "fr": {
     "비용 %d  ·  체력 %d\n": "Coût %d  ·  HP %d\n",
@@ -558,7 +568,12 @@
     "설치 직전 SHA-256 재검증에 실패했습니다.": "La dernière vérification SHA-256 a échoué avant l'installation.",
     "안전한 업데이트 실행 도우미를 만들지 못했습니다.": "Impossible de créer un assistant de mise à jour sécurisé.",
     "업데이트 실행 도우미를 만들지 못했습니다.": "Impossible de créer l'assistant de mise à jour.",
-    "업데이트 설치 프로그램을 실행하지 못했습니다.": "Impossible de lancer le programme d'installation."
+    "업데이트 설치 프로그램을 실행하지 못했습니다.": "Impossible de lancer le programme d'installation.",
+    "첫 전투: 아래 유닛을 눌러 소환하세요.": "Premier combat : touchez une unité en bas pour l’invoquer.",
+    "구조물을 고른 뒤 전장에 설치하세요.": "Choisissez une structure, puis placez-la sur le champ de bataille.",
+    "자원은 시간이 지나면 회복됩니다. 잠시 기다려 보세요.": "Les ressources se régénèrent avec le temps. Observez la jauge.",
+    "건너뛰기": "Passer",
+    "기지 체력 %d  ·  전투 시간 %02d:%02d\n사용 덱: %s": "PV de la base %d  ·  Durée %02d:%02d\nDeck : %s"
   },
   "zh_CN": {
     "비용 %d  ·  체력 %d\n": "费用 %d  ·  生命 %d\n",
@@ -745,7 +760,12 @@
     "설치 직전 SHA-256 재검증에 실패했습니다.": "安装前最终 SHA-256 复验失败。",
     "안전한 업데이트 실행 도우미를 만들지 못했습니다.": "无法创建安全的更新助手。",
     "업데이트 실행 도우미를 만들지 못했습니다.": "无法创建更新助手。",
-    "업데이트 설치 프로그램을 실행하지 못했습니다.": "无法运行更新安装程序。"
+    "업데이트 설치 프로그램을 실행하지 못했습니다.": "无法运行更新安装程序。",
+    "첫 전투: 아래 유닛을 눌러 소환하세요.": "首场战斗：点击下方单位将其召唤。",
+    "구조물을 고른 뒤 전장에 설치하세요.": "选择建筑，然后将其放置在战场上。",
+    "자원은 시간이 지나면 회복됩니다. 잠시 기다려 보세요.": "资源会随时间恢复。请观察能量数值。",
+    "건너뛰기": "跳过",
+    "기지 체력 %d  ·  전투 시간 %02d:%02d\n사용 덱: %s": "基地生命 %d  ·  战斗时间 %02d:%02d\n使用卡组：%s"
   },
   "ru": {
     "비용 %d  ·  체력 %d\n": "Стоимость %d  ·  HP %d\n",
@@ -932,7 +952,12 @@
     "설치 직전 SHA-256 재검증에 실패했습니다.": "Повторная проверка SHA-256 перед установкой не пройдена.",
     "안전한 업데이트 실행 도우미를 만들지 못했습니다.": "Не удалось создать безопасный помощник обновления.",
     "업데이트 실행 도우미를 만들지 못했습니다.": "Не удалось создать помощник обновления.",
-    "업데이트 설치 프로그램을 실행하지 못했습니다.": "Не удалось запустить установщик обновления."
+    "업데이트 설치 프로그램을 실행하지 못했습니다.": "Не удалось запустить установщик обновления.",
+    "첫 전투: 아래 유닛을 눌러 소환하세요.": "Первый бой: нажмите на бойца внизу, чтобы призвать его.",
+    "구조물을 고른 뒤 전장에 설치하세요.": "Выберите сооружение и разместите его на поле боя.",
+    "자원은 시간이 지나면 회복됩니다. 잠시 기다려 보세요.": "Ресурсы восстанавливаются со временем. Следите за энергией.",
+    "건너뛰기": "Пропустить",
+    "기지 체력 %d  ·  전투 시간 %02d:%02d\n사용 덱: %s": "Здоровье базы %d  ·  Время %02d:%02d\nКолода: %s"
   },
   "es": {
     "비용 %d  ·  체력 %d\n": "Coste %d  ·  HP %d\n",
@@ -1119,6 +1144,11 @@
     "설치 직전 SHA-256 재검증에 실패했습니다.": "Falló la verificación final SHA-256 antes de instalar.",
     "안전한 업데이트 실행 도우미를 만들지 못했습니다.": "No se pudo crear un asistente de actualización seguro.",
     "업데이트 실행 도우미를 만들지 못했습니다.": "No se pudo crear el asistente de actualización.",
-    "업데이트 설치 프로그램을 실행하지 못했습니다.": "No se pudo ejecutar el instalador de actualización."
+    "업데이트 설치 프로그램을 실행하지 못했습니다.": "No se pudo ejecutar el instalador de actualización.",
+    "첫 전투: 아래 유닛을 눌러 소환하세요.": "Primera batalla: toca una unidad abajo para invocarla.",
+    "구조물을 고른 뒤 전장에 설치하세요.": "Elige una estructura y colócala en el campo de batalla.",
+    "자원은 시간이 지나면 회복됩니다. 잠시 기다려 보세요.": "Los recursos se recuperan con el tiempo. Observa la energía.",
+    "건너뛰기": "Saltar",
+    "기지 체력 %d  ·  전투 시간 %02d:%02d\n사용 덱: %s": "Vida de la base %d  ·  Tiempo %02d:%02d\nMazo: %s"
   }
 }
