@@ -875,23 +875,6 @@ func _build_battle_screen() -> void:
 	mode_label.add_theme_font_size_override("font_size", 10)
 	mode_label.add_theme_color_override("font_color", Color("#747d91"))
 	timer_inner.add_child(mode_label)
-	var stats_button := _styled_button(Localization.text("유닛 스탯"), Color("#3d8f83"), false)
-	stats_button.name = "UnitStatsButton"
-	stats_button.position = Vector2(1130, 98)
-	stats_button.size = Vector2(136, 48)
-	stats_button.z_index = 10
-	stats_button.add_theme_font_size_override("font_size", 12)
-	stats_button.pressed.connect(_toggle_stats_panel)
-	root_background.add_child(stats_button)
-	if local_ai_mode:
-		var exit_button := _styled_button(Localization.text("대전 나가기"), Color("#8f4652"), false)
-		exit_button.name = "ExitAIBattleButton"
-		exit_button.position = Vector2(14, 98)
-		exit_button.size = Vector2(136, 48)
-		exit_button.z_index = 10
-		exit_button.add_theme_font_size_override("font_size", 12)
-		exit_button.pressed.connect(_exit_ai_battle)
-		root_background.add_child(exit_button)
 
 	battle_view = BattleView.new()
 	battle_view.position = Vector2(0, 88)
@@ -975,6 +958,25 @@ func _build_battle_screen() -> void:
 	for kind in preset.structures:
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 		_add_structure_button(row, Localization.text("%s\n%d 자원") % [structure_names[kind], int(stats.cost)], kind, structure_colors[kind])
+	# A raised z_index draws above the battlefield, but input follows sibling order.
+	# Add these actions after BattleView so it cannot consume their pointer events.
+	var stats_button := _styled_button(Localization.text("유닛 스탯"), Color("#3d8f83"), false)
+	stats_button.name = "UnitStatsButton"
+	stats_button.position = Vector2(1130, 98)
+	stats_button.size = Vector2(136, 48)
+	stats_button.z_index = 10
+	stats_button.add_theme_font_size_override("font_size", 12)
+	stats_button.pressed.connect(_toggle_stats_panel)
+	root_background.add_child(stats_button)
+	if local_ai_mode:
+		var exit_button := _styled_button(Localization.text("대전 나가기"), Color("#8f4652"), false)
+		exit_button.name = "ExitAIBattleButton"
+		exit_button.position = Vector2(14, 98)
+		exit_button.size = Vector2(136, 48)
+		exit_button.z_index = 10
+		exit_button.add_theme_font_size_override("font_size", 12)
+		exit_button.pressed.connect(_exit_ai_battle)
+		root_background.add_child(exit_button)
 
 func _begin_tutorial() -> void:
 	tutorial_step = 0
