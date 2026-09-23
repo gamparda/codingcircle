@@ -60,6 +60,10 @@ var tutorial_step := -1
 var tutorial_low_resource := 0.0
 var tutorial_banner: Control
 var tutorial_hint: Label
+var settings_touch_scroll: ScrollContainer
+var settings_touch_index := -1
+var settings_touch_dragged := false
+var settings_touch_start := Vector2.ZERO
 
 func _ready() -> void:
 	network.connection_status.connect(_on_connection_status)
@@ -156,6 +160,24 @@ func _process(delta: float) -> void:
 			get_tree().quit(2)
 
 func _input(event: InputEvent) -> void:
+	if is_instance_valid(settings_touch_scroll):
+		if event is InputEventScreenTouch:
+			if event.pressed and settings_touch_index < 0 and settings_touch_scroll.get_global_rect().has_point(event.position):
+				settings_touch_index = event.index
+				settings_touch_dragged = false
+				settings_touch_start = event.position
+			elif not event.pressed and event.index == settings_touch_index:
+				settings_touch_index = -1
+				if settings_touch_dragged:
+					get_viewport().set_input_as_handled()
+				settings_touch_dragged = false
+		elif event is InputEventScreenDrag and event.index == settings_touch_index:
+			if not settings_touch_dragged and absf(event.position.y - settings_touch_start.y) < 12.0:
+				return
+			settings_touch_dragged = true
+			settings_touch_scroll.scroll_vertical = maxi(0, settings_touch_scroll.scroll_vertical - roundi(event.relative.y))
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventScreenDrag and battle_active and is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty():
 		battle_view.mouse_position = event.position - battle_view.get_global_rect().position
 		battle_view.queue_redraw()
@@ -236,6 +258,10 @@ func _clear_screen() -> void:
 	connect_button_ref = null
 	join_button_ref = null
 	room_code_input = null
+	settings_touch_scroll = null
+	settings_touch_index = -1
+	settings_touch_dragged = false
+	settings_touch_start = Vector2.ZERO
 	tutorial_banner = null
 	tutorial_hint = null
 	tutorial_step = -1
@@ -275,6 +301,8 @@ func _active_preset() -> Dictionary:
 
 func _apply_settings() -> void:
 	var settings: Dictionary = save_data.settings
+	if String(settings.graphics_quality) == "auto":
+		SaveData.apply_graphics_profile(settings, "auto", OS.has_feature("mobile"), DisplayServer.screen_get_size())
 	for pair in [["Master", settings.master_volume], ["BGM", settings.bgm_volume], ["SFX", settings.sfx_volume]]:
 		_preview_bus_volume(float(pair[1]), String(pair[0]))
 	var master_bus := AudioServer.get_bus_index("Master")
@@ -649,17 +677,9 @@ func _build_records_screen() -> void:
 	back.pressed.connect(_build_connect_screen)
 	column.add_child(back)
 
-func _build_settings_screen() -> void:
+func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 	var outer := _submenu(Localization.text("설정"), Localization.text("오디오 · 화면 · 전투 연출 설정은 즉시 저장됩니다."))
-	var scroll := ScrollContainer.new()
-	scroll.name = "SettingsScroll"
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	outer.add_child(scroll)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 10)
-	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(column)
+	var mobile_layout := OS.has_feature("mobile") or mobile_layout_override
 	var settings: Dictionary = save_data.settings
 	var language_row := HBoxContainer.new()
 	var language_label := Label.new()
@@ -673,7 +693,36 @@ func _build_settings_screen() -> void:
 		language.add_item(String(Localization.LANGUAGE_NAMES[locale]))
 	language.select(max(0, Localization.SUPPORTED_LOCALES.find(String(settings.language))))
 	language_row.add_child(language)
-	column.add_child(language_row)
+	outer.add_child(language_row)
+	var quality_row := HBoxContainer.new()
+	var quality_label := Label.new()
+	quality_label.text = Localization.text("화질")
+	quality_label.custom_minimum_size.x = 180
+	quality_row.add_child(quality_label)
+	var quality := OptionButton.new()
+	quality.name = "GraphicsQualitySelector"
+	quality.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var quality_options: Array = SaveData.GRAPHICS_QUALITIES.duplicate()
+	if String(settings.graphics_quality) == "custom":
+		quality_options.append("custom")
+	for key in quality_options:
+		quality.add_item(Localization.text({"auto": "자동", "high": "높음", "medium": "중간", "low": "낮음", "custom": "사용자 지정"}[key]))
+	quality.select(max(0, quality_options.find(String(settings.graphics_quality))))
+	quality_row.add_child(quality)
+	outer.add_child(quality_row)
+	var scroll := ScrollContainer.new()
+	scroll.name = "SettingsScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.scroll_deadzone = 16
+	outer.add_child(scroll)
+	if mobile_layout:
+		settings_touch_scroll = scroll
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(column)
+
 	var controls := GridContainer.new()
 	controls.columns = 2
 	column.add_child(controls)
@@ -688,25 +737,58 @@ func _build_settings_screen() -> void:
 	var muted := CheckButton.new(); muted.text = Localization.text("음소거"); muted.button_pressed = settings.muted; muted.toggled.connect(func(enabled): AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), enabled)); column.add_child(muted)
 	var fullscreen := CheckButton.new(); fullscreen.name = "FullscreenToggle"; fullscreen.text = Localization.text("전체화면 (F11)"); fullscreen.button_pressed = settings.fullscreen; column.add_child(fullscreen)
 	var vsync := CheckButton.new(); vsync.text = "VSync"; vsync.button_pressed = settings.vsync; column.add_child(vsync)
+	var hidden_display: Control
+	if mobile_layout:
+		hidden_display = Control.new()
+		hidden_display.visible = false
+		outer.add_child(hidden_display)
 	var window_size := OptionButton.new()
 	for option in ["1280x720", "1600x900", "1920x1080"]: window_size.add_item(option)
 	window_size.select(max(0, ["1280x720", "1600x900", "1920x1080"].find(String(settings.window_size))))
-	column.add_child(window_size)
+	if mobile_layout:
+		hidden_display.add_child(window_size)
+	else:
+		window_size.name = "ResolutionSelector"
+		column.add_child(window_size)
 	var fps_limit := OptionButton.new()
 	for option in [30, 60, 120, 144, 240]: fps_limit.add_item(Localization.text("FPS 제한 %d") % option, option)
 	var fps_options := [30, 60, 120, 144, 240]
 	fps_limit.select(max(0, fps_options.find(int(settings.fps_limit))))
-	column.add_child(fps_limit)
+	if mobile_layout:
+		hidden_display.add_child(fps_limit)
+	else:
+		fps_limit.name = "FPSSelector"
+		column.add_child(fps_limit)
 	var damage_numbers := CheckButton.new(); damage_numbers.text = Localization.text("피해/회복 숫자"); damage_numbers.button_pressed = settings.damage_numbers; column.add_child(damage_numbers)
 	var shake := CheckButton.new(); shake.text = Localization.text("화면 흔들림"); shake.button_pressed = settings.screen_shake; column.add_child(shake)
 	var effects := CheckButton.new(); effects.text = Localization.text("전투 효과"); effects.button_pressed = settings.battle_effects; column.add_child(effects)
 	var intensity := HSlider.new(); intensity.name = "EffectIntensitySlider"; intensity.min_value = 0.2; intensity.max_value = 1.0; intensity.step = 0.1; intensity.value = settings.effect_intensity; intensity.tooltip_text = Localization.text("효과 강도"); column.add_child(intensity)
+	quality.item_selected.connect(func(index: int):
+		var key := String(quality_options[index])
+		if key == "custom":
+			return
+		var profile := SaveData.graphics_profile(key, mobile_layout, DisplayServer.screen_get_size())
+		window_size.select(SaveData.WINDOW_SIZES.find(String(profile.window_size)))
+		fps_limit.select(SaveData.FPS_LIMITS.find(int(profile.fps_limit)))
+		damage_numbers.button_pressed = bool(profile.damage_numbers)
+		shake.button_pressed = bool(profile.screen_shake)
+		effects.button_pressed = bool(profile.battle_effects)
+		intensity.value = float(profile.effect_intensity)
+	)
 	var save_button := _styled_button(Localization.text("설정 저장"), Color("#5e6ad2"), true)
+	save_button.name = "SettingsSaveButton"
 	save_button.pressed.connect(func():
 		settings.master_volume = master.value; settings.bgm_volume = bgm.value; settings.sfx_volume = sfx.value
 		settings.muted = muted.button_pressed; settings.fullscreen = fullscreen.button_pressed; settings.vsync = vsync.button_pressed
 		settings.window_size = window_size.get_item_text(window_size.selected); settings.fps_limit = fps_limit.get_item_id(fps_limit.selected)
 		settings.damage_numbers = damage_numbers.button_pressed; settings.screen_shake = shake.button_pressed; settings.battle_effects = effects.button_pressed; settings.effect_intensity = intensity.value
+		settings.graphics_quality = String(quality_options[quality.selected])
+		if String(settings.graphics_quality) != "custom":
+			var profile := SaveData.graphics_profile(String(settings.graphics_quality), mobile_layout, DisplayServer.screen_get_size())
+			for key in profile:
+				if settings[key] != profile[key]:
+					settings.graphics_quality = "custom"
+					break
 		settings.language = Localization.SUPPORTED_LOCALES[language.selected]
 		SaveData.save_data(save_data); Localization.install(String(settings.language)); _apply_settings()
 		_build_connect_screen(Localization.text("설정을 저장했습니다."))

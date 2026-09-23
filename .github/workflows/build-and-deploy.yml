@@ -59,8 +59,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $contentVersion = "0.4.13"
-          $windowsVersion = "0.4.13"
+          $contentVersion = "0.4.14"
+          $windowsVersion = "0.4.14"
           $androidBinaryVersion = "0.4.9"
           $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?before=${{ github.sha }}"
           $previousAndroidVersion = if ($previous.PSObject.Properties.Name -contains "android_binary_version") { [string]$previous.android_binary_version } else { [string]$previous.version }

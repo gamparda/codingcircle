@@ -78,6 +78,10 @@ func run() -> void:
 	main._build_settings_screen()
 	await process_frame
 	var settings_scroll := main.find_child("SettingsScroll", true, false) as ScrollContainer
+	var quality_selector := main.find_child("GraphicsQualitySelector", true, false) as OptionButton
+	expect_true(quality_selector != null and quality_selector.item_count >= 4, "graphics selector exposes auto, high, medium and low")
+	expect_true(quality_selector != null and quality_selector.get_global_rect().end.y <= settings_scroll.get_global_rect().position.y, "graphics popup is outside the scrolling content")
+	expect_true(main.find_child("ResolutionSelector", true, false) != null and main.find_child("FPSSelector", true, false) != null, "desktop retains manual resolution and FPS controls")
 	var settings_save := find_button(main, "설정 저장")
 	var settings_cancel := find_button(main, "취소")
 	var viewport_bounds := Rect2(Vector2.ZERO, Vector2(1280, 720))

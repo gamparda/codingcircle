@@ -7,6 +7,7 @@ const SAVE_VERSION := 1
 const SAVE_PATH := "user://catwar_save.json"
 const WINDOW_SIZES := ["1280x720", "1600x900", "1920x1080"]
 const FPS_LIMITS := [30, 60, 120, 144, 240]
+const GRAPHICS_QUALITIES := ["auto", "high", "medium", "low"]
 const CAMPAIGN_TARGETS := [
 	{"time": 90.0, "base_hp": 400.0}, {"time": 100.0, "base_hp": 390.0},
 	{"time": 110.0, "base_hp": 380.0}, {"time": 120.0, "base_hp": 365.0},
@@ -38,8 +39,8 @@ static func default_data() -> Dictionary:
 		"tutorial_completed": false,
 		"settings": {
 			"master_volume": 0.8, "bgm_volume": 0.7, "sfx_volume": 0.8, "muted": false,
-			"window_size": "1280x720", "fullscreen": true, "vsync": true, "fps_limit": 60,
-			"damage_numbers": true, "screen_shake": true, "battle_effects": true, "effect_intensity": 0.65,
+			"window_size": "1920x1080", "fullscreen": true, "vsync": true, "fps_limit": 60,
+			"graphics_quality": "high", "damage_numbers": true, "screen_shake": true, "battle_effects": true, "effect_intensity": 1.0,
 			"language": "ko",
 		},
 		"stats": {
@@ -70,6 +71,24 @@ static func _migrate_removed_structures(structures: Array, fallback: Array) -> A
 # Godot JSON numbers decode as floats; only accept finite integral values.
 static func _is_integer(value: Variant) -> bool:
 	return (value is int or value is float) and is_finite(float(value)) and abs(float(value)) <= 9007199254740991.0 and float(value) == floor(float(value))
+
+static func graphics_profile(quality: String, mobile: bool, screen_size: Vector2i) -> Dictionary:
+	var resolved := quality
+	if resolved == "auto":
+		resolved = "medium" if mobile and maxi(screen_size.x, screen_size.y) >= 1920 and mini(screen_size.x, screen_size.y) >= 1080 else "low" if mobile else "high"
+	match resolved:
+		"low":
+			return {"window_size": "1280x720", "fps_limit": 30, "damage_numbers": false, "screen_shake": false, "battle_effects": false, "effect_intensity": 0.2}
+		"medium":
+			return {"window_size": "1600x900", "fps_limit": 60, "damage_numbers": true, "screen_shake": false, "battle_effects": true, "effect_intensity": 0.6}
+		_:
+			return {"window_size": "1920x1080", "fps_limit": 60, "damage_numbers": true, "screen_shake": true, "battle_effects": true, "effect_intensity": 1.0}
+
+static func apply_graphics_profile(settings: Dictionary, quality: String, mobile: bool, screen_size: Vector2i) -> void:
+	var profile := graphics_profile(quality, mobile, screen_size)
+	for key in profile:
+		settings[key] = profile[key]
+	settings.graphics_quality = quality
 
 static func sanitize(raw: Variant) -> Dictionary:
 	var clean := default_data()
@@ -102,6 +121,10 @@ static func sanitize(raw: Variant) -> Dictionary:
 				if BattleModel._valid_deck(preset.units, BattleModel.UNIT_STATS) and BattleModel._valid_deck(structures, BattleModel.STRUCTURE_STATS):
 					clean.deck_presets[index] = {"name": String(preset.get("name", Localization.text("덱 %d") % (index + 1))).left(20), "units": preset.units.duplicate(), "structures": structures}
 	if raw.get("settings") is Dictionary:
+		# Existing players' hand-tuned visual settings must not be replaced by a new preset.
+		clean.settings.graphics_quality = "custom"
+		if raw.settings.get("graphics_quality") is String and GRAPHICS_QUALITIES.has(String(raw.settings.graphics_quality)):
+			clean.settings.graphics_quality = String(raw.settings.graphics_quality)
 		for key in ["master_volume", "bgm_volume", "sfx_volume"]:
 			if raw.settings.get(key) is int or raw.settings.get(key) is float:
 				clean.settings[key] = clamp(float(raw.settings[key]), 0.0, 1.0)
