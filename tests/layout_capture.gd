@@ -8,10 +8,16 @@ func capture() -> void:
 	var main = load("res://scenes/Main.tscn").instantiate()
 	root.add_child(main)
 	await process_frame
+	await RenderingServer.frame_post_draw
+	var result := root.get_viewport().get_texture().get_image().save_png("/tmp/catwar-menu-layout.png")
+	if result != OK:
+		printerr("Menu screenshot failed: ", result)
+		quit(1)
+		return
 	main._build_settings_screen()
 	await process_frame
 	await RenderingServer.frame_post_draw
-	var result := root.get_viewport().get_texture().get_image().save_png("/tmp/catwar-settings-layout.png")
+	result = root.get_viewport().get_texture().get_image().save_png("/tmp/catwar-settings-layout.png")
 	if result != OK:
 		printerr("Settings screenshot failed: ", result)
 		quit(1)
@@ -23,6 +29,12 @@ func capture() -> void:
 	if result != OK:
 		printerr("Mobile settings screenshot failed: ", result)
 		quit(1)
+		return
+	if OS.get_cmdline_user_args().has("--menus-only"):
+		print("MENU_CAPTURES_OK")
+		main.queue_free()
+		await process_frame
+		quit(0)
 		return
 	main._build_connect_screen()
 	await process_frame

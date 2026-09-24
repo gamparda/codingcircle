@@ -1,5 +1,8 @@
 {
   "ko": {
+    "오디오": "오디오",
+    "화면": "화면",
+    "전투 연출": "전투 연출",
     "비용 %d  ·  체력 %d\n": "비용 %d  ·  체력 %d\n",
     "공격력 %d  ·  회복량 %d  ·  DPS %.1f / HPS %.1f\n": "공격력 %d  ·  회복량 %d  ·  DPS %.1f / HPS %.1f\n",
     "공격력 %d  ·  DPS %.1f\n": "공격력 %d  ·  DPS %.1f\n",
@@ -198,6 +201,9 @@
     "사용자 지정": "사용자 지정"
   },
   "en": {
+    "오디오": "Audio",
+    "화면": "Display",
+    "전투 연출": "Battle effects",
     "비용 %d  ·  체력 %d\n": "Cost %d  ·  HP %d\n",
     "공격력 %d  ·  회복량 %d  ·  DPS %.1f / HPS %.1f\n": "Attack %d  ·  Healing %d  ·  DPS %.1f / HPS %.1f\n",
     "공격력 %d  ·  DPS %.1f\n": "Attack %d  ·  DPS %.1f\n",
@@ -396,6 +402,9 @@
     "사용자 지정": "Custom"
   },
   "fr": {
+    "오디오": "Audio",
+    "화면": "Affichage",
+    "전투 연출": "Effets de combat",
     "비용 %d  ·  체력 %d\n": "Coût %d  ·  HP %d\n",
     "공격력 %d  ·  회복량 %d  ·  DPS %.1f / HPS %.1f\n": "Attaque %d  ·  Soins %d  ·  DPS %.1f / HPS %.1f\n",
     "공격력 %d  ·  DPS %.1f\n": "Attaque %d  ·  DPS %.1f\n",
@@ -594,6 +603,9 @@
     "사용자 지정": "Personnalisé"
   },
   "zh_CN": {
+    "오디오": "音频",
+    "화면": "显示",
+    "전투 연출": "战斗特效",
     "비용 %d  ·  체력 %d\n": "费用 %d  ·  生命 %d\n",
     "공격력 %d  ·  회복량 %d  ·  DPS %.1f / HPS %.1f\n": "攻击 %d  ·  治疗 %d  ·  DPS %.1f / HPS %.1f\n",
     "공격력 %d  ·  DPS %.1f\n": "攻击 %d  ·  DPS %.1f\n",
@@ -792,6 +804,9 @@
     "사용자 지정": "自定义"
   },
   "ru": {
+    "오디오": "Звук",
+    "화면": "Экран",
+    "전투 연출": "Боевые эффекты",
     "비용 %d  ·  체력 %d\n": "Стоимость %d  ·  HP %d\n",
     "공격력 %d  ·  회복량 %d  ·  DPS %.1f / HPS %.1f\n": "Атака %d  ·  Лечение %d  ·  DPS %.1f / HPS %.1f\n",
     "공격력 %d  ·  DPS %.1f\n": "Атака %d  ·  DPS %.1f\n",
@@ -990,6 +1005,9 @@
     "사용자 지정": "Пользовательские"
   },
   "es": {
+    "오디오": "Audio",
+    "화면": "Pantalla",
+    "전투 연출": "Efectos de combate",
     "비용 %d  ·  체력 %d\n": "Coste %d  ·  HP %d\n",
     "공격력 %d  ·  회복량 %d  ·  DPS %.1f / HPS %.1f\n": "Ataque %d  ·  Curación %d  ·  DPS %.1f / HPS %.1f\n",
     "공격력 %d  ·  DPS %.1f\n": "Ataque %d  ·  DPS %.1f\n",

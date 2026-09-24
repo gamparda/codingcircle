@@ -60,6 +60,7 @@ var tutorial_step := -1
 var tutorial_low_resource := 0.0
 var tutorial_banner: Control
 var tutorial_hint: Label
+var structure_buttons: Array[Button] = []
 var settings_touch_scroll: ScrollContainer
 var settings_touch_index := -1
 var settings_touch_dragged := false
@@ -195,7 +196,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_ESCAPE and battle_active and is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty():
 		battle_view.selected_structure = ""
-		battle_view.queue_redraw()
+		_refresh_structure_selection()
 		_show_placement_status(Localization.text("건설을 취소했습니다."))
 		get_viewport().set_input_as_handled()
 
@@ -267,6 +268,7 @@ func _clear_screen() -> void:
 	tutorial_step = -1
 	placement_pending = false
 	placement_message_serial += 1
+	structure_buttons.clear()
 
 func _show_placement_status(message: String, duration: float = 2.5) -> void:
 	if not is_instance_valid(placement_status_label):
@@ -338,10 +340,41 @@ func _set_fullscreen(enabled: bool) -> void:
 
 func _make_background() -> ColorRect:
 	var bg := ColorRect.new()
-	bg.color = Color("#0e1421")
+	bg.color = Color("#0b121c")
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 	return bg
+
+func _add_menu_portrait(parent: Control, texture_path: String, position_value: Vector2, accent: Color, label_text: String) -> void:
+	var frame := PanelContainer.new()
+	frame.position = position_value
+	frame.size = Vector2(216, 256)
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var frame_style := _panel_style(Color("#121c27"), Color(accent.r, accent.g, accent.b, 0.56), 6)
+	frame_style.content_margin_left = 12
+	frame_style.content_margin_right = 12
+	frame.add_theme_stylebox_override("panel", frame_style)
+	parent.add_child(frame)
+	var interior := Control.new()
+	interior.custom_minimum_size = Vector2(192, 256)
+	interior.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(interior)
+	var portrait := Sprite2D.new()
+	portrait.name = "MenuUnitPortrait"
+	portrait.texture = load(texture_path)
+	portrait.position = Vector2(96, 109)
+	portrait.scale = Vector2(0.63, 0.63)
+	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	interior.add_child(portrait)
+	var caption := Label.new()
+	caption.text = Localization.text(label_text)
+	caption.position = Vector2(0, 212)
+	caption.size = Vector2(192, 28)
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.add_theme_font_size_override("font_size", 16)
+	caption.add_theme_color_override("font_color", accent)
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	interior.add_child(caption)
 
 func _build_connect_screen(message: String = "") -> void:
 	battle_active = false
@@ -351,31 +384,30 @@ func _build_connect_screen(message: String = "") -> void:
 	var backdrop := MenuBackdrop.new()
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root_background.add_child(backdrop)
+	_add_menu_portrait(root_background, "res://assets/units/tanker.png", Vector2(42, 232), Color("#86abff"), "탱커")
+	_add_menu_portrait(root_background, "res://assets/units/archer.png", Vector2(1022, 232), Color("#e5c47d"), "궁수")
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(680, 674)
-	panel.position = Vector2(300, 23)
+	panel.custom_minimum_size = Vector2(680, 520)
+	panel.position = Vector2(300, 100)
 	root_background.add_child(panel)
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color("#0f1119")
-	style.border_color = Color(1.0, 1.0, 1.0, 0.10)
-	style.set_border_width_all(1)
-	style.corner_radius_top_left = 22
-	style.corner_radius_top_right = 22
-	style.corner_radius_bottom_left = 22
-	style.corner_radius_bottom_right = 22
+	style.bg_color = Color("#121923")
+	style.border_color = Color("#667789")
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(8)
 	style.content_margin_left = 48
 	style.content_margin_right = 48
 	style.content_margin_top = 20
 	style.content_margin_bottom = 18
-	style.shadow_color = Color(0.0, 0.0, 0.0, 0.45)
-	style.shadow_size = 24
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.55)
+	style.shadow_size = 18
 	panel.add_theme_stylebox_override("panel", style)
 
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 8)
 	panel.add_child(column)
 	var badge := Label.new()
-	badge.text = "  ✦  BATTLEFIELD PROTOCOL  ·  v%s  " % build_version()
+	badge.text = "◆  BATTLEFIELD PROTOCOL   /   v%s" % build_version()
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	badge.add_theme_font_size_override("font_size", 12)
 	badge.add_theme_color_override("font_color", Color("#8f98ad"))
@@ -384,7 +416,7 @@ func _build_connect_screen(message: String = "") -> void:
 	title.text = "CAT  WAR"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 42)
-	title.add_theme_color_override("font_color", Color("#f5f7fb"))
+	title.add_theme_color_override("font_color", Color("#f0d592"))
 	column.add_child(title)
 	var subtitle := Label.new()
 	subtitle.text = Localization.text("자동 전투  ×  전장 개조  ×  실시간 전략")
@@ -507,7 +539,7 @@ func _build_ai_stage_screen(as_campaign: bool = false) -> void:
 	var panel := PanelContainer.new()
 	panel.position = Vector2(140, 48)
 	panel.size = Vector2(1000, 624)
-	var panel_style := _panel_style(Color("#0f1119"), Color(0.55, 0.36, 0.96, 0.55), 20)
+	var panel_style := _panel_style(Color("#121923"), Color(0.55, 0.36, 0.96, 0.55), 20)
 	panel_style.content_margin_left = 38
 	panel_style.content_margin_right = 38
 	panel_style.content_margin_top = 30
@@ -562,7 +594,7 @@ func _submenu(title_text: String, subtitle_text: String) -> VBoxContainer:
 	var panel := PanelContainer.new()
 	panel.position = Vector2(110, 35)
 	panel.size = Vector2(1060, 650)
-	var style := _panel_style(Color("#0f1119"), Color(0.36, 0.55, 0.70, 0.5), 18)
+	var style := _panel_style(Color("#121923"), Color(0.36, 0.55, 0.70, 0.5), 18)
 	style.content_margin_left = 32
 	style.content_margin_right = 32
 	style.content_margin_top = 24
@@ -723,6 +755,7 @@ func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(column)
 
+	_add_settings_section(column, "오디오")
 	var controls := GridContainer.new()
 	controls.columns = 2
 	column.add_child(controls)
@@ -735,8 +768,13 @@ func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 	for pair in [[Localization.text("전체 음량"), master], [Localization.text("BGM 음량"), bgm], [Localization.text("효과음 음량"), sfx]]:
 		var label := Label.new(); label.text = pair[0]; controls.add_child(label); pair[1].custom_minimum_size.x = 600; controls.add_child(pair[1])
 	var muted := CheckButton.new(); muted.text = Localization.text("음소거"); muted.button_pressed = settings.muted; muted.toggled.connect(func(enabled): AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), enabled)); column.add_child(muted)
-	var fullscreen := CheckButton.new(); fullscreen.name = "FullscreenToggle"; fullscreen.text = Localization.text("전체화면 (F11)"); fullscreen.button_pressed = settings.fullscreen; column.add_child(fullscreen)
+	_add_settings_section(column, "화면")
+	var fullscreen := CheckButton.new(); fullscreen.name = "FullscreenToggle"; fullscreen.text = Localization.text("전체화면 (F11)").replace(" (F11)", "") if mobile_layout else Localization.text("전체화면 (F11)"); fullscreen.button_pressed = settings.fullscreen; column.add_child(fullscreen)
 	var vsync := CheckButton.new(); vsync.text = "VSync"; vsync.button_pressed = settings.vsync; column.add_child(vsync)
+	if mobile_layout:
+		var section_spacer := Control.new()
+		section_spacer.custom_minimum_size.y = 28
+		column.add_child(section_spacer)
 	var hidden_display: Control
 	if mobile_layout:
 		hidden_display = Control.new()
@@ -759,10 +797,13 @@ func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 	else:
 		fps_limit.name = "FPSSelector"
 		column.add_child(fps_limit)
+	_add_settings_section(column, "전투 연출")
 	var damage_numbers := CheckButton.new(); damage_numbers.text = Localization.text("피해/회복 숫자"); damage_numbers.button_pressed = settings.damage_numbers; column.add_child(damage_numbers)
 	var shake := CheckButton.new(); shake.text = Localization.text("화면 흔들림"); shake.button_pressed = settings.screen_shake; column.add_child(shake)
 	var effects := CheckButton.new(); effects.text = Localization.text("전투 효과"); effects.button_pressed = settings.battle_effects; column.add_child(effects)
-	var intensity := HSlider.new(); intensity.name = "EffectIntensitySlider"; intensity.min_value = 0.2; intensity.max_value = 1.0; intensity.step = 0.1; intensity.value = settings.effect_intensity; intensity.tooltip_text = Localization.text("효과 강도"); column.add_child(intensity)
+	var intensity_row := HBoxContainer.new()
+	var intensity_label := Label.new(); intensity_label.text = Localization.text("효과 강도"); intensity_label.custom_minimum_size.x = 132; intensity_row.add_child(intensity_label)
+	var intensity := HSlider.new(); intensity.name = "EffectIntensitySlider"; intensity.min_value = 0.2; intensity.max_value = 1.0; intensity.step = 0.1; intensity.value = settings.effect_intensity; intensity.tooltip_text = Localization.text("효과 강도"); intensity.custom_minimum_size.x = 560; intensity_row.add_child(intensity); column.add_child(intensity_row)
 	quality.item_selected.connect(func(index: int):
 		var key := String(quality_options[index])
 		if key == "custom":
@@ -796,6 +837,16 @@ func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 	outer.add_child(save_button)
 	var back := _styled_button(Localization.text("취소"), Color("#697386"), false); back.pressed.connect(func(): _apply_settings(); _build_connect_screen()); outer.add_child(back)
 
+func _add_settings_section(parent: VBoxContainer, title: String) -> void:
+	var heading := Label.new()
+	heading.text = Localization.text(title)
+	heading.add_theme_font_size_override("font_size", 18)
+	heading.add_theme_color_override("font_color", Color("#ebcd8c"))
+	parent.add_child(heading)
+	var divider := HSeparator.new()
+	divider.add_theme_constant_override("separation", 3)
+	parent.add_child(divider)
+
 func _configure_deck_card(card: Button, base_text: String, color: Color, selected: bool) -> void:
 	card.toggle_mode = true
 	card.set_meta("deck_base_text", base_text)
@@ -826,26 +877,37 @@ func _styled_button(text_value: String, color: Color, filled: bool = false) -> B
 	button.text = Localization.text(text_value)
 	button.custom_minimum_size = Vector2(120, 50)
 	button.add_theme_font_size_override("font_size", 16)
-	button.add_theme_color_override("font_color", Color("#f5f7fb"))
+	button.add_theme_color_override("font_color", Color("#f3f4f0"))
+	button.add_theme_color_override("font_disabled_color", Color("#778294"))
 	var normal := StyleBoxFlat.new()
-	normal.bg_color = color if filled else Color("#171a24")
-	normal.border_color = color.lightened(0.08) if filled else Color(color.r, color.g, color.b, 0.62)
-	normal.set_border_width_all(1)
-	normal.set_corner_radius_all(8)
+	normal.bg_color = color.darkened(0.22) if filled else Color("#19232f")
+	normal.border_color = color.lightened(0.12) if filled else Color(color.r, color.g, color.b, 0.70)
+	normal.set_border_width_all(2 if filled else 1)
+	normal.set_corner_radius_all(5)
 	normal.content_margin_left = 12
 	normal.content_margin_right = 12
+	normal.content_margin_top = 7
+	normal.content_margin_bottom = 7
 	var hover := normal.duplicate()
-	hover.bg_color = color.lightened(0.10) if filled else Color("#202536")
-	hover.border_color = color.lightened(0.18)
+	hover.bg_color = color if filled else Color("#273444")
+	hover.border_color = color.lightened(0.28)
 	var pressed := hover.duplicate()
-	pressed.bg_color = color.darkened(0.12) if filled else Color("#131620")
+	pressed.bg_color = color.darkened(0.38) if filled else Color("#101a26")
+	pressed.set_border_width_all(2)
 	var disabled := normal.duplicate()
-	disabled.bg_color = Color("#11131a")
-	disabled.border_color = Color(1.0, 1.0, 1.0, 0.05)
+	disabled.bg_color = Color("#121923")
+	disabled.border_color = Color("#343c47")
+	var focus := StyleBoxFlat.new()
+	focus.bg_color = Color.TRANSPARENT
+	focus.border_color = Color("#f0d592")
+	focus.set_border_width_all(2)
+	focus.set_corner_radius_all(5)
 	button.add_theme_stylebox_override("normal", normal)
 	button.add_theme_stylebox_override("hover", hover)
 	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override("hover_pressed", pressed)
 	button.add_theme_stylebox_override("disabled", disabled)
+	button.add_theme_stylebox_override("focus", focus)
 	return button
 
 func _on_connection_status(text: String) -> void:
@@ -1132,7 +1194,10 @@ func _panel_style(background: Color, border: Color, radius: int) -> StyleBoxFlat
 	style.bg_color = background
 	style.border_color = border
 	style.set_border_width_all(1)
-	style.set_corner_radius_all(radius)
+	style.set_corner_radius_all(mini(radius, 8))
+	if radius >= 8:
+		style.shadow_color = Color(0.0, 0.0, 0.0, 0.24)
+		style.shadow_size = 8
 	return style
 
 func _create_hp_card(parent: Control, position_value: Vector2, side: int) -> void:
@@ -1181,6 +1246,14 @@ func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: C
 	var button := _styled_button(Localization.text("%s  ·  %d\n체력 %d  ·  %s") % [title, int(stats.cost), int(stats.hp), primary], color)
 	button.tooltip_text = BattleModel.unit_stat_summary(kind)
 	button.custom_minimum_size = Vector2(136, 102)
+	_decorate_battle_card(button)
+	var portrait := Sprite2D.new()
+	portrait.name = "BattleUnitPortrait"
+	portrait.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
+	portrait.position = Vector2(68, 25)
+	portrait.scale = Vector2(0.17, 0.17)
+	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	button.add_child(portrait)
 	button.pressed.connect(func():
 		if local_ai_mode:
 			if local_model.spawn_unit(own_side, kind):
@@ -1189,6 +1262,16 @@ func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: C
 			network.send_spawn(kind)
 	)
 	row.add_child(button)
+
+func _decorate_battle_card(button: Button) -> void:
+	button.add_theme_font_size_override("font_size", 12)
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		var style := button.get_theme_stylebox(state).duplicate() as StyleBoxFlat
+		style.content_margin_top = 52
+		style.content_margin_bottom = 5
+		style.content_margin_left = 4
+		style.content_margin_right = 4
+		button.add_theme_stylebox_override(state, style)
 
 func _toggle_stats_panel() -> void:
 	if is_instance_valid(stats_overlay):
@@ -1270,11 +1353,33 @@ func _show_stats_panel() -> void:
 func _add_structure_button(row: HBoxContainer, title: String, kind: String, color: Color) -> void:
 	var button := _styled_button(title, color)
 	button.custom_minimum_size = Vector2(136, 102)
+	button.toggle_mode = true
+	button.set_meta("structure_kind", kind)
+	_decorate_battle_card(button)
+	var emblem := Label.new()
+	emblem.name = "StructureEmblem"
+	emblem.text = {"wall": "▤", "swamp": "≈", "turret": "⌖", "generator": "⚡"}.get(kind, "◆")
+	emblem.position = Vector2(0, 5)
+	emblem.size = Vector2(136, 42)
+	emblem.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	emblem.add_theme_font_size_override("font_size", 30)
+	emblem.add_theme_color_override("font_color", color.lightened(0.2))
+	emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(emblem)
 	button.pressed.connect(func():
 		if is_instance_valid(battle_view):
-			battle_view.selected_structure = kind
+			battle_view.selected_structure = "" if battle_view.selected_structure == kind else kind
+			_refresh_structure_selection()
 	)
 	row.add_child(button)
+	structure_buttons.append(button)
+
+func _refresh_structure_selection() -> void:
+	for button in structure_buttons:
+		if is_instance_valid(button):
+			button.set_pressed_no_signal(is_instance_valid(battle_view) and battle_view.selected_structure == String(button.get_meta("structure_kind")))
+	if is_instance_valid(battle_view):
+		battle_view.queue_redraw()
 
 func _on_battlefield_clicked(world_x: float) -> void:
 	if not is_instance_valid(battle_view) or battle_view.selected_structure.is_empty() or placement_pending:
@@ -1288,6 +1393,7 @@ func _on_battlefield_clicked(world_x: float) -> void:
 		if local_model.place_structure(own_side, kind, world_x):
 			_show_placement_status(Localization.text("건설 완료"))
 			battle_view.selected_structure = ""
+			_refresh_structure_selection()
 			_tutorial_advance(1)
 	else:
 		placement_pending = true
@@ -1300,7 +1406,7 @@ func _on_structure_placement_result(success: bool, error: String) -> void:
 		return
 	if success:
 		battle_view.selected_structure = ""
-		battle_view.queue_redraw()
+		_refresh_structure_selection()
 	_show_placement_status(Localization.text("건설 완료") if success else (error if not error.is_empty() else Localization.text("구조물을 설치하지 못했습니다.")))
 
 func _on_snapshot(data: Dictionary) -> void:
@@ -1381,7 +1487,7 @@ func _show_result(winner: int) -> void:
 	overlay.position = Vector2(350, 175)
 	overlay.size = Vector2(580, 370)
 	var result_color := Color("#f6c85f") if winner == own_side else Color("#8f98ad")
-	var overlay_style := _panel_style(Color("#0f1119"), Color(result_color.r, result_color.g, result_color.b, 0.55), 18)
+	var overlay_style := _panel_style(Color("#121923"), Color(result_color.r, result_color.g, result_color.b, 0.55), 18)
 	overlay_style.shadow_color = Color(0.0, 0.0, 0.0, 0.58)
 	overlay_style.shadow_size = 28
 	overlay.add_theme_stylebox_override("panel", overlay_style)

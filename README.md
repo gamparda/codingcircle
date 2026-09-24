@@ -26,6 +26,8 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 - 결과 화면에 남은 기지 체력·경과 시간·사용 덱 표시, 캠페인 승리 후 같은 덱·같은 단계 재도전과 다음 단계 선택 분리
 - 전투 버튼을 체력 패널과 겹치지 않는 전장 상단 양쪽에 배치; 설정 항목은 스크롤하고 저장·취소는 화면에 고정
 - 전장보다 나중에 전투 버튼을 추가해 클릭 입력이 전장에 가로채이지 않도록 수정 (렌더링 창의 마우스 클릭 검사 포함)
+- 메뉴의 유닛 아트, 전투 유닛 카드 초상과 구조물 아이콘, 선택 상태 표시를 추가하고 버튼·패널의 색·테두리를 통일
+- 설정을 오디오·화면·전투 연출로 구분하고 모바일에서 PC 전용 F11 안내를 숨김
 - 새 설정 기본값은 1920×1080 창 크기·60FPS·높음 화질. 화질 프리셋 자동/높음/중간/낮음은 창 크기(데스크톱), FPS 제한, 전투 효과를 함께 설정하며 자동은 기기 화면 크기에 맞춰 적용. 기존 저장의 사용자 설정은 유지
 - Android 설정에서는 언어·화질 선택을 스크롤 밖에 두고 창 해상도·개별 FPS 선택은 숨김(전체화면은 기기 화면 사용); 터치 스와이프로 나머지 설정을 스크롤
 - 방 코드 입력은 왼쪽에서 오른쪽으로 입력하며 자동 대문자 변환 시 커서 위치 유지
@@ -78,7 +80,7 @@ Android 부트스트랩은 실행 직후 같은 메타데이터를 확인합니�
 - 전용 서버: 활성 매치가 없을 때만 설치 및 재시작
 - 업데이트 서버 접속 실패: 현재 실행은 유지하고 나중에 자동 재시도
 
-테스트를 통과한 최신 `main` 빌드가 곧 자동 업데이트 채널이자 GitHub Release가 됩니다. 출시할 때는 `.github/workflows/build-and-deploy.yml`의 `$version`, `build_info.json`, `export_presets.cfg`를 같은 버전으로 맞춥니다. 빌드 스크립트는 `build_info.json`의 커밋 값을 실제 대상 SHA로 교체하고, Pages용 `update.json`은 workflow가 SHA-256과 배포 시각을 포함해 생성합니다. GitHub Pages 배포가 처음이라면 저장소의 **Settings → Pages → Source**가 `GitHub Actions`로 설정되어 있어야 합니다.
+테스트를 통과한 최신 `main` 빌드가 곧 자동 업데이트 채널이자 GitHub Release가 됩니다. 출시할 때는 `.github/workflows/build-and-deploy.yml`의 `$contentVersion`·`$windowsVersion`, `build_info.json`, `export_presets.cfg`의 콘텐츠·Windows 버전을 맞추고 Android 네이티브 바이너리 버전은 독립적으로 유지합니다. 빌드 스크립트는 `build_info.json`의 커밋 값을 실제 대상 SHA로 교체하고, Pages용 `update.json`은 workflow가 SHA-256과 배포 시각을 포함해 생성합니다. GitHub Pages 배포가 처음이라면 저장소의 **Settings → Pages → Source**가 `GitHub Actions`로 설정되어 있어야 합니다.
 
 각 Release에는 다음 파일이 포함됩니다.
 

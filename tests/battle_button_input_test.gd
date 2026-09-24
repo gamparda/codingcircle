@@ -46,6 +46,20 @@ func run() -> void:
 		check(main.find_child("UnitStatsPanel", true, false) != null, "physical click opens unit stats")
 		main._dismiss_stats_panel()
 		await process_frame
+		var portrait := main.find_child("BattleUnitPortrait", true, false) as Sprite2D
+		if portrait != null:
+			var unit_card := portrait.get_parent() as Button
+			main.local_model.resources[0] = 150.0
+			click_control(unit_card)
+			check(main.local_model.resources[0] < 150.0, "unit portrait does not intercept spawning clicks")
+		else:
+			check(false, "battle unit portrait exists")
+		if not main.structure_buttons.is_empty():
+			var structure_card: Button = main.structure_buttons[0]
+			click_control(structure_card)
+			check(structure_card.button_pressed and not main.battle_view.selected_structure.is_empty(), "structure emblem does not intercept selection")
+			click_control(structure_card)
+			check(not structure_card.button_pressed and main.battle_view.selected_structure.is_empty(), "second click cancels structure selection")
 		click_control(leave)
 		await process_frame
 		check(not main.battle_active, "physical click exits AI battle")

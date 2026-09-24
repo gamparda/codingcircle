@@ -42,6 +42,8 @@ func run() -> void:
 	root.add_child(main)
 	await process_frame
 	expect_true(tree_text(main).contains("v%s" % main.build_version()), "main menu reads the configured build version")
+	var menu_portraits := main.find_children("MenuUnitPortrait", "Sprite2D", true, false)
+	expect_true(menu_portraits.size() == 2 and menu_portraits[0].texture != null and menu_portraits[1].texture != null, "menu flanks display loaded unit artwork")
 	for required_button in ["방 만들기", "코드로 참가", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
 		expect_true(find_button(main, required_button) != null, "main menu exposes %s" % required_button)
 	var create_room_button := find_button(main, "방 만들기")
@@ -77,6 +79,7 @@ func run() -> void:
 
 	main._build_settings_screen()
 	await process_frame
+	expect_true(tree_text(main).contains("오디오") and tree_text(main).contains("전투 연출"), "settings group audio, display and effects")
 	var settings_scroll := main.find_child("SettingsScroll", true, false) as ScrollContainer
 	var quality_selector := main.find_child("GraphicsQualitySelector", true, false) as OptionButton
 	expect_true(quality_selector != null and quality_selector.item_count >= 4, "graphics selector exposes auto, high, medium and low")
@@ -124,6 +127,11 @@ func run() -> void:
 	main.campaign_mode = true
 	main._start_local_ai_battle()
 	await process_frame
+	var unit_portraits := main.find_children("BattleUnitPortrait", "Sprite2D", true, false)
+	var portraits_loaded := not unit_portraits.is_empty()
+	for portrait in unit_portraits:
+		portraits_loaded = portraits_loaded and portrait.texture != null
+	expect_true(unit_portraits.size() == main.battle_preset.units.size() and portraits_loaded, "all selected battle unit cards show an available sprite")
 	expect_true(find_button(main, "대전 나가기") != null, "AI battles expose a mid-match exit button")
 	var exit_button := find_button(main, "대전 나가기")
 	var unit_stats_button := find_button(main, "유닛 스탯")
@@ -143,7 +151,9 @@ func run() -> void:
 	find_button(main, "탱커").pressed.emit()
 	expect_true(main.tutorial_step == 1 and main.tutorial_hint.text.contains("구조물"), "successful spawn advances to placement")
 	find_button(main, "방벽").pressed.emit()
+	expect_true(find_button(main, "방벽").button_pressed, "selected structure has a persistent card highlight")
 	main._on_battlefield_clicked(500.0)
+	expect_true(not find_button(main, "방벽").button_pressed, "placing a structure clears its card highlight")
 	expect_true(main.tutorial_step == 2 and main.tutorial_hint.text.contains("자원"), "successful placement advances to regeneration")
 	var tutorial_resource_baseline: float = main.tutorial_low_resource
 	main.local_model.resources[0] = tutorial_resource_baseline + 1.0
@@ -165,6 +175,7 @@ func run() -> void:
 	if main.has_method("_input"):
 		main._input(key_event(KEY_ESCAPE))
 	expect_true(main.battle_view.selected_structure.is_empty(), "Escape cancels structure placement")
+	expect_true(not find_button(main, "방벽").button_pressed, "Escape also clears the structure card highlight")
 	main.local_model.winner = 0
 	var campaign_result: Dictionary = main.local_model.snapshot()
 	campaign_result.base_hp[0] = 321.0

@@ -8,7 +8,11 @@ func run() -> void:
 	main._build_settings_screen(true)
 	await process_frame
 	var scroll := main.find_child("SettingsScroll", true, false) as ScrollContainer
-	var option := scroll.get_child(0).get_child(2) as CheckButton
+	var option := main.find_child("FullscreenToggle", true, false) as CheckButton
+	if scroll == null or option == null:
+		printerr("FAIL: settings scroll or fullscreen toggle missing")
+		quit(1)
+		return
 	var initial_state := option.button_pressed
 	var start := option.get_global_rect().get_center()
 	var touch := InputEventScreenTouch.new()
