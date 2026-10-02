@@ -368,7 +368,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		return false
 	var unit_ids := {}
 	for unit in units:
-		if not unit is Dictionary or not _has_required_optional_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"], ["support_stacks"]):
+		if not unit is Dictionary or not _has_required_optional_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"], ["support_stacks", "summon_remaining"]):
 			return false
 		var unit_id = unit.id
 		var unit_side = unit.side
@@ -386,9 +386,11 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 				return false
 		if unit.has("support_stacks") and (not unit.support_stacks is int or int(unit.support_stacks) < 0 or int(unit.support_stacks) > BattleModel.SUPPORT_MAX_STACKS):
 			return false
+		if unit.has("summon_remaining") and (unit.kind != "necromancer" or not _number_in_range(unit.summon_remaining, 0.0, BattleModel.SUMMON_INTERVAL)):
+			return false
 	var structure_ids := {}
 	for structure in structures:
-		if not structure is Dictionary or not _has_exact_keys(structure, ["id", "side", "kind", "x", "hp", "max_hp"]):
+		if not structure is Dictionary or not _has_required_optional_keys(structure, ["id", "side", "kind", "x", "hp", "max_hp"], ["expires_at"]):
 			return false
 		var structure_id = structure.id
 		var structure_side = structure.side
@@ -400,6 +402,8 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		if not _number_in_range(structure.x, 0.0, BattleModel.WORLD_WIDTH) or not _number_in_range(structure.max_hp, 0.01, 10000.0):
 			return false
 		if not _number_in_range(structure.hp, 0.0, float(structure.max_hp)):
+			return false
+		if structure.has("expires_at") and (structure.kind != "swamp" or not _number_in_range(structure.expires_at, 0.0, 1000000000.0)):
 			return false
 	var winner = data.winner
 	var curses = data.get("curses", [])

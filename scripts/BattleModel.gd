@@ -156,6 +156,7 @@ func _create_unit(side: int, kind: String, stats: Dictionary, hp_scale: float, d
 		"speed": stats.speed, "range": stats.range})
 	if kind == "necromancer":
 		summon_timers[next_unit_id] = SUMMON_INTERVAL
+		units.back()["summon_remaining"] = SUMMON_INTERVAL
 	next_unit_id += 1
 
 static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
@@ -226,6 +227,7 @@ func place_structure(side: int, kind: String, x: float) -> bool:
 		structure_cooldowns[next_structure_id] = float(stats.interval)
 	if kind == "swamp":
 		structure_expirations[next_structure_id] = elapsed + float(stats.lifetime)
+		structures.back()["expires_at"] = structure_expirations[next_structure_id]
 	combat_events.append({"type": "STRUCTURE_PLACED", "structure_id": next_structure_id, "kind": kind, "x": x})
 	next_structure_id += 1
 	return true
@@ -259,6 +261,7 @@ func tick(delta: float) -> void:
 			if float(summon_timers[unit.id]) <= 0.000001:
 				pending_summons.append(unit)
 				summon_timers[unit.id] = SUMMON_INTERVAL
+			unit["summon_remaining"] = maxf(0.0, float(summon_timers[unit.id]))
 		if unit.kind == "healer":
 			_tick_support(unit, delta)
 			continue

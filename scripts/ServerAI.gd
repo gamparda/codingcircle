@@ -107,6 +107,14 @@ func _unit_score(kind: String, state: Dictionary) -> float:
 
 func _try_spawn(model: BattleModel) -> void:
 	var state := tactical_state(model)
+	# A short battle check exposed cheap-unit purchases starving safe economy.
+	if stage >= 3 and model.elapsed >= _structure_interval() and model.elapsed < 120.0 and state.own >= 2 and not state.danger and model.structure_decks[side].has("generator") and model._owned_structure_count(side, "generator") == 0:
+		var generator_x := BattleModel.BLUE_BUILD_MIN + 35.0 if side == 0 else BattleModel.RED_BUILD_MAX - 35.0
+		var error := model.structure_placement_error(side, "generator", generator_x)
+		if error.is_empty() or error == "자원이 부족합니다.":
+			if model.place_structure(side, "generator", generator_x): structure_timer = 0.0
+			spawn_timer = 0.5
+			return
 	if int(state.own) >= 32:
 		spawn_timer = 0.8
 		return
@@ -124,8 +132,9 @@ func _try_spawn(model: BattleModel) -> void:
 	else:
 		available.sort_custom(func(a, b): return _unit_score(a, state) > _unit_score(b, state))
 	var preferred := String(available[0])
-	# Save for the first summoner instead of spending every income tick on cheap units.
-	if stage >= 3 and preferred == "necromancer" and not state.danger and float(model.resources[side]) < float(BattleModel.UNIT_STATS.necromancer.cost):
+	# Protect the first summoner, curse counter or needed support purchase from cheap-unit spam.
+	var key_purchase: bool = (preferred == "necromancer" and int(state.counts.get(preferred, 0)) == 0) or (preferred == "warlock" and int(state.counts.get(preferred, 0)) == 0 and state.enemy_melee >= 2) or (preferred == "healer" and int(state.counts.get(preferred, 0)) == 0 and state.buff_need >= 2)
+	if stage >= 3 and key_purchase and not state.danger and float(model.resources[side]) < float(BattleModel.UNIT_STATS[preferred].cost):
 		spawn_timer = 0.5
 		return
 	for kind in available:

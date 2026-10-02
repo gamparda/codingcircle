@@ -59,8 +59,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $contentVersion = "0.5.0"
-          $windowsVersion = "0.5.0"
+          $contentVersion = "0.5.1"
+          $windowsVersion = "0.5.1"
           $androidBinaryVersion = "0.4.18"
           $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?before=${{ github.sha }}"
           $previousAndroidVersion = if ($previous.PSObject.Properties.Name -contains "android_binary_version") { [string]$previous.android_binary_version } else { [string]$previous.version }
@@ -139,6 +139,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "v0.5 AI tactics and health regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/v05_ui_test.gd
           if ($LASTEXITCODE -ne 0) { throw "v0.5 HUD and concise copy regression failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/combat_polish_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "Combat interpolation/timer/sound regression failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/combat_polish_ui_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "Combat feedback and mirrored placement regression failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/ai_battle_spotcheck.gd
+          if ($LASTEXITCODE -ne 0) { throw "Bounded AI purchase regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/support_ui_feedback_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Purchase and patch-note UI regressions failed" }
 

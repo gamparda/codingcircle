@@ -4,6 +4,9 @@ extends Control
 const Localization = preload("res://scripts/Localization.gd")
 
 signal battlefield_clicked(world_x: float)
+signal rage_started(unit_id: int)
+
+const Motion = preload("res://scripts/BattleMotion.gd")
 
 const BLUE := Color("#5b8cff")
 const BLUE_LIGHT := Color("#8fb0ff")
@@ -76,23 +79,51 @@ var cursed_units: Dictionary = {}
 var show_damage_numbers := true
 var show_battle_effects := true
 var effect_intensity := 0.65
+var interpolate_positions := false
+var motion = Motion.new()
+var snapshot_age := 0.0
+var rage_states: Dictionary = {}
+var rage_flashes: Dictionary = {}
+var walk_times: Dictionary = {}
+var touch_preview_active := false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_process(true)
 
 func set_snapshot(data: Dictionary) -> void:
+	if float(data.get("elapsed", 0.0)) < float(snapshot.get("elapsed", 0.0)):
+		unit_actions.clear()
+		rage_states.clear()
+		rage_flashes.clear()
+		walk_times.clear()
+		visual_events.clear()
+		last_unit_x.clear()
 	snapshot = data
+	snapshot_age = 0.0
+	motion.enabled = interpolate_positions
+	motion.ingest(data.get("units", []), float(data.get("elapsed", 0.0)))
 	var positions := {}
+	var current_rage := {}
 	moving_units.clear()
 	cursed_units.clear()
 	for unit in data.get("units", []):
 		positions[unit.id] = float(unit.x)
+		var enraged := BattleModel.is_enraged(unit)
+		current_rage[unit.id] = enraged
+		if enraged and rage_states.has(unit.id) and not rage_states[unit.id]:
+			rage_flashes[unit.id] = 0.5
+			rage_started.emit(int(unit.id))
 		moving_units[unit.id] = last_unit_x.has(unit.id) and absf(float(last_unit_x[unit.id]) - float(unit.x)) > 0.05
 		for curse in data.get("curses", []):
 			if curse.side != unit.side and absf(float(curse.x) - float(unit.x)) <= BattleModel.CURSE_RADIUS:
 				cursed_units[unit.id] = true
 	last_unit_x = positions
+	rage_states = current_rage
+	for id in walk_times.keys():
+		if not positions.has(id): walk_times.erase(id)
+	for id in unit_actions.keys():
+		if not positions.has(id): unit_actions.erase(id)
 	queue_redraw()
 
 func push_combat_events(events: Array) -> void:
@@ -118,7 +149,7 @@ func placement_error(kind: String, world_x: float) -> String:
 	for structure in snapshot.get("structures", []):
 		if int(structure.side) == own_side and float(structure.get("hp", 1.0)) > 0.0 and abs(float(structure.x) - world_x) < BattleModel.STRUCTURE_MIN_SPACING:
 			return Localization.text("구조물이 너무 가깝습니다.")
-	var owned: Array = snapshot.get("structures", []).filter(func(structure): return int(structure.side) == own_side)
+	var owned: Array = snapshot.get("structures", []).filter(func(structure): return int(structure.side) == own_side and float(structure.get("hp", 1.0)) > 0.0)
 	if owned.size() >= BattleModel.STRUCTURE_LIMIT:
 		return Localization.text("구조물은 최대 3개까지 설치할 수 있습니다.")
 	var same_count := owned.filter(func(structure): return String(structure.kind) == kind).size()
@@ -133,20 +164,44 @@ func placement_error(kind: String, world_x: float) -> String:
 
 func _process(delta: float) -> void:
 	animation_time += delta
+	snapshot_age += delta
+	motion.advance(delta)
+	for unit in snapshot.get("units", []):
+		if moving_units.get(unit.id, false):
+			walk_times[unit.id] = float(walk_times.get(unit.id, 0.0)) + delta
+	for id in rage_flashes.keys():
+		rage_flashes[id] = float(rage_flashes[id]) - delta
+		if float(rage_flashes[id]) <= 0.0: rage_flashes.erase(id)
 	for id in unit_actions.keys():
 		if animation_time - float(unit_actions[id].started) >= 0.7:
 			unit_actions.erase(id)
 	for event in visual_events:
 		event.life = float(event.life) - delta
 	visual_events = visual_events.filter(func(event): return float(event.life) > 0.0)
-	mouse_position = get_local_mouse_position()
+	if not touch_preview_active:
+		mouse_position = get_local_mouse_position()
 	if not selected_structure.is_empty() or not snapshot.get("units", []).is_empty() or not visual_events.is_empty():
 		queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		touch_preview_active = false
+		mouse_position = event.position
+	elif event is InputEventScreenTouch:
+		touch_preview_active = true
+		mouse_position = event.position
+		if not event.pressed:
+			battlefield_clicked.emit(screen_to_world_x(event.position.x))
+		if is_inside_tree(): accept_event()
+	elif event is InputEventScreenDrag:
+		touch_preview_active = true
+		mouse_position = event.position
+		if is_inside_tree(): accept_event()
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		mouse_position = event.position
 		var world_x: float = screen_to_world_x(event.position.x)
 		battlefield_clicked.emit(world_x)
+		if is_inside_tree(): accept_event()
 
 func screen_to_world_x(screen_x: float) -> float:
 	var x: float = screen_x / maxf(size.x, 1.0) * BattleModel.WORLD_WIDTH
@@ -256,7 +311,7 @@ func _draw_base(x: float, lane_y: float, side: int) -> void:
 	]), color)
 
 func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
-	var x := world_to_screen_x(float(unit.x))
+	var x := world_to_screen_x(motion.position(int(unit.id), float(unit.x)))
 	var side := display_side(int(unit.side))
 	var facing := 1.0 if side == 0 else -1.0
 	var color := BLUE if side == 0 else RED
@@ -267,15 +322,16 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 		var frame_rate: float = clamp(5.0 + float(unit.speed) / 20.0, 5.0, 10.0)
 		if UNIT_ATTACK_TEXTURES.has(kind):
 			frame_rate = clampf(float(unit.speed) / 8.0, 4.0, 6.0)
-		var frame_index: int = (int(animation_time * frame_rate) + int(unit.id) * 2) % walk_frames.size()
-		if UNIT_ATTACK_TEXTURES.has(kind) and not moving_units.get(unit.id, false):
-			frame_index = 0
+		var frame_index: int = (int(float(walk_times.get(unit.id, 0.0)) * frame_rate) + int(unit.id) * 2) % walk_frames.size()
 		texture = walk_frames[frame_index]
+	var walk_texture := texture
+	var action_blend := 0.0
 	if unit_actions.has(unit.id) and UNIT_ATTACK_TEXTURES.has(kind):
 		var action: Dictionary = unit_actions[unit.id]
 		var frames: Array = UNIT_SUMMON_TEXTURES if action.type == "SUMMON" and kind == "necromancer" else UNIT_ATTACK_TEXTURES[kind]
 		var index := clampi(int((animation_time - float(action.started)) / 0.7 * frames.size()), 0, frames.size() - 1)
 		texture = frames[index]
+		action_blend = action_opacity(animation_time - float(action.started))
 	var sprite_height: float = 86.0
 	if unit.kind == "shield":
 		sprite_height = 92.0
@@ -291,7 +347,12 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	draw_circle(Vector2(x, lane_y - 38.0), 43.0, Color(color.r, color.g, color.b, 0.08))
 	draw_ellipse(Vector2(x, lane_y - 2.0), sprite_width * 0.37, 6.0, Color(0.0, 0.0, 0.0, 0.38))
 	draw_set_transform(Vector2(x, lane_y), 0.0, Vector2(facing, 1.0))
-	draw_texture_rect(texture, Rect2(-sprite_width * 0.5, -sprite_height, sprite_width, sprite_height), false)
+	var tint := Color.WHITE.lerp(Color("#ffb37a"), 0.25) if BattleModel.is_enraged(unit) else Color.WHITE
+	if texture != walk_texture and action_blend < 1.0:
+		var walk_height := 86.0 * float(walk_texture.get_height()) / float(UNIT_TEXTURES[kind].get_height())
+		var walk_width := walk_height * float(walk_texture.get_width()) / float(walk_texture.get_height())
+		draw_texture_rect(walk_texture, Rect2(-walk_width * 0.5, -walk_height, walk_width, walk_height), false, Color(tint.r, tint.g, tint.b, 1.0-action_blend))
+	draw_texture_rect(texture, Rect2(-sprite_width * 0.5, -sprite_height, sprite_width, sprite_height), false, Color(tint.r, tint.g, tint.b, action_blend if texture != walk_texture else 1.0))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# Small faction pip remains visible when both teams use the same character art.
 	draw_circle(Vector2(x - 25.0, lane_y - 74.0), 5.0, color)
@@ -304,6 +365,12 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	var bar_y: float = lane_y - 102.0 - float(int(unit.id) % 3) * 6.0
 	draw_rect(Rect2(x - 21.0, bar_y, 42.0, 6.0), Color(0.02, 0.03, 0.06, 0.88))
 	draw_rect(Rect2(x - 20.0, bar_y + 1.0, 40.0 * hp_ratio, 4.0), Color("#71e49a") if hp_ratio > 0.35 else Color("#ff6b72"))
+	if show_battle_effects and rage_flashes.has(unit.id):
+		draw_arc(Vector2(x, lane_y - 43.0), 42.0, 0.0, TAU, 24, Color(1.0, 0.48, 0.20, float(rage_flashes[unit.id]) * effect_intensity), 3.0)
+	if kind == "necromancer" and unit.has("summon_remaining"):
+		var remaining := maxf(0.0, float(unit.summon_remaining) - minf(snapshot_age, 0.25))
+		draw_rect(Rect2(x - 20.0, bar_y + 16.0, 40.0, 3.0), Color("#242038"))
+		draw_rect(Rect2(x - 20.0, bar_y + 16.0, 40.0 * (1.0 - remaining / BattleModel.SUMMON_INTERVAL), 3.0), Color("#b591ef"))
 	if BattleModel.is_enraged(unit):
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 18.0), "광폭", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ff9a61"))
 	if cursed_units.has(unit.id):
@@ -311,6 +378,8 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	if show_battle_effects and kind != "healer":
 		var stacks := int(unit.get("support_stacks", 0))
 		if stacks > 0:
+			for dot in BattleModel.SUPPORT_MAX_STACKS:
+				draw_circle(Vector2(x - 18.0 + dot * 4.0, bar_y + 10.0), 1.3, Color("#86f7ad") if dot < stacks else Color("#293d39"))
 			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - (32.0 if cursed_units.has(unit.id) else 4.0)), "▲%d%%" % (mini(stacks, 10) * 3), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
 
 func _draw_curse(curse: Dictionary, scale_x: float, lane_y: float) -> void:
@@ -320,6 +389,15 @@ func _draw_curse(curse: Dictionary, scale_x: float, lane_y: float) -> void:
 	draw_ellipse(Vector2(x, lane_y - 2.0), radius, 11.0, Color(0.43, 0.18, 0.66, 0.58))
 	draw_arc(Vector2(x, lane_y - 3.0), radius, PI, TAU, 20, Color("#b483ef"), 2.0)
 	draw_circle(Vector2(x, lane_y + 3.0), 3.0, team)
+	var remaining := effect_remaining(curse)
+	draw_rect(Rect2(x - radius, lane_y + 12.0, radius * 2.0 * remaining / BattleModel.CURSE_DURATION, 3.0), Color("#b483ef"))
+	draw_string(ThemeDB.fallback_font, Vector2(x - 13.0, lane_y + 30.0), "%.1fs" % remaining, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#c8a9ef"))
+
+static func action_opacity(age: float) -> float:
+	return minf(clampf(age / 0.10, 0.0, 1.0), clampf((0.7 - age) / 0.10, 0.0, 1.0))
+
+func effect_remaining(effect: Dictionary) -> float:
+	return maxf(0.0, float(effect.get("expires_at", 0.0)) - float(snapshot.get("elapsed", 0.0)) - minf(snapshot_age, 0.25))
 
 func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> void:
 	var x := world_to_screen_x(float(structure.x))
@@ -352,6 +430,10 @@ func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> vo
 			var pulse := 5.0 + sin(animation_time * 4.0) * 2.0
 			draw_circle(Vector2(x, lane_y - 34.0), pulse, Color("#8dffd8"))
 			draw_line(Vector2(x, lane_y - 58.0), Vector2(x, lane_y - 78.0), Color("#8dffd8"), 2.0)
+	if structure.kind == "swamp" and structure.has("expires_at"):
+		var remaining := effect_remaining(structure)
+		draw_rect(Rect2(x - 35.0, lane_y + 17.0, 70.0 * remaining / float(BattleModel.STRUCTURE_STATS.swamp.lifetime), 3.0), Color("#b094de"))
+		draw_string(ThemeDB.fallback_font, Vector2(x - 13.0, lane_y + 34.0), "%.1fs" % remaining, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#c8a9ef"))
 
 func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 	for event in visual_events:
@@ -375,11 +457,32 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 			var color := Color("#75f0a4") if event_type == "HEAL" else Color("#ff8a96")
 			draw_string(ThemeDB.fallback_font, Vector2(x - 14.0, lane_y - 95.0 - (0.7 - life) * 34.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, color)
 
-func _draw_build_preview(lane_y: float) -> void:
-	var world_x: float = screen_to_world_x(mouse_position.x)
-	var valid := placement_error(selected_structure, world_x).is_empty()
+func build_preview(world_x: float) -> Dictionary:
+	var kind := selected_structure
+	var lower := BattleModel.BLUE_BUILD_MIN if own_side == 0 else BattleModel.RED_BUILD_MIN
+	var upper := BattleModel.BLUE_BUILD_MAX if own_side == 0 else BattleModel.RED_BUILD_MAX
+	if kind == "generator":
+		if own_side == 0: upper = BattleModel.BLUE_REAR_MAX
+		else: lower = BattleModel.RED_REAR_MIN
+	var stats: Dictionary = BattleModel.STRUCTURE_STATS.get(kind, {})
+	return {"error": placement_error(kind, world_x), "lower": lower, "upper": upper,
+		"radius": float(stats.get("radius", stats.get("range", 0.0))), "x": world_x}
 
+func _draw_build_preview(lane_y: float) -> void:
+	var preview := build_preview(screen_to_world_x(mouse_position.x))
+	var valid: bool = preview.error.is_empty()
 	var build_color := Color(0.30, 0.94, 0.60, 0.24) if valid else Color(1.0, 0.30, 0.40, 0.24)
-	draw_circle(Vector2(mouse_position.x, lane_y - 28.0), 42.0, build_color)
-	draw_arc(Vector2(mouse_position.x, lane_y - 28.0), 42.0, 0.0, TAU, 40, build_color.lightened(0.45), 2.0)
-	draw_line(Vector2(mouse_position.x, lane_y - 70.0), Vector2(mouse_position.x, lane_y + 5.0), build_color.lightened(0.5), 1.0)
+	var left := world_to_screen_x(float(preview.lower))
+	var right := world_to_screen_x(float(preview.upper))
+	draw_rect(Rect2(minf(left, right), lane_y - 9.0, absf(right-left), 32.0), Color(0.30, 0.94, 0.60, 0.10))
+	draw_line(Vector2(left,lane_y-8.0), Vector2(left,lane_y+24.0), Color("#86f7ad"), 2.0)
+	draw_line(Vector2(right,lane_y-8.0), Vector2(right,lane_y+24.0), Color("#86f7ad"), 2.0)
+	var radius := float(preview.radius) / BattleModel.WORLD_WIDTH * size.x
+	if radius > 0.0:
+		draw_ellipse(Vector2(mouse_position.x, lane_y), radius, 21.0, build_color)
+		draw_line(Vector2(mouse_position.x-radius,lane_y+4.0), Vector2(mouse_position.x+radius,lane_y+4.0), build_color.lightened(0.4), 2.0)
+	draw_rect(Rect2(mouse_position.x-23.0,lane_y-60.0,46.0,60.0), build_color)
+	draw_rect(Rect2(mouse_position.x-23.0,lane_y-60.0,46.0,60.0), build_color.lightened(0.4), false, 2.0)
+	if not valid:
+		var label_x := clampf(mouse_position.x-150.0, 12.0, maxf(12.0,size.x-320.0))
+		draw_string(ThemeDB.fallback_font, Vector2(label_x,minf(lane_y+56.0,size.y-12.0)), String(preview.error), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#ff8a96"))

@@ -40,6 +40,8 @@ var local_model: BattleModel
 var local_ai: ServerAI
 var current_ai_stage := 1
 var bgm_player: AudioStreamPlayer
+var rage_sfx_player: AudioStreamPlayer
+var last_rage_sfx_msec := -1000
 var running_as_server := false
 var update_overlay: Control
 var update_message_label: Label
@@ -187,9 +189,9 @@ func _input(event: InputEvent) -> void:
 		battle_view.queue_redraw()
 		return
 	if event is InputEventScreenTouch and not event.pressed and battle_active and is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty():
-		var local_position: Vector2 = event.position - battle_view.get_global_rect().position
+		var local_position: Vector2 = battle_view.get_global_transform_with_canvas().affine_inverse() * event.position
 		if Rect2(Vector2.ZERO, battle_view.size).has_point(local_position):
-			_on_battlefield_clicked(local_position.x / max(battle_view.size.x, 1.0) * 1280.0)
+			_on_battlefield_clicked(battle_view.screen_to_world_x(local_position.x))
 			get_viewport().set_input_as_handled()
 		return
 	if not event is InputEventKey or not event.pressed or event.echo:
@@ -1107,6 +1109,8 @@ func _build_battle_screen() -> void:
 	battle_view.position = Vector2(0, 88)
 	battle_view.size = Vector2(1280, 492)
 	battle_view.own_side = own_side
+	battle_view.interpolate_positions = not local_ai_mode
+	battle_view.rage_started.connect(_on_rage_started)
 	battle_view.show_damage_numbers = bool(save_data.settings.damage_numbers)
 	battle_view.show_battle_effects = bool(save_data.settings.battle_effects)
 	battle_view.effect_intensity = float(save_data.settings.effect_intensity)
@@ -1570,6 +1574,20 @@ func _on_snapshot(data: Dictionary) -> void:
 		_dismiss_result_overlay()
 		result_recorded = false
 		updater.set_safe_to_update(false)
+
+func _on_rage_started(_unit_id: int) -> void:
+	if DisplayServer.get_name() == "headless" or bool(save_data.settings.muted): return
+	var now := Time.get_ticks_msec()
+	if now - last_rage_sfx_msec < 300: return
+	last_rage_sfx_msec = now
+	if not is_instance_valid(rage_sfx_player):
+		rage_sfx_player = AudioStreamPlayer.new()
+		rage_sfx_player.name = "RageSFX"
+		rage_sfx_player.bus = &"SFX"
+		rage_sfx_player.volume_db = -12.0
+		rage_sfx_player.stream = preload("res://scripts/RageSound.gd").stream()
+		add_child(rage_sfx_player)
+	rage_sfx_player.play()
 
 func _on_combat_events(events: Array) -> void:
 	if is_instance_valid(battle_view) and not events.is_empty():
