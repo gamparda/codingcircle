@@ -672,6 +672,11 @@ func _build_patch_notes_screen() -> void:
 func _build_deck_screen(preset_index: int = -1) -> void:
 	var index := int(save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, 2)
 	var column := _submenu(Localization.text("덱 편성"), "유닛 7종 중 3종, 구조물 4종 중 3종을 선택합니다. 해골은 네크로맨서 소환 전용입니다.")
+	var deck_panel := column.get_parent() as PanelContainer
+	deck_panel.name = "DeckPanel"
+	deck_panel.position = Vector2(110, 18)
+	deck_panel.size = Vector2(1060, 684)
+	column.add_theme_constant_override("separation", 8)
 	var tabs := HBoxContainer.new()
 	column.add_child(tabs)
 	for tab_index in 3:
@@ -686,19 +691,17 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	var selected: Dictionary = save_data.deck_presets[index]
 	var unit_buttons := {}
 	var structure_buttons := {}
-	var cards_scroll := ScrollContainer.new()
-	cards_scroll.name = "DeckCardsScroll"
-	cards_scroll.custom_minimum_size = Vector2(0, 300)
-	cards_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	cards_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	column.add_child(cards_scroll)
 	var choices := VBoxContainer.new()
+	choices.name = "DeckChoices"
 	choices.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	choices.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	choices.add_theme_constant_override("separation", 10)
-	cards_scroll.add_child(choices)
+	column.add_child(choices)
 	var unit_row := GridContainer.new()
 	unit_row.name = "DeckUnitGrid"
 	unit_row.columns = 4
+	unit_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	unit_row.size_flags_stretch_ratio = 2.0
 	unit_row.add_theme_constant_override("h_separation", 8)
 	unit_row.add_theme_constant_override("v_separation", 8)
 	choices.add_child(unit_row)
@@ -714,12 +717,16 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 		card.tooltip_text = BattleModel.unit_stat_summary(kind)
 		card.add_theme_font_size_override("font_size", 13)
 		_configure_deck_card(card, card_text, Color("#5b8cff"), selected.units.has(kind))
-		card.custom_minimum_size = Vector2(240, 105)
+		card.custom_minimum_size = Vector2(240, 108)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		unit_buttons[kind] = card
 		unit_row.add_child(card)
 	var structure_grid := GridContainer.new()
-	structure_grid.columns = 5
+	structure_grid.name = "DeckStructureGrid"
+	structure_grid.columns = 4
+	structure_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	structure_grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	structure_grid.add_theme_constant_override("h_separation", 8)
 	choices.add_child(structure_grid)
 	var structure_names := {"wall": Localization.text("방벽"), "swamp": Localization.text("늪"), "turret": Localization.text("포탑"), "generator": Localization.text("발전기")}
@@ -728,10 +735,20 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 		var card_text := Localization.text("%s\n비용 %d · HP %d\n%s") % [structure_names[kind], int(stats.cost), int(stats.hp), roles[kind]]
 		var card := _styled_button(card_text, Color("#3d8f83"), false)
+		card.name = "DeckStructure_" + kind
+		card.add_theme_font_size_override("font_size", 13)
 		_configure_deck_card(card, card_text, Color("#3d8f83"), selected.structures.has(kind))
-		card.custom_minimum_size = Vector2(190, 92)
+		card.custom_minimum_size = Vector2(240, 108)
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		structure_buttons[kind] = card
 		structure_grid.add_child(card)
+	choices.resized.connect(func():
+		var row_gap := float(unit_row.get_theme_constant("v_separation"))
+		var group_gap := float(choices.get_theme_constant("separation"))
+		var row_height := maxf(108.0, (choices.size.y - row_gap - group_gap) / 3.0)
+		unit_row.size_flags_stretch_ratio = 2.0 + row_gap / row_height
+	)
 	var status := Label.new()
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status.add_theme_color_override("font_color", Color("#ff8a96"))
