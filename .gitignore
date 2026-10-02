@@ -2,3 +2,5 @@
 builds/
 dist/
 *.tmp
+__pycache__/
+*.py[cod]
