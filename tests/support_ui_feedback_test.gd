@@ -103,6 +103,7 @@ func run() -> void:
 		expected.append("v0.3.%d" % minor)
 	for minor in range(0, 21):
 		expected.append("v0.4.%d" % minor)
+	expected.append("v0.5.0")
 	var versions: Array = history.map(func(entry): return entry.version)
 	check(versions.size() == expected.size() and expected.all(func(version): return versions.count(version) == 1), "every release since 0.3.3 has exactly one patch-note entry")
 	check(history[0].version == "v0.5.0" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
