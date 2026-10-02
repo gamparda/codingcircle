@@ -64,7 +64,7 @@ func _init() -> void:
 	turret.tick(1.6)
 	expect_true(turret.units[0].hp < target_hp, "turret attacks enemy units")
 	expect_true(not turret.drain_combat_events().is_empty(), "combat events are separate from snapshot")
-	expect_eq(turret.snapshot().keys().size(), 8, "snapshot includes the authoritative curse zones")
+	expect_true(turret.snapshot().has("curses") and turret.snapshot().has("spawn_cooldowns"), "snapshot includes authoritative curse zones and purchase cooldowns")
 	var turret_shielding = BattleModel.new()
 	turret_shielding.resources = [150.0, 150.0]
 	turret_shielding.configure_deck(0, ["shield", "archer", "healer"], ["turret", "wall", "swamp"])

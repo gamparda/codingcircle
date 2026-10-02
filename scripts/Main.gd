@@ -1569,6 +1569,7 @@ func _refresh_purchase_buttons(resources: float) -> void:
 		if button.disabled != unavailable:
 			button.disabled = unavailable
 			button.modulate = Color(0.4, 0.4, 0.4, 1.0) if unavailable else Color.WHITE
+		if state_label: state_label.modulate = Color(2.5,2.5,2.5,1.0) if unavailable else Color.WHITE
 		if unavailable and button.has_meta("structure_kind") and is_instance_valid(battle_view) and battle_view.selected_structure == String(button.get_meta("structure_kind")):
 			battle_view.selected_structure = ""
 			clear_selection = true
@@ -2088,7 +2089,7 @@ func _handle_battle_hotkey(event: InputEventKey) -> bool:
 
 func _add_purchase_labels(button: Button, key_text: String) -> void:
 	var hotkey := Label.new(); hotkey.name = "PurchaseHotkey"; hotkey.text = key_text; hotkey.position = Vector2(6,4); hotkey.add_theme_font_size_override("font_size",11); hotkey.add_theme_color_override("font_color",Color("#d2d8e8")); hotkey.mouse_filter = Control.MOUSE_FILTER_IGNORE; button.add_child(hotkey)
-	var state := Label.new(); state.name = "PurchaseState"; state.position = Vector2(0,32); state.size = Vector2(136,18); state.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; state.add_theme_font_size_override("font_size",10); state.add_theme_color_override("font_color",Color("#f0d592")); state.mouse_filter = Control.MOUSE_FILTER_IGNORE; button.add_child(state)
+	var state := Label.new(); state.name = "PurchaseState"; state.position = Vector2(28,2); state.size = Vector2(106,18); state.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT; state.add_theme_font_size_override("font_size",10); state.add_theme_color_override("font_color",Color("#f0d592")); state.mouse_filter = Control.MOUSE_FILTER_IGNORE; state.add_theme_stylebox_override("normal",_panel_style(Color(0.03,0.04,0.06,0.9),Color.TRANSPARENT,3)); button.add_child(state)
 
 func _purchase_unit(kind: String) -> void:
 	if network.client_is_spectator or not battle_active or result_shown or float(client_purchase_gates.get(kind,0))>Time.get_ticks_msec(): return
