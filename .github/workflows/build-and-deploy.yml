@@ -147,6 +147,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Room browser lifecycle/protocol regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_browser_ui_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Room browser UI navigation regression failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_browser_wire_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "Room browser real two-client RPC regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/combat_polish_ui_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Combat feedback and mirrored placement regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/ai_battle_spotcheck.gd
