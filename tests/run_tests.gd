@@ -89,7 +89,7 @@ func _init() -> void:
 	expect_eq(int(BattleModel.UNIT_STATS.archer.range), 280, "archer keeps its established long range")
 	expect_eq(int(BattleModel.UNIT_STATS.archer.damage), 15, "archer damage is reduced")
 	expect_eq(float(BattleModel.UNIT_STATS.healer.damage), 0.0, "mage is a pure support unit")
-	expect_true(float(BattleModel.UNIT_STATS.healer.heal) > 0.0, "mage can heal allies")
+	expect_eq(float(BattleModel.UNIT_STATS.healer.heal), 0.0, "mage has no healing")
 	for kind in BattleModel.UNIT_STATS:
 		expect_true(float(BattleModel.UNIT_STATS[kind].interval) >= 1.2, "%s respects the minimum attack/heal interval" % kind)
 	expect_true(BattleModel.new().has_method("unit_stat_summary"), "unit stat summary API exists")
@@ -149,10 +149,11 @@ func _init() -> void:
 	mage_heal.units[0].x = 400.0
 	mage_heal.units[1].x = 400.0
 	mage_heal.units[0].hp -= 50.0
+	mage_heal.units[0].speed = 0.0
 	var ally_hp_before: float = mage_heal.units[0].hp
-	mage_heal.tick(float(mage_heal.units[1].interval) + 0.01)
-	expect_true(mage_heal.units[0].hp > ally_hp_before, "mage heals a wounded ally in range")
-	expect_true(mage_heal.units[0].hp <= mage_heal.units[0].max_hp, "mage healing never exceeds maximum health")
+	mage_heal.tick(0.01)
+	expect_eq(mage_heal.units[0].hp, ally_hp_before, "mage never heals a wounded ally")
+	expect_eq(mage_heal.support_attack_speed(mage_heal.units[0]), 1.2, "mage grants timed attack speed instead of healing")
 
 	var mage_wall = BattleModel.new()
 	mage_wall.resources = [150.0, 200.0]
@@ -353,7 +354,7 @@ func _init() -> void:
 	var Main = load("res://scripts/Main.gd")
 	expect_true(Main != null, "Main script loads")
 	expect_eq(Main.build_binary_version(), "0.4.9", "version-split migration advances the Android bootstrap once")
-	expect_eq(Main.build_version(), "0.4.16", "content pack version advances independently")
+	expect_eq(Main.build_version(), "0.4.17", "content pack version advances independently")
 	expect_true(NetworkController.is_valid_room_code(Main.DEFAULT_SMOKE_ROOM_CODE), "default smoke room code follows production room-code rules")
 	expect_true(Main.apk_update_required("Android", "0.4.4", "0.4.5"), "new content warns when it runs on an older Android APK")
 	expect_true(not Main.apk_update_required("Android", "0.4.5", "0.4.5"), "matching Android APK and content versions do not warn")

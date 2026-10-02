@@ -16,6 +16,7 @@ func run() -> void:
 	check(is_equal_approx(BattleModel.FIELD_RIGHT - BattleModel.FIELD_LEFT, 1265.0), "battlefield travel length increases 15 percent")
 	check(BattleModel.UNIT_STATS.swordsman.range == 40.0, "swordsman fights behind the tank at range 40")
 	check(BattleModel.UNIT_STATS.shield.speed > BattleModel.UNIT_STATS.swordsman.speed and BattleModel.UNIT_STATS.shield.cost == 35.0, "tank arrives before swordsman with lower cost")
+	check(BattleModel.UNIT_STATS.shield.damage == 2.0, "tank base damage is nerfed to two")
 	check(BattleModel.RESOURCE_RATE == 9.0 and BattleModel.MAX_RESOURCE == 180.0, "base economy improves without campaign bonuses")
 	var swamp := BattleModel.new()
 	swamp.resources = [180.0, 180.0]
@@ -51,24 +52,45 @@ func run() -> void:
 	var ally: Dictionary = support.units[0]
 	var healer: Dictionary = support.units[1]
 	var opponent: Dictionary = support.units[2]
-	ally.x = 540.0; ally.speed = 0.0; ally.hp -= 20.0
-	healer.x = 500.0
-	opponent.x = 600.0; opponent.speed = 0.0
+	ally.x = 515.0; ally.speed = 0.0; ally.hp -= 20.0; ally.damage = 0.0; ally.cooldown = 100.0
+	healer.x = 500.0; healer.speed = 0.0
+	opponent.x = 510.0; opponent.speed = 0.0; opponent.damage = 0.0; opponent.cooldown = 100.0
 	var wounded_hp := float(ally.hp)
 	var enemy_hp := float(opponent.hp)
-	check(support.support_attack_speed(ally) == 1.35, "living mage grants 35 percent attack speed")
+	var outside: Dictionary = ally.duplicate(true)
+	outside.id = 98; outside.x = 515.01
+	support.units.append(outside)
+	check(support.support_attack_speed(ally) == 1.0, "buff is cast rather than being a permanent aura")
+	support.tick(0.01)
+	check(support.support_attack_speed(ally) == 1.2, "ally exactly at radius 15 receives 20 percent attack speed")
+	check(support.support_attack_speed(outside) == 1.0 and support.support_attack_speed(opponent) == 1.0, "outside allies and enemies receive no buff")
+	check(float(ally.hp) == wounded_hp and float(opponent.hp) == enemy_hp and float(healer.heal) == 0.0, "mage neither heals nor deals damage")
+	check(support.drain_combat_events().any(func(event): return event.type == "SUPPORT_BUFF"), "cast emits support feedback")
+	check(is_equal_approx(float(healer.cooldown), 7.0), "seven-second cooldown starts when the buff is cast")
+	var cooldown_before := float(ally.cooldown)
 	var extra_healer: Dictionary = healer.duplicate(true)
-	extra_healer.id = 99
+	extra_healer.id = 99; extra_healer.cooldown = 0.0
 	support.units.append(extra_healer)
-	check(support.support_attack_speed(ally) == 1.35, "multiple mages never stack attack speed")
+	support._tick_support(extra_healer, 0.0)
+	check(support.support_attack_speed(ally) == 1.2, "multiple mages never stack attack speed")
 	extra_healer.hp = 0.0
-	support.tick(1.61)
-	check(float(ally.hp) > wounded_hp and float(opponent.hp) == enemy_hp, "mage prioritizes healing even when an enemy is in range and deals no damage")
-	check(support.drain_combat_events().any(func(event): return event.type == "HEAL"), "healing still emits feedback")
 	healer.x = 1000.0
-	check(support.support_attack_speed(ally) == 1.0, "leaving mage range removes attack speed")
-	healer.x = 500.0; healer.hp = 0.0
-	check(support.support_attack_speed(ally) == 1.0, "dead mage never grants a buff")
+	support.tick(0.1)
+	check(is_equal_approx(cooldown_before - float(ally.cooldown), 0.12), "buff accelerates real attack cooldown progression by 20 percent")
+	check(support.support_attack_speed(ally) == 1.2, "five-second buff persists outside cast range")
+	support.tick(4.89)
+	check(support.support_attack_speed(ally) == 1.2, "buff survives until immediately before its deadline")
+	support.tick(0.02)
+	check(support.support_attack_speed(ally) == 1.0, "buff expires after five seconds")
+	healer.x = 500.0
+	support.tick(1.98)
+	check(support.support_attack_speed(ally) == 1.0, "mage cannot reapply during the seven-second cooldown")
+	support.tick(0.02)
+	check(support.support_attack_speed(ally) == 1.2, "mage casts again when its cooldown completes")
+	healer.hp = 0.0
+	support.tick(5.01)
+	check(support.support_attack_speed(ally) == 1.0, "dead mage never renews an expired buff")
+	check(not support.drain_combat_events().any(func(event): return event.type == "HEAL"), "support has no remaining healing events")
 	var save := SaveData.default_data()
 	SaveData.record_campaign(save, 1, true, 60.0, 400.0)
 	SaveData.record_campaign(save, 1, true, 50.0, 450.0)

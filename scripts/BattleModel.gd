@@ -20,14 +20,16 @@ const RED_BUILD_MIN := 670.0 * WORLD_SCALE
 const RED_BUILD_MAX := 1100.0 * WORLD_SCALE
 const BLUE_REAR_MAX := 350.0 * WORLD_SCALE
 const RED_REAR_MIN := 930.0 * WORLD_SCALE
-const SUPPORT_ATTACK_SPEED := 1.35
-const SUPPORT_FOLLOW_DISTANCE := 65.0
+const SUPPORT_ATTACK_SPEED := 1.20
+const SUPPORT_DURATION := 5.0
+const SUPPORT_COOLDOWN := 7.0
+const SUPPORT_FOLLOW_DISTANCE := 12.0
 
 const UNIT_STATS := {
-	"shield": {"cost": 35.0, "hp": 400.0, "damage": 8.0, "interval": 1.5, "speed": 48.0, "range": 34.0},
+	"shield": {"cost": 35.0, "hp": 400.0, "damage": 2.0, "interval": 1.5, "speed": 48.0, "range": 34.0},
 	"swordsman": {"cost": 30.0, "hp": 82.0, "damage": 10.0, "interval": 1.4, "speed": 44.0, "range": 40.0},
 	"archer": {"cost": 45.0, "hp": 58.0, "damage": 15.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
-	"healer": {"cost": 45.0, "hp": 60.0, "damage": 0.0, "heal": 12.0, "interval": 1.6, "speed": 34.0, "range": 125.0},
+	"healer": {"cost": 45.0, "hp": 60.0, "damage": 0.0, "heal": 0.0, "interval": SUPPORT_COOLDOWN, "speed": 34.0, "range": 15.0},
 }
 const STRUCTURE_STATS := {
 	"wall": {"cost": 35.0, "hp": 230.0, "max_count": 2},
@@ -123,7 +125,8 @@ func spawn_unit(side: int, kind: String) -> bool:
 		"x": FIELD_LEFT + 35.0 if side == 0 else FIELD_RIGHT - 35.0,
 		"hp": stats.hp * stat_scale, "max_hp": stats.hp * stat_scale, "damage": stats.damage * stat_scale,
 		"heal": stats.get("heal", 0.0) * stat_scale, "interval": stats.interval,
-		"cooldown": max(MIN_ATTACK_INTERVAL, float(stats.interval)),
+		"cooldown": 0.0 if kind == "healer" else max(MIN_ATTACK_INTERVAL, float(stats.interval)),
+		"support_until": 0.0,
 		"speed": stats.speed, "range": stats.range})
 	next_unit_id += 1
 	return true
@@ -135,14 +138,14 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 	var interval: float = max(float(stats.interval), MIN_ATTACK_INTERVAL)
 	var stat_scale := float(campaign_bonuses(growth_level).stat_scale)
 	var output := Localization.text("비용 %d  ·  체력 %d\n") % [int(stats.cost), int(stats.hp * stat_scale)]
-	if float(stats.get("heal", 0.0)) > 0.0:
-		output += Localization.text("회복량 %d  ·  HPS %.1f  ·  아군 공격속도 +35%%\n") % [int(stats.heal * stat_scale), float(stats.heal) * stat_scale / interval]
+	if kind == "healer":
+		return output + Localization.text("피해·회복 없음  ·  공격속도 +20%\n범위 15  ·  유지 5초  ·  쿨 7초 (시전부터)\n중첩 없음  ·  이동 34")
 	else:
 		output += Localization.text("공격력 %d  ·  DPS %.1f\n") % [int(stats.damage * stat_scale), float(stats.damage) * stat_scale / interval]
 	return output + Localization.text("공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d") % [interval, int(stats.range), int(stats.speed)]
 
 static func battle_stat_summary() -> String:
-	return Localization.text("구조물  ·  방벽 35/체력 230  ·  늪 30/체력 100/80%% 감속/5초\n포탑 50/체력 115/공격 8/사거리 240  ·  발전기 50/체력 90/+1 자원\n마법사  ·  피해 없음/회복/아군 공격속도 +35%% (중첩 없음)\n전장  ·  길이 +15%%  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
+	return Localization.text("구조물  ·  방벽 35/체력 230  ·  늪 30/체력 100/80%% 감속/5초\n포탑 50/체력 115/공격 8/사거리 240  ·  발전기 50/체력 90/+1 자원\n마법사  ·  피해·회복 없음/공격속도 +20%%/범위 15/유지 5초/쿨 7초 (시전부터, 중첩 없음)\n전장  ·  길이 +15%%  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
 
 func _owned_structure_count(side: int, kind: String = "") -> int:
 	var count := 0
@@ -250,22 +253,20 @@ func tick(delta: float) -> void:
 			structure_expirations.erase(id)
 
 func support_attack_speed(unit: Dictionary) -> float:
-	if unit.kind == "healer":
+	if unit.kind == "healer" or float(unit.hp) <= 0.0:
 		return 1.0
-	for ally in units:
-		if ally.side == unit.side and ally.kind == "healer" and float(ally.hp) > 0.0 and abs(float(ally.x) - float(unit.x)) <= float(ally.range):
-			return SUPPORT_ATTACK_SPEED
-	return 1.0
+	return SUPPORT_ATTACK_SPEED if elapsed < float(unit.get("support_until", 0.0)) else 1.0
 
 func _tick_support(unit: Dictionary, delta: float) -> void:
-	var heal_target = _find_heal_target(unit)
-	if heal_target != null:
-		if float(unit.cooldown) <= 0.0:
-			var amount: float = min(float(unit.heal), float(heal_target.max_hp) - float(heal_target.hp))
-			heal_target.hp += amount
-			combat_events.append({"type": "HEAL", "source_id": unit.id, "target_id": heal_target.id, "amount": amount, "x": heal_target.x})
-			unit.cooldown = unit.interval
-		return
+	if float(unit.cooldown) <= 0.0:
+		var cast := false
+		for ally in units:
+			if ally.side == unit.side and ally.kind != "healer" and float(ally.hp) > 0.0 and abs(float(ally.x) - float(unit.x)) <= float(unit.range):
+				ally.support_until = elapsed + SUPPORT_DURATION
+				combat_events.append({"type": "SUPPORT_BUFF", "source_id": unit.id, "target_id": ally.id, "x": ally.x})
+				cast = true
+		if cast:
+			unit.cooldown = SUPPORT_COOLDOWN
 	var direction := 1.0 if int(unit.side) == 0 else -1.0
 	var frontline = null
 	for ally in units:
@@ -275,12 +276,17 @@ func _tick_support(unit: Dictionary, delta: float) -> void:
 	if frontline != null and direction * (float(frontline.x) - float(unit.x)) <= SUPPORT_FOLLOW_DISTANCE:
 		return
 	# Support units never attack units, buildings or bases, even with no wounded ally.
-	if _find_target(unit) != null:
+	var step := float(unit.speed) * _swamp_scale(unit) * delta
+	if units.any(func(enemy): return enemy.side != unit.side and float(enemy.hp) > 0.0 and direction * (float(enemy.x) - float(unit.x)) >= 0.0 and abs(float(enemy.x) - float(unit.x)) <= max(float(unit.range), step)) or _blocking_wall(unit, float(unit.x) + direction * step) != null or _find_target(unit) != null:
 		return
 	var enemy_base_x := FIELD_RIGHT if int(unit.side) == 0 else FIELD_LEFT
 	if abs(float(unit.x) - enemy_base_x) <= float(unit.range):
 		return
-	unit.x = clamp(float(unit.x) + direction * float(unit.speed) * _swamp_scale(unit) * delta, FIELD_LEFT, FIELD_RIGHT)
+	var destination := float(unit.x) + direction * step
+	if frontline != null:
+		var follow_x := float(frontline.x) - direction * SUPPORT_FOLLOW_DISTANCE
+		destination = min(destination, follow_x) if direction > 0.0 else max(destination, follow_x)
+	unit.x = clamp(destination, FIELD_LEFT, FIELD_RIGHT)
 
 
 func _damage_target(attacker: Dictionary, target: Dictionary, damage: float) -> void:
@@ -330,19 +336,6 @@ func _find_target(unit: Dictionary):
 			best_distance = abs(float(best_structure.x) - float(unit.x))
 	return best_structure
 
-func _find_heal_target(unit: Dictionary):
-	var best = null
-	var lowest_ratio := 1.0
-	for ally in units:
-		if ally.id == unit.id or ally.side != unit.side or ally.hp <= 0.0 or ally.hp >= ally.max_hp:
-			continue
-		if abs(float(ally.x) - float(unit.x)) > unit.range:
-			continue
-		var ratio: float = float(ally.hp) / max(float(ally.max_hp), 1.0)
-		if ratio < lowest_ratio:
-			best = ally
-			lowest_ratio = ratio
-	return best
 
 func _tick_turrets(delta: float) -> void:
 	for structure in structures:

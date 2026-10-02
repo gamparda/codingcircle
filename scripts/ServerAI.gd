@@ -37,7 +37,7 @@ static func stage_summary(difficulty_stage: int) -> String:
 	if value <= 4:
 		return Localization.text("적극적 방어와 구조물 운용")
 	if value <= 6:
-		return Localization.text("회복·경제·지형 전술")
+		return Localization.text("지원·경제·지형 전술")
 	if value <= 8:
 		return Localization.text("고속 공세와 강화 전력")
 	return Localization.text("최대 전력·자원 보너스")

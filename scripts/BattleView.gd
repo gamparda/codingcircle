@@ -247,10 +247,8 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	draw_rect(Rect2(x - 21.0, bar_y, 42.0, 6.0), Color(0.02, 0.03, 0.06, 0.88))
 	draw_rect(Rect2(x - 20.0, bar_y + 1.0, 40.0 * hp_ratio, 4.0), Color("#71e49a") if hp_ratio > 0.35 else Color("#ff6b72"))
 	if show_battle_effects and kind != "healer":
-		for ally in snapshot.get("units", []):
-			if ally.side == unit.side and ally.kind == "healer" and float(ally.hp) > 0.0 and abs(float(ally.x) - float(unit.x)) <= float(ally.range):
-				draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "▲35%", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
-				break
+		if float(unit.get("support_until", 0.0)) > float(snapshot.get("elapsed", 0.0)):
+			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "▲20%", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
 
 func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> void:
 	var x := float(structure.x) * scale_x

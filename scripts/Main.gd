@@ -61,6 +61,7 @@ var tutorial_low_resource := 0.0
 var tutorial_banner: Control
 var tutorial_hint: Label
 var structure_buttons: Array[Button] = []
+var purchase_buttons: Array[Button] = []
 var settings_touch_scroll: ScrollContainer
 var settings_touch_index := -1
 var settings_touch_dragged := false
@@ -270,6 +271,7 @@ func _clear_screen() -> void:
 	placement_pending = false
 	placement_message_serial += 1
 	structure_buttons.clear()
+	purchase_buttons.clear()
 
 func _show_placement_status(message: String, duration: float = 2.5) -> void:
 	if not is_instance_valid(placement_status_label):
@@ -495,6 +497,13 @@ func _build_connect_screen(message: String = "") -> void:
 	status_label.add_theme_font_size_override("font_size", 13)
 	status_label.add_theme_color_override("font_color", Color("#747d91"))
 	column.add_child(status_label)
+	var patch_notes := _styled_button(Localization.text("패치노트"), Color("#3d8f83"))
+	patch_notes.name = "PatchNotesButton"
+	patch_notes.position = Vector2(1035, 20)
+	patch_notes.size = Vector2(225, 50)
+	patch_notes.add_theme_font_size_override("font_size", 14)
+	patch_notes.pressed.connect(_build_patch_notes_screen)
+	root_background.add_child(patch_notes)
 	updater.set_safe_to_update(true)
 	updater.check_for_update()
 
@@ -629,6 +638,48 @@ func _submenu(title_text: String, subtitle_text: String) -> VBoxContainer:
 	column.add_child(subtitle)
 	return column
 
+func _build_patch_notes_screen() -> void:
+	var column := _submenu("패치노트", "최신 변경 사항과 이전 업데이트")
+	var scroll := ScrollContainer.new()
+	scroll.name = "PatchNotesScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(scroll)
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 14)
+	scroll.add_child(content)
+	var entries := [
+		["v0.4.17", [
+			"마법사: 피해·회복 제거. 범위 15 안의 아군에게 공격속도 +20%를 5초간 부여합니다. 쿨타임은 시전부터 7초이며 중첩되지 않습니다.",
+			"탱커: 기본 공격력을 8에서 2로 낮췄습니다. 체력·비용·이동속도는 유지합니다.",
+			"구매 표시: 자원이 부족한 유닛·구조물 버튼은 초상과 함께 어두워지고 선택할 수 없습니다. 자원이 모이면 다시 활성화됩니다.",
+			"메인 메뉴에 패치노트를 추가했습니다. 덱 카드·상세 스탯·전투 버프 표시도 새 수치에 맞췄습니다."
+		]],
+		["v0.4.16", [
+			"전장 이동거리 +15%. 검사 사거리 40. 탱커 이동속도 48·비용 35. 늪은 반경 95에서 80% 감속을 주며 설치 5초 후 사라집니다.",
+			"시작 자원 70·초당 수급 9·보유 한도 180. 캠페인 첫 클리어마다 병력과 자원 수급이 성장하며 재도전으로 중복 보상되지 않습니다.",
+			"방 생성 연결 재시도·응답 제한시간·실패 시 조작 복구·생성 코드 표시를 개선했습니다."
+		]]
+	]
+	for entry in entries:
+		var heading := Label.new()
+		heading.text = String(entry[0])
+		heading.add_theme_font_size_override("font_size", 24)
+		heading.add_theme_color_override("font_color", Color("#86f7ad"))
+		content.add_child(heading)
+		for change in entry[1]:
+			var label := Label.new()
+			label.text = "• " + Localization.text(String(change))
+			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			label.add_theme_font_size_override("font_size", 18)
+			label.add_theme_color_override("font_color", Color("#dce1ec"))
+			content.add_child(label)
+	var back := _styled_button(Localization.text("메인 화면으로"), Color("#697386"))
+	back.name = "PatchNotesBack"
+	back.pressed.connect(_build_connect_screen)
+	column.add_child(back)
+
 func _build_deck_screen(preset_index: int = -1) -> void:
 	var index := int(save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, 2)
 	var column := _submenu(Localization.text("덱 편성"), Localization.text("유닛 4종 중 3종, 구조물 4종 중 3종을 선택합니다. 온라인에서도 서버가 이 덱을 검증합니다."))
@@ -652,10 +703,10 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	var unit_names := {"shield": Localization.text("탱커"), "swordsman": Localization.text("검사"), "archer": Localization.text("궁수"), "healer": Localization.text("마법사")}
 	for kind in BattleModel.UNIT_STATS.keys():
 		var stats: Dictionary = BattleModel.UNIT_STATS[kind]
-		var role := Localization.text("회복/지원") if kind == "healer" else Localization.text("원거리") if kind == "archer" else Localization.text("방어") if kind == "shield" else Localization.text("근접 공격")
+		var role := Localization.text("공격속도 지원") if kind == "healer" else Localization.text("원거리") if kind == "archer" else Localization.text("방어") if kind == "shield" else Localization.text("근접 공격")
 		var card_text := Localization.text("%s\n비용 %d · HP %d · 공격 %d\nDPS %.1f · 사거리 %d · %s") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), float(stats.damage) / float(stats.interval), int(stats.range), role]
 		if kind == "healer":
-			card_text = Localization.text("%s\n비용 %d · HP %d · 회복 %d\n공격속도 +35%% · 사거리 %d") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.heal), int(stats.range)]
+			card_text = Localization.text("%s\n비용 %d · HP %d · 범위 %d\n공속 +20%% · 유지 5초 · 쿨 7초") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.range)]
 		var card := _styled_button(card_text, Color("#5b8cff"), false)
 		_configure_deck_card(card, card_text, Color("#5b8cff"), selected.units.has(kind))
 		card.custom_minimum_size = Vector2(240, 105)
@@ -1273,9 +1324,14 @@ func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: C
 	for key in ["hp", "damage", "heal"]:
 		if stats.has(key):
 			stats[key] = float(stats[key]) * stat_scale
-	var primary := Localization.text("회복 %d") % int(stats.heal) if float(stats.get("heal", 0.0)) > 0.0 else Localization.text("공격 %d") % int(stats.damage)
+	var primary := Localization.text("공속 +20%") if kind == "healer" else Localization.text("공격 %d") % int(stats.damage)
 	var button := _styled_button(Localization.text("%s  ·  %d\n체력 %d  ·  %s") % [title, int(stats.cost), int(stats.hp), primary], color)
 	button.tooltip_text = BattleModel.unit_stat_summary(kind, growth_level)
+	button.set_meta("purchase_cost", float(stats.cost))
+	button.set_meta("unit_kind", kind)
+	button.disabled = true
+	button.modulate = Color(0.4, 0.4, 0.4, 1.0)
+	purchase_buttons.append(button)
 	button.custom_minimum_size = Vector2(136, 102)
 	_decorate_battle_card(button)
 	var portrait := Sprite2D.new()
@@ -1386,6 +1442,10 @@ func _add_structure_button(row: HBoxContainer, title: String, kind: String, colo
 	button.custom_minimum_size = Vector2(136, 102)
 	button.toggle_mode = true
 	button.set_meta("structure_kind", kind)
+	button.set_meta("purchase_cost", float(BattleModel.STRUCTURE_STATS[kind].cost))
+	button.disabled = true
+	button.modulate = Color(0.4, 0.4, 0.4, 1.0)
+	purchase_buttons.append(button)
 	_decorate_battle_card(button)
 	var emblem := Label.new()
 	emblem.name = "StructureEmblem"
@@ -1411,6 +1471,21 @@ func _refresh_structure_selection() -> void:
 			button.set_pressed_no_signal(is_instance_valid(battle_view) and battle_view.selected_structure == String(button.get_meta("structure_kind")))
 	if is_instance_valid(battle_view):
 		battle_view.queue_redraw()
+
+func _refresh_purchase_buttons(resources: float) -> void:
+	var clear_selection := false
+	for button in purchase_buttons:
+		if not is_instance_valid(button):
+			continue
+		var unavailable := resources < float(button.get_meta("purchase_cost"))
+		if button.disabled != unavailable:
+			button.disabled = unavailable
+			button.modulate = Color(0.4, 0.4, 0.4, 1.0) if unavailable else Color.WHITE
+		if unavailable and button.has_meta("structure_kind") and is_instance_valid(battle_view) and battle_view.selected_structure == String(button.get_meta("structure_kind")):
+			battle_view.selected_structure = ""
+			clear_selection = true
+	if clear_selection:
+		_refresh_structure_selection()
 
 func _on_battlefield_clicked(world_x: float) -> void:
 	if not is_instance_valid(battle_view) or battle_view.selected_structure.is_empty() or placement_pending:
@@ -1461,6 +1536,7 @@ func _on_snapshot(data: Dictionary) -> void:
 		structure_count_label.text = Localization.text("구조물 %d / 3") % own_structures
 	var resource_cap := local_model.resource_capacity(own_side) if local_ai_mode and is_instance_valid(local_model) else BattleModel.MAX_RESOURCE
 	resource_label.text = "%d / %d" % [int(resources[own_side]), int(resource_cap)]
+	_refresh_purchase_buttons(float(resources[own_side]))
 	if local_ai_mode and tutorial_step == 2 and float(resources[own_side]) > tutorial_low_resource + 0.5:
 		_tutorial_advance(2)
 	blue_hp_bar.value = float(bases[0])

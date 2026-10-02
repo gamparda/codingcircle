@@ -59,8 +59,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $contentVersion = "0.4.16"
-          $windowsVersion = "0.4.16"
+          $contentVersion = "0.4.17"
+          $windowsVersion = "0.4.17"
           $androidBinaryVersion = "0.4.9"
           $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?before=${{ github.sha }}"
           $previousAndroidVersion = if ($previous.PSObject.Properties.Name -contains "android_binary_version") { [string]$previous.android_binary_version } else { [string]$previous.version }
@@ -128,6 +128,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Independent release version tests failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/balance_feedback_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Focused balance and room connection regressions failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/support_ui_feedback_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "Purchase and patch-note UI regressions failed" }
 
           New-Item -ItemType Directory -Force dist | Out-Null
           if ($env:BUILD_ANDROID -eq "true") {
