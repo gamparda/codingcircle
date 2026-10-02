@@ -48,6 +48,12 @@ var latency_label: Label
 var recovery_label: Label
 var network_paused := false
 var resuming_battle_ui := false
+const BattleBindings = preload("res://scripts/BattleBindings.gd")
+var binding_draft: Array = []
+var binding_buttons: Array = []
+var binding_capture_index := -1
+var binding_hint: Label
+var binding_capture_overlay: Control
 var local_model: BattleModel
 var local_ai: ServerAI
 var current_ai_stage := 1
@@ -231,6 +237,16 @@ func _process(delta: float) -> void:
 			get_tree().quit(2)
 
 func _input(event: InputEvent) -> void:
+	if binding_capture_index>=0 and event is InputEventKey:
+		if not event.pressed or event.echo: get_viewport().set_input_as_handled(); return
+		get_viewport().set_input_as_handled()
+		if event.keycode==KEY_ESCAPE: _cancel_binding_capture(); return
+		if event.ctrl_pressed or event.alt_pressed or event.meta_pressed or event.shift_pressed:
+			binding_hint.text="조합 키 대신 단일 키를 눌러주세요."; return
+		var code: int = event.physical_keycode if event.physical_keycode!=0 else event.keycode
+		var error: String = BattleBindings.assign(binding_draft,binding_capture_index,code)
+		if not error.is_empty(): binding_hint.text=error; return
+		_cancel_binding_capture(); _refresh_binding_buttons(); return
 	if is_instance_valid(settings_touch_scroll):
 		if event is InputEventScreenTouch:
 			if event.pressed and settings_touch_index < 0 and settings_touch_scroll.get_global_rect().has_point(event.position):
@@ -320,6 +336,8 @@ func _update_server_lifecycle(delta: float) -> void:
 	DirAccess.rename_absolute(temporary_path, status_path)
 
 func _clear_screen() -> void:
+	_cancel_binding_capture()
+	binding_buttons.clear(); binding_hint=null; binding_draft.clear()
 	for player in combat_sfx_players:
 		if is_instance_valid(player): player.stop()
 	_dismiss_action_overlay()
@@ -866,6 +884,7 @@ func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 	var outer := _submenu(Localization.text("설정"), "변경 시 자동 저장")
 	var mobile_layout := OS.has_feature("mobile") or mobile_layout_override
 	var settings: Dictionary = save_data.settings
+	binding_draft = BattleBindings.sanitize(settings.get("battle_keys"))
 	var quality_row := HBoxContainer.new()
 	var quality_label := Label.new()
 	quality_label.text = Localization.text("화질")
@@ -937,6 +956,7 @@ func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 	else:
 		fps_limit.name = "FPSSelector"
 		column.add_child(fps_limit)
+	_add_binding_settings(column)
 	_add_settings_section(column, "전투 연출")
 	var damage_numbers := CheckButton.new(); damage_numbers.text = Localization.text("피해 숫자"); damage_numbers.button_pressed = settings.damage_numbers; column.add_child(damage_numbers)
 	var shake := CheckButton.new(); shake.text = Localization.text("화면 흔들림"); shake.button_pressed = settings.screen_shake; column.add_child(shake)
@@ -971,6 +991,7 @@ func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 					settings.graphics_quality = "custom"
 					break
 		settings.language = "ko"
+		settings.battle_keys = binding_draft.duplicate()
 		SaveData.save_data(save_data); Localization.install(String(settings.language)); _apply_settings()
 		_build_connect_screen(Localization.text("설정을 저장했습니다."))
 	)
@@ -1440,7 +1461,7 @@ func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: C
 	button.set_meta("purchase_cost", float(stats.cost))
 	button.set_meta("unit_kind", kind)
 	button.set_meta("base_text",button.text)
-	_add_purchase_labels(button,str(purchase_buttons.size()+1))
+	_add_purchase_labels(button,BattleBindings.key_name(int(save_data.settings.get("battle_keys",BattleBindings.DEFAULTS)[purchase_buttons.size()])))
 	button.disabled = true
 	button.modulate = Color(0.4, 0.4, 0.4, 1.0)
 	purchase_buttons.append(button)
@@ -1555,7 +1576,7 @@ func _add_structure_button(row: HBoxContainer, title: String, kind: String, colo
 	button.toggle_mode = true
 	button.set_meta("structure_kind", kind)
 	button.set_meta("base_text",button.text)
-	_add_purchase_labels(button,["Q","W","E"][structure_buttons.size()])
+	_add_purchase_labels(button,BattleBindings.key_name(int(save_data.settings.get("battle_keys",BattleBindings.DEFAULTS)[3+structure_buttons.size()])))
 	button.set_meta("purchase_cost", float(BattleModel.STRUCTURE_STATS[kind].cost))
 	button.disabled = true
 	button.modulate = Color(0.4, 0.4, 0.4, 1.0)
@@ -2120,7 +2141,7 @@ func _battle_text_has_focus() -> bool:
 func _handle_battle_hotkey(event: InputEventKey) -> bool:
 	if not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed or not battle_active or result_shown or (not local_ai_mode and network_paused) or network.client_is_spectator or _battle_text_has_focus() or is_instance_valid(stats_overlay) or is_instance_valid(report_overlay) or is_instance_valid(action_overlay): return false
 	var key := event.physical_keycode if event.physical_keycode!=0 else event.keycode
-	var codes := [KEY_1,KEY_2,KEY_3,KEY_Q,KEY_W,KEY_E]
+	var codes: Array = save_data.settings.get("battle_keys",BattleBindings.DEFAULTS)
 	var index := codes.find(key)
 	if index<0 or index>=purchase_buttons.size(): return false
 	var button: Button = purchase_buttons[index]
@@ -2309,3 +2330,31 @@ func _on_recovery_changed(data: Dictionary) -> void:
 		network_paused=paused; _refresh_purchase_buttons(latest_resources)
 	if is_instance_valid(recovery_label) and not network.client_reconnecting:
 		recovery_label.text="상대 연결 복구 대기 · %d초"%ceili(float(data.get("reconnect_remaining",0))) if paused else ""
+
+func _add_binding_settings(column: VBoxContainer) -> void:
+	_add_settings_section(column,"전투 단축키")
+	var grid := GridContainer.new(); grid.name="BattleKeyBindings"; grid.columns=3; grid.add_theme_constant_override("h_separation",12); grid.add_theme_constant_override("v_separation",8); column.add_child(grid)
+	for index in 6:
+		var button := _styled_button("",Color("#3d647d")); button.name="BindingSlot%d"%index; button.custom_minimum_size=Vector2(250,44); button.add_theme_font_size_override("font_size",14); button.pressed.connect(_begin_binding_capture.bind(index)); grid.add_child(button); binding_buttons.append(button)
+	binding_hint = Label.new(); binding_hint.name="BindingHint"; binding_hint.text="변경할 항목을 누르고 새 키를 입력하세요."; binding_hint.add_theme_font_size_override("font_size",13); binding_hint.add_theme_color_override("font_color",Color("#f0d592")); column.add_child(binding_hint)
+	var reset := _styled_button("단축키 기본값 복원",Color("#596174")); reset.name="ResetBattleBindings"; reset.pressed.connect(func(): _cancel_binding_capture(); binding_draft=BattleBindings.DEFAULTS.duplicate(); _refresh_binding_buttons()); column.add_child(reset)
+	_refresh_binding_buttons()
+
+func _refresh_binding_buttons() -> void:
+	for index in binding_buttons.size():
+		if is_instance_valid(binding_buttons[index]): binding_buttons[index].text="%s · %s"%[BattleBindings.LABELS[index],BattleBindings.key_name(int(binding_draft[index]))]
+
+func _begin_binding_capture(index: int) -> void:
+	_cancel_binding_capture()
+	binding_capture_index=index
+	binding_capture_overlay=ColorRect.new(); binding_capture_overlay.name="BindingCaptureOverlay"; binding_capture_overlay.color=Color(0.02,0.03,0.05,0.96); binding_capture_overlay.size=Vector2(1280,720); binding_capture_overlay.z_index=170; root_background.add_child(binding_capture_overlay)
+	var column := MultiplayerUI.panel(self,binding_capture_overlay,"BindingCapturePanel",Rect2(300,220,680,280))
+	column.add_child(MultiplayerUI.label("%s · 새 키 입력"%BattleBindings.LABELS[index],24,MultiplayerUI.GOLD))
+	binding_hint=MultiplayerUI.label("새 키를 누르세요. Esc는 변경 취소입니다.",14,MultiplayerUI.MUTED); binding_hint.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; column.add_child(binding_hint)
+	MultiplayerUI.button(self,column,"취소","CancelBindingCapture",_cancel_binding_capture)
+
+func _cancel_binding_capture() -> void:
+	binding_capture_index=-1
+	if is_instance_valid(binding_capture_overlay): binding_capture_overlay.queue_free()
+	binding_capture_overlay=null
+	if is_instance_valid(root_background): binding_hint=root_background.find_child("BindingHint",true,false) as Label

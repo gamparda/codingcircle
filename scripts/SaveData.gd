@@ -41,7 +41,7 @@ static func default_data() -> Dictionary:
 			"master_volume": 0.8, "bgm_volume": 0.7, "sfx_volume": 0.8, "muted": false,
 			"window_size": "1920x1080", "fullscreen": true, "vsync": true, "fps_limit": 60,
 			"graphics_quality": "high", "damage_numbers": true, "screen_shake": true, "battle_effects": true, "effect_intensity": 1.0,
-			"language": "ko",
+			"language": "ko", "battle_keys": preload("res://scripts/BattleBindings.gd").DEFAULTS.duplicate(),
 		},
 		"stats": {
 			"ai_matches": 0, "ai_wins": 0, "ai_losses": 0, "highest_campaign": 0, "total_stars": 0,
@@ -122,6 +122,7 @@ static func sanitize(raw: Variant) -> Dictionary:
 				if BattleModel._valid_deck(preset.units, BattleModel.UNIT_STATS) and BattleModel._valid_deck(structures, BattleModel.STRUCTURE_STATS):
 					clean.deck_presets[index] = {"name": String(preset.get("name", Localization.text("덱 %d") % (index + 1))).left(20), "units": preset.units.duplicate(), "structures": structures}
 	if raw.get("settings") is Dictionary:
+		clean.settings.battle_keys = preload("res://scripts/BattleBindings.gd").sanitize(raw.settings.get("battle_keys"))
 		# Existing players' hand-tuned visual settings must not be replaced by a new preset.
 		clean.settings.graphics_quality = "custom"
 		if raw.settings.get("graphics_quality") is String and GRAPHICS_QUALITIES.has(String(raw.settings.graphics_quality)):
