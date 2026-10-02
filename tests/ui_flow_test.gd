@@ -44,30 +44,9 @@ func run() -> void:
 	expect_true(tree_text(main).contains("v%s" % main.build_version()), "main menu reads the configured build version")
 	var menu_portraits := main.find_children("MenuUnitPortrait", "Sprite2D", true, false)
 	expect_true(menu_portraits.size() == 2 and menu_portraits[0].texture != null and menu_portraits[1].texture != null, "menu flanks display loaded unit artwork")
-	for required_button in ["방 만들기", "코드로 참가", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
+	for required_button in ["멀티플레이", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
 		expect_true(find_button(main, required_button) != null, "main menu exposes %s" % required_button)
-	var create_room_button := find_button(main, "방 만들기")
-	var join_room_button := find_button(main, "코드로 참가")
-	var room_code_input := main.find_child("RoomCodeInput", true, false) as LineEdit
-	if create_room_button != null and join_room_button != null and room_code_input != null:
-		expect_true(room_code_input.text_direction == Control.TEXT_DIRECTION_LTR, "room code always uses left-to-right typing")
-		room_code_input.text = "ab"
-		room_code_input.set_caret_column(2)
-		main._normalize_room_code_input(room_code_input.text)
-		expect_true(room_code_input.text == "AB" and room_code_input.get_caret_column() == 2, "uppercase conversion keeps the caret after typed characters")
-		room_code_input.text = "ac"
-		room_code_input.set_caret_column(1)
-		main._normalize_room_code_input(room_code_input.text)
-		expect_true(room_code_input.text == "AC" and room_code_input.get_caret_column() == 1, "editing in the middle keeps the caret position")
-		room_code_input.insert_text_at_caret("b")
-		room_code_input.text_changed.emit(room_code_input.text)
-		expect_true(room_code_input.text == "ABC" and room_code_input.get_caret_column() == 2, "room code characters enter in order without deleting earlier text")
-		main._set_room_controls_disabled(true)
-		expect_true(create_room_button.disabled and join_room_button.disabled and not room_code_input.editable, "a room connection locks both actions and its code input")
-		main._set_room_controls_disabled(false)
-		expect_true(not create_room_button.disabled and not join_room_button.disabled and room_code_input.editable, "room controls unlock together after a failed attempt")
-	else:
-		expect_true(false, "room controls exist before lock-state checks")
+	expect_true(find_button(main,"방 만들기")==null and main.find_child("RoomCodeInput",true,false)==null,"main menu delegates room controls to the multiplayer browser")
 	main._build_deck_screen()
 	await process_frame
 	var deck_text := tree_text(main)
@@ -244,7 +223,7 @@ func run() -> void:
 		Localization.install(locale)
 		main._build_connect_screen()
 		await process_frame
-		expect_true(find_button(main, "방 만들기") != null, "%s legacy locale still renders Korean" % locale)
+		expect_true(find_button(main, "멀티플레이") != null, "%s legacy locale still renders Korean" % locale)
 	main.queue_free()
 	await process_frame
 	if failures == 0:

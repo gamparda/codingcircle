@@ -13,11 +13,15 @@ func run() -> void:
 	Engine.max_fps = 30
 	var result: Dictionary = {"code": ""}
 	main.network.room_created.connect(func(code): result.code = code)
-	main._connect_for_room("create")
+	main._open_multiplayer()
+	var lobby_started := Time.get_ticks_msec()
+	while main.network.client_connection_state != "lobby" and Time.get_ticks_msec()-lobby_started < 12000:
+		await process_frame
+	main.network.create_lobby_room("방 생성 확인")
 	var started := Time.get_ticks_msec()
 	while String(result.code).is_empty() and Time.get_ticks_msec() - started < 12000:
 		await process_frame
-	var successful: bool = NetworkController.is_valid_room_code(String(result.code)) and main.room_code_input.text == String(result.code) and main.network.client_connection_state == "waiting"
+	var successful: bool = NetworkController.is_valid_room_code(String(result.code)) and main.find_child("WaitingRoomCode",true,false) != null and main.find_child("WaitingRoomCode",true,false).text.contains(String(result.code)) and main.network.client_connection_state == "waiting"
 	if successful:
 		print("PASS: create-room UI receives and prominently displays a real server-generated code")
 	else:

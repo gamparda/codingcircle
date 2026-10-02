@@ -58,6 +58,13 @@ var structure_count_label: Label
 var placement_pending := false
 var placement_message_serial := 0
 var room_code_input: LineEdit
+var multiplayer_screen := ""
+var lobby_rows: VBoxContainer
+var lobby_page_label: Label
+var lobby_page := 0
+var lobby_total := 0
+var lobby_data := {"rooms":[],"page":0,"total":0}
+var room_create_dialog: ConfirmationDialog
 var battle_preset: Dictionary = {}
 var tutorial_step := -1
 var tutorial_low_resource := 0.0
@@ -79,6 +86,7 @@ func _ready() -> void:
 	network.structure_placement_result.connect(_on_structure_placement_result)
 	network.room_created.connect(_on_room_created)
 	network.room_join_failed.connect(_on_room_join_failed)
+	network.room_list_received.connect(_on_room_list)
 	updater.update_started.connect(_on_update_started)
 	updater.update_status.connect(_on_update_status)
 	updater.update_failed.connect(_on_update_failed)
@@ -257,6 +265,9 @@ func _clear_screen() -> void:
 			child.queue_free()
 	battle_view = null
 	status_label = null
+	lobby_rows = null
+	lobby_page_label = null
+	room_create_dialog = null
 	result_overlay = null
 	stats_overlay = null
 	placement_status_label = null
@@ -383,6 +394,7 @@ func _add_menu_portrait(parent: Control, texture_path: String, position_value: V
 	interior.add_child(caption)
 
 func _build_connect_screen(message: String = "") -> void:
+	multiplayer_screen = ""
 	battle_active = false
 	result_shown = false
 	_clear_screen()
@@ -439,35 +451,10 @@ func _build_connect_screen(message: String = "") -> void:
 	online_label.add_theme_color_override("font_color", Color("#6f7890"))
 	column.add_child(online_label)
 
-	var endpoint_label := Label.new()
-	endpoint_label.text = Localization.text("공식 서버  ·  %s:%d") % [OFFICIAL_SERVER_FALLBACK_ADDRESS, OFFICIAL_SERVER_PORT]
-	endpoint_label.custom_minimum_size = Vector2(0, 48)
-	endpoint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	endpoint_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	endpoint_label.add_theme_font_size_override("font_size", 16)
-	endpoint_label.add_theme_color_override("font_color", Color("#a7afc0"))
-	column.add_child(endpoint_label)
-	var room_row := HBoxContainer.new()
-	room_row.add_theme_constant_override("separation", 8)
-	column.add_child(room_row)
-	var create_button := _styled_button(Localization.text("방 만들기"), Color("#5e6ad2"), true)
-	connect_button_ref = create_button
-	create_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	create_button.pressed.connect(func(): _connect_for_room("create"))
-	room_row.add_child(create_button)
-	room_code_input = LineEdit.new()
-	room_code_input.name = "RoomCodeInput"
-	room_code_input.placeholder_text = Localization.text("방 코드 6자리")
-	room_code_input.max_length = NetworkController.ROOM_CODE_LENGTH
-	room_code_input.custom_minimum_size = Vector2(190, 50)
-	room_code_input.text_direction = Control.TEXT_DIRECTION_LTR
-	room_code_input.text_changed.connect(_normalize_room_code_input)
-	room_row.add_child(room_code_input)
-	var join_button := _styled_button(Localization.text("코드로 참가"), Color("#3d8f83"), false)
-	join_button_ref = join_button
-	join_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	join_button.pressed.connect(func(): _connect_for_room("join", room_code_input.text))
-	room_row.add_child(join_button)
+	var multiplayer_button := _styled_button("멀티플레이",Color("#5e6ad2"),true)
+	multiplayer_button.name = "MultiplayerButton"
+	multiplayer_button.pressed.connect(_open_multiplayer)
+	column.add_child(multiplayer_button)
 	var or_label := Label.new()
 	or_label.text = Localization.text("──────────────   또는   ──────────────")
 	or_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -996,6 +983,8 @@ func _on_connection_status(text: String) -> void:
 		status_label.text = Localization.text(text)
 	if network.client_connection_state == "idle":
 		_set_room_controls_disabled(false)
+		if multiplayer_screen == "lobby":
+			_set_lobby_enabled(false)
 
 func _set_room_controls_disabled(disabled: bool) -> void:
 	if is_instance_valid(connect_button_ref):
@@ -1016,6 +1005,9 @@ func _connect_for_room(mode: String, code: String = "") -> void:
 	network.connect_to_candidates(official_connection_candidates(IP.get_local_addresses()), OFFICIAL_SERVER_PORT)
 
 func _on_room_created(code: String) -> void:
+	if network.client_room_mode == "lobby":
+		_build_waiting_room(code)
+		return
 	if is_instance_valid(room_code_input):
 		room_code_input.text = code
 		room_code_input.editable = false
@@ -1024,11 +1016,17 @@ func _on_room_created(code: String) -> void:
 	_on_connection_status(Localization.text("방 코드 %s · 상대가 참가하기를 기다리는 중...") % code)
 
 func _on_room_join_failed(error: String) -> void:
+	if network.client_room_mode == "lobby":
+		_on_connection_status(error)
+		network.browse_rooms(lobby_page)
+		_set_lobby_enabled(network.client_connection_state == "lobby")
+		return
 	network.disconnect_from_server()
 	_on_connection_status(error)
 	_set_room_controls_disabled(false)
 
 func _on_match_found(side: int) -> void:
+	multiplayer_screen = ""
 	local_ai_mode = false
 	battle_preset = _active_preset().duplicate(true)
 	own_side = side
@@ -1850,3 +1848,174 @@ func _on_opponent_left() -> void:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	_build_connect_screen(Localization.text("상대가 연결을 종료했습니다. 다시 접속해 주세요."))
+
+func _open_multiplayer() -> void:
+	_build_lobby_screen()
+	network.set_room_request("lobby")
+	var preset := _active_preset()
+	network.set_client_deck(preset.units,preset.structures)
+	network.connect_to_candidates(official_connection_candidates(IP.get_local_addresses()),OFFICIAL_SERVER_PORT)
+
+func _build_lobby_screen() -> void:
+	_clear_screen()
+	multiplayer_screen = "lobby"
+	root_background = _make_background()
+	var panel := PanelContainer.new()
+	panel.name = "RoomBrowserPanel"
+	panel.position = Vector2(110,28)
+	panel.size = Vector2(1060,664)
+	panel.add_theme_stylebox_override("panel",_panel_style(Color("#131c29"),Color("#52658a"),18))
+	root_background.add_child(panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation",12)
+	panel.add_child(column)
+	var header := HBoxContainer.new()
+	column.add_child(header)
+	var title := Label.new()
+	title.text = "멀티플레이"
+	title.add_theme_font_size_override("font_size",30)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
+	var refresh := _styled_button("새로고침",Color("#3d8f83"))
+	refresh.name = "RefreshRoomsButton"
+	refresh.pressed.connect(func():
+		if network.client_connection_state == "idle": _open_multiplayer()
+		else: network.browse_rooms(lobby_page))
+	header.add_child(refresh)
+	connect_button_ref = _styled_button("방 만들기",Color("#5e6ad2"),true)
+	connect_button_ref.name = "CreateRoomButton"
+	connect_button_ref.pressed.connect(_show_create_room_dialog)
+	header.add_child(connect_button_ref)
+	var deck := Label.new()
+	deck.text = "선택 덱: %s" % String(_active_preset().name)
+	deck.add_theme_color_override("font_color",Color("#a7afc0"))
+	column.add_child(deck)
+	var scroll := ScrollContainer.new()
+	scroll.name = "RoomListScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(scroll)
+	lobby_rows = VBoxContainer.new()
+	lobby_rows.name = "RoomRows"
+	lobby_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lobby_rows.add_theme_constant_override("separation",8)
+	scroll.add_child(lobby_rows)
+	status_label = Label.new()
+	status_label.text = "서버에 연결 중..."
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(status_label)
+	var footer := HBoxContainer.new()
+	column.add_child(footer)
+	var back := _styled_button("뒤로",Color("#3d8f83"))
+	back.name = "LobbyBackButton"
+	back.pressed.connect(func(): network.disconnect_from_server(); _build_connect_screen())
+	footer.add_child(back)
+	var previous := _styled_button("이전",Color("#3d8f83"))
+	previous.pressed.connect(func(): network.browse_rooms(maxi(0,lobby_page-1)))
+	footer.add_child(previous)
+	lobby_page_label = Label.new()
+	lobby_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_page_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	footer.add_child(lobby_page_label)
+	var next := _styled_button("다음",Color("#3d8f83"))
+	next.pressed.connect(func(): network.browse_rooms(lobby_page+1))
+	footer.add_child(next)
+	_render_room_listing(lobby_data)
+	_set_lobby_enabled(network.client_connection_state == "lobby")
+	updater.set_safe_to_update(false)
+
+func _set_lobby_enabled(enabled: bool) -> void:
+	if is_instance_valid(connect_button_ref): connect_button_ref.disabled = not enabled
+	if is_instance_valid(lobby_rows):
+		for button in lobby_rows.find_children("JoinRoomButton","Button",true,false): button.disabled = not enabled
+
+func _render_room_listing(data: Dictionary) -> void:
+	if not is_instance_valid(lobby_rows): return
+	for child in lobby_rows.get_children():
+		lobby_rows.remove_child(child)
+		child.queue_free()
+	lobby_page = int(data.page)
+	lobby_total = int(data.total)
+	lobby_page_label.text = "%d / %d  ·  방 %d개" % [lobby_page+1,maxi(1,(lobby_total+NetworkController.ROOM_LIST_PAGE_SIZE-1)/NetworkController.ROOM_LIST_PAGE_SIZE),lobby_total]
+	if data.rooms.is_empty():
+		var empty := Label.new()
+		empty.name = "NoRoomsLabel"
+		empty.text = "열린 방이 없습니다. 방을 만들어 보세요."
+		empty.custom_minimum_size = Vector2(0,110)
+		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		lobby_rows.add_child(empty)
+	for room in data.rooms:
+		var row := HBoxContainer.new()
+		row.name = "RoomRow"
+		row.custom_minimum_size = Vector2(0,56)
+		row.add_theme_constant_override("separation",16)
+		lobby_rows.add_child(row)
+		var name_label := Label.new()
+		name_label.text = room.name
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		row.add_child(name_label)
+		var count := Label.new(); count.text = "1 / 2"; row.add_child(count)
+		var join := _styled_button("참가",Color("#3d8f83"))
+		join.name = "JoinRoomButton"
+		join.set_meta("room_code",room.code)
+		join.pressed.connect(func():
+			if network.join_lobby_room(String(room.code)):
+				_set_lobby_enabled(false)
+				status_label.text = "방에 참가 중...")
+		row.add_child(join)
+
+func _on_room_list(data: Dictionary) -> void:
+	lobby_data = data.duplicate(true)
+	if multiplayer_screen == "waiting" and network.client_connection_state == "lobby": _build_lobby_screen()
+	if multiplayer_screen != "lobby": return
+	_render_room_listing(data)
+	_set_lobby_enabled(network.client_connection_state == "lobby")
+	if network.client_connection_state == "lobby": status_label.text = "참가할 방을 선택하세요."
+
+func _show_create_room_dialog() -> void:
+	if network.client_connection_state != "lobby": return
+	if is_instance_valid(room_create_dialog): return
+	room_create_dialog = ConfirmationDialog.new()
+	room_create_dialog.name = "CreateRoomDialog"
+	room_create_dialog.title = "방 만들기"
+	room_create_dialog.ok_button_text = "만들기"
+	room_create_dialog.cancel_button_text = "취소"
+	var name_input := LineEdit.new()
+	name_input.name = "RoomNameInput"
+	name_input.placeholder_text = "방 이름"
+	name_input.text = "함께 대전해요"
+	name_input.max_length = NetworkController.ROOM_NAME_LENGTH
+	name_input.custom_minimum_size = Vector2(460,56)
+	room_create_dialog.add_child(name_input)
+	add_child(room_create_dialog)
+	room_create_dialog.confirmed.connect(func():
+		if network.create_lobby_room(name_input.text):
+			_set_lobby_enabled(false)
+			status_label.text = "방을 만드는 중..."
+		else: status_label.text = "방 이름은 24자 이내로 입력하세요."
+		room_create_dialog.queue_free())
+	room_create_dialog.canceled.connect(func(): room_create_dialog.queue_free())
+	room_create_dialog.popup_centered(Vector2i(500,150))
+	name_input.grab_focus()
+	name_input.select_all()
+
+func _build_waiting_room(code: String) -> void:
+	_clear_screen()
+	multiplayer_screen = "waiting"
+	root_background = _make_background()
+	var panel := PanelContainer.new()
+	panel.name = "WaitingRoomPanel"
+	panel.position = Vector2(330,180)
+	panel.size = Vector2(620,360)
+	panel.add_theme_stylebox_override("panel",_panel_style(Color("#131c29"),Color("#52658a"),24))
+	root_background.add_child(panel)
+	var column := VBoxContainer.new(); column.add_theme_constant_override("separation",18); panel.add_child(column)
+	var title := Label.new(); title.text = network.client_room_name; title.add_theme_font_size_override("font_size",28); column.add_child(title)
+	var detail := Label.new(); detail.name = "WaitingRoomCode"; detail.text = "1 / 2  ·  방 코드 %s" % code; column.add_child(detail)
+	status_label = Label.new(); status_label.text = "상대가 참가하기를 기다리는 중..."; column.add_child(status_label)
+	var leave := _styled_button("방 나가기",Color("#3d8f83"))
+	leave.name = "LeaveRoomButton"
+	leave.pressed.connect(func(): leave.disabled = true; network.leave_lobby_room())
+	column.add_child(leave)

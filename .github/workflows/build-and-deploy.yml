@@ -59,8 +59,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $contentVersion = "0.5.2"
-          $windowsVersion = "0.5.2"
+          $contentVersion = "0.5.3"
+          $windowsVersion = "0.5.3"
           $androidBinaryVersion = "0.4.18"
           $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?before=${{ github.sha }}"
           $previousAndroidVersion = if ($previous.PSObject.Properties.Name -contains "android_binary_version") { [string]$previous.android_binary_version } else { [string]$previous.version }
@@ -143,6 +143,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Combat interpolation/timer/sound regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/reconnect_admission_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Reconnect and uncapped admission regression failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_browser_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "Room browser lifecycle/protocol regression failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_browser_ui_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "Room browser UI navigation regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/combat_polish_ui_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Combat feedback and mirrored placement regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/ai_battle_spotcheck.gd

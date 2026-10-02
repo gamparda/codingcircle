@@ -10,6 +10,7 @@ signal combat_events_received(events: Array)
 signal opponent_disconnected
 signal structure_placement_result(success: bool, error: String)
 signal room_created(code: String)
+signal room_list_received(data: Dictionary)
 signal room_join_failed(error: String)
 
 const DEFAULT_PORT := 7777
@@ -21,6 +22,8 @@ const MAX_SNAPSHOT_STRUCTURES := 16
 const TRANSPORT_MAX_PEERS := 4095 # ENet protocol ceiling, not an application admission quota.
 const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "skeleton"]
 const VALID_STRUCTURE_KINDS := ["wall", "swamp", "turret", "generator"]
+const ROOM_LIST_PAGE_SIZE := 12
+const ROOM_NAME_LENGTH := 24
 const ROOM_CODE_LENGTH := 6
 const ROOM_CODE_ALPHABET := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const CONNECTION_TIMEOUT := 4.0
@@ -47,6 +50,10 @@ var client_connection_index := -1
 var client_connection_port := DEFAULT_PORT
 var client_room_mode := "create"
 var client_room_code := ""
+var client_room_name := ""
+var lobby_pages: Dictionary = {}
+var lobby_dirty := false
+var lobby_refresh_elapsed := 0.0
 var client_connection_generation := 0
 var client_phase_elapsed := 0.0
 
@@ -84,10 +91,10 @@ func set_client_deck(unit_deck: Array, structure_deck: Array) -> bool:
 	return true
 
 func set_room_request(mode: String, code: String = "") -> bool:
-	if not ["create", "join", "enter"].has(mode):
+	if not ["create", "join", "enter", "lobby"].has(mode):
 		return false
 	var normalized := code.strip_edges().to_upper()
-	if mode != "create" and not is_valid_room_code(normalized):
+	if mode in ["join", "enter"] and not is_valid_room_code(normalized):
 		return false
 	client_room_mode = mode
 	client_room_code = normalized
@@ -392,6 +399,16 @@ func _process(delta: float) -> void:
 	if not server_mode:
 		_advance_client_connection(delta)
 		return
+	lobby_refresh_elapsed += delta
+	if lobby_dirty and lobby_refresh_elapsed >= 0.25:
+		lobby_dirty = false
+		lobby_refresh_elapsed = 0.0
+		var listing := registry.room_listing()
+		for peer_id in lobby_pages.keys():
+			if registry.has_match(int(peer_id)) or not peer_addresses.has(peer_id):
+				lobby_pages.erase(peer_id)
+			elif _peer_is_connected(int(peer_id)):
+				_send_room_listing(int(peer_id), int(lobby_pages[peer_id]), listing)
 	tick_accumulator += delta
 	snapshot_accumulator += delta
 	while tick_accumulator >= TICK_RATE:
@@ -408,7 +425,7 @@ func _process(delta: float) -> void:
 		snapshot_accumulator = 0.0
 
 func _advance_client_connection(delta: float) -> void:
-	if client_connection_state not in ["connecting", "connected"]:
+	if client_connection_state not in ["connecting", "connected", "room_request", "leaving"]:
 		return
 	client_phase_elapsed += delta
 	if client_connection_state == "connecting" and client_phase_elapsed >= CONNECTION_TIMEOUT:
@@ -417,7 +434,7 @@ func _advance_client_connection(delta: float) -> void:
 			return
 		disconnect_from_server()
 		connection_status.emit(Localization.text("서버 연결 실패"))
-	elif client_connection_state == "connected" and client_phase_elapsed >= ROOM_REQUEST_TIMEOUT:
+	elif client_connection_state in ["connected", "room_request", "leaving"] and client_phase_elapsed >= ROOM_REQUEST_TIMEOUT:
 		disconnect_from_server()
 		connection_status.emit(Localization.text("서버 응답 시간이 초과되었습니다. 다시 시도하세요."))
 
@@ -469,6 +486,8 @@ func _on_peer_disconnected(peer_id: int) -> void:
 		return
 	var match_id := registry.get_match_id(peer_id)
 	var players := registry.remove_player(peer_id)
+	lobby_pages.erase(peer_id)
+	lobby_dirty = true
 	for player_id in players:
 		if int(player_id) != peer_id and _peer_is_connected(int(player_id)):
 			_disconnect_orphaned_peer.call_deferred(int(player_id))
@@ -498,7 +517,7 @@ func request_submit_deck(unit_deck: Array, structure_deck: Array) -> void:
 	receive_deck_accepted.rpc_id(sender)
 
 @rpc("any_peer", "call_remote", "reliable")
-func request_create_room() -> void:
+func request_create_room(title: String = "") -> void:
 	if not server_mode:
 		return
 	var sender := multiplayer.get_remote_sender_id()
@@ -508,10 +527,14 @@ func request_create_room() -> void:
 	if not can_process_request(sender) or not peer_decks.has(sender) or registry.peer_to_room.has(sender) or registry.has_match(sender):
 		receive_room_join_failed.rpc_id(sender, Localization.text("지금은 방을 만들 수 없습니다. 잠시 후 다시 시도하세요."))
 		return
+	if not title.is_empty() and not is_valid_room_name(title):
+		receive_room_join_failed.rpc_id(sender, "방 이름은 24자 이내로 입력하세요.")
+		return
 	var code := _generate_room_code()
-	if code.is_empty() or not registry.create_room(sender, code):
+	if code.is_empty() or not registry.create_room(sender, code, title.strip_edges()):
 		receive_room_join_failed.rpc_id(sender, Localization.text("방을 만들지 못했습니다."))
 		return
+	lobby_dirty = true
 	print("ROOM_CREATED peer=%d" % sender)
 	receive_room_created.rpc_id(sender, code)
 
@@ -537,6 +560,7 @@ func request_join_room(code: String, create_if_missing: bool = false) -> void:
 		receive_room_join_failed.rpc_id(sender, Localization.text("방을 찾을 수 없거나 이미 시작된 방입니다."))
 		return
 	print("ROOM_JOINED peer=%d" % sender)
+	lobby_dirty = true
 	_start_paired_match(paired)
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -611,7 +635,9 @@ func send_rematch() -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func receive_deck_accepted() -> void:
-	if client_room_mode == "join" or client_room_mode == "enter":
+	if client_room_mode == "lobby":
+		request_room_list.rpc_id(1,0)
+	elif client_room_mode == "join" or client_room_mode == "enter":
 		request_join_room.rpc_id(1, client_room_code, client_room_mode == "enter")
 	else:
 		request_create_room.rpc_id(1)
@@ -626,6 +652,9 @@ func receive_room_created(code: String) -> void:
 @rpc("authority", "call_remote", "reliable")
 func receive_room_join_failed(error: String) -> void:
 	if error.length() <= 100:
+		if client_room_mode == "lobby" and client_connection_state == "room_request":
+			client_connection_state = "lobby"
+			client_phase_elapsed = 0.0
 		room_join_failed.emit(error)
 
 func _broadcast_snapshot(match_id: int) -> void:
@@ -667,3 +696,78 @@ func receive_structure_placement_result(success: bool, error: String) -> void:
 func opponent_left() -> void:
 	client_in_match = false
 	opponent_disconnected.emit()
+
+static func is_valid_room_name(title: String) -> bool:
+	var value := title.strip_edges()
+	if value.is_empty() or value.length() > ROOM_NAME_LENGTH: return false
+	for index in value.length():
+		if value.unicode_at(index) < 32 or value.unicode_at(index) == 127: return false
+	return true
+
+func _send_room_listing(peer_id: int, page: int, listing: Array) -> void:
+	var last_page := maxi(0, (listing.size()-1) / ROOM_LIST_PAGE_SIZE)
+	page = clampi(page,0,last_page)
+	lobby_pages[peer_id] = page
+	receive_room_list.rpc_id(peer_id,{"rooms":listing.slice(page*ROOM_LIST_PAGE_SIZE,(page+1)*ROOM_LIST_PAGE_SIZE),"page":page,"total":listing.size()})
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_room_list(page: int = 0) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not peer_decks.has(sender) or registry.has_match(sender): return
+	_send_room_listing(sender,maxi(0,page),registry.room_listing())
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_leave_room() -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not peer_decks.has(sender) or registry.has_match(sender): return
+	registry.remove_player(sender)
+	lobby_dirty = true
+	_send_room_listing(sender,0,registry.room_listing())
+
+static func is_valid_room_listing(data: Dictionary) -> bool:
+	if not _has_exact_keys(data,["rooms","page","total"]) or not data.rooms is Array: return false
+	if not _number_in_range(data.page,0,TRANSPORT_MAX_PEERS) or not _number_in_range(data.total,0,TRANSPORT_MAX_PEERS): return false
+	if float(data.page) != floor(float(data.page)) or float(data.total) != floor(float(data.total)) or data.rooms.size() > ROOM_LIST_PAGE_SIZE: return false
+	var last_page := maxi(0,(int(data.total)-1)/ROOM_LIST_PAGE_SIZE)
+	if int(data.page)>last_page or data.rooms.size()!=mini(ROOM_LIST_PAGE_SIZE,maxi(0,int(data.total)-int(data.page)*ROOM_LIST_PAGE_SIZE)): return false
+	var codes: Dictionary = {}
+	for item in data.rooms:
+		if not item is Dictionary or not _has_exact_keys(item,["code","name","players"]): return false
+		if not item.code is String or not is_valid_room_code(item.code) or codes.has(item.code): return false
+		if not item.name is String or not is_valid_room_name(item.name) or not _number_in_range(item.players,1,1): return false
+		codes[item.code] = true
+	return true
+
+@rpc("authority", "call_remote", "reliable")
+func receive_room_list(data: Dictionary) -> void:
+	if not is_valid_room_listing(data) or client_connection_state in ["idle","in_match"]: return
+	if client_connection_state in ["connected","leaving"]:
+		client_connection_state = "lobby"
+		client_phase_elapsed = 0.0
+	room_list_received.emit(data)
+
+func browse_rooms(page: int = 0) -> void:
+	if client_connection_state == "lobby": request_room_list.rpc_id(1,page)
+
+func create_lobby_room(title: String) -> bool:
+	if client_connection_state != "lobby" or not is_valid_room_name(title): return false
+	client_room_name = title.strip_edges()
+	client_connection_state = "room_request"
+	client_phase_elapsed = 0.0
+	request_create_room.rpc_id(1,client_room_name)
+	return true
+
+func join_lobby_room(code: String) -> bool:
+	if client_connection_state != "lobby" or not is_valid_room_code(code): return false
+	client_connection_state = "room_request"
+	client_phase_elapsed = 0.0
+	request_join_room.rpc_id(1,code,false)
+	return true
+
+func leave_lobby_room() -> void:
+	if client_connection_state != "waiting": return
+	client_connection_state = "leaving"
+	client_phase_elapsed = 0.0
+	request_leave_room.rpc_id(1)

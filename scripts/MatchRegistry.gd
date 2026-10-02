@@ -7,11 +7,13 @@ var peer_to_side: Dictionary = {}
 var matches: Dictionary = {}
 var rooms: Dictionary = {}
 var peer_to_room: Dictionary = {}
+var room_names: Dictionary = {}
 
-func create_room(peer_id: int, code: String) -> bool:
+func create_room(peer_id: int, code: String, title: String = "") -> bool:
 	if peer_id <= 0 or code.is_empty() or rooms.has(code) or peer_to_match.has(peer_id) or peer_to_room.has(peer_id):
 		return false
 	rooms[code] = peer_id
+	room_names[code] = title if not title.is_empty() else "방 " + code
 	peer_to_room[peer_id] = code
 	return true
 
@@ -22,6 +24,7 @@ func join_room(peer_id: int, code: String) -> Dictionary:
 	if first == peer_id:
 		return {}
 	rooms.erase(code)
+	room_names.erase(code)
 	peer_to_room.erase(first)
 	var match_id := next_match_id
 	next_match_id += 1
@@ -47,6 +50,7 @@ func get_players_for_peer(peer_id: int) -> Array:
 
 func remove_player(peer_id: int) -> Array:
 	if peer_to_room.has(peer_id):
+		room_names.erase(String(peer_to_room[peer_id]))
 		rooms.erase(String(peer_to_room[peer_id]))
 		peer_to_room.erase(peer_id)
 		return [peer_id]
@@ -59,3 +63,9 @@ func remove_player(peer_id: int) -> Array:
 		peer_to_side.erase(player)
 	matches.erase(match_id)
 	return players
+
+func room_listing() -> Array:
+	var result: Array = []
+	for code in rooms:
+		result.append({"code":String(code),"name":String(room_names.get(code,"방 " + String(code))),"players":1})
+	return result

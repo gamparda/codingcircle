@@ -38,10 +38,10 @@ func capture() -> void:
 		return
 	main._build_connect_screen()
 	await process_frame
-	var code: LineEdit = main.find_child("RoomCodeInput", true, false)
-	code.text = "abc233"
-	code.set_caret_column(6)
-	main._normalize_room_code_input(code.text)
+	main._build_lobby_screen()
+	main.network.client_connection_state = "lobby"
+	main._on_room_list({"rooms":[{"code":"ABC233","name":"같이 대전해요","players":1}],"page":0,"total":1})
+	await process_frame
 	await RenderingServer.frame_post_draw
 	result = root.get_viewport().get_texture().get_image().save_png("/tmp/catwar-room-layout.png")
 	if result != OK:
