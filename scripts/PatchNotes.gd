@@ -3,6 +3,16 @@ extends RefCounted
 # Historical changes reconstructed from version tags; not current balance rules.
 const HISTORY := [
 {
+  "version": "v0.5.2",
+  "changes": [
+    "짧은 연결 종료가 반복될 때 같은 IP를 120초 동안 차단하던 기능을 제거했습니다. 방을 나갔다 다시 만들거나 재접속해도 이 규칙으로 차단되지 않습니다.",
+    "IP당 동시 연결 4개 제한과 진행 중 대전 32개 제한을 제거했습니다. 기존 ENet 연결 상한 128개는 프로토콜이 허용하는 최대값으로 변경했습니다.",
+    "잘못된 접속 정보·덱·요청 검증과 업데이트 중 신규 접속 대기는 유지합니다. 수용량 초과로 표시하던 접속 로그와 안내 문구를 정리했습니다."
+  ],
+  "source_tag": "",
+  "source_commits": []
+},
+{
   "version": "v0.5.1",
   "changes": [
     "온라인 병력 위치를 화면에서만 보간해 이동 끊김을 줄였습니다. 실제 판정·건설 좌표는 유지하며, 새 병력·새 경기·긴 통신 공백은 즉시 정렬합니다.",

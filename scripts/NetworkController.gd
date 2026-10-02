@@ -18,12 +18,7 @@ const SNAPSHOT_RATE := 1.0 / 12.0
 const MAX_REQUESTS_PER_SECOND := 24
 const MAX_SNAPSHOT_UNITS := 256
 const MAX_SNAPSHOT_STRUCTURES := 16
-const MAX_CONNECTIONS_PER_ADDRESS := 4
-const MAX_ACTIVE_MATCHES := 32
-const EARLY_DISCONNECT_LIMIT := 3
-const EARLY_DISCONNECT_WINDOW_MSEC := 60000
-const QUICK_DISCONNECT_MSEC := 15000
-const ABUSE_BLOCK_MSEC := 120000
+const TRANSPORT_MAX_PEERS := 4095 # ENet protocol ceiling, not an application admission quota.
 const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "skeleton"]
 const VALID_STRUCTURE_KINDS := ["wall", "swamp", "turret", "generator"]
 const ROOM_CODE_LENGTH := 6
@@ -43,10 +38,6 @@ var snapshot_accumulator := 0.0
 var request_windows: Dictionary = {}
 var peer_addresses: Dictionary = {}
 var address_connection_counts: Dictionary = {}
-var peer_connected_msec: Dictionary = {}
-var early_disconnect_events: Dictionary = {}
-var address_blocked_until: Dictionary = {}
-var server_forced_disconnects: Dictionary = {}
 var peer_decks: Dictionary = {}
 var client_unit_deck: Array = BattleModel.DEFAULT_UNIT_DECK.duplicate()
 var client_structure_deck: Array = BattleModel.DEFAULT_STRUCTURE_DECK.duplicate()
@@ -123,7 +114,7 @@ func _on_server_disconnected() -> void:
 func start_dedicated_server(port: int = DEFAULT_PORT) -> bool:
 	allow_test_room_codes = OS.get_cmdline_user_args().has("--allow-test-room-codes")
 	var peer := ENetMultiplayerPeer.new()
-	var error := peer.create_server(port, 128)
+	var error := peer.create_server(port, TRANSPORT_MAX_PEERS)
 	if error != OK:
 		printerr(Localization.text("서버 시작 실패: %s") % error_string(error))
 		return false
@@ -199,7 +190,6 @@ func set_accepting_players(value: bool) -> void:
 	if not accepting_players:
 		for peer_id in multiplayer.get_peers():
 			if peer_should_disconnect_for_drain(int(peer_id)):
-				mark_server_forced_disconnect(int(peer_id))
 				registry.remove_player(int(peer_id))
 				(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(int(peer_id))
 
@@ -211,7 +201,7 @@ func peer_should_disconnect_for_drain(peer_id: int) -> bool:
 	return model.winner != -1
 
 func can_accept_room_request() -> bool:
-	return accepting_players and can_create_match()
+	return accepting_players
 
 func can_accept_rematch(model: BattleModel) -> bool:
 	return accepting_players and model.winner != -1
@@ -233,60 +223,28 @@ func can_process_request(peer_id: int, now_msec: int = -1) -> bool:
 func register_peer_address(peer_id: int, address: String) -> bool:
 	if peer_id <= 0 or address.is_empty() or peer_addresses.has(peer_id):
 		return false
-	if is_address_temporarily_blocked(address):
-		return false
 	var count := int(address_connection_counts.get(address, 0))
-	if count >= MAX_CONNECTIONS_PER_ADDRESS:
-		return false
 	peer_addresses[peer_id] = address
-	peer_connected_msec[peer_id] = Time.get_ticks_msec()
 	address_connection_counts[address] = count + 1
 	return true
-
-func record_early_disconnect(address: String, now_msec: int = -1) -> void:
-	if address.is_empty():
-		return
-	var now := Time.get_ticks_msec() if now_msec < 0 else now_msec
-	var recent: Array = []
-	for event_time in early_disconnect_events.get(address, []):
-		if now - int(event_time) <= EARLY_DISCONNECT_WINDOW_MSEC:
-			recent.append(int(event_time))
-	recent.append(now)
-	early_disconnect_events[address] = recent
-	if recent.size() >= EARLY_DISCONNECT_LIMIT:
-		address_blocked_until[address] = now + ABUSE_BLOCK_MSEC
-
-func is_address_temporarily_blocked(address: String, now_msec: int = -1) -> bool:
-	var now := Time.get_ticks_msec() if now_msec < 0 else now_msec
-	return now < int(address_blocked_until.get(address, 0))
 
 func release_peer_address(peer_id: int) -> void:
 	if not peer_addresses.has(peer_id):
 		return
 	var address := String(peer_addresses[peer_id])
 	peer_addresses.erase(peer_id)
-	peer_connected_msec.erase(peer_id)
 	var count := int(address_connection_counts.get(address, 0)) - 1
 	if count <= 0:
 		address_connection_counts.erase(address)
 	else:
 		address_connection_counts[address] = count
 
-func mark_server_forced_disconnect(peer_id: int) -> void:
-	if peer_id > 0:
-		server_forced_disconnects[peer_id] = true
-
-func should_penalize_disconnect(peer_id: int, connected_at: int, now: int) -> bool:
-	if server_forced_disconnects.erase(peer_id):
-		return false
-	return now - connected_at < QUICK_DISCONNECT_MSEC
-
 func can_create_match() -> bool:
-	return models.size() < MAX_ACTIVE_MATCHES
+	return true # No application-level match quota.
 
 func can_admit_deck(peer_id: int) -> bool:
 	# Admission must be checked when the deck arrives, not just on connection.
-	return accepting_players and can_create_match() and peer_addresses.has(peer_id)
+	return accepting_players and peer_addresses.has(peer_id)
 
 func _remote_address(peer_id: int) -> String:
 	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
@@ -305,7 +263,6 @@ func _peer_is_connected(peer_id: int) -> bool:
 func _disconnect_orphaned_peer(peer_id: int) -> void:
 	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
 	if enet != null and _peer_is_connected(peer_id):
-		mark_server_forced_disconnect(peer_id)
 		enet.disconnect_peer(peer_id, true)
 
 static func is_safe_command_text(value: String) -> bool:
@@ -471,8 +428,8 @@ func _on_peer_connected(peer_id: int) -> void:
 		print("PLAYER_REJECTED_UPDATE peer=%d" % peer_id)
 		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(peer_id)
 		return
-	if not can_create_match() or not register_peer_address(peer_id, _remote_address(peer_id)):
-		print("PLAYER_REJECTED_CAPACITY peer=%d" % peer_id)
+	if not register_peer_address(peer_id, _remote_address(peer_id)):
+		print("PLAYER_REJECTED_INVALID_PEER peer=%d" % peer_id)
 		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(peer_id)
 		return
 	print("PLAYER_CONNECTED peer=%d" % peer_id)
@@ -515,11 +472,6 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	for player_id in players:
 		if int(player_id) != peer_id and _peer_is_connected(int(player_id)):
 			_disconnect_orphaned_peer.call_deferred(int(player_id))
-	var now := Time.get_ticks_msec()
-	var connected_at := int(peer_connected_msec.get(peer_id, now))
-	var address := String(peer_addresses.get(peer_id, ""))
-	if should_penalize_disconnect(peer_id, connected_at, now):
-		record_early_disconnect(address, now)
 	models.erase(match_id)
 	rematch_ready.erase(match_id)
 	peer_decks.erase(peer_id)
@@ -535,12 +487,10 @@ func request_submit_deck(unit_deck: Array, structure_deck: Array) -> void:
 	if peer_decks.has(sender) or not can_process_request(sender):
 		return
 	if not can_admit_deck(sender):
-		mark_server_forced_disconnect(sender)
 		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(sender)
 		return
 	if not validate_deck_payload(unit_deck, structure_deck):
 		print("PLAYER_REJECTED_DECK peer=%d" % sender)
-		mark_server_forced_disconnect(sender)
 		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(sender)
 		return
 	peer_decks[sender] = {"units": unit_deck.duplicate(), "structures": structure_deck.duplicate()}
@@ -553,7 +503,7 @@ func request_create_room() -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	if not can_accept_room_request():
-		receive_room_join_failed.rpc_id(sender, Localization.text("서버가 업데이트 준비 중이거나 대전 수용량이 가득 찼습니다."))
+		receive_room_join_failed.rpc_id(sender, Localization.text("서버가 업데이트 준비 중입니다. 잠시 후 다시 시도하세요."))
 		return
 	if not can_process_request(sender) or not peer_decks.has(sender) or registry.peer_to_room.has(sender) or registry.has_match(sender):
 		receive_room_join_failed.rpc_id(sender, Localization.text("지금은 방을 만들 수 없습니다. 잠시 후 다시 시도하세요."))
@@ -572,7 +522,7 @@ func request_join_room(code: String, create_if_missing: bool = false) -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	var normalized := code.strip_edges().to_upper()
 	if not can_accept_room_request():
-		receive_room_join_failed.rpc_id(sender, Localization.text("서버가 업데이트 준비 중이거나 대전 수용량이 가득 찼습니다."))
+		receive_room_join_failed.rpc_id(sender, Localization.text("서버가 업데이트 준비 중입니다. 잠시 후 다시 시도하세요."))
 		return
 	if not can_process_request(sender) or not peer_decks.has(sender) or not is_valid_room_code(normalized):
 		receive_room_join_failed.rpc_id(sender, Localization.text("올바른 방 코드를 입력하세요."))

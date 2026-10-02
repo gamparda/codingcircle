@@ -287,21 +287,18 @@ func _init() -> void:
 	expect_true(not admission_policy.can_accept_room_request(), "draining servers reject room creation and joining")
 	admission_policy.accepting_players = true
 	expect_true(admission_policy.peer_should_disconnect_for_drain(500), "drain disconnects unmatched connected peers")
-	for peer_id in range(1, NetworkController.MAX_CONNECTIONS_PER_ADDRESS + 1):
+	for peer_id in range(1, 9):
 		expect_true(admission_policy.register_peer_address(peer_id, "127.0.0.1"), "per-address admission accepts peer %d" % peer_id)
-	expect_true(not admission_policy.register_peer_address(99, "127.0.0.1"), "per-address admission rejects excess peers")
+	expect_true(admission_policy.register_peer_address(99, "127.0.0.1"), "per-address admission allows peers beyond the former cap")
 	admission_policy.release_peer_address(1)
-	expect_true(admission_policy.register_peer_address(99, "127.0.0.1"), "per-address admission recovers after disconnect")
-	for strike in range(NetworkController.EARLY_DISCONNECT_LIMIT):
-		admission_policy.record_early_disconnect("198.51.100.7", 5000 + strike)
-	expect_true(admission_policy.is_address_temporarily_blocked("198.51.100.7", 6000), "repeated early disconnects trigger a temporary block")
-	expect_true(not admission_policy.is_address_temporarily_blocked("198.51.100.7", 5000 + NetworkController.ABUSE_BLOCK_MSEC + 100), "temporary connection block expires")
-	admission_policy.mark_server_forced_disconnect(200)
-	expect_true(not admission_policy.should_penalize_disconnect(200, 1000, 2000), "server-forced orphan disconnect is not penalized")
-	expect_true(admission_policy.should_penalize_disconnect(201, 1000, 2000), "voluntary quick disconnect is penalized")
-	for match_id in range(NetworkController.MAX_ACTIVE_MATCHES):
+	expect_true(admission_policy.register_peer_address(100, "127.0.0.1"), "per-address admission recovers after disconnect")
+	for attempt in range(20):
+		var reconnect_id := 1000 + attempt
+		expect_true(admission_policy.register_peer_address(reconnect_id, "198.51.100.7"), "normal repeated reconnect %d is never temporarily blocked" % attempt)
+		admission_policy.release_peer_address(reconnect_id)
+	for match_id in range(40):
 		admission_policy.models[match_id] = BattleModel.new()
-	expect_true(not admission_policy.can_create_match(), "active match cap prevents model exhaustion")
+	expect_true(admission_policy.can_create_match(), "active matches do not impose an admission quota")
 	admission_policy.free()
 	network_policy.free()
 
@@ -358,7 +355,7 @@ func _init() -> void:
 	var Main = load("res://scripts/Main.gd")
 	expect_true(Main != null, "Main script loads")
 	expect_eq(Main.build_binary_version(), "0.4.18", "Korean-only release updates the native Android bootstrap")
-	expect_eq(Main.build_version(), "0.5.1", "content pack version advances independently")
+	expect_eq(Main.build_version(), "0.5.2", "content pack version advances independently")
 	expect_true(NetworkController.is_valid_room_code(Main.DEFAULT_SMOKE_ROOM_CODE), "default smoke room code follows production room-code rules")
 	expect_true(Main.apk_update_required("Android", "0.4.4", "0.4.5"), "new content warns when it runs on an older Android APK")
 	expect_true(not Main.apk_update_required("Android", "0.4.5", "0.4.5"), "matching Android APK and content versions do not warn")
