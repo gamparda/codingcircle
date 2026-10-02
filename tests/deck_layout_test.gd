@@ -14,6 +14,7 @@ func check(value: bool, message: String) -> void:
 
 func click(button: Button) -> void:
 	if DisplayServer.get_name() == "headless":
+		if button.toggle_mode: button.button_pressed = not button.button_pressed
 		button.pressed.emit()
 		return
 	for pressed in [true, false]:
