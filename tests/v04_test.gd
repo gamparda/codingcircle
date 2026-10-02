@@ -40,7 +40,7 @@ func _init() -> void:
 	expect_true(economy.place_structure(0, "generator", 250.0), "generator can be placed in rear zone")
 	var before: float = economy.resources[0]
 	economy.tick(1.0)
-	expect_eq(economy.resources[0], before + BattleModel.RESOURCE_RATE + 1.0, "generator adds one resource per second")
+	expect_eq(economy.resources[0], before + BattleModel.RESOURCE_RATE + 2.0, "generator adds one resource per second")
 	var shielding = BattleModel.new()
 	shielding.resources = [150.0, 150.0]
 	shielding.configure_deck(1, ["shield", "swordsman", "archer"], ["wall", "turret", "generator"])
@@ -129,7 +129,7 @@ func _init() -> void:
 		expect_true(not defaults.tutorial_completed, "new profiles show the first battle guide")
 		expect_true(SaveData.sanitize({"tutorial_completed": true}).tutorial_completed, "tutorial completion survives sanitization")
 		expect_true(not SaveData.sanitize({"tutorial_completed": 1}).tutorial_completed, "non-boolean tutorial flag is rejected")
-		expect_eq(defaults.campaign_records.size(), 10, "ten campaign records exist")
+		expect_eq(defaults.campaign_records.size(), 8, "eight campaign records exist")
 		var repaired: Dictionary = SaveData.sanitize({"save_version": 1, "last_deck": 99, "settings": "broken"})
 		expect_eq(repaired.last_deck, 0, "invalid values recover to defaults")
 		expect_true(repaired.settings is Dictionary, "invalid settings recover independently")

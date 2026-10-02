@@ -111,15 +111,23 @@ func _gui_input(event: InputEvent) -> void:
 		battlefield_clicked.emit(world_x)
 
 func screen_to_world_x(screen_x: float) -> float:
-	return screen_x / max(size.x, 1.0) * BattleModel.WORLD_WIDTH
+	var x: float = screen_x / maxf(size.x, 1.0) * BattleModel.WORLD_WIDTH
+	return BattleModel.WORLD_WIDTH - x if own_side == 1 else x
+
+func world_to_screen_x(world_x: float) -> float:
+	var x := BattleModel.WORLD_WIDTH - world_x if own_side == 1 else world_x
+	return x / BattleModel.WORLD_WIDTH * size.x
+
+func display_side(world_side: int) -> int:
+	return 0 if world_side == own_side else 1
 
 func _draw() -> void:
 	var scale_x := size.x / BattleModel.WORLD_WIDTH
 	var lane_y := size.y * 0.72
 	_draw_sky(lane_y)
 	_draw_ground(lane_y)
-	_draw_base(BattleModel.FIELD_LEFT * scale_x, lane_y, 0)
-	_draw_base(BattleModel.FIELD_RIGHT * scale_x, lane_y, 1)
+	_draw_base(world_to_screen_x(BattleModel.FIELD_LEFT), lane_y, display_side(0))
+	_draw_base(world_to_screen_x(BattleModel.FIELD_RIGHT), lane_y, display_side(1))
 
 	for structure in snapshot.get("structures", []):
 		_draw_structure(structure, scale_x, lane_y)
@@ -208,8 +216,8 @@ func _draw_base(x: float, lane_y: float, side: int) -> void:
 	]), color)
 
 func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
-	var x := float(unit.x) * scale_x
-	var side := int(unit.side)
+	var x := world_to_screen_x(float(unit.x))
+	var side := display_side(int(unit.side))
 	var facing := 1.0 if side == 0 else -1.0
 	var color := BLUE if side == 0 else RED
 	var kind := String(unit.kind)
@@ -239,20 +247,20 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	draw_circle(Vector2(x - 25.0, lane_y - 74.0), 2.0, Color("#f5f7fb"))
 	if unit.kind == "healer" and unit.cooldown > unit.interval * 0.70:
 		draw_circle(Vector2(x, lane_y - 50.0), 28.0, Color(0.42, 1.0, 0.67, 0.12))
-		draw_line(Vector2(x - 6.0, lane_y - 50.0), Vector2(x + 6.0, lane_y - 50.0), Color("#86f7ad"), 3.0)
-		draw_line(Vector2(x, lane_y - 56.0), Vector2(x, lane_y - 44.0), Color("#86f7ad"), 3.0)
+		draw_string(ThemeDB.fallback_font, Vector2(x - 8.0, lane_y - 46.0), "▲", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color("#86f7ad"))
 
 	var hp_ratio: float = float(unit.hp) / max(float(unit.max_hp), 1.0)
 	var bar_y: float = lane_y - 102.0 - float(int(unit.id) % 3) * 6.0
 	draw_rect(Rect2(x - 21.0, bar_y, 42.0, 6.0), Color(0.02, 0.03, 0.06, 0.88))
 	draw_rect(Rect2(x - 20.0, bar_y + 1.0, 40.0 * hp_ratio, 4.0), Color("#71e49a") if hp_ratio > 0.35 else Color("#ff6b72"))
 	if show_battle_effects and kind != "healer":
-		if float(unit.get("support_until", 0.0)) > float(snapshot.get("elapsed", 0.0)):
-			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "▲20%", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
+		var stacks := int(unit.get("support_stacks", 0))
+		if stacks > 0:
+			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "▲%d%%" % (mini(stacks, 10) * 3), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
 
 func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> void:
-	var x := float(structure.x) * scale_x
-	var side := int(structure.side)
+	var x := world_to_screen_x(float(structure.x))
+	var side := display_side(int(structure.side))
 	var color := BLUE if side == 0 else RED
 	match String(structure.kind):
 		"wall":
@@ -285,12 +293,12 @@ func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> vo
 func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 	for event in visual_events:
 		var event_type := String(event.get("type", ""))
-		var x := float(event.get("x", 640.0)) * scale_x
+		var x := world_to_screen_x(float(event.get("x", 640.0)))
 		var life := float(event.life)
 		if show_battle_effects:
 			if event_type in ["ATTACK", "DAMAGE", "BASE_HIT"]:
 				draw_circle(Vector2(x, lane_y - 55.0), 9.0 + life * 10.0, Color(1.0, 0.72, 0.28, life * effect_intensity))
-			elif event_type == "HEAL":
+			elif event_type == "SUPPORT_BUFF":
 				draw_circle(Vector2(x, lane_y - 60.0), 18.0, Color(0.35, 1.0, 0.58, life * effect_intensity))
 			elif event_type in ["DEATH", "STRUCTURE_DESTROYED"]:
 				draw_circle(Vector2(x, lane_y - 35.0), 32.0 * (1.0 - life), Color(0.8, 0.84, 0.92, life * effect_intensity))

@@ -1,6 +1,7 @@
 extends Control
 
 const Localization = preload("res://scripts/Localization.gd")
+const PatchNotes = preload("res://scripts/PatchNotes.gd")
 
 const OFFICIAL_SERVER_ADDRESS := "ruellyya.kr"
 const OFFICIAL_SERVER_FALLBACK_ADDRESS := "211.176.222.145"
@@ -570,7 +571,7 @@ func _build_ai_stage_screen(as_campaign: bool = false) -> void:
 	title.add_theme_color_override("font_color", Color("#f5f7fb"))
 	stage_column.add_child(title)
 	var subtitle := Label.new()
-	subtitle.text = Localization.text("승리하여 다음 단계를 해금하고 별과 기록을 남기세요.") if campaign_mode else Localization.text("진행도와 무관하게 원하는 AI 단계와 즉시 대전합니다.")
+	subtitle.text = Localization.text("승리하여 다음 단계를 해금하고 별과 기록을 남기세요.") if campaign_mode else Localization.text("이전 단계를 모두 클리어한 성장 수치로 연습합니다. 실제 진행도는 바뀌지 않습니다.")
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", 14)
 	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
@@ -585,12 +586,12 @@ func _build_ai_stage_screen(as_campaign: bool = false) -> void:
 		growth.add_theme_color_override("font_color", Color("#f0d592"))
 		stage_column.add_child(growth)
 	var grid := GridContainer.new()
-	grid.columns = 5
+	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
 	stage_column.add_child(grid)
 	for stage in range(ServerAI.MIN_STAGE, ServerAI.MAX_STAGE + 1):
-		var intensity := float(stage - 1) / 9.0
+		var intensity := float(stage - 1) / float(ServerAI.MAX_STAGE - 1)
 		var color := Color("#5b8cff").lerp(Color("#ff627d"), intensity)
 		var record: Dictionary = save_data.campaign_records[stage - 1]
 		var stars := "★".repeat(int(record.best_stars)) + "☆".repeat(3 - int(record.best_stars))
@@ -600,7 +601,7 @@ func _build_ai_stage_screen(as_campaign: bool = false) -> void:
 			color,
 			stage == current_ai_stage
 		)
-		stage_button.custom_minimum_size = Vector2(174, 148)
+		stage_button.custom_minimum_size = Vector2(220, 148)
 		stage_button.add_theme_font_size_override("font_size", 14)
 		stage_button.disabled = locked
 		stage_button.pressed.connect(_start_local_ai_battle.bind(stage))
@@ -649,26 +650,14 @@ func _build_patch_notes_screen() -> void:
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 14)
 	scroll.add_child(content)
-	var entries := [
-		["v0.4.17", [
-			"마법사: 피해·회복 제거. 범위 15 안의 아군에게 공격속도 +20%를 5초간 부여합니다. 쿨타임은 시전부터 7초이며 중첩되지 않습니다.",
-			"탱커: 기본 공격력을 8에서 2로 낮췄습니다. 체력·비용·이동속도는 유지합니다.",
-			"구매 표시: 자원이 부족한 유닛·구조물 버튼은 초상과 함께 어두워지고 선택할 수 없습니다. 자원이 모이면 다시 활성화됩니다.",
-			"메인 메뉴에 패치노트를 추가했습니다. 덱 카드·상세 스탯·전투 버프 표시도 새 수치에 맞췄습니다."
-		]],
-		["v0.4.16", [
-			"전장 이동거리 +15%. 검사 사거리 40. 탱커 이동속도 48·비용 35. 늪은 반경 95에서 80% 감속을 주며 설치 5초 후 사라집니다.",
-			"시작 자원 70·초당 수급 9·보유 한도 180. 캠페인 첫 클리어마다 병력과 자원 수급이 성장하며 재도전으로 중복 보상되지 않습니다.",
-			"방 생성 연결 재시도·응답 제한시간·실패 시 조작 복구·생성 코드 표시를 개선했습니다."
-		]]
-	]
+	var entries: Array = PatchNotes.entries()
 	for entry in entries:
 		var heading := Label.new()
-		heading.text = String(entry[0])
+		heading.text = String(entry.version)
 		heading.add_theme_font_size_override("font_size", 24)
 		heading.add_theme_color_override("font_color", Color("#86f7ad"))
 		content.add_child(heading)
-		for change in entry[1]:
+		for change in entry.changes:
 			var label := Label.new()
 			label.text = "• " + Localization.text(String(change))
 			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -706,7 +695,7 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 		var role := Localization.text("공격속도 지원") if kind == "healer" else Localization.text("원거리") if kind == "archer" else Localization.text("방어") if kind == "shield" else Localization.text("근접 공격")
 		var card_text := Localization.text("%s\n비용 %d · HP %d · 공격 %d\nDPS %.1f · 사거리 %d · %s") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), float(stats.damage) / float(stats.interval), int(stats.range), role]
 		if kind == "healer":
-			card_text = Localization.text("%s\n비용 %d · HP %d · 범위 %d\n공속 +20%% · 유지 5초 · 쿨 7초") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.range)]
+			card_text = Localization.text("%s\n비용 %d · HP %d · 범위 %d\n공속 +3%% 영구 · 상한 +30%% · 쿨 7초") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.range)]
 		var card := _styled_button(card_text, Color("#5b8cff"), false)
 		_configure_deck_card(card, card_text, Color("#5b8cff"), selected.units.has(kind))
 		card.custom_minimum_size = Vector2(240, 105)
@@ -718,7 +707,7 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	structure_grid.add_theme_constant_override("h_separation", 8)
 	column.add_child(structure_grid)
 	var structure_names := {"wall": Localization.text("방벽"), "swamp": Localization.text("늪"), "turret": Localization.text("포탑"), "generator": Localization.text("발전기")}
-	var roles := {"wall": Localization.text("뒤 대상을 차폐 · 최대 2"), "swamp": Localization.text("반경 95 · 80% 감속 · 5초"), "turret": Localization.text("사거리 240 · 최대 1"), "generator": Localization.text("후방 전용 · 초당 +1")}
+	var roles := {"wall": Localization.text("뒤 대상을 차폐 · 최대 2"), "swamp": Localization.text("반경 95 · 80% 감속 · 5초"), "turret": Localization.text("사거리 240 · 최대 1"), "generator": Localization.text("후방 전용 · 초당 +2")}
 	for kind in BattleModel.STRUCTURE_STATS.keys():
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 		var card_text := Localization.text("%s\n비용 %d · HP %d\n%s") % [structure_names[kind], int(stats.cost), int(stats.hp), roles[kind]]
@@ -766,7 +755,7 @@ func _build_records_screen() -> void:
 	column.add_child(summary)
 	var records := Label.new()
 	var lines: Array = []
-	for stage in 10:
+	for stage in ServerAI.MAX_STAGE:
 		var record: Dictionary = save_data.campaign_records[stage]
 		lines.append(Localization.text("%02d %-5s  %s  도전 %d / 승 %d  최단 %.1f초  최고 기지 HP %d") % [stage + 1, ServerAI.stage_name(stage + 1), "★".repeat(record.best_stars) + "☆".repeat(3 - record.best_stars), record.attempts, record.wins, record.fastest_win, int(record.best_base_hp)])
 	records.text = "\n".join(lines)
@@ -780,19 +769,6 @@ func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 	var outer := _submenu(Localization.text("설정"), Localization.text("오디오 · 화면 · 전투 연출 설정은 즉시 저장됩니다."))
 	var mobile_layout := OS.has_feature("mobile") or mobile_layout_override
 	var settings: Dictionary = save_data.settings
-	var language_row := HBoxContainer.new()
-	var language_label := Label.new()
-	language_label.text = Localization.text("언어")
-	language_label.custom_minimum_size.x = 180
-	language_row.add_child(language_label)
-	var language := OptionButton.new()
-	language.name = "LanguageSelector"
-	language.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	for locale in Localization.SUPPORTED_LOCALES:
-		language.add_item(String(Localization.LANGUAGE_NAMES[locale]))
-	language.select(max(0, Localization.SUPPORTED_LOCALES.find(String(settings.language))))
-	language_row.add_child(language)
-	outer.add_child(language_row)
 	var quality_row := HBoxContainer.new()
 	var quality_label := Label.new()
 	quality_label.text = Localization.text("화질")
@@ -865,7 +841,7 @@ func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 		fps_limit.name = "FPSSelector"
 		column.add_child(fps_limit)
 	_add_settings_section(column, "전투 연출")
-	var damage_numbers := CheckButton.new(); damage_numbers.text = Localization.text("피해/회복 숫자"); damage_numbers.button_pressed = settings.damage_numbers; column.add_child(damage_numbers)
+	var damage_numbers := CheckButton.new(); damage_numbers.text = Localization.text("피해 숫자"); damage_numbers.button_pressed = settings.damage_numbers; column.add_child(damage_numbers)
 	var shake := CheckButton.new(); shake.text = Localization.text("화면 흔들림"); shake.button_pressed = settings.screen_shake; column.add_child(shake)
 	var effects := CheckButton.new(); effects.text = Localization.text("전투 효과"); effects.button_pressed = settings.battle_effects; column.add_child(effects)
 	var intensity_row := HBoxContainer.new()
@@ -897,7 +873,7 @@ func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 				if settings[key] != profile[key]:
 					settings.graphics_quality = "custom"
 					break
-		settings.language = Localization.SUPPORTED_LOCALES[language.selected]
+		settings.language = "ko"
 		SaveData.save_data(save_data); Localization.install(String(settings.language)); _apply_settings()
 		_build_connect_screen(Localization.text("설정을 저장했습니다."))
 	)
@@ -1031,8 +1007,7 @@ func _start_local_ai_battle(stage: int = 1, reuse_deck: bool = false) -> void:
 	current_ai_stage = clampi(stage, ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
 	own_side = 0
 	local_model = BattleModel.new()
-	if campaign_mode:
-		local_model.configure_campaign_growth(own_side, SaveData.campaign_growth_level(save_data))
+	local_model.configure_campaign_growth(own_side, SaveData.campaign_growth_level(save_data) if campaign_mode else current_ai_stage - 1)
 	if not reuse_deck or battle_preset.is_empty():
 		battle_preset = _active_preset().duplicate(true)
 	var preset := battle_preset
@@ -1067,8 +1042,8 @@ func _build_battle_screen() -> void:
 	top_line.position = Vector2(0, 87)
 	top_line.size = Vector2(1280, 1)
 	top.add_child(top_line)
-	_create_hp_card(top, Vector2(18, 12), 0)
-	_create_hp_card(top, Vector2(842, 12), 1)
+	_create_hp_card(top, Vector2(18, 12), own_side)
+	_create_hp_card(top, Vector2(842, 12), 1 - own_side)
 
 	var timer_card := PanelContainer.new()
 	timer_card.position = Vector2(530, 12)
@@ -1086,7 +1061,7 @@ func _build_battle_screen() -> void:
 	timer_label.add_theme_color_override("font_color", Color("#f5f7fb"))
 	timer_inner.add_child(timer_label)
 	var mode_label := Label.new()
-	mode_label.text = "AI STAGE %02d" % current_ai_stage if local_ai_mode else "ONLINE MATCH"
+	mode_label.text = "AI 단계 %02d" % current_ai_stage if local_ai_mode else "온라인 대전"
 	mode_label.position = Vector2(0, 39)
 	mode_label.size = Vector2(220, 18)
 	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1281,14 +1256,14 @@ func _create_hp_card(parent: Control, position_value: Vector2, side: int) -> voi
 	var card := PanelContainer.new()
 	card.position = position_value
 	card.size = Vector2(420, 64)
-	var color := Color("#5b8cff") if side == 0 else Color("#ff627d")
+	var color := Color("#5b8cff") if side == own_side else Color("#ff627d")
 	card.add_theme_stylebox_override("panel", _panel_style(Color("#141720"), Color(color.r, color.g, color.b, 0.34), 10))
 	parent.add_child(card)
 	var inner := Control.new()
 	inner.custom_minimum_size = Vector2(420, 64)
 	card.add_child(inner)
 	var faction := Label.new()
-	faction.text = "BLUE FORTRESS" if side == 0 else "RED FORTRESS"
+	faction.text = "아군 기지" if side == own_side else "적군 기지"
 	faction.position = Vector2(14, 7)
 	faction.size = Vector2(240, 22)
 	faction.add_theme_font_size_override("font_size", 12)
@@ -1319,12 +1294,12 @@ func _create_hp_card(parent: Control, position_value: Vector2, side: int) -> voi
 
 func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: Color) -> void:
 	var stats: Dictionary = BattleModel.UNIT_STATS[kind].duplicate()
-	var growth_level := SaveData.campaign_growth_level(save_data) if local_ai_mode and campaign_mode else 0
+	var growth_level := int(local_model.campaign_levels[own_side]) if local_ai_mode and is_instance_valid(local_model) else 0
 	var stat_scale := float(BattleModel.campaign_bonuses(growth_level).stat_scale)
 	for key in ["hp", "damage", "heal"]:
 		if stats.has(key):
 			stats[key] = float(stats[key]) * stat_scale
-	var primary := Localization.text("공속 +20%") if kind == "healer" else Localization.text("공격 %d") % int(stats.damage)
+	var primary := Localization.text("공속 +3% 누적") if kind == "healer" else Localization.text("공격 %d") % int(stats.damage)
 	var button := _styled_button(Localization.text("%s  ·  %d\n체력 %d  ·  %s") % [title, int(stats.cost), int(stats.hp), primary], color)
 	button.tooltip_text = BattleModel.unit_stat_summary(kind, growth_level)
 	button.set_meta("purchase_cost", float(stats.cost))
@@ -1401,7 +1376,7 @@ func _show_stats_panel() -> void:
 	title.add_theme_color_override("font_color", Color("#f5f7fb"))
 	content.add_child(title)
 	var subtitle := Label.new()
-	subtitle.text = Localization.text("현재 서버 전투 수치 · DPS/HPS는 1회 수치 ÷ 공격 간격")
+	subtitle.text = Localization.text("현재 전투 수치 · DPS는 공격력 ÷ 공격 간격")
 	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
 	content.add_child(subtitle)
 	var grid := GridContainer.new()
@@ -1422,7 +1397,7 @@ func _show_stats_panel() -> void:
 		card_margin.add_theme_constant_override("margin_bottom", 12)
 		card.add_child(card_margin)
 		var label := Label.new()
-		label.text = "%s\n%s" % [names[kind], BattleModel.unit_stat_summary(kind, SaveData.campaign_growth_level(save_data) if local_ai_mode and campaign_mode else 0)]
+		label.text = "%s\n%s" % [names[kind], BattleModel.unit_stat_summary(kind, int(local_model.campaign_levels[own_side]) if local_ai_mode and is_instance_valid(local_model) else 0)]
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		label.add_theme_font_size_override("font_size", 15)
 		label.add_theme_color_override("font_color", Color("#dce1ec"))

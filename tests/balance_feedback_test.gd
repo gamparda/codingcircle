@@ -17,7 +17,7 @@ func run() -> void:
 	check(BattleModel.UNIT_STATS.swordsman.range == 40.0, "swordsman fights behind the tank at range 40")
 	check(BattleModel.UNIT_STATS.shield.speed > BattleModel.UNIT_STATS.swordsman.speed and BattleModel.UNIT_STATS.shield.cost == 35.0, "tank arrives before swordsman with lower cost")
 	check(BattleModel.UNIT_STATS.shield.damage == 2.0, "tank base damage is nerfed to two")
-	check(BattleModel.RESOURCE_RATE == 9.0 and BattleModel.MAX_RESOURCE == 180.0, "base economy improves without campaign bonuses")
+	check(BattleModel.RESOURCE_RATE == 8.0 and BattleModel.MAX_RESOURCE == 180.0, "base economy improves without campaign bonuses")
 	var swamp := BattleModel.new()
 	swamp.resources = [180.0, 180.0]
 	check(swamp.place_structure(0, "swamp", 500.0), "temporary swamp can be placed")
@@ -52,46 +52,65 @@ func run() -> void:
 	var ally: Dictionary = support.units[0]
 	var healer: Dictionary = support.units[1]
 	var opponent: Dictionary = support.units[2]
-	ally.x = 515.0; ally.speed = 0.0; ally.hp -= 20.0; ally.damage = 0.0; ally.cooldown = 100.0
+	ally.x = 625.0; ally.speed = 0.0; ally.hp -= 20.0; ally.damage = 0.0; ally.cooldown = 100.0
 	healer.x = 500.0; healer.speed = 0.0
 	opponent.x = 510.0; opponent.speed = 0.0; opponent.damage = 0.0; opponent.cooldown = 100.0
-	var wounded_hp := float(ally.hp)
-	var enemy_hp := float(opponent.hp)
 	var outside: Dictionary = ally.duplicate(true)
-	outside.id = 98; outside.x = 515.01
+	outside.id = 98; outside.x = 625.01
 	support.units.append(outside)
-	check(support.support_attack_speed(ally) == 1.0, "buff is cast rather than being a permanent aura")
+	var wounded_hp := float(ally.hp)
 	support.tick(0.01)
-	check(support.support_attack_speed(ally) == 1.2, "ally exactly at radius 15 receives 20 percent attack speed")
-	check(support.support_attack_speed(outside) == 1.0 and support.support_attack_speed(opponent) == 1.0, "outside allies and enemies receive no buff")
-	check(float(ally.hp) == wounded_hp and float(opponent.hp) == enemy_hp and float(healer.heal) == 0.0, "mage neither heals nor deals damage")
-	check(support.drain_combat_events().any(func(event): return event.type == "SUPPORT_BUFF"), "cast emits support feedback")
-	check(is_equal_approx(float(healer.cooldown), 7.0), "seven-second cooldown starts when the buff is cast")
-	var cooldown_before := float(ally.cooldown)
-	var extra_healer: Dictionary = healer.duplicate(true)
-	extra_healer.id = 99; extra_healer.cooldown = 0.0
-	support.units.append(extra_healer)
-	support._tick_support(extra_healer, 0.0)
-	check(support.support_attack_speed(ally) == 1.2, "multiple mages never stack attack speed")
-	extra_healer.hp = 0.0
-	healer.x = 1000.0
+	check(support.support_attack_speed(ally) == 1.03, "mage restores range 125 and grants three percent per cast")
+	check(support.support_attack_speed(outside) == 1.0 and support.support_attack_speed(opponent) == 1.0, "outside allies and enemies receive no stack")
+	check(float(ally.hp) == wounded_hp and float(healer.heal) == 0.0 and float(healer.damage) == 0.0, "mage neither heals nor deals damage")
+	check(is_equal_approx(float(healer.cooldown), 7.0), "mage still has seven-second cast cooldown")
+	var before := float(ally.cooldown)
 	support.tick(0.1)
-	check(is_equal_approx(cooldown_before - float(ally.cooldown), 0.12), "buff accelerates real attack cooldown progression by 20 percent")
-	check(support.support_attack_speed(ally) == 1.2, "five-second buff persists outside cast range")
-	support.tick(4.89)
-	check(support.support_attack_speed(ally) == 1.2, "buff survives until immediately before its deadline")
-	support.tick(0.02)
-	check(support.support_attack_speed(ally) == 1.0, "buff expires after five seconds")
-	healer.x = 500.0
-	support.tick(1.98)
-	check(support.support_attack_speed(ally) == 1.0, "mage cannot reapply during the seven-second cooldown")
-	support.tick(0.02)
-	check(support.support_attack_speed(ally) == 1.2, "mage casts again when its cooldown completes")
+	check(is_equal_approx(before - float(ally.cooldown), 0.103), "permanent stack changes actual attack cooldown progression")
+	check(int(ally.support_stacks) == 1, "mage cannot add stacks while on cooldown")
+	healer.x = 1000.0
+	support.tick(10.0)
+	check(support.support_attack_speed(ally) == 1.03, "stacks do not expire or depend on remaining inside cast radius")
 	healer.hp = 0.0
-	support.tick(5.01)
-	check(support.support_attack_speed(ally) == 1.0, "dead mage never renews an expired buff")
-	check(not support.drain_combat_events().any(func(event): return event.type == "HEAL"), "support has no remaining healing events")
+	support.tick(0.01)
+	check(support.support_attack_speed(ally) == 1.03, "caster death does not remove stacks from a living recipient")
+	support.resources[0] = 180.0
+	support.spawn_unit(0, "healer")
+	var replacement: Dictionary = support.units.back()
+	replacement.x = 500.0; replacement.speed = 0.0
+	for _cast in 15:
+		replacement.cooldown = 0.0
+		support._tick_support(replacement, 0.0)
+	check(int(ally.support_stacks) == 10 and is_equal_approx(support.support_attack_speed(ally), 1.30), "multiple casters share the recipient's thirty-percent cap")
+	check(not support.drain_combat_events().any(func(event): return event.type == "HEAL"), "support emits no healing events")
+	support.spawn_unit(0, "shield")
+	check(int(support.units.back().support_stacks) == 0, "new units never inherit another unit's permanent stacks")
+	ally.hp = 0.0
+	check(support.support_attack_speed(ally) == 1.0, "dead recipients have no active bonus")
+	support.reset()
+	support.spawn_unit(0, "shield")
+	check(int(support.units[0].support_stacks) == 0, "new battles start without permanent stacks")
+	var generator := BattleModel.new()
+	generator.resources[0] = 100.0
+	generator.configure_deck(0, ["shield", "swordsman", "archer"], ["generator", "wall", "swamp"])
+	check(generator.place_structure(0, "generator", 280.0), "generator still costs fifty resources")
+	generator.tick(1.0)
+	check(generator.resources[0] == 60.0 and BattleModel.STRUCTURE_STATS.generator.income == 2.0, "eight base income plus two generator income are applied")
 	var save := SaveData.default_data()
+	var legacy := SaveData.default_data()
+	for _removed_stage in 2:
+		legacy.campaign_records.append(SaveData._record())
+	legacy.campaign_unlocked = 10
+	legacy.stats.highest_campaign = 10
+	legacy.campaign_records[0].cleared = true
+	legacy.campaign_records[0].best_stars = 3
+	legacy.campaign_records[9].cleared = true
+	legacy.campaign_records[9].best_stars = 3
+	legacy.settings.language = "fr"
+	var migrated := SaveData.sanitize(JSON.parse_string(JSON.stringify(legacy)))
+	check(migrated.campaign_records.size() == 8 and migrated.campaign_records[0].cleared and migrated.campaign_unlocked == 8, "ten-stage saves preserve surviving records and clamp unlocks to eight")
+	check(migrated.stats.highest_campaign == 8 and migrated.stats.total_stars == 3, "retired stages no longer inflate active progress or stars")
+	check(migrated.settings.language == "ko", "foreign-language saves migrate to Korean")
 	SaveData.record_campaign(save, 1, true, 60.0, 400.0)
 	SaveData.record_campaign(save, 1, true, 50.0, 450.0)
 	SaveData.record_campaign(save, 2, false, 80.0, 0.0)
@@ -100,7 +119,7 @@ func run() -> void:
 	check(SaveData.campaign_growth_level(loaded) == 1, "existing save records and JSON roundtrip preserve growth")
 	var campaign := BattleModel.new()
 	campaign.configure_campaign_growth(0, SaveData.campaign_growth_level(loaded))
-	check(campaign.resource_capacity(0) == 190.0 and campaign.resource_income(0) == 9.5 and campaign.resources[0] == 75.0, "first clear increases capacity, income and starting resources")
+	check(campaign.resource_capacity(0) == 190.0 and campaign.resource_income(0) == 8.5 and campaign.resources[0] == 75.0, "first clear increases capacity, income and starting resources")
 	campaign.spawn_unit(0, "swordsman")
 	check(is_equal_approx(float(campaign.units[0].max_hp), 82.0 * 1.03) and is_equal_approx(float(campaign.units[0].damage), 10.0 * 1.03), "first clear increases unit HP and damage")
 	check(campaign.resource_capacity(1) == BattleModel.MAX_RESOURCE and BattleModel.new().resource_capacity(0) == BattleModel.MAX_RESOURCE, "campaign growth never leaks to enemies or online matches")
@@ -109,6 +128,13 @@ func run() -> void:
 	var view := BattleView.new()
 	view.size = Vector2(1280, 500)
 	check(is_equal_approx(view.screen_to_world_x(640.0), BattleModel.WORLD_WIDTH / 2.0), "pointer placement uses the extended world's coordinates")
+	view.own_side = 1
+	check(view.world_to_screen_x(BattleModel.FIELD_RIGHT) < view.world_to_screen_x(BattleModel.FIELD_LEFT), "red player's own fortress is on the left")
+	check(view.display_side(1) == 0 and view.display_side(0) == 1, "both players see friendly colors on the left")
+	var right_build := BattleModel.RED_REAR_MIN + 20.0
+	check(is_equal_approx(view.screen_to_world_x(view.world_to_screen_x(right_build)), right_build), "mirrored construction clicks map back to the real red build zone")
+	view.snapshot = {"resources": [180.0, 180.0], "structures": []}
+	check(view.placement_error("generator", right_build).is_empty(), "mirrored red player can place a generator in its authoritative rear zone")
 	view.free()
 	var main_script = load("res://scripts/Main.gd")
 	check(main_script != null and main_script.official_connection_candidates(["192.168.0.3"])[0] == main_script.OFFICIAL_SERVER_FALLBACK_ADDRESS, "game server IP precedes both proxy DNS and guessed LAN route")

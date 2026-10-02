@@ -64,8 +64,8 @@ func run() -> void:
 	var scroll := main.find_child("PatchNotesScroll", true, false) as ScrollContainer
 	var back := main.find_child("PatchNotesBack", true, false) as Button
 	check(scroll != null and back != null, "patch notes open with scroll and fixed back action")
-	check(tree_text(main).contains("v0.4.17") and tree_text(main).contains("v0.4.16"), "patch notes include current and previous releases")
-	check(tree_text(main).contains("시전부터 7초") and tree_text(main).contains("8에서 2"), "patch notes describe shipped balance values")
+	check(tree_text(main).contains("v0.4.18") and tree_text(main).contains("v0.3.3"), "patch notes include current and previous releases")
+	check(tree_text(main).contains("상한은 +30%") and tree_text(main).contains("9→8/초"), "patch notes describe shipped balance values")
 	check(back.get_global_rect().end.y <= 720.0, "patch notes back action stays inside the viewport")
 	capture("patch-notes")
 	press(back)
@@ -96,6 +96,52 @@ func run() -> void:
 	check(main.local_model.units.size() == before + 1, "reactivated card accepts a real purchase")
 	main._on_snapshot(main.local_model.snapshot())
 	check(unit_button.disabled, "spending dims the card again")
+	var PatchNotes = load("res://scripts/PatchNotes.gd")
+	var history: Array = PatchNotes.entries()
+	var expected: Array = []
+	for minor in range(3, 17):
+		expected.append("v0.3.%d" % minor)
+	for minor in range(0, 19):
+		expected.append("v0.4.%d" % minor)
+	var versions: Array = history.map(func(entry): return entry.version)
+	check(versions.size() == expected.size() and expected.all(func(version): return versions.count(version) == 1), "every release since 0.3.3 has exactly one patch-note entry")
+	check(history[0].version == "v0.4.18" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
+	main.campaign_mode = false
+	var saved_progress: Dictionary = main.save_data.duplicate(true)
+	main._start_local_ai_battle(8)
+	main.set_process(false)
+	check(main.local_model.campaign_levels[0] == 7, "stage-eight practice simulates seven previous clears")
+	check(main.local_model.resources[0] == BattleModel.campaign_bonuses(7).starting_resources, "practice grants the matching starting resources")
+	check(main.save_data == saved_progress, "practice growth does not grant real campaign records")
+	check(main.purchase_buttons[0].tooltip_text == BattleModel.unit_stat_summary("shield", 7), "practice card stats use the boosted model rather than old save progression")
+	main._build_ai_stage_screen(false)
+	await process_frame
+	check(not tree_text(main).contains("09  ") and tree_text(main).contains("08  최종전"), "practice menu ends at stage eight")
+	main._build_settings_screen(true)
+	await process_frame
+	check(main.find_child("LanguageSelector", true, false) == null, "mobile settings have no language selector")
+	main._on_match_found(1)
+	await process_frame
+	check(main.red_hp_bar.get_global_rect().position.x < main.blue_hp_bar.get_global_rect().position.x, "red player's own health card is on the left")
+	var battle := BattleModel.new()
+	battle.resources = [180.0, 180.0]
+	battle.configure_deck(1, ["shield", "swordsman", "healer"], ["generator", "wall", "swamp"])
+	battle.spawn_unit(0, "swordsman")
+	battle.spawn_unit(1, "shield")
+	battle.spawn_unit(1, "healer")
+	battle.units[0].x = BattleModel.FIELD_LEFT + 150.0
+	battle.units[1].x = BattleModel.FIELD_RIGHT - 150.0
+	battle.units[2].x = BattleModel.FIELD_RIGHT - 220.0
+	battle._tick_support(battle.units[2], 0.0)
+	battle.place_structure(1, "generator", BattleModel.RED_REAR_MIN + 20.0)
+	var data := battle.snapshot()
+	var original := JSON.stringify(data)
+	main._on_snapshot(data)
+	main._on_combat_events(battle.drain_combat_events())
+	check(JSON.stringify(data) == original, "friendly-left rendering never mutates authoritative side identities or coordinates")
+	check(main.battle_view.world_to_screen_x(float(data.units[1].x)) < main.battle_view.world_to_screen_x(float(data.units[0].x)), "both factions' units render in the correct mirrored positions")
+	await process_frame
+	capture("friendly-left")
 	main.queue_free()
 	await process_frame
 	print("PASS: %d focused purchase and patch-note checks" % checks) if failures == 0 else printerr("FAILED: %d of %d checks" % [failures, checks])

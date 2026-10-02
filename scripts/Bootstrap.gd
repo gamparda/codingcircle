@@ -49,13 +49,8 @@ func _ready() -> void:
 	_load_installed_pack()
 	_check_for_update()
 
-static func preferred_locale(saved_data: Dictionary, system_locale: String) -> String:
-	var settings = saved_data.get("settings", {})
-	if settings is Dictionary:
-		var saved := String(settings.get("language", ""))
-		if Localization.SUPPORTED_LOCALES.has(saved):
-			return saved
-	return Localization.normalize_locale(system_locale)
+static func preferred_locale(_saved_data: Dictionary, _system_locale: String) -> String:
+	return "ko"
 
 static func build_versions(build_info: Dictionary) -> Dictionary:
 	var content := String(build_info.get("version", "0.0.0"))

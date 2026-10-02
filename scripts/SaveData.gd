@@ -13,7 +13,6 @@ const CAMPAIGN_TARGETS := [
 	{"time": 110.0, "base_hp": 380.0}, {"time": 120.0, "base_hp": 365.0},
 	{"time": 130.0, "base_hp": 350.0}, {"time": 145.0, "base_hp": 335.0},
 	{"time": 160.0, "base_hp": 320.0}, {"time": 180.0, "base_hp": 300.0},
-	{"time": 210.0, "base_hp": 280.0}, {"time": 240.0, "base_hp": 250.0},
 ]
 
 static func _record() -> Dictionary:
@@ -24,7 +23,7 @@ static func _preset(name: String, units: Array, structures: Array) -> Dictionary
 
 static func default_data() -> Dictionary:
 	var campaign_records: Array = []
-	for _stage in 10:
+	for _stage in 8:
 		campaign_records.append(_record())
 	return {
 		"save_version": SAVE_VERSION,
@@ -97,13 +96,13 @@ static func sanitize(raw: Variant) -> Dictionary:
 	if _is_integer(raw.get("save_version")):
 		clean.save_version = clampi(int(raw.save_version), 1, SAVE_VERSION)
 	if _is_integer(raw.get("campaign_unlocked")):
-		clean.campaign_unlocked = clampi(int(raw.campaign_unlocked), 1, 10)
+		clean.campaign_unlocked = clampi(int(raw.campaign_unlocked), 1, 8)
 	if _is_integer(raw.get("last_deck")) and int(raw.last_deck) >= 0 and int(raw.last_deck) < 3:
 		clean.last_deck = int(raw.last_deck)
 	if raw.get("tutorial_completed") is bool:
 		clean.tutorial_completed = raw.tutorial_completed
 	if raw.get("campaign_records") is Array:
-		for index in min(10, raw.campaign_records.size()):
+		for index in min(8, raw.campaign_records.size()):
 			if raw.campaign_records[index] is Dictionary:
 				var source: Dictionary = raw.campaign_records[index]
 				var record: Dictionary = clean.campaign_records[index]
@@ -135,7 +134,7 @@ static func sanitize(raw: Variant) -> Dictionary:
 		if _is_integer(raw.settings.get("fps_limit")) and FPS_LIMITS.has(int(raw.settings.fps_limit)):
 			clean.settings.fps_limit = int(raw.settings.fps_limit)
 		if raw.settings.get("language") is String:
-			clean.settings.language = Localization.normalize_locale(String(raw.settings.language))
+			clean.settings.language = "ko"
 		for key in ["muted", "fullscreen", "vsync", "damage_numbers", "screen_shake", "battle_effects"]:
 			if raw.settings.get(key) is bool:
 				clean.settings[key] = raw.settings[key]
@@ -143,6 +142,10 @@ static func sanitize(raw: Variant) -> Dictionary:
 		for key in clean.stats.keys():
 			if _is_integer(raw.stats.get(key)):
 				clean.stats[key] = max(0, int(raw.stats[key]))
+	clean.stats.highest_campaign = mini(8, int(clean.stats.highest_campaign))
+	clean.stats.total_stars = 0
+	for record in clean.campaign_records:
+		clean.stats.total_stars += int(record.best_stars)
 	return clean
 
 static func load_data() -> Dictionary:
@@ -175,7 +178,7 @@ static func save_data(data: Dictionary, path: String = SAVE_PATH) -> bool:
 static func campaign_stars(stage: int, won: bool, elapsed: float, remaining_base_hp: float) -> int:
 	if not won:
 		return 0
-	var target: Dictionary = CAMPAIGN_TARGETS[clampi(stage, 1, 10) - 1]
+	var target: Dictionary = CAMPAIGN_TARGETS[clampi(stage, 1, 8) - 1]
 	var stars := 1
 	if remaining_base_hp >= float(target.base_hp):
 		stars = 2
@@ -188,10 +191,10 @@ static func campaign_growth_level(data: Dictionary) -> int:
 	for record in data.get("campaign_records", []):
 		if record is Dictionary and bool(record.get("cleared", false)):
 			levels += 1
-	return clampi(levels, 0, 10)
+	return clampi(levels, 0, 8)
 
 static func record_campaign(data: Dictionary, stage: int, won: bool, elapsed: float, remaining_base_hp: float) -> int:
-	var index := clampi(stage, 1, 10) - 1
+	var index := clampi(stage, 1, 8) - 1
 	var record: Dictionary = data.campaign_records[index]
 	record.attempts += 1
 	if won:
@@ -201,7 +204,7 @@ static func record_campaign(data: Dictionary, stage: int, won: bool, elapsed: fl
 		record.best_stars = max(int(record.best_stars), stars)
 		record.fastest_win = elapsed if float(record.fastest_win) <= 0.0 else min(float(record.fastest_win), elapsed)
 		record.best_base_hp = max(float(record.best_base_hp), remaining_base_hp)
-		data.campaign_unlocked = max(int(data.campaign_unlocked), min(10, stage + 1))
+		data.campaign_unlocked = max(int(data.campaign_unlocked), min(8, stage + 1))
 		data.stats.highest_campaign = max(int(data.stats.highest_campaign), stage)
 	data.stats.ai_matches += 1
 	data.stats.ai_wins += 1 if won else 0

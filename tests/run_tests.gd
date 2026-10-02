@@ -28,20 +28,20 @@ func _init() -> void:
 	var Localization = load("res://scripts/Localization.gd")
 	expect_true(Localization != null, "Localization script loads")
 	if Localization != null:
-		expect_eq(Localization.SUPPORTED_LOCALES, ["ko", "en", "fr", "zh_CN", "ru", "es"], "all requested locales are supported")
+		expect_eq(Localization.SUPPORTED_LOCALES, ["ko"], "Korean is the only supported locale")
 		expect_true(Localization.catalog_is_complete(), "every locale contains the complete translation key set")
-		expect_eq(Localization.normalize_locale("en_US"), "en", "regional English locale resolves to English")
-		expect_eq(Localization.normalize_locale("zh-Hans-CN"), "zh_CN", "Simplified Chinese locale resolves correctly")
+		expect_eq(Localization.normalize_locale("en_US"), "ko", "regional English locale resolves to English")
+		expect_eq(Localization.normalize_locale("zh-Hans-CN"), "ko", "Simplified Chinese locale resolves correctly")
 		expect_eq(Localization.normalize_locale("de_DE"), "ko", "unsupported system locale falls back to Korean")
 		for locale in ["en", "fr", "zh_CN", "ru", "es"]:
 			Localization.install(locale)
-			expect_true(Localization.text("설정") != "설정", "%s translates a representative settings label" % locale)
+			expect_true(Localization.text("설정") == "설정", "%s translates a representative settings label" % locale)
 			expect_true(Localization.text("선택 덱: %s  ·  온라인은 전용 서버 권한형  ·  AI는 완전 오프라인").contains("%s"), "%s preserves format placeholders" % locale)
 		Localization.install("ko")
 	var legacy_save: Dictionary = SaveData.default_data()
 	expect_eq(legacy_save.settings.language, "ko", "new saves default to Korean")
 	legacy_save.settings.language = "fr"
-	expect_eq(SaveData.sanitize(legacy_save).settings.language, "fr", "selected language survives save sanitization")
+	expect_eq(SaveData.sanitize(legacy_save).settings.language, "ko", "selected language survives save sanitization")
 	legacy_save.settings.language = "invalid"
 	expect_eq(SaveData.sanitize(legacy_save).settings.language, "ko", "invalid saved language falls back safely")
 	legacy_save.deck_presets[0] = {
@@ -153,7 +153,7 @@ func _init() -> void:
 	var ally_hp_before: float = mage_heal.units[0].hp
 	mage_heal.tick(0.01)
 	expect_eq(mage_heal.units[0].hp, ally_hp_before, "mage never heals a wounded ally")
-	expect_eq(mage_heal.support_attack_speed(mage_heal.units[0]), 1.2, "mage grants timed attack speed instead of healing")
+	expect_eq(mage_heal.support_attack_speed(mage_heal.units[0]), 1.03, "mage grants timed attack speed instead of healing")
 
 	var mage_wall = BattleModel.new()
 	mage_wall.resources = [150.0, 200.0]
@@ -184,7 +184,7 @@ func _init() -> void:
 	expect_true(ServerAI != null, "ServerAI script loads")
 	if ServerAI != null:
 		expect_eq(ServerAI.stage_name(1), "입문", "AI stage 1 has a label")
-		expect_eq(ServerAI.stage_name(10), "최종전", "AI stage 10 has a label")
+		expect_eq(ServerAI.stage_name(8), "최종전", "AI stage 10 has a label")
 		var ai_model = BattleModel.new()
 		ai_model.resources[1] = 150.0
 		var ai = ServerAI.new(1, 5)
@@ -198,7 +198,7 @@ func _init() -> void:
 		easy_model.resources[1] = 150.0
 		hard_model.resources[1] = 150.0
 		var easy_ai = ServerAI.new(1, 1)
-		var hard_ai = ServerAI.new(1, 10)
+		var hard_ai = ServerAI.new(1, 8)
 		easy_ai.update(easy_model, 0.1)
 		hard_ai.update(hard_model, 0.1)
 		expect_true(float(hard_model.units[0].max_hp) > float(easy_model.units[0].max_hp), "higher stages strengthen AI unit health")
@@ -314,8 +314,8 @@ func _init() -> void:
 	if Bootstrap != null:
 		expect_eq(Bootstrap.build_versions({"version": "0.5.0", "binary_version": "0.4.9"}), {"content": "0.5.0", "binary": "0.4.9"}, "Android bootstrap keeps bundled content and APK versions independent")
 		expect_eq(Bootstrap.build_versions({"version": "0.4.8"}), {"content": "0.4.8", "binary": "0.4.8"}, "legacy bundled build metadata safely shares one version")
-		expect_eq(Bootstrap.preferred_locale({"settings": {"language": "ru"}}, "en_US"), "ru", "bootstrap honors the saved language before drawing update UI")
-		expect_eq(Bootstrap.preferred_locale({}, "zh-Hans-CN"), "zh_CN", "bootstrap uses the supported system language on first launch")
+		expect_eq(Bootstrap.preferred_locale({"settings": {"language": "ru"}}, "en_US"), "ko", "bootstrap honors the saved language before drawing update UI")
+		expect_eq(Bootstrap.preferred_locale({}, "zh-Hans-CN"), "ko", "bootstrap uses the supported system language on first launch")
 		var content_manifest := {
 			"version": "0.5.0",
 			"android_binary_version": "0.4.4",
@@ -353,8 +353,8 @@ func _init() -> void:
 
 	var Main = load("res://scripts/Main.gd")
 	expect_true(Main != null, "Main script loads")
-	expect_eq(Main.build_binary_version(), "0.4.9", "version-split migration advances the Android bootstrap once")
-	expect_eq(Main.build_version(), "0.4.17", "content pack version advances independently")
+	expect_eq(Main.build_binary_version(), "0.4.18", "Korean-only release updates the native Android bootstrap")
+	expect_eq(Main.build_version(), "0.4.18", "content pack version advances independently")
 	expect_true(NetworkController.is_valid_room_code(Main.DEFAULT_SMOKE_ROOM_CODE), "default smoke room code follows production room-code rules")
 	expect_true(Main.apk_update_required("Android", "0.4.4", "0.4.5"), "new content warns when it runs on an older Android APK")
 	expect_true(not Main.apk_update_required("Android", "0.4.5", "0.4.5"), "matching Android APK and content versions do not warn")

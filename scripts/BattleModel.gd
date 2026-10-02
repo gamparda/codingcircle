@@ -9,7 +9,7 @@ const FIELD_LEFT := 90.0 * WORLD_SCALE
 const FIELD_RIGHT := 1190.0 * WORLD_SCALE
 const START_RESOURCE := 70.0
 const MAX_RESOURCE := 180.0
-const RESOURCE_RATE := 9.0
+const RESOURCE_RATE := 8.0
 const BASE_MAX_HP := 500.0
 const STRUCTURE_LIMIT := 3
 const STRUCTURE_MIN_SPACING := 75.0
@@ -20,22 +20,22 @@ const RED_BUILD_MIN := 670.0 * WORLD_SCALE
 const RED_BUILD_MAX := 1100.0 * WORLD_SCALE
 const BLUE_REAR_MAX := 350.0 * WORLD_SCALE
 const RED_REAR_MIN := 930.0 * WORLD_SCALE
-const SUPPORT_ATTACK_SPEED := 1.20
-const SUPPORT_DURATION := 5.0
+const SUPPORT_INCREMENT := 0.03
+const SUPPORT_MAX_STACKS := 10
 const SUPPORT_COOLDOWN := 7.0
-const SUPPORT_FOLLOW_DISTANCE := 12.0
+const SUPPORT_FOLLOW_DISTANCE := 65.0
 
 const UNIT_STATS := {
 	"shield": {"cost": 35.0, "hp": 400.0, "damage": 2.0, "interval": 1.5, "speed": 48.0, "range": 34.0},
 	"swordsman": {"cost": 30.0, "hp": 82.0, "damage": 10.0, "interval": 1.4, "speed": 44.0, "range": 40.0},
 	"archer": {"cost": 45.0, "hp": 58.0, "damage": 15.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
-	"healer": {"cost": 45.0, "hp": 60.0, "damage": 0.0, "heal": 0.0, "interval": SUPPORT_COOLDOWN, "speed": 34.0, "range": 15.0},
+	"healer": {"cost": 45.0, "hp": 60.0, "damage": 0.0, "heal": 0.0, "interval": SUPPORT_COOLDOWN, "speed": 34.0, "range": 125.0},
 }
 const STRUCTURE_STATS := {
 	"wall": {"cost": 35.0, "hp": 230.0, "max_count": 2},
 	"swamp": {"cost": 30.0, "hp": 100.0, "speed_scale": 0.20, "radius": 95.0, "lifetime": 5.0},
 	"turret": {"cost": 50.0, "hp": 115.0, "damage": 8.0, "interval": 1.5, "range": 240.0, "max_count": 1},
-	"generator": {"cost": 50.0, "hp": 90.0, "income": 1.0, "max_count": 1},
+	"generator": {"cost": 50.0, "hp": 90.0, "income": 2.0, "max_count": 1},
 }
 const DEFAULT_UNIT_DECK := ["shield", "swordsman", "archer"]
 const DEFAULT_STRUCTURE_DECK := ["wall", "swamp", "turret"]
@@ -60,7 +60,7 @@ var structure_expirations: Dictionary = {}
 var campaign_levels: Array = [0, 0]
 
 static func campaign_bonuses(cleared_stages: int) -> Dictionary:
-	var levels := clampi(cleared_stages, 0, 10)
+	var levels := clampi(cleared_stages, 0, 8)
 	return {"levels": levels, "stat_scale": 1.0 + levels * 0.03,
 		"income": RESOURCE_RATE + levels * 0.5, "capacity": MAX_RESOURCE + levels * 10.0,
 		"starting_resources": START_RESOURCE + levels * 5.0}
@@ -68,7 +68,7 @@ static func campaign_bonuses(cleared_stages: int) -> Dictionary:
 func configure_campaign_growth(side: int, cleared_stages: int) -> void:
 	if side < 0 or side > 1:
 		return
-	campaign_levels[side] = clampi(cleared_stages, 0, 10)
+	campaign_levels[side] = clampi(cleared_stages, 0, 8)
 	resources[side] = campaign_bonuses(int(campaign_levels[side])).starting_resources
 
 func resource_capacity(side: int) -> float:
@@ -126,7 +126,7 @@ func spawn_unit(side: int, kind: String) -> bool:
 		"hp": stats.hp * stat_scale, "max_hp": stats.hp * stat_scale, "damage": stats.damage * stat_scale,
 		"heal": stats.get("heal", 0.0) * stat_scale, "interval": stats.interval,
 		"cooldown": 0.0 if kind == "healer" else max(MIN_ATTACK_INTERVAL, float(stats.interval)),
-		"support_until": 0.0,
+		"support_stacks": 0,
 		"speed": stats.speed, "range": stats.range})
 	next_unit_id += 1
 	return true
@@ -139,13 +139,13 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 	var stat_scale := float(campaign_bonuses(growth_level).stat_scale)
 	var output := Localization.text("비용 %d  ·  체력 %d\n") % [int(stats.cost), int(stats.hp * stat_scale)]
 	if kind == "healer":
-		return output + Localization.text("피해·회복 없음  ·  공격속도 +20%\n범위 15  ·  유지 5초  ·  쿨 7초 (시전부터)\n중첩 없음  ·  이동 34")
+		return output + Localization.text("피해·회복 없음  ·  공속 +3% 영구 누적\n범위 125  ·  쿨 7초  ·  상한 +30%\n유닛 사망·전투 종료 시 초기화  ·  이동 34")
 	else:
 		output += Localization.text("공격력 %d  ·  DPS %.1f\n") % [int(stats.damage * stat_scale), float(stats.damage) * stat_scale / interval]
 	return output + Localization.text("공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d") % [interval, int(stats.range), int(stats.speed)]
 
 static func battle_stat_summary() -> String:
-	return Localization.text("구조물  ·  방벽 35/체력 230  ·  늪 30/체력 100/80%% 감속/5초\n포탑 50/체력 115/공격 8/사거리 240  ·  발전기 50/체력 90/+1 자원\n마법사  ·  피해·회복 없음/공격속도 +20%%/범위 15/유지 5초/쿨 7초 (시전부터, 중첩 없음)\n전장  ·  길이 +15%%  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
+	return Localization.text("구조물  ·  방벽 35/체력 230  ·  늪 30/체력 100/80%% 감속/5초\n포탑 50/체력 115/공격 8/사거리 240  ·  발전기 50/체력 90/+2 자원\n마법사  ·  피해·회복 없음/공속 +3%% 영구 누적/범위 125/쿨 7초/상한 +30%%\n전장  ·  길이 +15%%  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
 
 func _owned_structure_count(side: int, kind: String = "") -> int:
 	var count := 0
@@ -255,16 +255,18 @@ func tick(delta: float) -> void:
 func support_attack_speed(unit: Dictionary) -> float:
 	if unit.kind == "healer" or float(unit.hp) <= 0.0:
 		return 1.0
-	return SUPPORT_ATTACK_SPEED if elapsed < float(unit.get("support_until", 0.0)) else 1.0
+	return 1.0 + mini(SUPPORT_MAX_STACKS, maxi(0, int(unit.get("support_stacks", 0)))) * SUPPORT_INCREMENT
 
 func _tick_support(unit: Dictionary, delta: float) -> void:
 	if float(unit.cooldown) <= 0.0:
 		var cast := false
 		for ally in units:
 			if ally.side == unit.side and ally.kind != "healer" and float(ally.hp) > 0.0 and abs(float(ally.x) - float(unit.x)) <= float(unit.range):
-				ally.support_until = elapsed + SUPPORT_DURATION
-				combat_events.append({"type": "SUPPORT_BUFF", "source_id": unit.id, "target_id": ally.id, "x": ally.x})
-				cast = true
+				var stacks := int(ally.get("support_stacks", 0))
+				if stacks < SUPPORT_MAX_STACKS:
+					ally.support_stacks = stacks + 1
+					combat_events.append({"type": "SUPPORT_BUFF", "source_id": unit.id, "target_id": ally.id, "stacks": ally.support_stacks, "x": ally.x})
+					cast = true
 		if cast:
 			unit.cooldown = SUPPORT_COOLDOWN
 	var direction := 1.0 if int(unit.side) == 0 else -1.0

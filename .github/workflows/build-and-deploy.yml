@@ -59,9 +59,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $contentVersion = "0.4.17"
-          $windowsVersion = "0.4.17"
-          $androidBinaryVersion = "0.4.9"
+          $contentVersion = "0.4.18"
+          $windowsVersion = "0.4.18"
+          $androidBinaryVersion = "0.4.18"
           $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?before=${{ github.sha }}"
           $previousAndroidVersion = if ($previous.PSObject.Properties.Name -contains "android_binary_version") { [string]$previous.android_binary_version } else { [string]$previous.version }
           $buildAndroid = $previousAndroidVersion -ne $androidBinaryVersion
@@ -195,7 +195,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Failed to replace release assets" }
             gh release edit $tag --title "Cat War $env:CONTENT_VERSION" --latest --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $tag @assets --target $env:GITHUB_SHA --title "Cat War $env:CONTENT_VERSION" --generate-notes --latest --repo $env:GITHUB_REPOSITORY
+            gh release create $tag @assets --target $env:GITHUB_SHA --title "Cat War $env:CONTENT_VERSION" --notes-file CHANGELOG.md --latest --repo $env:GITHUB_REPOSITORY
           }
           if ($LASTEXITCODE -ne 0) { throw "Failed to publish GitHub Release" }
 

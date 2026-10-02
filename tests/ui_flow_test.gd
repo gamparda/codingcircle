@@ -96,10 +96,7 @@ func run() -> void:
 	expect_true(settings_scroll.scroll_vertical > 0 and viewport_bounds.encloses(settings_save.get_global_rect()), "scrolling does not move the settings footer offscreen")
 	var intensity := main.find_child("EffectIntensitySlider", true, false) as HSlider
 	expect_true(intensity != null and settings_scroll.get_global_rect().encloses(intensity.get_global_rect()), "last settings slider is reachable by scrolling")
-	var language_selector := main.find_child("LanguageSelector", true, false) as OptionButton
-	expect_true(language_selector != null, "settings expose a language selector")
-	if language_selector != null:
-		expect_true(language_selector.item_count == 6, "language selector lists Korean and five requested translations")
+	expect_true(main.find_child("LanguageSelector", true, false) == null, "Korean-only settings have no language selector")
 	var bgm_slider := main.find_child("BGMVolumeSlider", true, false) as HSlider
 	expect_true(bgm_slider != null, "settings expose a named BGM volume slider")
 	if bgm_slider != null:
@@ -217,7 +214,7 @@ func run() -> void:
 		Localization.install("en")
 		main._on_structure_placement_result(false, "자원이 부족합니다.")
 		expect_true(main.battle_view.selected_structure == "turret", "failed online placement keeps the selected structure")
-		expect_true(main.placement_status_label.text == "Not enough resources.", "failed online placement localizes the authoritative server reason")
+		expect_true(main.placement_status_label.text == "자원이 부족합니다.", "failed online placement localizes the authoritative server reason")
 		Localization.install("ko")
 		main._on_structure_placement_result(true, "")
 		expect_true(main.battle_view.selected_structure.is_empty(), "successful online placement clears the selected structure")
@@ -243,19 +240,11 @@ func run() -> void:
 			var stats_text := tree_text(stats_panel)
 			for required in ["탱커", "마법사", "궁수", "검사", "체력", "공격력", "피해·회복 없음", "DPS", "공격 간격", "사거리", "이동", "구조물", "기지 체력"]:
 				expect_true(stats_text.contains(required), "stats panel exposes %s" % required)
-	var localized_create_room := {
-		"en": "Create Room",
-		"fr": "Créer une salle",
-		"zh_CN": "创建房间",
-		"ru": "Создать комнату",
-		"es": "Crear sala",
-	}
-	for locale in localized_create_room:
+	for locale in ["en", "fr", "zh_CN", "ru", "es"]:
 		Localization.install(locale)
 		main._build_connect_screen()
 		await process_frame
-		expect_true(find_button(main, localized_create_room[locale]) != null, "%s renders the localized main menu" % locale)
-	Localization.install("ko")
+		expect_true(find_button(main, "방 만들기") != null, "%s legacy locale still renders Korean" % locale)
 	main.queue_free()
 	await process_frame
 	if failures == 0:

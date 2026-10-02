@@ -4,10 +4,10 @@ extends RefCounted
 const Localization = preload("res://scripts/Localization.gd")
 
 const MIN_STAGE := 1
-const MAX_STAGE := 10
+const MAX_STAGE := 8
 const STAGE_NAMES := [
 	"입문", "견습", "전진", "수비", "전술",
-	"공세", "정예", "맹공", "지휘관", "최종전",
+	"공세", "정예", "최종전",
 ]
 const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer"]
 const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret"]
@@ -38,7 +38,7 @@ static func stage_summary(difficulty_stage: int) -> String:
 		return Localization.text("적극적 방어와 구조물 운용")
 	if value <= 6:
 		return Localization.text("지원·경제·지형 전술")
-	if value <= 8:
+	if value < MAX_STAGE:
 		return Localization.text("고속 공세와 강화 전력")
 	return Localization.text("최대 전력·자원 보너스")
 
