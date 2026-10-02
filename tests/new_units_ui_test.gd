@@ -45,11 +45,12 @@ func _initialize() -> void:
 	call_deferred("run")
 
 func run() -> void:
+	create_timer(60.0).timeout.connect(func(): printerr("New-unit UI test watchdog expired"); quit(1))
 	var Main = load("res://scripts/Main.gd")
 	check(Main != null, "Main loads with all new textures")
 	if Main == null: quit(1); return
 	var bootstrap := Control.new(); bootstrap.name = "Bootstrap"; get_root().add_child(bootstrap)
-	main = Main.new(); main.name="Main"; bootstrap.add_child(main)
+	main = load("res://scenes/Main.tscn").instantiate(); main.name="Main"; bootstrap.add_child(main)
 	await process_frame
 	main.set_process(false)
 	main.save_data = Save.default_data()
