@@ -189,9 +189,9 @@ func _init() -> void:
 	network.accepting_players = false
 	expect_true(not network.can_admit_deck(2), "maintenance blocks already connected peer's late deck")
 	network.accepting_players = true
-	for index in NetworkController.MAX_ACTIVE_MATCHES:
-		network.models[index] = null
-	expect_true(not network.can_admit_deck(2), "capacity rechecked at deck submission")
+	for index in 40:
+		network.models[index] = BattleModel.new()
+	expect_true(network.can_admit_deck(2), "existing match count does not block deck submission")
 	network.client_connection_state = "idle"
 	network._start_fallback_if_current("127.0.0.1", network.client_connection_generation)
 	expect_eq(network.client_connection_state, "idle", "cancelled fallback cannot reconnect")
