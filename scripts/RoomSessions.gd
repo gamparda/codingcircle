@@ -35,7 +35,7 @@ func create(peer_id: int, code: String, title: String, nickname: String, salt: S
 	return true
 
 func _member(nickname: String, role: String, deck: Dictionary, ready: bool = false) -> Dictionary:
-	return {"nickname":nickname,"role":role,"ready":ready,"returned":true,"deck":deck.duplicate(true)}
+	return {"nickname":nickname,"role":role,"ready":ready,"returned":true,"deck":deck.duplicate(true),"connected":true,"reconnect_deadline":0,"reconnect_hash":""}
 
 func players(room: Dictionary) -> Array:
 	var result: Array = []
@@ -68,7 +68,7 @@ func public_state(code: String) -> Dictionary:
 	var members: Array = []
 	for id in room.members:
 		var member: Dictionary = room.members[id]
-		members.append({"id":int(id),"nickname":member.nickname,"role":member.role,"ready":member.ready,"returned":member.returned,"deck":member.deck.duplicate(true)})
+		members.append({"id":int(id),"nickname":member.nickname,"role":member.role,"ready":member.ready,"returned":member.returned,"deck":member.deck.duplicate(true),"connected":member.connected,"reconnect_remaining":maxf(0.0,(int(member.reconnect_deadline)-Time.get_ticks_msec())/1000.0)})
 	return {"code":code,"name":room.name,"owner":room.owner,"phase":room.phase,"locked":not room.secret.is_empty(),"members":members,"messages":room.messages.duplicate(true)}
 
 func set_ready(peer_id: int, ready: bool) -> bool:
@@ -90,7 +90,7 @@ func can_start(peer_id: int) -> bool:
 	var ids := players(room)
 	if ids.size() != 2: return false
 	for id in ids:
-		if not room.members[id].ready: return false
+		if not room.members[id].ready or not room.members[id].connected: return false
 	return true
 
 func start(peer_id: int, match_id: int) -> Array:
@@ -124,7 +124,48 @@ func append_chat(peer_id: int, text: String) -> Dictionary:
 	if room.messages.size() > CHAT_HISTORY: room.messages.pop_front()
 	return message
 
-func leave(peer_id: int) -> Dictionary:
+# Credentials are private; public_state deliberately never copies them.
+func issue_reconnect_token(peer_id: int) -> String:
+	var room := room_for(peer_id)
+	if room.is_empty(): return ""
+	var bytes := Crypto.new().generate_random_bytes(32)
+	if bytes.size() != 32: return ""
+	var token := bytes.hex_encode()
+	room.members[peer_id].reconnect_hash = token.sha256_text()
+	return token
+
+func suspend(peer_id: int, deadline: int) -> bool:
+	var room := room_for(peer_id)
+	if room.is_empty() or room.members[peer_id].reconnect_hash.is_empty(): return false
+	room.members[peer_id].connected = false
+	room.members[peer_id].reconnect_deadline = deadline
+	return true
+
+func resume(code: String, token: String, new_peer: int, now: int) -> int:
+	if not rooms.has(code) or peer_to_room.has(new_peer): return 0
+	var room: Dictionary = rooms[code]
+	for old_peer in room.members.keys():
+		var member: Dictionary = room.members[old_peer]
+		if member.connected or int(member.reconnect_deadline) <= now: continue
+		if member.reconnect_hash.is_empty() or not equal_secret(member.reconnect_hash,token.sha256_text()): continue
+		member.reconnect_hash = "" # Consume before rekeying membership.
+		member.connected = true; member.reconnect_deadline = 0
+		var rebound := {}
+		for id in room.members: rebound[new_peer if id==old_peer else id] = room.members[id]
+		room.members = rebound
+		peer_to_room.erase(old_peer); peer_to_room[new_peer] = code
+		if int(room.owner) == int(old_peer): room.owner = new_peer
+		return int(old_peer)
+	return 0
+
+func paused(code: String) -> bool:
+	var room: Dictionary = rooms.get(code,{})
+	if room.is_empty() or room.phase != "playing": return false
+	for id in players(room):
+		if not room.members[id].connected: return true
+	return false
+
+func leave(peer_id: int, preserve_result: bool = false) -> Dictionary:
 	var room := room_for(peer_id)
 	if room.is_empty(): return {}
 	var code: String = room.code
@@ -136,9 +177,9 @@ func leave(peer_id: int) -> Dictionary:
 	if remaining.is_empty():
 		for id in room.members: peer_to_room.erase(id)
 		rooms.erase(code)
-		return {"code":code,"affected":before,"closed":true,"match_id":match_id,"interrupted":was_player}
+		return {"code":code,"affected":before,"closed":true,"match_id":match_id,"interrupted":was_player and not preserve_result}
 	if room.owner == peer_id: room.owner = remaining[0]
-	if was_player:
+	if was_player and not preserve_result:
 		room.phase = "waiting"; room.match_id = 0
 		for member in room.members.values(): member.ready = false; member.returned = true
-	return {"code":code,"affected":before,"closed":false,"match_id":match_id,"interrupted":was_player}
+	return {"code":code,"affected":before,"closed":false,"match_id":match_id,"interrupted":was_player and not preserve_result}

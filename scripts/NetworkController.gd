@@ -18,6 +18,21 @@ signal session_chat(message: Dictionary)
 signal spectate_started
 signal session_closed(text: String)
 signal room_join_failed(error: String)
+signal latency_updated(milliseconds: int)
+signal recovery_changed(data: Dictionary) # {paused, reconnect_remaining}
+signal reconnect_status(active: bool, remaining: float)
+
+const RECONNECT_GRACE := 20.0
+var client_reconnect_token := ""
+var client_reconnect_code := ""
+var client_reconnecting := false
+var client_reconnect_deadline := 0
+var client_latency_ms := -1
+var latency_ms: int:
+	get: return client_latency_ms
+var ping_elapsed := 0.0
+var ping_sequence := 0
+var pending_ping: Dictionary = {}
 
 const DEFAULT_PORT := 7777
 const TICK_RATE := 1.0 / 30.0
@@ -115,6 +130,8 @@ func set_room_request(mode: String, code: String = "") -> bool:
 	return true
 
 func _on_connection_failed() -> void:
+	if client_reconnecting:
+		_schedule_reconnect(); return
 	if _retry_next_connection_candidate():
 		return
 	client_connection_state = "idle"
@@ -124,6 +141,11 @@ func _on_server_disconnected() -> void:
 	if client_connection_state == "idle":
 		return
 	var previous_state := client_connection_state
+	if not client_reconnect_token.is_empty():
+		if not client_reconnecting:
+			client_reconnecting = true
+			client_reconnect_deadline = Time.get_ticks_msec() + int(RECONNECT_GRACE*1000)
+		_schedule_reconnect(); return
 	if previous_state == "connecting" and _retry_next_connection_candidate():
 		return
 	client_connection_state = "idle"
@@ -197,6 +219,11 @@ func _start_fallback_if_current(address: String, generation: int) -> void:
 		_start_client_attempt(address)
 
 func disconnect_from_server() -> void:
+	var notify_leave := not client_session.is_empty() and client_connection_state not in ["idle","connecting"] and not client_reconnecting
+	if notify_leave and multiplayer.multiplayer_peer is ENetMultiplayerPeer:
+		request_session_leave.rpc_id(1)
+	client_reconnect_token = ""; client_reconnect_code = ""; client_reconnecting = false
+	client_latency_ms = -1; pending_ping.clear()
 	client_connection_generation += 1
 	client_in_match = false
 	client_is_spectator = false
@@ -206,8 +233,16 @@ func disconnect_from_server() -> void:
 	client_phase_elapsed = 0.0
 	client_connection_candidates.clear()
 	client_connection_index = -1
-	if multiplayer.multiplayer_peer is ENetMultiplayerPeer:
-		multiplayer.multiplayer_peer.close()
+	if notify_leave:
+		_close_explicit_transport.call_deferred(client_connection_generation,multiplayer.multiplayer_peer)
+	else:
+		if multiplayer.multiplayer_peer is ENetMultiplayerPeer: multiplayer.multiplayer_peer.close()
+		multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
+
+func _close_explicit_transport(generation: int, leaving_peer: MultiplayerPeer) -> void:
+	await get_tree().create_timer(0.15).timeout
+	if generation != client_connection_generation or multiplayer.multiplayer_peer != leaving_peer: return
+	if multiplayer.multiplayer_peer is ENetMultiplayerPeer: multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 
 func set_accepting_players(value: bool) -> void:
@@ -217,7 +252,7 @@ func set_accepting_players(value: bool) -> void:
 	if not accepting_players:
 		for peer_id in multiplayer.get_peers():
 			if peer_should_disconnect_for_drain(int(peer_id)):
-				multiplayer.disconnect_peer(int(peer_id))
+				_disconnect_peer(int(peer_id))
 
 func peer_should_disconnect_for_drain(peer_id: int) -> bool:
 	var session := sessions.room_for(peer_id)
@@ -291,7 +326,7 @@ func _peer_is_connected(peer_id: int) -> bool:
 func _disconnect_orphaned_peer(peer_id: int) -> void:
 	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
 	if enet != null and _peer_is_connected(peer_id):
-		multiplayer.disconnect_peer(peer_id)
+		_disconnect_peer(peer_id)
 
 static func is_safe_command_text(value: String) -> bool:
 	return not value.is_empty() and value.length() <= 32 and value == value.to_lower() and value.is_valid_identifier()
@@ -325,8 +360,9 @@ static func _number_in_range(value: Variant, minimum: float, maximum: float) -> 
 	return _is_finite_number(value) and float(value) >= minimum and float(value) <= maximum
 
 static func is_valid_snapshot(data: Dictionary) -> bool:
-	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses", "base_max_hp", "spawn_cooldowns", "battle_report"]):
+	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses", "base_max_hp", "spawn_cooldowns", "battle_report", "network"]):
 		return false
+	if data.has("network") and not valid_recovery_state(data.network): return false
 	if data.has("battle_report") and (int(data.get("winner",-1)) == -1 or not preload("res://scripts/BattleReport.gd").valid(data.battle_report)): return false
 	if data.has("spawn_cooldowns"):
 		if not data.spawn_cooldowns is Array or data.spawn_cooldowns.size()!=2: return false
@@ -426,7 +462,9 @@ static func _has_required_optional_keys(value: Dictionary, required: Array, opti
 func _process(delta: float) -> void:
 	if not server_mode:
 		_advance_client_connection(delta)
+		_advance_ping(delta)
 		return
+	_expire_recovery()
 	for id in join_challenges.keys():
 		if Time.get_ticks_msec()>int(join_challenges[id].deadline): join_challenges.erase(id)
 	lobby_refresh_elapsed += delta
@@ -444,7 +482,7 @@ func _process(delta: float) -> void:
 	while tick_accumulator >= TICK_RATE:
 		for match_id in models.keys():
 			var model: BattleModel = models[match_id]
-			model.tick(TICK_RATE)
+			if not _match_paused(int(match_id)): model.tick(TICK_RATE)
 			if model.winner != -1 and session_matches.has(match_id):
 				var code: String = session_matches[match_id]
 				if sessions.rooms.has(code) and sessions.rooms[code].phase == "playing":
@@ -461,6 +499,14 @@ func _process(delta: float) -> void:
 		snapshot_accumulator = 0.0
 
 func _advance_client_connection(delta: float) -> void:
+	if client_reconnecting:
+		var remaining := maxf(0.0,(client_reconnect_deadline-Time.get_ticks_msec())/1000.0)
+		reconnect_status.emit(true,remaining)
+		if remaining <= 0.0:
+			_end_reconnect(); return
+		client_phase_elapsed += delta
+		if client_phase_elapsed >= CONNECTION_TIMEOUT: _schedule_reconnect()
+		return
 	if client_connection_state not in ["connecting", "connected", "room_request", "leaving"]:
 		return
 	client_phase_elapsed += delta
@@ -481,11 +527,11 @@ func _on_peer_connected(peer_id: int) -> void:
 		return
 	if not accepting_players:
 		print("PLAYER_REJECTED_UPDATE peer=%d" % peer_id)
-		multiplayer.disconnect_peer(peer_id)
+		_disconnect_peer(peer_id)
 		return
 	if not register_peer_address(peer_id, _remote_address(peer_id)):
 		print("PLAYER_REJECTED_INVALID_PEER peer=%d" % peer_id)
-		multiplayer.disconnect_peer(peer_id)
+		_disconnect_peer(peer_id)
 		return
 	print("PLAYER_CONNECTED peer=%d" % peer_id)
 	# Matching starts only after the authoritative server validates a 3+3 deck.
@@ -523,6 +569,12 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	if not server_mode:
 		return
 	var session_peer: bool = sessions.peer_to_room.has(peer_id)
+	if session_peer and sessions.suspend(peer_id,Time.get_ticks_msec()+int(RECONNECT_GRACE*1000)):
+		_push_session(sessions.peer_to_room[peer_id])
+		lobby_pages.erase(peer_id); join_challenges.erase(peer_id); chat_times.erase(peer_id)
+		request_windows.erase(peer_id); release_peer_address(peer_id)
+		lobby_dirty = true
+		return
 	if session_peer: _leave_session(peer_id,true)
 	join_challenges.erase(peer_id)
 	chat_times.erase(peer_id)
@@ -548,11 +600,11 @@ func request_submit_deck(unit_deck: Array, structure_deck: Array) -> void:
 	if peer_decks.has(sender) or not can_process_request(sender):
 		return
 	if not can_admit_deck(sender):
-		multiplayer.disconnect_peer(sender)
+		_disconnect_peer(sender)
 		return
 	if not validate_deck_payload(unit_deck, structure_deck):
 		print("PLAYER_REJECTED_DECK peer=%d" % sender)
-		multiplayer.disconnect_peer(sender)
+		_disconnect_peer(sender)
 		return
 	peer_decks[sender] = {"units": unit_deck.duplicate(), "structures": structure_deck.duplicate()}
 	print("PLAYER_DECK_ACCEPTED peer=%d" % sender)
@@ -617,7 +669,7 @@ func request_spawn(kind: String) -> void:
 	if not is_safe_command_text(kind):
 		return
 	var match_id := registry.get_match_id(sender)
-	if models.has(match_id):
+	if models.has(match_id) and not _match_paused(match_id):
 		var side := registry.get_side(sender)
 		if models[match_id].unit_decks[side].has(kind):
 			models[match_id].spawn_unit(side, kind)
@@ -634,7 +686,7 @@ func request_place_structure(kind: String, x: float) -> void:
 		receive_structure_placement_result.rpc_id(sender, false, Localization.text("잘못된 설치 요청입니다."))
 		return
 	var match_id := registry.get_match_id(sender)
-	if not models.has(match_id):
+	if not models.has(match_id) or _match_paused(match_id):
 		receive_structure_placement_result.rpc_id(sender, false, Localization.text("진행 중인 경기가 없습니다."))
 		return
 	var side := registry.get_side(sender)
@@ -683,6 +735,8 @@ func send_rematch() -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func receive_deck_accepted() -> void:
+	if client_reconnecting:
+		request_reconnect.rpc_id(1,client_reconnect_code,client_reconnect_token); return
 	if client_room_mode in ["lobby","session"]:
 		request_room_list.rpc_id(1,0)
 	elif client_room_mode == "join" or client_room_mode == "enter":
@@ -709,9 +763,11 @@ func _broadcast_snapshot(match_id: int) -> void:
 	if not models.has(match_id):
 		return
 	var data: Dictionary = models[match_id].snapshot()
+	data["network"] = _recovery_state(match_id)
 	for player_id in _match_audience(match_id):
 		if _peer_is_connected(int(player_id)):
-			receive_snapshot.rpc_id(int(player_id), data)
+			if int(data.winner)!=-1: receive_completed_snapshot.rpc_id(int(player_id),data)
+			else: receive_snapshot.rpc_id(int(player_id), data)
 
 func _broadcast_combat_events(match_id: int, events: Array) -> void:
 	for player_id in _match_audience(match_id):
@@ -728,6 +784,7 @@ func match_started(side: int) -> void:
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(data: Dictionary) -> void:
 	if is_valid_snapshot(data):
+		if data.has("network"): recovery_changed.emit(data.network)
 		snapshot_received.emit(data)
 
 @rpc("authority", "call_remote", "unreliable_ordered")
@@ -847,10 +904,15 @@ func _cleanup_session_match(match_id: int) -> void:
 			registry.peer_to_match.erase(id); registry.peer_to_side.erase(id)
 	registry.matches.erase(match_id); models.erase(match_id); rematch_ready.erase(match_id); session_matches.erase(match_id)
 
-func _leave_session(peer_id: int, disconnected: bool = false) -> void:
-	var result := sessions.leave(peer_id)
+func _leave_session(peer_id: int, disconnected: bool = false, preserve_result: bool = false) -> void:
+	var result := sessions.leave(peer_id,preserve_result)
 	if result.is_empty(): return
-	if result.interrupted: _cleanup_session_match(int(result.match_id))
+	if result.interrupted or result.closed: _cleanup_session_match(int(result.match_id))
+	if preserve_result:
+		var mid := registry.get_match_id(peer_id)
+		registry.peer_to_match.erase(peer_id); registry.peer_to_side.erase(peer_id)
+		if registry.matches.has(mid): registry.matches[mid].erase(peer_id)
+	if disconnected: peer_decks.erase(peer_id)
 	if result.closed:
 		for id in result.affected:
 			if int(id) != peer_id and _peer_is_connected(int(id)):
@@ -882,7 +944,7 @@ func request_create_session(title: String, nickname: String, salt: String, secre
 	if not sessions.create(sender,code,title.strip_edges(),nickname.strip_edges(),salt,secret,peer_decks[sender]):
 		receive_session_error.rpc_id(sender,"방을 만들지 못했습니다."); return
 	lobby_pages.erase(sender)
-	lobby_dirty = true; _push_session(code)
+	lobby_dirty = true; _issue_reconnect(sender); _push_session(code)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_session_challenge(code: String, nickname: String, role: String) -> void:
@@ -910,10 +972,10 @@ func request_join_session(response: String) -> void:
 	var error: String = sessions.join(sender,challenge.code,challenge.nickname,challenge.role,peer_decks[sender])
 	if not error.is_empty(): receive_session_error.rpc_id(sender,error); return
 	lobby_pages.erase(sender)
-	lobby_dirty = true; _push_session(challenge.code)
+	lobby_dirty = true; _issue_reconnect(sender); _push_session(challenge.code)
 	if room.phase in ["playing","finished"] and challenge.role == "spectator":
 		session_spectate.rpc_id(sender)
-		if models.has(room.match_id): receive_snapshot.rpc_id(sender,models[room.match_id].snapshot())
+		if models.has(room.match_id): _broadcast_snapshot(int(room.match_id))
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_session_ready(ready: bool) -> void:
@@ -951,7 +1013,7 @@ func request_session_start() -> void:
 	_push_session(room.code); lobby_dirty = true
 	for side in 2: match_started.rpc_id(int(ids[side]),side)
 	for id in room.members:
-		if room.members[id].role == "spectator": session_spectate.rpc_id(int(id))
+		if room.members[id].role == "spectator" and _peer_is_connected(int(id)): session_spectate.rpc_id(int(id))
 	_broadcast_snapshot(match_id)
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -988,10 +1050,12 @@ static func valid_session_state(data: Dictionary) -> bool:
 	if data.members.size()<1 or data.members.size()>TRANSPORT_MAX_PEERS or data.messages.size()>SessionStore.CHAT_HISTORY: return false
 	var players := 0; var ids: Dictionary = {}
 	for member in data.members:
-		if not member is Dictionary or not _has_exact_keys(member,["id","nickname","role","ready","returned","deck"]): return false
+		if not member is Dictionary or not _has_required_optional_keys(member,["id","nickname","role","ready","returned","deck"],["connected","reconnect_remaining"]): return false
 		if not _number_in_range(member.id,1,2147483647) or float(member.id)!=floor(float(member.id)) or ids.has(int(member.id)): return false
 		if not member.nickname is String or not SessionStore.safe_text(member.nickname,SessionStore.MAX_NICKNAME) or member.role not in ["player","spectator"] or not member.ready is bool or not member.returned is bool: return false
 		if not member.deck is Dictionary or not _has_exact_keys(member.deck,["units","structures"]) or not member.deck.units is Array or not member.deck.structures is Array or not validate_deck_payload(member.deck.units,member.deck.structures): return false
+		if member.has("connected") and not member.connected is bool: return false
+		if member.has("reconnect_remaining") and not _number_in_range(member.reconnect_remaining,0.0,RECONNECT_GRACE): return false
 		ids[int(member.id)] = true
 		if member.role == "player": players += 1
 	if players<1 or players>2 or not _number_in_range(data.owner,1,2147483647) or float(data.owner)!=floor(float(data.owner)) or not ids.has(int(data.owner)): return false
@@ -1035,7 +1099,8 @@ func receive_session_error(text: String) -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func receive_session_closed(text: String) -> void:
-	if text.length()>100: return
+	if text.length()>100 or client_connection_state == "idle": return
+	client_reconnect_token = ""; client_reconnect_code = ""; client_reconnecting = false
 	client_session.clear(); client_is_spectator = false; client_in_match = false; client_connection_state = "lobby"
 	session_closed.emit(text)
 	request_room_list.rpc_id(1,0)
@@ -1067,9 +1132,177 @@ func join_session_room(code: String, password: String = "", spectator: bool = fa
 	request_session_challenge.rpc_id(1,code,client_nickname,"spectator" if spectator else "player")
 	return true
 
+func _match_paused(match_id: int) -> bool:
+	return session_matches.has(match_id) and sessions.paused(String(session_matches[match_id]))
+
+func _recovery_state(match_id: int) -> Dictionary:
+	var remaining := 0.0
+	if session_matches.has(match_id):
+		var room: Dictionary = sessions.rooms.get(session_matches[match_id],{})
+		if not room.is_empty() and room.phase == "playing":
+			for id in sessions.players(room):
+				var member: Dictionary = room.members[id]
+				if not member.connected: remaining = maxf(remaining,maxf(0.0,(int(member.reconnect_deadline)-Time.get_ticks_msec())/1000.0))
+	return {"paused":_match_paused(match_id),"reconnect_remaining":remaining}
+
+static func valid_recovery_state(data: Variant) -> bool:
+	return data is Dictionary and _has_exact_keys(data,["paused","reconnect_remaining"]) and data.paused is bool and _number_in_range(data.reconnect_remaining,0.0,RECONNECT_GRACE)
+
+func _finish_match(match_id: int, winner: int) -> void:
+	if not models.has(match_id) or models[match_id].winner != -1: return
+	models[match_id].winner = winner
+	if session_matches.has(match_id):
+		sessions.finish(String(session_matches[match_id])); _push_session(String(session_matches[match_id]))
+	_broadcast_snapshot(match_id); lobby_dirty = true
+
+func send_surrender() -> bool:
+	if client_is_spectator or not client_in_match or client_reconnecting: return false
+	request_surrender.rpc_id(1)
+	return true
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_surrender() -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	var mid := registry.get_match_id(sender)
+	var side := registry.get_side(sender)
+	if not is_valid_match_side(side) or not models.has(mid): return
+	_finish_match(mid,1-side)
+
+func _issue_reconnect(peer_id: int) -> void:
+	var token: String = sessions.issue_reconnect_token(peer_id)
+	if not token.is_empty(): receive_reconnect_credentials.rpc_id(peer_id,String(sessions.peer_to_room[peer_id]),token)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_reconnect_credentials(code: String, token: String) -> void:
+	if client_connection_state == "idle" or not is_valid_room_code(code) or not _hex_string(token,64): return
+	client_reconnect_code = code; client_reconnect_token = token
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_reconnect(code: String, token: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not peer_decks.has(sender): return
+	if not is_valid_room_code(code) or not _hex_string(token,64) or registry.has_match(sender) or registry.peer_to_room.has(sender):
+		receive_reconnect_result.rpc_id(sender,false); return
+	# Never rebind a live member. Identity comes exclusively from the random token.
+	var old_peer: int = sessions.resume(code,token,sender,Time.get_ticks_msec())
+	if old_peer == 0:
+		receive_reconnect_result.rpc_id(sender,false); return
+	var mid := registry.get_match_id(old_peer)
+	var side := registry.get_side(old_peer)
+	if mid > 0:
+		registry.peer_to_match.erase(old_peer); registry.peer_to_side.erase(old_peer)
+		registry.peer_to_match[sender] = mid; registry.peer_to_side[sender] = side
+		var ids: Array = registry.matches.get(mid,[])
+		var index := ids.find(old_peer)
+		if index >= 0: ids[index] = sender
+		if rematch_ready.has(mid) and rematch_ready[mid].has(old_peer):
+			rematch_ready[mid].erase(old_peer); rematch_ready[mid][sender] = true
+	peer_decks.erase(old_peer)
+	var room: Dictionary = sessions.room_for(sender)
+	peer_decks[sender] = room.members[sender].deck.duplicate(true)
+	lobby_pages.erase(sender); _issue_reconnect(sender)
+	receive_reconnect_result.rpc_id(sender,true)
+	_push_session(code)
+	if room.phase in ["playing","finished"] and not room.members[sender].returned:
+		if room.members[sender].role == "spectator": session_spectate.rpc_id(sender)
+		elif is_valid_match_side(side): match_started.rpc_id(sender,side)
+		_broadcast_snapshot(int(room.match_id))
+	lobby_dirty = true
+
+@rpc("authority", "call_remote", "reliable")
+func receive_reconnect_result(success: bool) -> void:
+	if not client_reconnecting: return
+	if not success: _end_reconnect(); return
+	client_reconnecting = false; client_phase_elapsed = 0.0
+	reconnect_status.emit(false,0.0)
+
+func _schedule_reconnect() -> void:
+	if not client_reconnecting: return
+	client_connection_generation += 1
+	client_connection_state = "recovering"; client_phase_elapsed = 0.0
+	_retry_reconnect_after_delay.call_deferred(client_connection_generation)
+
+var _reconnect_retry_delay := 0.5
+
+func _retry_reconnect_after_delay(generation: int) -> void:
+	await get_tree().create_timer(_reconnect_retry_delay).timeout
+	if generation != client_connection_generation or not client_reconnecting: return
+	if Time.get_ticks_msec() >= client_reconnect_deadline or client_connection_candidates.is_empty():
+		_end_reconnect(); return
+	client_connection_index = (client_connection_index+1)%client_connection_candidates.size()
+	_start_client_attempt(String(client_connection_candidates[client_connection_index]))
+
+func _end_reconnect() -> void:
+	disconnect_from_server()
+	reconnect_status.emit(false,0.0)
+	connection_status.emit("재접속 시간이 초과되었습니다.")
+	opponent_disconnected.emit()
+
+func _expire_recovery() -> void:
+	var now := Time.get_ticks_msec()
+	for code in sessions.rooms.keys():
+		if not sessions.rooms.has(code): continue
+		var room: Dictionary = sessions.rooms[code]
+		for id in room.members.keys():
+			if not sessions.peer_to_room.has(id): continue
+			var member: Dictionary = room.members[id]
+			if member.connected or int(member.reconnect_deadline)>now: continue
+			var mid := registry.get_match_id(int(id))
+			if member.role == "player" and room.phase == "playing":
+				var winner := 1-registry.get_side(int(id))
+				for other in sessions.players(room):
+					if int(other) != int(id) and not room.members[other].connected: winner = 2
+				_finish_match(mid,winner)
+			_leave_session(int(id),true,room.phase == "finished")
+			peer_decks.erase(id); request_windows.erase(id)
+			if sessions.rooms.has(code) and room.phase == "finished":
+				var remaining_players: Array = sessions.players(room)
+				if remaining_players.all(func(peer): return room.members[peer].returned):
+					sessions.return_from_battle(int(remaining_players[0]))
+					_cleanup_session_match(int(room.match_id)); room.match_id = 0
+					_push_session(String(code)); lobby_dirty = true
+
+func _advance_ping(delta: float) -> void:
+	if client_connection_state in ["idle","connecting","recovering"] or client_reconnecting: return
+	ping_elapsed += delta
+	if ping_elapsed < 2.0: return
+	ping_elapsed = 0.0
+	ping_sequence = (ping_sequence+1)%2147483647
+	pending_ping = {"sequence":ping_sequence,"sent":Time.get_ticks_msec()}
+	request_ping.rpc_id(1,ping_sequence)
+
+@rpc("any_peer", "call_remote", "unreliable")
+func request_ping(sequence: int) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if sequence < 0 or not peer_addresses.has(sender) or not can_process_request(sender): return
+	receive_pong.rpc_id(sender,sequence)
+
+@rpc("authority", "call_remote", "unreliable")
+func receive_pong(sequence: int) -> void:
+	if pending_ping.is_empty() or int(pending_ping.sequence) != sequence: return
+	client_latency_ms = maxi(0,Time.get_ticks_msec()-int(pending_ping.sent))
+	pending_ping.clear(); latency_updated.emit(client_latency_ms)
+
 @rpc("any_peer", "call_remote", "reliable")
 func request_lobby_deck(units: Array, structures: Array) -> void:
 	if not server_mode: return
 	var sender := multiplayer.get_remote_sender_id()
 	if not can_process_request(sender) or not _can_enter_session(sender) or not validate_deck_payload(units,structures): return
 	peer_decks[sender] = {"units":units.duplicate(),"structures":structures.duplicate()}
+
+func _disconnect_peer(peer_id: int) -> void:
+	# Administrative closes do not emit SceneMultiplayer.peer_disconnected.
+	# Leave explicitly (no reconnect grace), then clean authoritative indexes.
+	if sessions.peer_to_room.has(peer_id): _leave_session(peer_id,true)
+	multiplayer.disconnect_peer(peer_id)
+	_on_peer_disconnected(peer_id)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_completed_snapshot(data: Dictionary) -> void:
+	# Final per-kind reports exceed a single datagram; ENet reliable fragmentation
+	# avoids sending the only result/report over an oversized unreliable packet.
+	receive_snapshot(data)

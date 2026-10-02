@@ -108,8 +108,8 @@ func run() -> void:
 	for portrait in unit_portraits:
 		portraits_loaded = portraits_loaded and portrait.texture != null
 	expect_true(unit_portraits.size() == main.battle_preset.units.size() and portraits_loaded, "all selected battle unit cards show an available sprite")
-	expect_true(find_button(main, "대전 나가기") != null, "AI battles expose a mid-match exit button")
-	var exit_button := find_button(main, "대전 나가기")
+	expect_true(find_button(main, "항복") != null, "AI battles expose a mid-match exit button")
+	var exit_button := find_button(main, "항복")
 	var unit_stats_button := find_button(main, "유닛 스탯")
 	var blue_hp_card := main.blue_hp_bar.get_parent().get_parent() as Control
 	var red_hp_card := main.red_hp_bar.get_parent().get_parent() as Control

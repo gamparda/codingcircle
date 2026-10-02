@@ -62,7 +62,12 @@ func run() -> void:
 			check(not structure_card.button_pressed and main.battle_view.selected_structure.is_empty(), "second click cancels structure selection")
 		click_control(leave)
 		await process_frame
-		check(not main.battle_active, "physical click exits AI battle")
+		check(main.action_overlay!=null, "physical click opens surrender confirmation")
+		main.result_recorded=true
+		var confirm := main.find_child("ConfirmSurrender",true,false) as Button
+		click_control(confirm); await process_frame
+		check(main.result_shown and main.local_model.winner==1, "confirmed surrender yields defeat")
+		main._exit_ai_battle()
 	main._on_match_found(0)
 	await process_frame
 	var online_stats := main.find_child("UnitStatsButton", true, false) as Button

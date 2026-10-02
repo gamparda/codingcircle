@@ -37,6 +37,17 @@ var connect_button_ref: Button
 var join_button_ref: Button
 var local_ai_mode := false
 var ai_smoke_mode := false
+const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
+const PracticeTools = preload("res://scripts/PracticeTools.gd")
+var practice = PracticeTools.new()
+var practice_used_tools := false
+var practice_pause_button: Button
+var practice_speed_button: Button
+var action_overlay: Control
+var latency_label: Label
+var recovery_label: Label
+var network_paused := false
+var resuming_battle_ui := false
 var local_model: BattleModel
 var local_ai: ServerAI
 var current_ai_stage := 1
@@ -116,6 +127,9 @@ func _ready() -> void:
 	network.session_chat.connect(_on_session_chat)
 	network.spectate_started.connect(_on_spectate_started)
 	network.session_closed.connect(_on_session_closed)
+	network.latency_updated.connect(_on_latency_updated)
+	network.reconnect_status.connect(_on_reconnect_status)
+	network.recovery_changed.connect(_on_recovery_changed)
 	network.client_nickname = String(save_data.get("nickname","플레이어"))
 	updater.update_started.connect(_on_update_started)
 	updater.update_status.connect(_on_update_status)
@@ -204,9 +218,10 @@ func _process(delta: float) -> void:
 	if running_as_server:
 		_update_server_lifecycle(delta)
 		updater.set_safe_to_update(_server_can_update())
-	if local_ai_mode and battle_active and is_instance_valid(local_model):
-		local_ai.update(local_model, delta)
-		local_model.tick(delta)
+	if local_ai_mode and battle_active and is_instance_valid(local_model) and not is_instance_valid(action_overlay):
+		if campaign_mode:
+			local_ai.update(local_model, delta); local_model.tick(delta)
+		else: practice.advance(local_model,local_ai,delta,own_side)
 		_on_combat_events(local_model.drain_combat_events())
 		_on_snapshot(local_model.snapshot())
 	if smoke_mode or ai_smoke_mode:
@@ -307,7 +322,9 @@ func _update_server_lifecycle(delta: float) -> void:
 func _clear_screen() -> void:
 	for player in combat_sfx_players:
 		if is_instance_valid(player): player.stop()
+	_dismiss_action_overlay()
 	_dismiss_battle_report()
+	practice_pause_button = null; practice_speed_button = null; latency_label = null; recovery_label = null
 	base_warning_label = null; cancel_build_button = null
 	session_chat_log = null; session_chat_input = null; session_roster = null; session_title = null
 	if is_instance_valid(battle_chat_panel): battle_chat_panel.queue_free()
@@ -630,6 +647,11 @@ func _build_ai_stage_screen(as_campaign: bool = false) -> void:
 	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
+	if not campaign_mode:
+		var tools := HBoxContainer.new(); tools.add_theme_constant_override("separation",12); stage_column.add_child(tools)
+		var edit := _styled_button("상대 덱 설정",Color("#3d647d")); edit.custom_minimum_size = Vector2(260,40); edit.pressed.connect(_show_practice_deck); tools.add_child(edit)
+		var unlimited := CheckButton.new(); unlimited.name = "PracticeUnlimited"; unlimited.text = "자원 무제한"; unlimited.button_pressed = practice.unlimited; unlimited.toggled.connect(func(enabled): practice.unlimited=enabled); tools.add_child(unlimited)
+		var normal := _styled_button("기본 설정",Color("#596174")); normal.custom_minimum_size = Vector2(200,40); normal.pressed.connect(func(): practice = PracticeTools.new(); _build_ai_stage_screen(false)); tools.add_child(normal)
 	stage_column.add_child(grid)
 	for stage in range(ServerAI.MIN_STAGE, ServerAI.MAX_STAGE + 1):
 		var intensity := float(stage - 1) / float(ServerAI.MAX_STAGE - 1)
@@ -642,10 +664,10 @@ func _build_ai_stage_screen(as_campaign: bool = false) -> void:
 			color,
 			stage == current_ai_stage
 		)
-		stage_button.custom_minimum_size = Vector2(220, 148)
+		stage_button.custom_minimum_size = Vector2(220, 130)
 		stage_button.add_theme_font_size_override("font_size", 14)
 		stage_button.disabled = locked
-		stage_button.pressed.connect(_start_local_ai_battle.bind(stage))
+		stage_button.pressed.connect(_show_stage_brief.bind(stage) if campaign_mode else _start_local_ai_battle.bind(stage))
 		grid.add_child(stage_button)
 	var back_button := _styled_button(Localization.text("메인 화면으로"), Color("#596174"), false)
 	back_button.custom_minimum_size.y = 48
@@ -1080,7 +1102,8 @@ func _on_room_join_failed(error: String) -> void:
 	_set_room_controls_disabled(false)
 
 func _on_match_found(side: int) -> void:
-	result_recorded = false
+	if not resuming_battle_ui: result_recorded = false
+	resuming_battle_ui = false
 	multiplayer_screen = ""
 	local_ai_mode = false
 	battle_preset = _active_preset().duplicate(true)
@@ -1092,6 +1115,8 @@ func _on_match_found(side: int) -> void:
 
 func _start_local_ai_battle(stage: int = 1, reuse_deck: bool = false) -> void:
 	local_ai_mode = true
+	practice.reset_battle_state()
+	practice_used_tools = not campaign_mode and (practice.unlimited or not practice.enemy_units.is_empty() or practice.speed!=1.0)
 	result_recorded = false
 	current_ai_stage = clampi(stage, ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
 	own_side = 0
@@ -1103,10 +1128,13 @@ func _start_local_ai_battle(stage: int = 1, reuse_deck: bool = false) -> void:
 	local_model.configure_deck(0, preset.units, preset.structures)
 	var ai_units: Array = ServerAI.stage_unit_deck(current_ai_stage)
 	var ai_structures: Array = ServerAI.stage_structure_deck(current_ai_stage)
+	if not campaign_mode and not practice.enemy_units.is_empty():
+		ai_units = practice.enemy_units; ai_structures = practice.enemy_structures
 	local_model.configure_deck(1, ai_units, ai_structures)
 	local_model.resources[1] = min(BattleModel.MAX_RESOURCE, 35.0 + float(current_ai_stage) * 10.0)
 	local_model.configure_base_health(1, 300.0 + float(current_ai_stage) * 20.0)
 	local_ai = ServerAI.new(1, current_ai_stage)
+	if not campaign_mode: practice.refill(local_model,own_side)
 	_build_battle_screen()
 	if not ai_smoke_mode and not bool(save_data.get("tutorial_completed", false)):
 		_begin_tutorial()
@@ -1263,10 +1291,20 @@ func _build_battle_screen() -> void:
 		exit_button.size = Vector2(136, 48)
 		exit_button.z_index = 10
 		exit_button.add_theme_font_size_override("font_size", 12)
-		exit_button.pressed.connect(_exit_ai_battle)
+		exit_button.text = "항복"; exit_button.pressed.connect(_confirm_surrender)
 		root_background.add_child(exit_button)
 
+	if local_ai_mode and not campaign_mode: _add_practice_controls()
+	if campaign_mode and local_ai_mode:
+		var goal := Label.new(); goal.name = "CampaignBattleGoal"; goal.text = CampaignBrief.goal(current_ai_stage); goal.position = Vector2(160,98); goal.size = Vector2(340,48); goal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; goal.add_theme_font_size_override("font_size",12); goal.mouse_filter = Control.MOUSE_FILTER_IGNORE; root_background.add_child(goal)
+	if not local_ai_mode:
+		for side in 2:
+			var name_label := Label.new(); name_label.name = "BattlePlayerName%d"%side; name_label.text = _report_side_name(side); name_label.position = Vector2(164 if side==own_side else 918,154); name_label.size = Vector2(270,28); name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if side==own_side else HORIZONTAL_ALIGNMENT_RIGHT; name_label.add_theme_font_size_override("font_size",13); name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE; root_background.add_child(name_label)
+		latency_label = Label.new(); latency_label.name = "LatencyLabel"; latency_label.position = Vector2(760,96); latency_label.size = Vector2(150,20); latency_label.add_theme_font_size_override("font_size",12); latency_label.mouse_filter = Control.MOUSE_FILTER_IGNORE; root_background.add_child(latency_label)
+		var surrender := _styled_button("항복",Color("#8f4652")); surrender.name = "SurrenderButton"; surrender.position = Vector2(14,98); surrender.size = Vector2(136,48); surrender.z_index = 10; surrender.visible = not network.client_is_spectator; surrender.pressed.connect(_confirm_surrender); root_background.add_child(surrender)
+		recovery_label = Label.new(); recovery_label.name = "NetworkRecoveryStatus"; recovery_label.position = Vector2(350,155); recovery_label.size = Vector2(580,38); recovery_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; recovery_label.add_theme_color_override("font_color",Color("#f0d592")); recovery_label.mouse_filter = Control.MOUSE_FILTER_IGNORE; root_background.add_child(recovery_label)
 	if not network.client_session.is_empty(): _add_battle_chat()
+	if not local_ai_mode: _on_latency_updated(network.latency_ms)
 
 	base_warning_label = Label.new(); base_warning_label.name = "BaseDangerWarning"; base_warning_label.text = "기지 체력 위험"; base_warning_label.position = Vector2(530,96); base_warning_label.size = Vector2(220,28); base_warning_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; base_warning_label.add_theme_color_override("font_color",Color("#ff8a96")); base_warning_label.visible = false; root_background.add_child(base_warning_label)
 	cancel_build_button = _styled_button("설치 취소 · Esc",Color("#697386")); cancel_build_button.name = "CancelBuildButton"; cancel_build_button.position = Vector2(536,500); cancel_build_button.size = Vector2(208,44); cancel_build_button.visible = false; cancel_build_button.z_index = 10; cancel_build_button.pressed.connect(_cancel_build_selection); root_background.add_child(cancel_build_button)
@@ -1561,7 +1599,7 @@ func _refresh_purchase_buttons(resources: float) -> void:
 			var advertised: Array = current_snapshot.get("spawn_cooldowns",[{},{}])
 			cooldown = maxf(float(advertised[own_side].get(kind,0.0)),maxf(0.0,float(client_purchase_gates.get(kind,0))-Time.get_ticks_msec())/1000.0)
 		var missing := maxi(0,ceili(float(button.get_meta("purchase_cost"))-resources))
-		var unavailable := network.client_is_spectator or missing>0 or cooldown>0.001
+		var unavailable: bool = network.client_is_spectator or (not local_ai_mode and network_paused) or result_shown or (local_ai_mode and not campaign_mode and practice.paused) or missing>0 or cooldown>0.001
 		var state_label := button.get_node_or_null("PurchaseState") as Label
 		if state_label:
 			var state_text := "관전" if network.client_is_spectator else ("자원 -%d" % missing if missing>0 else ("대기 %.1f초" % cooldown if cooldown>0.001 else ""))
@@ -1577,7 +1615,7 @@ func _refresh_purchase_buttons(resources: float) -> void:
 		_refresh_structure_selection()
 
 func _on_battlefield_clicked(world_x: float) -> void:
-	if network.client_is_spectator: return
+	if network.client_is_spectator or (not local_ai_mode and network_paused) or result_shown or (local_ai_mode and not campaign_mode and practice.paused): return
 	if not is_instance_valid(battle_view) or battle_view.selected_structure.is_empty() or placement_pending:
 		return
 	var kind := battle_view.selected_structure
@@ -1586,6 +1624,7 @@ func _on_battlefield_clicked(world_x: float) -> void:
 		_show_placement_status(error)
 		return
 	if local_ai_mode:
+		if not campaign_mode: practice.refill(local_model,own_side)
 		if local_model.place_structure(own_side, kind, world_x):
 			_show_placement_status(Localization.text("건설 완료"))
 			battle_view.selected_structure = ""
@@ -1689,7 +1728,7 @@ func _show_result(winner: int) -> void:
 		if local_ai_mode:
 			if campaign_mode:
 				awarded_stars = SaveData.record_campaign(save_data, current_ai_stage, winner == own_side, float(current_snapshot.elapsed), float(current_snapshot.base_hp[own_side]))
-			else:
+			elif not practice_used_tools:
 				save_data.stats.ai_matches += 1
 				save_data.stats.ai_wins += 1 if winner == own_side else 0
 				save_data.stats.ai_losses += 0 if winner == own_side else 1
@@ -1733,6 +1772,7 @@ func _show_result(winner: int) -> void:
 	var note := Label.new()
 	if local_ai_mode:
 		note.text = Localization.text("%02d단계 승리 · 최고 ★ %d · 다음 단계 해금") % [current_ai_stage, awarded_stars] if campaign_mode and winner == own_side else Localization.text("%02d단계 결과가 개인 전적에 저장되었습니다.") % current_ai_stage
+		if not campaign_mode and practice_used_tools: note.text = "실험 설정 결과는 전적에 기록하지 않습니다."
 	else:
 		note.text = "같은 방에서 덱을 바꾸고 다시 대전할 수 있습니다." if not network.client_session.is_empty() else Localization.text("두 플레이어가 모두 준비하면 다시 시작합니다.")
 	note.position = Vector2(0, 157)
@@ -1756,7 +1796,7 @@ func _show_result(winner: int) -> void:
 	if local_ai_mode and campaign_mode:
 		var growth := Label.new()
 		growth.name = "CampaignGrowthReward"
-		growth.text = Localization.text("첫 클리어 보상 · 병력 +3% · 자원 +0.5/초 · 보유 +10 · 시작 +5") if SaveData.campaign_growth_level(save_data) > growth_before else _campaign_growth_summary()
+		growth.text = CampaignBrief.result_conditions(current_ai_stage,winner==own_side,float(current_snapshot.elapsed),float(current_snapshot.base_hp[own_side])) + "\n" + ("첫 클리어 보상 · 병력 +3% · 자원 +0.5/초 · 보유 +10 · 시작 +5" if SaveData.campaign_growth_level(save_data)>growth_before else _campaign_growth_summary())
 		growth.position = Vector2(25, 250)
 		growth.size = Vector2(530, 44)
 		growth.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2028,6 +2068,7 @@ func _on_session_changed(data: Dictionary) -> void:
 	if data.is_empty(): return
 	var member := _self_session_member()
 	if data.phase == "waiting" or (data.phase == "finished" and member.get("returned",false)):
+		resuming_battle_ui = false; network_paused = false
 		if multiplayer_screen != "session": MultiplayerUI.room(self)
 		else: MultiplayerUI.update_room(self,data)
 	elif multiplayer_screen == "session": MultiplayerUI.update_room(self,data)
@@ -2037,6 +2078,7 @@ func _on_session_error(text: String) -> void:
 	if multiplayer_screen == "lobby": _set_lobby_enabled(network.client_connection_state == "lobby")
 
 func _on_session_closed(text: String) -> void:
+	network_paused = false; resuming_battle_ui = false
 	local_ai_mode = false; battle_active = false; battle_preset.clear()
 	lobby_data = {"rooms":[],"page":0,"total":0}
 	_build_lobby_screen()
@@ -2061,7 +2103,7 @@ func _on_spectate_started() -> void:
 	_build_battle_screen()
 
 func _add_battle_chat() -> void:
-	var toggle := _styled_button("방 채팅",Color("#3d647d")); toggle.name = "BattleChatButton"; toggle.position = Vector2(970,154); toggle.size = Vector2(144,44); toggle.z_index = 10; root_background.add_child(toggle)
+	var toggle := _styled_button("방 채팅",Color("#3d647d")); toggle.name = "BattleChatButton"; toggle.position = Vector2(970,190); toggle.size = Vector2(144,44); toggle.z_index = 10; root_background.add_child(toggle)
 	battle_chat_panel = PanelContainer.new(); battle_chat_panel.name = "BattleChatPanel"; battle_chat_panel.position = Vector2(750,204); battle_chat_panel.size = Vector2(360,320); battle_chat_panel.z_index = 20
 	var style := _panel_style(Color("#101a29"),Color("#2b415c"),12); style.content_margin_left = 12; style.content_margin_right = 12; style.content_margin_top = 12; style.content_margin_bottom = 12; battle_chat_panel.add_theme_stylebox_override("panel",style); root_background.add_child(battle_chat_panel)
 	var content := VBoxContainer.new(); content.add_theme_constant_override("separation",8); battle_chat_panel.add_child(content)
@@ -2076,7 +2118,7 @@ func _battle_text_has_focus() -> bool:
 	return focused is LineEdit or focused is TextEdit
 
 func _handle_battle_hotkey(event: InputEventKey) -> bool:
-	if not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed or not battle_active or result_shown or network.client_is_spectator or _battle_text_has_focus() or is_instance_valid(stats_overlay) or is_instance_valid(report_overlay): return false
+	if not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed or not battle_active or result_shown or (not local_ai_mode and network_paused) or network.client_is_spectator or _battle_text_has_focus() or is_instance_valid(stats_overlay) or is_instance_valid(report_overlay) or is_instance_valid(action_overlay): return false
 	var key := event.physical_keycode if event.physical_keycode!=0 else event.keycode
 	var codes := [KEY_1,KEY_2,KEY_3,KEY_Q,KEY_W,KEY_E]
 	var index := codes.find(key)
@@ -2092,9 +2134,10 @@ func _add_purchase_labels(button: Button, key_text: String) -> void:
 	var state := Label.new(); state.name = "PurchaseState"; state.position = Vector2(28,2); state.size = Vector2(106,18); state.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT; state.add_theme_font_size_override("font_size",10); state.add_theme_color_override("font_color",Color("#f0d592")); state.mouse_filter = Control.MOUSE_FILTER_IGNORE; state.add_theme_stylebox_override("normal",_panel_style(Color(0.03,0.04,0.06,0.9),Color.TRANSPARENT,3)); button.add_child(state)
 
 func _purchase_unit(kind: String) -> void:
-	if network.client_is_spectator or not battle_active or result_shown or float(client_purchase_gates.get(kind,0))>Time.get_ticks_msec(): return
+	if network.client_is_spectator or (not local_ai_mode and network_paused) or not battle_active or result_shown or (local_ai_mode and not campaign_mode and practice.paused) or float(client_purchase_gates.get(kind,0))>Time.get_ticks_msec(): return
 	var accepted := false
 	if local_ai_mode:
+		if not campaign_mode: practice.refill(local_model,own_side)
 		accepted = local_model.spawn_unit(own_side,kind)
 		if accepted: _tutorial_advance(0)
 	else:
@@ -2165,3 +2208,104 @@ func _show_battle_report() -> void:
 		for text in Report.lines(data): column.add_child(MultiplayerUI.label(text,14,MultiplayerUI.MUTED))
 	content.add_child(MultiplayerUI.label("피해는 실제로 감소시킨 체력입니다. 해골의 처치·피해는 네크로맨서에 합산합니다.",12,MultiplayerUI.MUTED))
 	MultiplayerUI.button(self,content,"닫기","CloseBattleReportButton",_dismiss_battle_report)
+
+func _dismiss_action_overlay() -> void:
+	if is_instance_valid(action_overlay): action_overlay.queue_free()
+	action_overlay = null
+
+func _action_panel(title: String, rect: Rect2) -> VBoxContainer:
+	_dismiss_action_overlay()
+	action_overlay = ColorRect.new(); action_overlay.name = "BattleActionOverlay"; action_overlay.color = Color(0.02,0.03,0.05,0.95); action_overlay.size = Vector2(1280,720); action_overlay.z_index = 160; root_background.add_child(action_overlay)
+	var column := MultiplayerUI.panel(self,action_overlay,"BattleActionPanel",rect)
+	column.add_child(MultiplayerUI.label(title,26,MultiplayerUI.GOLD))
+	return column
+
+func _show_stage_brief(stage: int) -> void:
+	if not campaign_mode or stage>int(save_data.campaign_unlocked): return
+	var column := _action_panel("%02d · %s" % [stage,ServerAI.stage_name(stage)],Rect2(200,130,880,460))
+	column.add_child(MultiplayerUI.label(CampaignBrief.goal(stage),19))
+	column.add_child(MultiplayerUI.label("상대 덱",14,MultiplayerUI.GOLD))
+	var deck := MultiplayerUI.label(CampaignBrief.enemy_deck(stage),16); deck.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; column.add_child(deck)
+	column.add_child(MultiplayerUI.label(CampaignBrief.conditions(stage),15,MultiplayerUI.GOLD))
+	var record: Dictionary = save_data.campaign_records[stage-1]
+	column.add_child(MultiplayerUI.label("최고 %s · 최단 %s" % ["★".repeat(int(record.best_stars)),"%.0f초"%float(record.fastest_win) if float(record.fastest_win)>0 else "기록 없음"],14,MultiplayerUI.MUTED))
+	MultiplayerUI.button(self,column,"전투 시작","StartCampaignStage",func(): _dismiss_action_overlay(); _start_local_ai_battle(stage))
+	MultiplayerUI.button(self,column,"돌아가기","CloseCampaignBrief",_dismiss_action_overlay)
+
+func _show_practice_deck() -> void:
+	if campaign_mode: return
+	var column := _action_panel("연습 상대 덱",Rect2(220,70,840,580))
+	column.add_child(MultiplayerUI.label("병력 3종 · 구조물 3종",15,MultiplayerUI.MUTED))
+	var units: Array = practice.enemy_units.duplicate() if not practice.enemy_units.is_empty() else ServerAI.stage_unit_deck(current_ai_stage)
+	var structures: Array = practice.enemy_structures.duplicate() if not practice.enemy_structures.is_empty() else ServerAI.stage_structure_deck(current_ai_stage)
+	var unit_grid := GridContainer.new(); unit_grid.columns=4; unit_grid.add_theme_constant_override("h_separation",12); column.add_child(unit_grid)
+	for kind in BattleModel.UNIT_NAMES:
+		if kind=="skeleton": continue
+		var button := CheckButton.new(); button.text = BattleModel.UNIT_NAMES[kind]; button.button_pressed = units.has(kind); button.toggled.connect(func(on):
+			if on: units.append(kind)
+			else: units.erase(kind)); unit_grid.add_child(button)
+	var structure_grid := GridContainer.new(); structure_grid.columns=4; column.add_child(structure_grid)
+	for kind in BattleModel.STRUCTURE_STATS:
+		var button := CheckButton.new(); button.text = {"wall":"방벽","swamp":"늪","turret":"포탑","generator":"발전기"}[kind]; button.button_pressed = structures.has(kind); button.toggled.connect(func(on):
+			if on: structures.append(kind)
+			else: structures.erase(kind)); structure_grid.add_child(button)
+	var error := MultiplayerUI.label("",15,Color("#ff8a96")); column.add_child(error)
+	MultiplayerUI.button(self,column,"적용","ApplyPracticeDeck",func():
+		if not practice.set_enemy_deck(units,structures): error.text="서로 다른 병력 3종과 구조물 3종을 선택하세요."; return
+		_dismiss_action_overlay()
+		if battle_active and local_ai_mode: _restart_practice()
+	)
+	MultiplayerUI.button(self,column,"단계 기본 덱","DefaultPracticeDeck",func(): practice.enemy_units.clear(); practice.enemy_structures.clear(); _dismiss_action_overlay(); _restart_practice() if battle_active and local_ai_mode else _build_ai_stage_screen(false))
+	MultiplayerUI.button(self,column,"닫기","ClosePracticeDeck",_dismiss_action_overlay)
+
+func _add_practice_controls() -> void:
+	var row := HBoxContainer.new(); row.name = "PracticeControls"; row.position = Vector2(164,98); row.size = Vector2(342,44); row.z_index=10; row.add_theme_constant_override("separation",6); root_background.add_child(row)
+	practice_pause_button = _styled_button("일시정지",Color("#3d647d")); practice_pause_button.name="PracticePauseButton"; practice_pause_button.custom_minimum_size = Vector2(90,44); practice_pause_button.add_theme_font_size_override("font_size",12); practice_pause_button.pressed.connect(_toggle_practice_pause); row.add_child(practice_pause_button)
+	practice_speed_button = _styled_button("%.1f배" % practice.speed,Color("#3d647d")); practice_speed_button.name="PracticeSpeedButton"; practice_speed_button.custom_minimum_size = Vector2(66,44); practice_speed_button.add_theme_font_size_override("font_size",12); practice_speed_button.pressed.connect(func(): practice.cycle_speed(); practice_used_tools=true; practice_speed_button.text="%.1f배"%practice.speed); row.add_child(practice_speed_button)
+	var reset := _styled_button("초기화",Color("#596174")); reset.name="PracticeResetButton"; reset.custom_minimum_size=Vector2(74,44); reset.add_theme_font_size_override("font_size",12); reset.pressed.connect(_restart_practice); row.add_child(reset)
+	var settings := _styled_button("상대 덱",Color("#596174")); settings.custom_minimum_size=Vector2(84,44); settings.add_theme_font_size_override("font_size",12); settings.pressed.connect(_show_practice_deck); row.add_child(settings)
+
+func _toggle_practice_pause() -> void:
+	if not local_ai_mode or campaign_mode or result_shown: return
+	practice.paused = not practice.paused
+	if is_instance_valid(practice_pause_button): practice_pause_button.text="계속" if practice.paused else "일시정지"
+	_refresh_purchase_buttons(latest_resources)
+
+func _restart_practice() -> void:
+	if not local_ai_mode or campaign_mode: return
+	_start_local_ai_battle(current_ai_stage,true)
+
+func _confirm_surrender() -> void:
+	if not battle_active or result_shown or network.client_is_spectator: return
+	var column := _action_panel("항복할까요?",Rect2(400,230,480,260))
+	column.add_child(MultiplayerUI.label("이 경기는 패배로 종료됩니다.",16,MultiplayerUI.MUTED))
+	MultiplayerUI.button(self,column,"항복","ConfirmSurrender",func():
+		_dismiss_action_overlay()
+		if local_ai_mode:
+			local_model.winner=1-own_side; _on_snapshot(local_model.snapshot())
+		else: network.send_surrender()
+	)
+	MultiplayerUI.button(self,column,"계속하기","CancelSurrender",_dismiss_action_overlay)
+
+func _on_latency_updated(milliseconds: int) -> void:
+	if not is_instance_valid(latency_label): return
+	latency_label.text="지연 %dms"%milliseconds if milliseconds>=0 else "지연 측정 중"
+	latency_label.modulate=Color("#ff8a96") if milliseconds>200 else Color("#a7afc0")
+
+func _on_reconnect_status(active: bool, remaining: float) -> void:
+	if active:
+		resuming_battle_ui = true
+		if not network_paused:
+			network_paused = true; _refresh_purchase_buttons(latest_resources)
+		var text := "연결 복구 중 · %d초"%ceili(remaining)
+		if is_instance_valid(recovery_label) and recovery_label.text!=text: recovery_label.text=text
+		elif is_instance_valid(status_label): status_label.text=text
+	elif is_instance_valid(recovery_label): recovery_label.text=""
+
+func _on_recovery_changed(data: Dictionary) -> void:
+	if local_ai_mode: return
+	var paused: bool = data.get("paused",false) or network.client_reconnecting
+	if network_paused!=paused:
+		network_paused=paused; _refresh_purchase_buttons(latest_resources)
+	if is_instance_valid(recovery_label) and not network.client_reconnecting:
+		recovery_label.text="상대 연결 복구 대기 · %d초"%ceili(float(data.get("reconnect_remaining",0))) if paused else ""

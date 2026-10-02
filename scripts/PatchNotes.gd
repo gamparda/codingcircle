@@ -2,6 +2,7 @@ extends RefCounted
 
 # Historical changes reconstructed from version tags; not current balance rules.
 const HISTORY := [
+	{"version":"v0.6.2","changes":["연습에 일시정지·0.5/1/2/4배속·즉시 초기화·상대 덱 설정·무제한 자원을 추가했습니다. 실험 설정은 캠페인 진행과 전적에 반영하지 않습니다.","캠페인 시작 전 상대 덱·단계별 전술 목표·정확한 별 조건·최고 기록을 확인할 수 있습니다. 결과에서 조건별 달성 여부를 표시합니다.","항복은 확인 후 서버가 패배로 처리하며 같은 방의 결과·재대전 흐름을 유지합니다. 관전자는 항복할 수 없습니다.","서버 왕복 지연과 상대 이름을 전투 중 표시합니다. 일시적인 연결 끊김은 20초 동안 전투를 정지하고 자동 복귀를 시도합니다."],"source_tag":"","source_commits":[]},
 {
   "version": "v0.6.1",
   "changes": [
