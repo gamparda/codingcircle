@@ -60,8 +60,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $contentVersion = "0.6.0"
-          $windowsVersion = "0.6.0"
+          $contentVersion = "0.6.1"
+          $windowsVersion = "0.6.1"
           $androidBinaryVersion = "0.4.18"
           $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?before=${{ github.sha }}"
           $previousAndroidVersion = if ($previous.PSObject.Properties.Name -contains "android_binary_version") { [string]$previous.android_binary_version } else { [string]$previous.version }
@@ -148,6 +148,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Room browser lifecycle/protocol regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_browser_ui_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Room browser UI navigation regression failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/battle_experience_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "battle_experience_test failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/battle_experience_ui_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "battle_experience_ui_test failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_sessions_test.gd
           if ($LASTEXITCODE -ne 0) { throw "room_sessions_test failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_sessions_wire_test.gd
@@ -267,6 +271,7 @@ jobs:
           chmod +x "$GODOT"
           "$GODOT" --headless --editor --import --path .
           LP_NUM_THREADS=1 OMP_NUM_THREADS=1 timeout 90s xvfb-run -a -s '-screen 0 1920x1080x24' "$GODOT" --single-threaded-scene --rendering-method gl_compatibility --rendering-driver opengl3 --path . --script tests/room_sessions_ui_test.gd -- --capture-dir="$PWD/.ci/multiplayer-preview"
+          LP_NUM_THREADS=1 OMP_NUM_THREADS=1 timeout 90s xvfb-run -a -s '-screen 0 1920x1080x24' "$GODOT" --single-threaded-scene --rendering-method gl_compatibility --rendering-driver opengl3 --path . --script tests/battle_experience_ui_test.gd -- --capture-dir="$PWD/.ci/multiplayer-preview"
       - uses: actions/upload-artifact@v4
         with:
           name: multiplayer-preview

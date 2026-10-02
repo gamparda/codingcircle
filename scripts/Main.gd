@@ -41,6 +41,16 @@ var local_model: BattleModel
 var local_ai: ServerAI
 var current_ai_stage := 1
 var bgm_player: AudioStreamPlayer
+const CombatSounds = preload("res://scripts/CombatSounds.gd")
+const Report = preload("res://scripts/BattleReport.gd")
+var combat_sfx_players: Array = []
+var sound_gate: Dictionary = {}
+var base_warning_fired := false
+var base_warning_label: Label
+var cancel_build_button: Button
+var report_overlay: Control
+var client_purchase_gates: Dictionary = {}
+var latest_resources := 0.0
 var rage_sfx_player: AudioStreamPlayer
 var last_rage_sfx_msec := -1000
 var running_as_server := false
@@ -179,6 +189,18 @@ func _arg_string(args: PackedStringArray, prefix: String, fallback: String) -> S
 	return fallback
 
 func _process(delta: float) -> void:
+	if not local_ai_mode and battle_active and not current_snapshot.is_empty():
+		var active_gate := false
+		for deadline in client_purchase_gates.values():
+			if float(deadline)>Time.get_ticks_msec(): active_gate = true; break
+		if active_gate: _refresh_purchase_buttons(latest_resources)
+	if OS.has_feature("android"):
+		var keyboard := DisplayServer.virtual_keyboard_get_height()
+		var logical := float(keyboard)*720.0/maxf(1.0,float(DisplayServer.window_get_size().y))
+		var focused := is_instance_valid(session_chat_input) and session_chat_input.has_focus()
+		if is_instance_valid(battle_chat_panel): battle_chat_panel.position.y = clampf(720.0-logical-battle_chat_panel.size.y-12.0,88.0,204.0) if focused and keyboard>0 else 204.0
+		elif multiplayer_screen=="session" and is_instance_valid(root_background):
+			root_background.position.y = -minf(logical,300.0) if focused and keyboard>0 else 0.0
 	if running_as_server:
 		_update_server_lifecycle(delta)
 		updater.set_safe_to_update(_server_can_update())
@@ -222,6 +244,9 @@ func _input(event: InputEvent) -> void:
 			_on_battlefield_clicked(battle_view.screen_to_world_x(local_position.x))
 			get_viewport().set_input_as_handled()
 		return
+	if event is InputEventKey and _battle_text_has_focus(): return
+	if event is InputEventKey and _handle_battle_hotkey(event):
+		get_viewport().set_input_as_handled(); return
 	if not event is InputEventKey or not event.pressed or event.echo:
 		return
 	if event.keycode == KEY_F11:
@@ -280,6 +305,10 @@ func _update_server_lifecycle(delta: float) -> void:
 	DirAccess.rename_absolute(temporary_path, status_path)
 
 func _clear_screen() -> void:
+	for player in combat_sfx_players:
+		if is_instance_valid(player): player.stop()
+	_dismiss_battle_report()
+	base_warning_label = null; cancel_build_button = null
 	session_chat_log = null; session_chat_input = null; session_roster = null; session_title = null
 	if is_instance_valid(battle_chat_panel): battle_chat_panel.queue_free()
 	battle_chat_panel = null
@@ -1086,6 +1115,7 @@ func _start_local_ai_battle(stage: int = 1, reuse_deck: bool = false) -> void:
 	_on_snapshot(local_model.snapshot())
 
 func _build_battle_screen() -> void:
+	base_warning_fired = false; client_purchase_gates.clear(); sound_gate.clear()
 	battle_active = true
 	result_shown = false
 	updater.set_safe_to_update(false)
@@ -1238,6 +1268,9 @@ func _build_battle_screen() -> void:
 
 	if not network.client_session.is_empty(): _add_battle_chat()
 
+	base_warning_label = Label.new(); base_warning_label.name = "BaseDangerWarning"; base_warning_label.text = "기지 체력 위험"; base_warning_label.position = Vector2(530,96); base_warning_label.size = Vector2(220,28); base_warning_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; base_warning_label.add_theme_color_override("font_color",Color("#ff8a96")); base_warning_label.visible = false; root_background.add_child(base_warning_label)
+	cancel_build_button = _styled_button("설치 취소 · Esc",Color("#697386")); cancel_build_button.name = "CancelBuildButton"; cancel_build_button.position = Vector2(536,500); cancel_build_button.size = Vector2(208,44); cancel_build_button.visible = false; cancel_build_button.z_index = 10; cancel_build_button.pressed.connect(_cancel_build_selection); root_background.add_child(cancel_build_button)
+
 func _begin_tutorial() -> void:
 	tutorial_step = 0
 	var banner := PanelContainer.new()
@@ -1368,6 +1401,8 @@ func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: C
 	button.tooltip_text = BattleModel.unit_stat_summary(kind, growth_level)
 	button.set_meta("purchase_cost", float(stats.cost))
 	button.set_meta("unit_kind", kind)
+	button.set_meta("base_text",button.text)
+	_add_purchase_labels(button,str(purchase_buttons.size()+1))
 	button.disabled = true
 	button.modulate = Color(0.4, 0.4, 0.4, 1.0)
 	purchase_buttons.append(button)
@@ -1380,13 +1415,7 @@ func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: C
 	portrait.scale = Vector2(0.17, 0.17)
 	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	button.add_child(portrait)
-	button.pressed.connect(func():
-		if local_ai_mode:
-			if local_model.spawn_unit(own_side, kind):
-				_tutorial_advance(0)
-		else:
-			network.send_spawn(kind)
-	)
+	button.pressed.connect(_purchase_unit.bind(kind))
 	row.add_child(button)
 
 func _decorate_battle_card(button: Button) -> void:
@@ -1487,6 +1516,8 @@ func _add_structure_button(row: HBoxContainer, title: String, kind: String, colo
 	button.custom_minimum_size = Vector2(136, 102)
 	button.toggle_mode = true
 	button.set_meta("structure_kind", kind)
+	button.set_meta("base_text",button.text)
+	_add_purchase_labels(button,["Q","W","E"][structure_buttons.size()])
 	button.set_meta("purchase_cost", float(BattleModel.STRUCTURE_STATS[kind].cost))
 	button.disabled = true
 	button.modulate = Color(0.4, 0.4, 0.4, 1.0)
@@ -1511,6 +1542,7 @@ func _add_structure_button(row: HBoxContainer, title: String, kind: String, colo
 	structure_buttons.append(button)
 
 func _refresh_structure_selection() -> void:
+	if is_instance_valid(cancel_build_button): cancel_build_button.visible = is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty()
 	for button in structure_buttons:
 		if is_instance_valid(button):
 			button.set_pressed_no_signal(is_instance_valid(battle_view) and battle_view.selected_structure == String(button.get_meta("structure_kind")))
@@ -1518,11 +1550,22 @@ func _refresh_structure_selection() -> void:
 		battle_view.queue_redraw()
 
 func _refresh_purchase_buttons(resources: float) -> void:
+	latest_resources = resources
 	var clear_selection := false
 	for button in purchase_buttons:
 		if not is_instance_valid(button):
 			continue
-		var unavailable := network.client_is_spectator or resources < float(button.get_meta("purchase_cost"))
+		var cooldown := 0.0
+		if button.has_meta("unit_kind"):
+			var kind: String = button.get_meta("unit_kind")
+			var advertised: Array = current_snapshot.get("spawn_cooldowns",[{},{}])
+			cooldown = maxf(float(advertised[own_side].get(kind,0.0)),maxf(0.0,float(client_purchase_gates.get(kind,0))-Time.get_ticks_msec())/1000.0)
+		var missing := maxi(0,ceili(float(button.get_meta("purchase_cost"))-resources))
+		var unavailable := network.client_is_spectator or missing>0 or cooldown>0.001
+		var state_label := button.get_node_or_null("PurchaseState") as Label
+		if state_label:
+			var state_text := "관전" if network.client_is_spectator else ("자원 -%d" % missing if missing>0 else ("대기 %.1f초" % cooldown if cooldown>0.001 else ""))
+			if state_label.text!=state_text: state_label.text = state_text
 		if button.disabled != unavailable:
 			button.disabled = unavailable
 			button.modulate = Color(0.4, 0.4, 0.4, 1.0) if unavailable else Color.WHITE
@@ -1533,6 +1576,7 @@ func _refresh_purchase_buttons(resources: float) -> void:
 		_refresh_structure_selection()
 
 func _on_battlefield_clicked(world_x: float) -> void:
+	if network.client_is_spectator: return
 	if not is_instance_valid(battle_view) or battle_view.selected_structure.is_empty() or placement_pending:
 		return
 	var kind := battle_view.selected_structure
@@ -1593,6 +1637,7 @@ func _on_snapshot(data: Dictionary) -> void:
 	red_hp_label.text = "%d / %d" % [int(bases[1]), int(maxima[1])]
 	var elapsed_seconds := int(data.get("elapsed", 0.0))
 	timer_label.text = "%02d:%02d" % [elapsed_seconds / 60, elapsed_seconds % 60]
+	_update_base_warning(data)
 	var winner: int = int(data.get("winner", -1))
 	if winner != -1 and not result_shown:
 		_show_result(winner)
@@ -1616,6 +1661,7 @@ func _on_rage_started(_unit_id: int) -> void:
 	rage_sfx_player.play()
 
 func _on_combat_events(events: Array) -> void:
+	if battle_active: _play_combat_events(events)
 	if is_instance_valid(battle_view) and not events.is_empty():
 		battle_view.push_combat_events(events)
 		if bool(save_data.settings.screen_shake) and events.any(func(event): return String(event.get("type", "")) == "BASE_HIT"):
@@ -1702,6 +1748,10 @@ func _show_result(winner: int) -> void:
 	details.add_theme_font_size_override("font_size", 15)
 	details.add_theme_color_override("font_color", Color("#dce1ec"))
 	inner.add_child(details)
+	if current_snapshot.has("battle_report"):
+		var report_button := _styled_button("전투 요약",Color("#3d647d"))
+		report_button.name = "BattleReportButton"; report_button.position = Vector2(395,25); report_button.size = Vector2(155,44)
+		report_button.pressed.connect(_show_battle_report); inner.add_child(report_button)
 	if local_ai_mode and campaign_mode:
 		var growth := Label.new()
 		growth.name = "CampaignGrowthReward"
@@ -2019,3 +2069,98 @@ func _add_battle_chat() -> void:
 	battle_chat_panel.visible = false
 	toggle.pressed.connect(func(): battle_chat_panel.visible = not battle_chat_panel.visible)
 	MultiplayerUI.chat(self)
+
+func _battle_text_has_focus() -> bool:
+	var focused := get_viewport().gui_get_focus_owner()
+	return focused is LineEdit or focused is TextEdit
+
+func _handle_battle_hotkey(event: InputEventKey) -> bool:
+	if not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed or not battle_active or result_shown or network.client_is_spectator or _battle_text_has_focus() or is_instance_valid(stats_overlay) or is_instance_valid(report_overlay): return false
+	var key := event.physical_keycode if event.physical_keycode!=0 else event.keycode
+	var codes := [KEY_1,KEY_2,KEY_3,KEY_Q,KEY_W,KEY_E]
+	var index := codes.find(key)
+	if index<0 or index>=purchase_buttons.size(): return false
+	var button: Button = purchase_buttons[index]
+	if not is_instance_valid(button) or button.disabled: return true
+	if button.toggle_mode: button.set_pressed_no_signal(not button.button_pressed)
+	button.pressed.emit()
+	return true
+
+func _add_purchase_labels(button: Button, key_text: String) -> void:
+	var hotkey := Label.new(); hotkey.name = "PurchaseHotkey"; hotkey.text = key_text; hotkey.position = Vector2(6,4); hotkey.add_theme_font_size_override("font_size",11); hotkey.add_theme_color_override("font_color",Color("#d2d8e8")); hotkey.mouse_filter = Control.MOUSE_FILTER_IGNORE; button.add_child(hotkey)
+	var state := Label.new(); state.name = "PurchaseState"; state.position = Vector2(0,32); state.size = Vector2(136,18); state.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; state.add_theme_font_size_override("font_size",10); state.add_theme_color_override("font_color",Color("#f0d592")); state.mouse_filter = Control.MOUSE_FILTER_IGNORE; button.add_child(state)
+
+func _purchase_unit(kind: String) -> void:
+	if network.client_is_spectator or not battle_active or result_shown or float(client_purchase_gates.get(kind,0))>Time.get_ticks_msec(): return
+	var accepted := false
+	if local_ai_mode:
+		accepted = local_model.spawn_unit(own_side,kind)
+		if accepted: _tutorial_advance(0)
+	else:
+		network.send_spawn(kind); accepted = true
+	if accepted:
+		client_purchase_gates[kind] = Time.get_ticks_msec()+350
+		_refresh_purchase_buttons(latest_resources)
+
+func _cancel_build_selection() -> void:
+	if is_instance_valid(battle_view): battle_view.selected_structure = ""
+	_refresh_structure_selection(); _show_placement_status("건설을 취소했습니다.")
+
+func _play_combat_events(events: Array) -> void:
+	if DisplayServer.get_name()=="headless" or bool(save_data.settings.muted): return
+	var played := 0
+	for event in events:
+		var kind := CombatSounds.event_sound(event)
+		if not kind.is_empty() and _play_battle_sound(kind):
+			played += 1
+			if played>=3: break
+
+func _play_battle_sound(kind: String) -> bool:
+	if DisplayServer.get_name()=="headless" or bool(save_data.settings.muted): return false
+	var now := Time.get_ticks_msec()
+	if now-int(sound_gate.get(kind,-1000))<90: return false
+	var player: AudioStreamPlayer = null
+	for candidate in combat_sfx_players:
+		if is_instance_valid(candidate) and not candidate.playing: player = candidate; break
+	if player==null:
+		if combat_sfx_players.size()>=4: return false
+		player = AudioStreamPlayer.new(); player.bus = &"SFX"; player.volume_db = -16.0; add_child(player); combat_sfx_players.append(player)
+	player.stream = CombatSounds.stream(kind); player.play(); sound_gate[kind] = now
+	return true
+
+func _update_base_warning(data: Dictionary) -> void:
+	if not is_instance_valid(base_warning_label): return
+	var maximum: float = data.get("base_max_hp",[500.0,500.0])[own_side]
+	var hp: float = data.get("base_hp",[500.0,500.0])[own_side]
+	var danger := not network.client_is_spectator and int(data.get("winner",-1))==-1 and hp>0.0 and hp<=maximum*0.25
+	base_warning_label.visible = danger
+	var bar := blue_hp_bar if own_side==0 else red_hp_bar
+	if is_instance_valid(bar): bar.modulate = Color("#ff8a96") if danger else Color.WHITE
+	if danger and not base_warning_fired:
+		base_warning_fired = true; _play_battle_sound("warning")
+
+func _dismiss_battle_report() -> void:
+	if is_instance_valid(report_overlay): report_overlay.queue_free()
+	report_overlay = null
+
+func _report_side_name(side: int) -> String:
+	if local_ai_mode: return "내 전투" if side==own_side else "상대 AI"
+	var players: Array = network.client_session.get("members",[]).filter(func(member): return member.role=="player")
+	return String(players[side].nickname) if players.size()==2 else ("내 전투" if side==own_side else "상대 전투")
+
+func _show_battle_report() -> void:
+	if not Report.valid(current_snapshot.get("battle_report",[])): return
+	_dismiss_battle_report()
+	report_overlay = ColorRect.new(); report_overlay.name = "BattleReportOverlay"; report_overlay.color = Color(0.02,0.03,0.05,0.97); report_overlay.size = Vector2(1280,720); report_overlay.z_index = 150; root_background.add_child(report_overlay)
+	var content := MultiplayerUI.panel(self,report_overlay,"BattleReportPanel",Rect2(80,40,1120,640))
+	content.add_child(MultiplayerUI.label("전투 요약",28,MultiplayerUI.GOLD))
+	var columns := HBoxContainer.new(); columns.add_theme_constant_override("separation",28); columns.size_flags_vertical = Control.SIZE_EXPAND_FILL; content.add_child(columns)
+	for side in 2:
+		var column := VBoxContainer.new(); column.size_flags_horizontal = Control.SIZE_EXPAND_FILL; column.add_theme_constant_override("separation",14); columns.add_child(column)
+		var data: Dictionary = current_snapshot.battle_report[side]
+		column.add_child(MultiplayerUI.label(_report_side_name(side),22))
+		column.add_child(MultiplayerUI.label("사용 자원 %d · 건설 %d
+처치 %d · 실제 피해 %d" % [roundi(float(data.resources_spent)),int(data.structures_built),int(data.kills),roundi(float(data.damage))],16,MultiplayerUI.GOLD))
+		for text in Report.lines(data): column.add_child(MultiplayerUI.label(text,14,MultiplayerUI.MUTED))
+	content.add_child(MultiplayerUI.label("피해는 실제로 감소시킨 체력입니다. 해골의 처치·피해는 네크로맨서에 합산합니다.",12,MultiplayerUI.MUTED))
+	MultiplayerUI.button(self,content,"닫기","CloseBattleReportButton",_dismiss_battle_report)

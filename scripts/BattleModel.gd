@@ -2,6 +2,7 @@ class_name BattleModel
 extends RefCounted
 
 const Localization = preload("res://scripts/Localization.gd")
+const Report = preload("res://scripts/BattleReport.gd")
 
 const WORLD_SCALE := 1.15
 const WORLD_WIDTH := 1280.0 * WORLD_SCALE
@@ -72,6 +73,7 @@ var structure_expirations: Dictionary = {}
 var campaign_levels: Array = [0, 0]
 var curses: Array = []
 var summon_timers: Dictionary = {}
+var battle_report: Array = [Report.empty_side(),Report.empty_side()]
 
 static func campaign_bonuses(cleared_stages: int) -> Dictionary:
 	var levels := clampi(cleared_stages, 0, 8)
@@ -115,6 +117,7 @@ func reset() -> void:
 	structure_expirations.clear()
 	curses.clear()
 	summon_timers.clear()
+	battle_report = [Report.empty_side(),Report.empty_side()]
 
 static func _valid_deck(values: Array, allowed: Dictionary) -> bool:
 	if values.size() != 3:
@@ -142,6 +145,8 @@ func spawn_unit(side: int, kind: String) -> bool:
 	if resources[side] < stats.cost or float(spawn_cooldowns[side].get(kind, 0.0)) > 0.0:
 		return false
 	resources[side] -= stats.cost
+	battle_report[side].resources_spent += float(stats.cost)
+	battle_report[side].units[kind].purchased += 1
 	spawn_cooldowns[side][kind] = 0.35
 	_create_unit(side, kind, stats, stat_scale, stat_scale, FIELD_LEFT + 35.0 if side == 0 else FIELD_RIGHT - 35.0)
 	return true
@@ -222,6 +227,9 @@ func place_structure(side: int, kind: String, x: float) -> bool:
 		return false
 	var stats: Dictionary = STRUCTURE_STATS[kind]
 	resources[side] -= stats.cost
+	battle_report[side].resources_spent += float(stats.cost)
+	battle_report[side].structures_built += 1
+	if kind == "turret": battle_report[side].units.turret.purchased += 1
 	structures.append({"id": next_structure_id, "side": side, "kind": kind, "x": x, "hp": stats.hp, "max_hp": stats.hp})
 	if kind == "turret":
 		structure_cooldowns[next_structure_id] = float(stats.interval)
@@ -283,6 +291,7 @@ func tick(delta: float) -> void:
 			if unit.cooldown <= 0.0:
 				var enemy_side: int = 1 - int(unit.side)
 				var damage := unit_attack_damage(unit)
+				_record_damage(int(unit.side),String(unit.kind),minf(damage,maxf(0.0,float(base_hp[enemy_side]))),false)
 				base_hp[enemy_side] = max(0.0, float(base_hp[enemy_side]) - damage)
 				combat_events.append({"type": "BASE_HIT", "side": enemy_side, "amount": damage, "x": enemy_base_x})
 				if unit.kind == "warlock":
@@ -302,6 +311,7 @@ func tick(delta: float) -> void:
 			continue
 		var hp_scale := float(owner.max_hp) / float(UNIT_STATS.necromancer.hp)
 		var damage_scale := float(owner.damage) / float(UNIT_STATS.necromancer.damage)
+		battle_report[int(owner.side)].units.necromancer.summoned += 1
 		_create_unit(int(owner.side), "skeleton", SUMMON_STATS.skeleton, hp_scale, damage_scale, float(owner.x) + (22.0 if int(owner.side) == 0 else -22.0))
 		combat_events.append({"type": "SUMMON", "source_id": owner.id, "unit_id": units.back().id, "x": units.back().x})
 	var live_ids := {}
@@ -373,6 +383,9 @@ func _tick_support(unit: Dictionary, delta: float) -> void:
 
 
 func _damage_target(attacker: Dictionary, target: Dictionary, damage: float) -> void:
+	var before := maxf(0.0,float(target.hp))
+	var effective := minf(before,maxf(0.0,damage))
+	_record_damage(int(attacker.side),String(attacker.kind),effective,target.has("speed") and before>0.0 and effective>=before)
 	target.hp = max(0.0, float(target.hp) - damage)
 	combat_events.append({"type": "ATTACK", "attacker_id": attacker.id, "target_id": target.id, "attack_kind": attacker.kind, "x": attacker.x})
 	combat_events.append({"type": "DAMAGE", "target_id": target.id, "amount": damage, "x": target.x})
@@ -446,6 +459,9 @@ func _tick_turrets(delta: float) -> void:
 				nearest = candidate_distance
 		if target != null:
 			var damage := float(STRUCTURE_STATS.turret.damage) * curse_damage_scale(int(structure.side), float(structure.x))
+			var before := maxf(0.0,float(target.hp))
+			var effective := minf(before,maxf(0.0,damage))
+			_record_damage(int(structure.side),"turret",effective,target.has("speed") and before>0.0 and effective>=before)
 			target.hp = max(0.0, float(target.hp) - damage)
 			combat_events.append({"type": "ATTACK", "attacker_id": id, "target_id": target.id, "attack_kind": "turret", "x": structure.x})
 			combat_events.append({"type": "DAMAGE", "target_id": target.id, "amount": damage, "x": target.x})
@@ -473,5 +489,17 @@ func drain_combat_events() -> Array:
 	combat_events.clear()
 	return result
 
+func _record_damage(side: int, kind: String, amount: float, killed: bool) -> void:
+	kind = Report.credit_kind(kind)
+	if side<0 or side>1 or not battle_report[side].units.has(kind): return
+	battle_report[side].damage += amount
+	battle_report[side].units[kind].damage += amount
+	if killed:
+		battle_report[side].kills += 1; battle_report[side].units[kind].kills += 1
+
 func snapshot() -> Dictionary:
-	return {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "base_max_hp": base_max_hp.duplicate(), "units": units.duplicate(true), "structures": structures.duplicate(true), "curses": curses.duplicate(true), "winner": winner, "elapsed": elapsed}
+	var data := {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "base_max_hp": base_max_hp.duplicate(), "units": units.duplicate(true), "structures": structures.duplicate(true), "curses": curses.duplicate(true), "winner": winner, "elapsed": elapsed,
+		"spawn_cooldowns":spawn_cooldowns.duplicate(true)}
+	# Per-unit report is authoritative but sent only after the result, not at every live tick.
+	if winner != -1: data["battle_report"] = battle_report.duplicate(true)
+	return data

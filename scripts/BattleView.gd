@@ -72,6 +72,8 @@ var selected_structure := ""
 var mouse_position := Vector2.ZERO
 var animation_time := 0.0
 var visual_events: Array = []
+var damage_lane_cursor := 0
+const MAX_VISUAL_EVENTS := 96
 var unit_actions: Dictionary = {}
 var last_unit_x: Dictionary = {}
 var moving_units: Dictionary = {}
@@ -129,9 +131,19 @@ func set_snapshot(data: Dictionary) -> void:
 func push_combat_events(events: Array) -> void:
 	for event in events:
 		if event is Dictionary:
+			var merged := false
+			if String(event.get("type",""))=="DAMAGE":
+				for existing in visual_events.slice(maxi(0,visual_events.size()-12)):
+					if existing.get("type","")=="DAMAGE" and existing.get("target_id",-1)==event.get("target_id",-2) and float(existing.life)>=0.6:
+						existing.amount = float(existing.amount)+float(event.get("amount",0.0)); merged = true; break
+			if merged: continue
 			var visual: Dictionary = event.duplicate(true)
 			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else 0.7
+			if String(event.get("type","")) in ["DAMAGE","HEAL","BASE_HIT"]:
+				visual["text_lane"] = damage_lane_cursor % 4
+				damage_lane_cursor += 1
 			visual_events.append(visual)
+			if visual_events.size()>MAX_VISUAL_EVENTS: visual_events.pop_front()
 			if event.get("type") == "SUMMON":
 				unit_actions[event.source_id] = {"type": "SUMMON", "started": animation_time}
 			elif event.get("type") == "ATTACK" and UNIT_ATTACK_TEXTURES.has(String(event.get("attack_kind", ""))):
@@ -455,7 +467,7 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 			var amount := int(event.get("amount", 0))
 			var text := "+%d" % amount if event_type == "HEAL" else "-%d" % amount
 			var color := Color("#75f0a4") if event_type == "HEAL" else Color("#ff8a96")
-			draw_string(ThemeDB.fallback_font, Vector2(x - 14.0, lane_y - 95.0 - (0.7 - life) * 34.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, color)
+			draw_string(ThemeDB.fallback_font, Vector2(x - 14.0 + (float(event.get("text_lane",0))-1.5)*8.0, lane_y - 95.0 - float(event.get("text_lane",0))*20.0 - (0.7 - life) * 34.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, color)
 
 func build_preview(world_x: float) -> Dictionary:
 	var kind := selected_structure
