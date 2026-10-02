@@ -1,6 +1,7 @@
 extends Control
 
 const Localization = preload("res://scripts/Localization.gd")
+const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const PatchNotes = preload("res://scripts/PatchNotes.gd")
 
 const OFFICIAL_SERVER_ADDRESS := "ruellyya.kr"
@@ -64,6 +65,19 @@ var lobby_page_label: Label
 var lobby_page := 0
 var lobby_total := 0
 var lobby_data := {"rooms":[],"page":0,"total":0}
+var lobby_previous_button: Button
+var lobby_next_button: Button
+var session_title: Label
+var session_roster: VBoxContainer
+var session_spectators: Label
+var session_deck_selector: OptionButton
+var session_deck_names: Label
+var session_ready_button: Button
+var session_start_button: Button
+var session_chat_log: RichTextLabel
+var session_chat_input: LineEdit
+var battle_chat_panel: PanelContainer
+var last_chat_sent_msec := -1000
 var room_create_dialog: ConfirmationDialog
 var battle_preset: Dictionary = {}
 var tutorial_step := -1
@@ -87,6 +101,12 @@ func _ready() -> void:
 	network.room_created.connect(_on_room_created)
 	network.room_join_failed.connect(_on_room_join_failed)
 	network.room_list_received.connect(_on_room_list)
+	network.session_changed.connect(_on_session_changed)
+	network.session_error.connect(_on_session_error)
+	network.session_chat.connect(_on_session_chat)
+	network.spectate_started.connect(_on_spectate_started)
+	network.session_closed.connect(_on_session_closed)
+	network.client_nickname = String(save_data.get("nickname","플레이어"))
 	updater.update_started.connect(_on_update_started)
 	updater.update_status.connect(_on_update_status)
 	updater.update_failed.connect(_on_update_failed)
@@ -260,6 +280,9 @@ func _update_server_lifecycle(delta: float) -> void:
 	DirAccess.rename_absolute(temporary_path, status_path)
 
 func _clear_screen() -> void:
+	session_chat_log = null; session_chat_input = null; session_roster = null; session_title = null
+	if is_instance_valid(battle_chat_panel): battle_chat_panel.queue_free()
+	battle_chat_panel = null
 	for child in get_children():
 		if child != network and child != updater and child != bgm_player:
 			child.queue_free()
@@ -977,6 +1000,8 @@ func _styled_button(text_value: String, color: Color, filled: bool = false) -> B
 	return button
 
 func _on_connection_status(text: String) -> void:
+	if not local_ai_mode and network.client_connection_state == "idle" and multiplayer_screen == "session":
+		lobby_data = {"rooms":[],"page":0,"total":0}; _build_lobby_screen()
 	if smoke_mode:
 		print("SMOKE_STATUS %s" % text)
 	if is_instance_valid(status_label):
@@ -1005,7 +1030,7 @@ func _connect_for_room(mode: String, code: String = "") -> void:
 	network.connect_to_candidates(official_connection_candidates(IP.get_local_addresses()), OFFICIAL_SERVER_PORT)
 
 func _on_room_created(code: String) -> void:
-	if network.client_room_mode == "lobby":
+	if network.client_room_mode in ["lobby","session"]:
 		_build_waiting_room(code)
 		return
 	if is_instance_valid(room_code_input):
@@ -1016,7 +1041,7 @@ func _on_room_created(code: String) -> void:
 	_on_connection_status(Localization.text("방 코드 %s · 상대가 참가하기를 기다리는 중...") % code)
 
 func _on_room_join_failed(error: String) -> void:
-	if network.client_room_mode == "lobby":
+	if network.client_room_mode in ["lobby","session"]:
 		_on_connection_status(error)
 		network.browse_rooms(lobby_page)
 		_set_lobby_enabled(network.client_connection_state == "lobby")
@@ -1026,6 +1051,7 @@ func _on_room_join_failed(error: String) -> void:
 	_set_room_controls_disabled(false)
 
 func _on_match_found(side: int) -> void:
+	result_recorded = false
 	multiplayer_screen = ""
 	local_ai_mode = false
 	battle_preset = _active_preset().duplicate(true)
@@ -1095,7 +1121,7 @@ func _build_battle_screen() -> void:
 	timer_label.add_theme_color_override("font_color", Color("#f5f7fb"))
 	timer_inner.add_child(timer_label)
 	var mode_label := Label.new()
-	mode_label.text = "AI 단계 %02d" % current_ai_stage if local_ai_mode else "온라인 대전"
+	mode_label.text = "AI 단계 %02d" % current_ai_stage if local_ai_mode else ("관전 중" if network.client_is_spectator else "온라인 대전")
 	mode_label.position = Vector2(0, 39)
 	mode_label.size = Vector2(220, 18)
 	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1209,6 +1235,8 @@ func _build_battle_screen() -> void:
 		exit_button.add_theme_font_size_override("font_size", 12)
 		exit_button.pressed.connect(_exit_ai_battle)
 		root_background.add_child(exit_button)
+
+	if not network.client_session.is_empty(): _add_battle_chat()
 
 func _begin_tutorial() -> void:
 	tutorial_step = 0
@@ -1494,7 +1522,7 @@ func _refresh_purchase_buttons(resources: float) -> void:
 	for button in purchase_buttons:
 		if not is_instance_valid(button):
 			continue
-		var unavailable := resources < float(button.get_meta("purchase_cost"))
+		var unavailable := network.client_is_spectator or resources < float(button.get_meta("purchase_cost"))
 		if button.disabled != unavailable:
 			button.disabled = unavailable
 			button.modulate = Color(0.4, 0.4, 0.4, 1.0) if unavailable else Color.WHITE
@@ -1609,7 +1637,7 @@ func _show_result(winner: int) -> void:
 	updater.check_for_update()
 	var awarded_stars := 0
 	var growth_before := SaveData.campaign_growth_level(save_data)
-	if not result_recorded:
+	if not result_recorded and not network.client_is_spectator:
 		result_recorded = true
 		if local_ai_mode:
 			if campaign_mode:
@@ -1647,7 +1675,7 @@ func _show_result(winner: int) -> void:
 	overline.add_theme_color_override("font_color", Color("#747d91"))
 	inner.add_child(overline)
 	var result := Label.new()
-	result.text = Localization.text("무승부") if winner == 2 else (Localization.text("승리") if winner == own_side else Localization.text("패배"))
+	result.text = "전투 종료" if network.client_is_spectator else (Localization.text("무승부") if winner == 2 else (Localization.text("승리") if winner == own_side else Localization.text("패배")))
 	result.position = Vector2(0, 64)
 	result.size = Vector2(580, 82)
 	result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1659,7 +1687,7 @@ func _show_result(winner: int) -> void:
 	if local_ai_mode:
 		note.text = Localization.text("%02d단계 승리 · 최고 ★ %d · 다음 단계 해금") % [current_ai_stage, awarded_stars] if campaign_mode and winner == own_side else Localization.text("%02d단계 결과가 개인 전적에 저장되었습니다.") % current_ai_stage
 	else:
-		note.text = Localization.text("두 플레이어가 모두 준비하면 다시 시작합니다.")
+		note.text = "같은 방에서 덱을 바꾸고 다시 대전할 수 있습니다." if not network.client_session.is_empty() else Localization.text("두 플레이어가 모두 준비하면 다시 시작합니다.")
 	note.position = Vector2(0, 157)
 	note.size = Vector2(580, 34)
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1685,7 +1713,7 @@ func _show_result(winner: int) -> void:
 		growth.add_theme_font_size_override("font_size", 12)
 		growth.add_theme_color_override("font_color", Color("#f0d592"))
 		inner.add_child(growth)
-	var rematch_text := Localization.text("다시 도전") if local_ai_mode else Localization.text("재경기 준비")
+	var rematch_text := Localization.text("다시 도전") if local_ai_mode else ("대기실로" if not network.client_session.is_empty() else Localization.text("재경기 준비"))
 	var rematch := _styled_button(rematch_text, Color("#5e6ad2"), true)
 	rematch.position = Vector2(25 if advances else 65, 306)
 	rematch.size = Vector2(165 if advances else 215, 58)
@@ -1693,6 +1721,8 @@ func _show_result(winner: int) -> void:
 		rematch.disabled = true
 		if local_ai_mode:
 			_start_local_ai_battle(current_ai_stage, true)
+		elif not network.client_session.is_empty():
+			network.request_session_return.rpc_id(1)
 		else:
 			rematch.text = Localization.text("상대 준비 대기 중")
 			network.send_rematch()
@@ -1724,6 +1754,9 @@ func _dismiss_result_overlay() -> void:
 	result_shown = false
 
 func _exit_battle_to_menu() -> void:
+	if not network.client_session.is_empty():
+		network.request_session_leave.rpc_id(1)
+		return
 	battle_active = false
 	_dismiss_result_overlay()
 	_dismiss_stats_panel()
@@ -1841,130 +1874,34 @@ func _on_update_failed(message: String) -> void:
 		update_progress_bar.value = 0.0
 
 func _on_opponent_left() -> void:
-	if battle_active and not result_shown and not save_data.is_empty():
-		save_data.stats.online_interrupted += 1
-		SaveData.save_data(save_data)
-	if multiplayer.multiplayer_peer is ENetMultiplayerPeer:
-		multiplayer.multiplayer_peer.close()
-	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
-	_build_connect_screen(Localization.text("상대가 연결을 종료했습니다. 다시 접속해 주세요."))
+	if battle_active and not result_shown and not save_data.is_empty() and not network.client_is_spectator:
+		save_data.stats.online_interrupted += 1; SaveData.save_data(save_data)
+	local_ai_mode = false; battle_active = false
+	network.disconnect_from_server()
+	lobby_data = {"rooms":[],"page":0,"total":0}
+	_build_lobby_screen()
+	status_label.text = "서버 연결이 끊겼습니다. 새로고침으로 다시 연결하세요."
 
 func _open_multiplayer() -> void:
 	_build_lobby_screen()
-	network.set_room_request("lobby")
+	network.set_room_request("session")
 	var preset := _active_preset()
 	network.set_client_deck(preset.units,preset.structures)
 	network.connect_to_candidates(official_connection_candidates(IP.get_local_addresses()),OFFICIAL_SERVER_PORT)
 
 func _build_lobby_screen() -> void:
-	_clear_screen()
-	multiplayer_screen = "lobby"
-	root_background = _make_background()
-	var panel := PanelContainer.new()
-	panel.name = "RoomBrowserPanel"
-	panel.position = Vector2(110,28)
-	panel.size = Vector2(1060,664)
-	panel.add_theme_stylebox_override("panel",_panel_style(Color("#131c29"),Color("#52658a"),18))
-	root_background.add_child(panel)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation",12)
-	panel.add_child(column)
-	var header := HBoxContainer.new()
-	column.add_child(header)
-	var title := Label.new()
-	title.text = "멀티플레이"
-	title.add_theme_font_size_override("font_size",30)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(title)
-	var refresh := _styled_button("새로고침",Color("#3d8f83"))
-	refresh.name = "RefreshRoomsButton"
-	refresh.pressed.connect(func():
-		if network.client_connection_state == "idle": _open_multiplayer()
-		else: network.browse_rooms(lobby_page))
-	header.add_child(refresh)
-	connect_button_ref = _styled_button("방 만들기",Color("#5e6ad2"),true)
-	connect_button_ref.name = "CreateRoomButton"
-	connect_button_ref.pressed.connect(_show_create_room_dialog)
-	header.add_child(connect_button_ref)
-	var deck := Label.new()
-	deck.text = "선택 덱: %s" % String(_active_preset().name)
-	deck.add_theme_color_override("font_color",Color("#a7afc0"))
-	column.add_child(deck)
-	var scroll := ScrollContainer.new()
-	scroll.name = "RoomListScroll"
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	column.add_child(scroll)
-	lobby_rows = VBoxContainer.new()
-	lobby_rows.name = "RoomRows"
-	lobby_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lobby_rows.add_theme_constant_override("separation",8)
-	scroll.add_child(lobby_rows)
-	status_label = Label.new()
-	status_label.text = "서버에 연결 중..."
-	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(status_label)
-	var footer := HBoxContainer.new()
-	column.add_child(footer)
-	var back := _styled_button("뒤로",Color("#3d8f83"))
-	back.name = "LobbyBackButton"
-	back.pressed.connect(func(): network.disconnect_from_server(); _build_connect_screen())
-	footer.add_child(back)
-	var previous := _styled_button("이전",Color("#3d8f83"))
-	previous.pressed.connect(func(): network.browse_rooms(maxi(0,lobby_page-1)))
-	footer.add_child(previous)
-	lobby_page_label = Label.new()
-	lobby_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lobby_page_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	footer.add_child(lobby_page_label)
-	var next := _styled_button("다음",Color("#3d8f83"))
-	next.pressed.connect(func(): network.browse_rooms(lobby_page+1))
-	footer.add_child(next)
-	_render_room_listing(lobby_data)
-	_set_lobby_enabled(network.client_connection_state == "lobby")
-	updater.set_safe_to_update(false)
+	MultiplayerUI.browser(self)
+
 
 func _set_lobby_enabled(enabled: bool) -> void:
 	if is_instance_valid(connect_button_ref): connect_button_ref.disabled = not enabled
 	if is_instance_valid(lobby_rows):
-		for button in lobby_rows.find_children("JoinRoomButton","Button",true,false): button.disabled = not enabled
+		for button in lobby_rows.find_children("JoinRoomButton","Button",true,false): button.disabled = not enabled or not bool(button.get_meta("available",true))
+		for button in lobby_rows.find_children("WatchRoomButton","Button",true,false): button.disabled = not enabled or not bool(button.get_meta("available",false))
 
 func _render_room_listing(data: Dictionary) -> void:
-	if not is_instance_valid(lobby_rows): return
-	for child in lobby_rows.get_children():
-		lobby_rows.remove_child(child)
-		child.queue_free()
-	lobby_page = int(data.page)
-	lobby_total = int(data.total)
-	lobby_page_label.text = "%d / %d  ·  방 %d개" % [lobby_page+1,maxi(1,(lobby_total+NetworkController.ROOM_LIST_PAGE_SIZE-1)/NetworkController.ROOM_LIST_PAGE_SIZE),lobby_total]
-	if data.rooms.is_empty():
-		var empty := Label.new()
-		empty.name = "NoRoomsLabel"
-		empty.text = "열린 방이 없습니다. 방을 만들어 보세요."
-		empty.custom_minimum_size = Vector2(0,110)
-		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		lobby_rows.add_child(empty)
-	for room in data.rooms:
-		var row := HBoxContainer.new()
-		row.name = "RoomRow"
-		row.custom_minimum_size = Vector2(0,56)
-		row.add_theme_constant_override("separation",16)
-		lobby_rows.add_child(row)
-		var name_label := Label.new()
-		name_label.text = room.name
-		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		row.add_child(name_label)
-		var count := Label.new(); count.text = "1 / 2"; row.add_child(count)
-		var join := _styled_button("참가",Color("#3d8f83"))
-		join.name = "JoinRoomButton"
-		join.set_meta("room_code",room.code)
-		join.pressed.connect(func():
-			if network.join_lobby_room(String(room.code)):
-				_set_lobby_enabled(false)
-				status_label.text = "방에 참가 중...")
-		row.add_child(join)
+	MultiplayerUI.listing(self,data)
+
 
 func _on_room_list(data: Dictionary) -> void:
 	lobby_data = data.duplicate(true)
@@ -1975,31 +1912,7 @@ func _on_room_list(data: Dictionary) -> void:
 	if network.client_connection_state == "lobby": status_label.text = "참가할 방을 선택하세요."
 
 func _show_create_room_dialog() -> void:
-	if network.client_connection_state != "lobby": return
-	if is_instance_valid(room_create_dialog): return
-	room_create_dialog = ConfirmationDialog.new()
-	room_create_dialog.name = "CreateRoomDialog"
-	room_create_dialog.title = "방 만들기"
-	room_create_dialog.ok_button_text = "만들기"
-	room_create_dialog.cancel_button_text = "취소"
-	var name_input := LineEdit.new()
-	name_input.name = "RoomNameInput"
-	name_input.placeholder_text = "방 이름"
-	name_input.text = "함께 대전해요"
-	name_input.max_length = NetworkController.ROOM_NAME_LENGTH
-	name_input.custom_minimum_size = Vector2(460,56)
-	room_create_dialog.add_child(name_input)
-	add_child(room_create_dialog)
-	room_create_dialog.confirmed.connect(func():
-		if network.create_lobby_room(name_input.text):
-			_set_lobby_enabled(false)
-			status_label.text = "방을 만드는 중..."
-		else: status_label.text = "방 이름은 24자 이내로 입력하세요."
-		room_create_dialog.queue_free())
-	room_create_dialog.canceled.connect(func(): room_create_dialog.queue_free())
-	room_create_dialog.popup_centered(Vector2i(500,150))
-	name_input.grab_focus()
-	name_input.select_all()
+	MultiplayerUI.create_dialog(self)
 
 func _build_waiting_room(code: String) -> void:
 	_clear_screen()
@@ -2019,3 +1932,90 @@ func _build_waiting_room(code: String) -> void:
 	leave.name = "LeaveRoomButton"
 	leave.pressed.connect(func(): leave.disabled = true; network.leave_lobby_room())
 	column.add_child(leave)
+
+func _save_nickname(value: String) -> void:
+	value = value.strip_edges()
+	if not preload("res://scripts/RoomSessions.gd").safe_text(value,16): return
+	network.client_nickname = value
+	if save_data.get("nickname","") != value:
+		save_data.nickname = value; SaveData.save_data(save_data)
+
+func _active_deck_names() -> String:
+	var preset := _active_preset()
+	var names := PackedStringArray()
+	for kind in preset.units: names.append(String(BattleModel.UNIT_NAMES[kind]))
+	return " · ".join(names)
+
+func _choose_session_deck(index: int, in_room: bool) -> void:
+	if index<0 or index>=save_data.deck_presets.size(): return
+	save_data.last_deck = index; battle_preset = _active_preset().duplicate(true); SaveData.save_data(save_data)
+	if in_room:
+		network.request_session_deck.rpc_id(1,battle_preset.units,battle_preset.structures)
+		if is_instance_valid(session_deck_names): session_deck_names.text = _active_deck_names()
+	else:
+		if network.client_connection_state == "lobby": network.request_lobby_deck.rpc_id(1,battle_preset.units,battle_preset.structures)
+		var node := root_background.find_child("LobbyDeckNames",true,false)
+		if node: node.text = _active_deck_names()
+
+func _prompt_room_entry(room: Dictionary, spectator: bool) -> void:
+	if network.client_connection_state != "lobby": return
+	MultiplayerUI.entry_dialog(self,room,spectator)
+
+func _join_session_entry(room: Dictionary, password: String, spectator: bool) -> void:
+	var accepted := false
+	if room.has("state"): accepted = network.join_session_room(room.code,password,spectator)
+	elif not spectator: accepted = network.join_lobby_room(room.code)
+	if accepted:
+		_set_lobby_enabled(false); status_label.text = "방에 입장 중..."
+
+func _self_session_member() -> Dictionary:
+	for member in network.client_session.get("members",[]):
+		if int(member.id)==network.multiplayer.get_unique_id(): return member
+	return {}
+
+func _on_session_changed(data: Dictionary) -> void:
+	if data.is_empty(): return
+	var member := _self_session_member()
+	if data.phase == "waiting" or (data.phase == "finished" and member.get("returned",false)):
+		if multiplayer_screen != "session": MultiplayerUI.room(self)
+		else: MultiplayerUI.update_room(self,data)
+	elif multiplayer_screen == "session": MultiplayerUI.update_room(self,data)
+
+func _on_session_error(text: String) -> void:
+	if is_instance_valid(status_label): status_label.text = text
+	if multiplayer_screen == "lobby": _set_lobby_enabled(network.client_connection_state == "lobby")
+
+func _on_session_closed(text: String) -> void:
+	local_ai_mode = false; battle_active = false; battle_preset.clear()
+	lobby_data = {"rooms":[],"page":0,"total":0}
+	_build_lobby_screen()
+	if not text.is_empty(): status_label.text = text
+
+func _on_session_chat(_message: Dictionary) -> void:
+	MultiplayerUI.chat(self)
+
+func _send_session_chat() -> void:
+	if not is_instance_valid(session_chat_input) or network.client_session.is_empty(): return
+	var text := session_chat_input.text.strip_edges()
+	if not preload("res://scripts/RoomSessions.gd").safe_text(text,160): return
+	var now := Time.get_ticks_msec()
+	if now-last_chat_sent_msec<750: return
+	last_chat_sent_msec = now
+	network.request_session_chat.rpc_id(1,text); session_chat_input.text = ""
+
+func _on_spectate_started() -> void:
+	local_ai_mode = false; campaign_mode = false; own_side = 0; multiplayer_screen = ""
+	var players: Array = network.client_session.get("members",[]).filter(func(member): return member.role=="player")
+	if not players.is_empty(): battle_preset = players[0].deck.duplicate(true)
+	_build_battle_screen()
+
+func _add_battle_chat() -> void:
+	var toggle := _styled_button("방 채팅",Color("#3d647d")); toggle.name = "BattleChatButton"; toggle.position = Vector2(970,154); toggle.size = Vector2(144,44); toggle.z_index = 10; root_background.add_child(toggle)
+	battle_chat_panel = PanelContainer.new(); battle_chat_panel.name = "BattleChatPanel"; battle_chat_panel.position = Vector2(750,204); battle_chat_panel.size = Vector2(360,320); battle_chat_panel.z_index = 20
+	var style := _panel_style(Color("#101a29"),Color("#2b415c"),12); style.content_margin_left = 12; style.content_margin_right = 12; style.content_margin_top = 12; style.content_margin_bottom = 12; battle_chat_panel.add_theme_stylebox_override("panel",style); root_background.add_child(battle_chat_panel)
+	var content := VBoxContainer.new(); content.add_theme_constant_override("separation",8); battle_chat_panel.add_child(content)
+	session_chat_log = RichTextLabel.new(); session_chat_log.bbcode_enabled = false; session_chat_log.scroll_following = true; session_chat_log.size_flags_vertical = Control.SIZE_EXPAND_FILL; content.add_child(session_chat_log)
+	session_chat_input = LineEdit.new(); session_chat_input.placeholder_text = "메시지 입력 · Enter 전송"; session_chat_input.max_length = 160; session_chat_input.custom_minimum_size.y = 40; session_chat_input.text_submitted.connect(func(_value): _send_session_chat()); content.add_child(session_chat_input)
+	battle_chat_panel.visible = false
+	toggle.pressed.connect(func(): battle_chat_panel.visible = not battle_chat_panel.visible)
+	MultiplayerUI.chat(self)

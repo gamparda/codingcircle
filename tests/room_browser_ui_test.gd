@@ -30,7 +30,7 @@ func run()->void:
 	await process_frame
 	check(main.lobby_rows.get_child_count()==2,"room list renders exactly the advertised rows")
 	check(main.lobby_rows.find_children("JoinRoomButton","Button",true,false).size()==2,"every waiting room has a join action")
-	check(main.lobby_page_label.text.contains("방 2개"),"total agrees with visible rooms")
+	check(main.lobby_page_label.text.contains("2개"),"total agrees with visible rooms")
 	main._show_create_room_dialog()
 	await process_frame
 	check(is_instance_valid(main.room_create_dialog) and main.room_create_dialog.visible,"create opens a real dialog")

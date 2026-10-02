@@ -27,6 +27,7 @@ static func default_data() -> Dictionary:
 		campaign_records.append(_record())
 	return {
 		"save_version": SAVE_VERSION,
+		"nickname": "플레이어",
 		"campaign_unlocked": 1,
 		"campaign_records": campaign_records,
 		"deck_presets": [
@@ -93,6 +94,7 @@ static func sanitize(raw: Variant) -> Dictionary:
 	var clean := default_data()
 	if not raw is Dictionary:
 		return clean
+	if raw.get("nickname") is String and preload("res://scripts/RoomSessions.gd").safe_text(raw.nickname,16): clean.nickname = raw.nickname.strip_edges()
 	if _is_integer(raw.get("save_version")):
 		clean.save_version = clampi(int(raw.save_version), 1, SAVE_VERSION)
 	if _is_integer(raw.get("campaign_unlocked")):

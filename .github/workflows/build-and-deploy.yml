@@ -20,6 +20,7 @@ env:
 
 jobs:
   build:
+    needs: multiplayer-preview
     runs-on: windows-latest
     steps:
       - name: Check out tested source
@@ -59,8 +60,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $contentVersion = "0.5.3"
-          $windowsVersion = "0.5.3"
+          $contentVersion = "0.6.0"
+          $windowsVersion = "0.6.0"
           $androidBinaryVersion = "0.4.18"
           $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?before=${{ github.sha }}"
           $previousAndroidVersion = if ($previous.PSObject.Properties.Name -contains "android_binary_version") { [string]$previous.android_binary_version } else { [string]$previous.version }
@@ -147,6 +148,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Room browser lifecycle/protocol regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_browser_ui_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Room browser UI navigation regression failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_sessions_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "room_sessions_test failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_sessions_wire_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "room_sessions_wire_test failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_sessions_ui_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "room_sessions_ui_test failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_browser_wire_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Room browser real two-client RPC regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/combat_polish_ui_test.gd
@@ -237,8 +244,31 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, multiplayer-preview]
     steps:
       - name: Deploy latest tested build
         id: deployment
         uses: actions/deploy-pages@v4
+
+  multiplayer-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render actual multiplayer scenes
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri
+          curl -fL --retry 2 -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip -d .ci
+          GODOT="$PWD/.ci/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          chmod +x "$GODOT"
+          "$GODOT" --headless --editor --import --path .
+          LP_NUM_THREADS=1 OMP_NUM_THREADS=1 timeout 90s xvfb-run -a -s '-screen 0 1920x1080x24' "$GODOT" --single-threaded-scene --rendering-method gl_compatibility --rendering-driver opengl3 --path . --script tests/room_sessions_ui_test.gd -- --capture-dir="$PWD/.ci/multiplayer-preview"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multiplayer-preview
+          path: .ci/multiplayer-preview/*.png
+          if-no-files-found: error

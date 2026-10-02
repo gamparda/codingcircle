@@ -2,6 +2,7 @@ class_name NetworkController
 extends Node
 
 const Localization = preload("res://scripts/Localization.gd")
+const SessionStore = preload("res://scripts/RoomSessions.gd")
 
 signal connection_status(text: String)
 signal match_found(side: int)
@@ -11,6 +12,11 @@ signal opponent_disconnected
 signal structure_placement_result(success: bool, error: String)
 signal room_created(code: String)
 signal room_list_received(data: Dictionary)
+signal session_changed(data: Dictionary)
+signal session_error(text: String)
+signal session_chat(message: Dictionary)
+signal spectate_started
+signal session_closed(text: String)
 signal room_join_failed(error: String)
 
 const DEFAULT_PORT := 7777
@@ -54,6 +60,14 @@ var client_room_name := ""
 var lobby_pages: Dictionary = {}
 var lobby_dirty := false
 var lobby_refresh_elapsed := 0.0
+var sessions = SessionStore.new()
+var session_matches: Dictionary = {}
+var join_challenges: Dictionary = {}
+var chat_times: Dictionary = {}
+var client_session: Dictionary = {}
+var client_is_spectator := false
+var client_nickname := "플레이어"
+var pending_room_password := ""
 var client_connection_generation := 0
 var client_phase_elapsed := 0.0
 
@@ -91,7 +105,7 @@ func set_client_deck(unit_deck: Array, structure_deck: Array) -> bool:
 	return true
 
 func set_room_request(mode: String, code: String = "") -> bool:
-	if not ["create", "join", "enter", "lobby"].has(mode):
+	if not ["create", "join", "enter", "lobby", "session"].has(mode):
 		return false
 	var normalized := code.strip_edges().to_upper()
 	if mode in ["join", "enter"] and not is_valid_room_code(normalized):
@@ -113,6 +127,9 @@ func _on_server_disconnected() -> void:
 	if previous_state == "connecting" and _retry_next_connection_candidate():
 		return
 	client_connection_state = "idle"
+	pending_room_password = ""
+	client_session.clear()
+	join_challenges.clear()
 	connection_status.emit(disconnect_message_for_state(previous_state))
 	if client_in_match:
 		client_in_match = false
@@ -182,6 +199,9 @@ func _start_fallback_if_current(address: String, generation: int) -> void:
 func disconnect_from_server() -> void:
 	client_connection_generation += 1
 	client_in_match = false
+	client_is_spectator = false
+	client_session.clear()
+	pending_room_password = ""
 	client_connection_state = "idle"
 	client_phase_elapsed = 0.0
 	client_connection_candidates.clear()
@@ -197,10 +217,11 @@ func set_accepting_players(value: bool) -> void:
 	if not accepting_players:
 		for peer_id in multiplayer.get_peers():
 			if peer_should_disconnect_for_drain(int(peer_id)):
-				registry.remove_player(int(peer_id))
-				(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(int(peer_id))
+				multiplayer.disconnect_peer(int(peer_id))
 
 func peer_should_disconnect_for_drain(peer_id: int) -> bool:
+	var session := sessions.room_for(peer_id)
+	if not session.is_empty() and session.phase == "playing": return false
 	var match_id := registry.get_match_id(peer_id)
 	if match_id <= 0 or not models.has(match_id):
 		return true
@@ -261,16 +282,16 @@ func _remote_address(peer_id: int) -> String:
 	return "" if packet_peer == null else packet_peer.get_remote_address()
 
 func _peer_is_connected(peer_id: int) -> bool:
-	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
-	if enet == null or not multiplayer.get_peers().has(peer_id):
-		return false
-	var packet_peer := enet.get_peer(peer_id)
-	return packet_peer != null and packet_peer.get_state() == ENetPacketPeer.STATE_CONNECTED
+	if not multiplayer.get_peers().has(peer_id): return false
+	if multiplayer.multiplayer_peer is ENetMultiplayerPeer:
+		var peer: ENetPacketPeer = (multiplayer.multiplayer_peer as ENetMultiplayerPeer).get_peer(peer_id)
+		return peer != null and peer.get_state() == ENetPacketPeer.STATE_CONNECTED
+	return false
 
 func _disconnect_orphaned_peer(peer_id: int) -> void:
 	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
 	if enet != null and _peer_is_connected(peer_id):
-		enet.disconnect_peer(peer_id, true)
+		multiplayer.disconnect_peer(peer_id)
 
 static func is_safe_command_text(value: String) -> bool:
 	return not value.is_empty() and value.length() <= 32 and value == value.to_lower() and value.is_valid_identifier()
@@ -399,11 +420,13 @@ func _process(delta: float) -> void:
 	if not server_mode:
 		_advance_client_connection(delta)
 		return
+	for id in join_challenges.keys():
+		if Time.get_ticks_msec()>int(join_challenges[id].deadline): join_challenges.erase(id)
 	lobby_refresh_elapsed += delta
 	if lobby_dirty and lobby_refresh_elapsed >= 0.25:
 		lobby_dirty = false
 		lobby_refresh_elapsed = 0.0
-		var listing := registry.room_listing()
+		var listing := _all_room_listings()
 		for peer_id in lobby_pages.keys():
 			if registry.has_match(int(peer_id)) or not peer_addresses.has(peer_id):
 				lobby_pages.erase(peer_id)
@@ -415,6 +438,12 @@ func _process(delta: float) -> void:
 		for match_id in models.keys():
 			var model: BattleModel = models[match_id]
 			model.tick(TICK_RATE)
+			if model.winner != -1 and session_matches.has(match_id):
+				var code: String = session_matches[match_id]
+				if sessions.rooms.has(code) and sessions.rooms[code].phase == "playing":
+					sessions.finish(code)
+					_push_session(code)
+					lobby_dirty = true
 			var events := model.drain_combat_events()
 			if not events.is_empty():
 				_broadcast_combat_events(int(match_id), events)
@@ -435,6 +464,8 @@ func _advance_client_connection(delta: float) -> void:
 		disconnect_from_server()
 		connection_status.emit(Localization.text("서버 연결 실패"))
 	elif client_connection_state in ["connected", "room_request", "leaving"] and client_phase_elapsed >= ROOM_REQUEST_TIMEOUT:
+		if client_room_mode == "session" and client_connection_state == "room_request":
+			receive_session_error("방 요청 시간이 초과되었습니다. 다시 시도하세요."); return
 		disconnect_from_server()
 		connection_status.emit(Localization.text("서버 응답 시간이 초과되었습니다. 다시 시도하세요."))
 
@@ -443,11 +474,11 @@ func _on_peer_connected(peer_id: int) -> void:
 		return
 	if not accepting_players:
 		print("PLAYER_REJECTED_UPDATE peer=%d" % peer_id)
-		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(peer_id)
+		multiplayer.disconnect_peer(peer_id)
 		return
 	if not register_peer_address(peer_id, _remote_address(peer_id)):
 		print("PLAYER_REJECTED_INVALID_PEER peer=%d" % peer_id)
-		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(peer_id)
+		multiplayer.disconnect_peer(peer_id)
 		return
 	print("PLAYER_CONNECTED peer=%d" % peer_id)
 	# Matching starts only after the authoritative server validates a 3+3 deck.
@@ -477,13 +508,17 @@ func _generate_room_code() -> String:
 		var code := ""
 		for index in ROOM_CODE_LENGTH:
 			code += ROOM_CODE_ALPHABET[int(random_bytes[index]) % ROOM_CODE_ALPHABET.length()]
-		if not registry.rooms.has(code):
+		if not registry.rooms.has(code) and not sessions.rooms.has(code):
 			return code
 	return ""
 
 func _on_peer_disconnected(peer_id: int) -> void:
 	if not server_mode:
 		return
+	var session_peer: bool = sessions.peer_to_room.has(peer_id)
+	if session_peer: _leave_session(peer_id,true)
+	join_challenges.erase(peer_id)
+	chat_times.erase(peer_id)
 	var match_id := registry.get_match_id(peer_id)
 	var players := registry.remove_player(peer_id)
 	lobby_pages.erase(peer_id)
@@ -506,11 +541,11 @@ func request_submit_deck(unit_deck: Array, structure_deck: Array) -> void:
 	if peer_decks.has(sender) or not can_process_request(sender):
 		return
 	if not can_admit_deck(sender):
-		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(sender)
+		multiplayer.disconnect_peer(sender)
 		return
 	if not validate_deck_payload(unit_deck, structure_deck):
 		print("PLAYER_REJECTED_DECK peer=%d" % sender)
-		(multiplayer.multiplayer_peer as ENetMultiplayerPeer).disconnect_peer(sender)
+		multiplayer.disconnect_peer(sender)
 		return
 	peer_decks[sender] = {"units": unit_deck.duplicate(), "structures": structure_deck.duplicate()}
 	print("PLAYER_DECK_ACCEPTED peer=%d" % sender)
@@ -521,6 +556,7 @@ func request_create_room(title: String = "") -> void:
 	if not server_mode:
 		return
 	var sender := multiplayer.get_remote_sender_id()
+	if sessions.peer_to_room.has(sender): return
 	if not can_accept_room_request():
 		receive_room_join_failed.rpc_id(sender, Localization.text("서버가 업데이트 준비 중입니다. 잠시 후 다시 시도하세요."))
 		return
@@ -543,6 +579,7 @@ func request_join_room(code: String, create_if_missing: bool = false) -> void:
 	if not server_mode:
 		return
 	var sender := multiplayer.get_remote_sender_id()
+	if sessions.peer_to_room.has(sender): return
 	var normalized := code.strip_edges().to_upper()
 	if not can_accept_room_request():
 		receive_room_join_failed.rpc_id(sender, Localization.text("서버가 업데이트 준비 중입니다. 잠시 후 다시 시도하세요."))
@@ -606,6 +643,7 @@ func request_rematch() -> void:
 	if not server_mode:
 		return
 	var sender := multiplayer.get_remote_sender_id()
+	if sessions.peer_to_room.has(sender): return
 	if not can_process_request(sender):
 		return
 	var match_id := registry.get_match_id(sender)
@@ -622,20 +660,23 @@ func request_rematch() -> void:
 		_broadcast_snapshot(match_id)
 
 func send_spawn(kind: String) -> void:
+	if client_is_spectator: return
 	if multiplayer.has_multiplayer_peer():
 		request_spawn.rpc_id(1, kind)
 
 func send_structure(kind: String, x: float) -> void:
+	if client_is_spectator: return
 	if multiplayer.has_multiplayer_peer():
 		request_place_structure.rpc_id(1, kind, x)
 
 func send_rematch() -> void:
+	if client_is_spectator: return
 	if multiplayer.has_multiplayer_peer():
 		request_rematch.rpc_id(1)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_deck_accepted() -> void:
-	if client_room_mode == "lobby":
+	if client_room_mode in ["lobby","session"]:
 		request_room_list.rpc_id(1,0)
 	elif client_room_mode == "join" or client_room_mode == "enter":
 		request_join_room.rpc_id(1, client_room_code, client_room_mode == "enter")
@@ -661,12 +702,12 @@ func _broadcast_snapshot(match_id: int) -> void:
 	if not models.has(match_id):
 		return
 	var data: Dictionary = models[match_id].snapshot()
-	for player_id in registry.matches.get(match_id, []):
+	for player_id in _match_audience(match_id):
 		if _peer_is_connected(int(player_id)):
 			receive_snapshot.rpc_id(int(player_id), data)
 
 func _broadcast_combat_events(match_id: int, events: Array) -> void:
-	for player_id in registry.matches.get(match_id, []):
+	for player_id in _match_audience(match_id):
 		if _peer_is_connected(int(player_id)):
 			receive_combat_events.rpc_id(int(player_id), events)
 
@@ -715,16 +756,17 @@ func request_room_list(page: int = 0) -> void:
 	if not server_mode: return
 	var sender := multiplayer.get_remote_sender_id()
 	if not can_process_request(sender) or not peer_decks.has(sender) or registry.has_match(sender): return
-	_send_room_listing(sender,maxi(0,page),registry.room_listing())
+	_send_room_listing(sender,maxi(0,page),_all_room_listings())
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_leave_room() -> void:
 	if not server_mode: return
 	var sender := multiplayer.get_remote_sender_id()
+	if sessions.peer_to_room.has(sender): return
 	if not can_process_request(sender) or not peer_decks.has(sender) or registry.has_match(sender): return
 	registry.remove_player(sender)
 	lobby_dirty = true
-	_send_room_listing(sender,0,registry.room_listing())
+	_send_room_listing(sender,0,_all_room_listings())
 
 static func is_valid_room_listing(data: Dictionary) -> bool:
 	if not _has_exact_keys(data,["rooms","page","total"]) or not data.rooms is Array: return false
@@ -734,9 +776,13 @@ static func is_valid_room_listing(data: Dictionary) -> bool:
 	if int(data.page)>last_page or data.rooms.size()!=mini(ROOM_LIST_PAGE_SIZE,maxi(0,int(data.total)-int(data.page)*ROOM_LIST_PAGE_SIZE)): return false
 	var codes: Dictionary = {}
 	for item in data.rooms:
-		if not item is Dictionary or not _has_exact_keys(item,["code","name","players"]): return false
+		if not item is Dictionary or not _has_required_optional_keys(item,["code","name","players"],["locked","state","spectators"]): return false
 		if not item.code is String or not is_valid_room_code(item.code) or codes.has(item.code): return false
-		if not item.name is String or not is_valid_room_name(item.name) or not _number_in_range(item.players,1,1): return false
+		if not item.name is String or not is_valid_room_name(item.name) or not _number_in_range(item.players,1,2) or float(item.players)!=floor(float(item.players)): return false
+		if not item.has("state") and int(item.players)!=1: return false
+		if item.has("locked") and not item.locked is bool: return false
+		if item.has("state") and item.state not in ["waiting","playing","finished"]: return false
+		if item.has("spectators") and (not _number_in_range(item.spectators,0,TRANSPORT_MAX_PEERS) or float(item.spectators)!=floor(float(item.spectators))): return false
 		codes[item.code] = true
 	return true
 
@@ -771,3 +817,252 @@ func leave_lobby_room() -> void:
 	client_connection_state = "leaving"
 	client_phase_elapsed = 0.0
 	request_leave_room.rpc_id(1)
+
+func _all_room_listings() -> Array:
+	return sessions.listing() + registry.room_listing()
+
+func _match_audience(match_id: int) -> Array:
+	if session_matches.has(match_id):
+		var room: Dictionary = sessions.rooms.get(session_matches[match_id],{})
+		if not room.is_empty(): return room.members.keys()
+	return registry.matches.get(match_id,[])
+
+func _push_session(code: String) -> void:
+	var state := sessions.public_state(code)
+	if state.is_empty(): return
+	for member in state.members:
+		if _peer_is_connected(int(member.id)): receive_session_state.rpc_id(int(member.id),state)
+
+func _cleanup_session_match(match_id: int) -> void:
+	if match_id <= 0: return
+	for id in registry.matches.get(match_id,[]):
+		if registry.get_match_id(int(id)) == match_id:
+			registry.peer_to_match.erase(id); registry.peer_to_side.erase(id)
+	registry.matches.erase(match_id); models.erase(match_id); rematch_ready.erase(match_id); session_matches.erase(match_id)
+
+func _leave_session(peer_id: int, disconnected: bool = false) -> void:
+	var result := sessions.leave(peer_id)
+	if result.is_empty(): return
+	if result.interrupted: _cleanup_session_match(int(result.match_id))
+	if result.closed:
+		for id in result.affected:
+			if int(id) != peer_id and _peer_is_connected(int(id)):
+				receive_session_closed.rpc_id(int(id),"방이 종료되었습니다.")
+	else: _push_session(result.code)
+	lobby_dirty = true
+	if not disconnected and _peer_is_connected(peer_id): receive_session_closed.rpc_id(peer_id,"")
+
+static func _hex_string(value: String, length: int) -> bool:
+	if value.length() != length: return false
+	for char_value in value:
+		if not char_value in "0123456789abcdef": return false
+	return true
+
+func _can_enter_session(peer_id: int) -> bool:
+	return accepting_players and peer_decks.has(peer_id) and not registry.has_match(peer_id) and not registry.peer_to_room.has(peer_id) and not sessions.peer_to_room.has(peer_id)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_create_session(title: String, nickname: String, salt: String, secret: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	if not _can_enter_session(sender) or not is_valid_room_name(title) or not SessionStore.safe_text(nickname,SessionStore.MAX_NICKNAME):
+		receive_session_error.rpc_id(sender,"지금은 방을 만들 수 없습니다."); return
+	if not ((salt.is_empty() and secret.is_empty()) or (_hex_string(salt,32) and _hex_string(secret,64))):
+		receive_session_error.rpc_id(sender,"잘못된 비밀번호 설정입니다."); return
+	var code := _generate_room_code()
+	if code.is_empty(): receive_session_error.rpc_id(sender,"방 코드를 생성하지 못했습니다. 다시 시도하세요."); return
+	if not sessions.create(sender,code,title.strip_edges(),nickname.strip_edges(),salt,secret,peer_decks[sender]):
+		receive_session_error.rpc_id(sender,"방을 만들지 못했습니다."); return
+	lobby_pages.erase(sender)
+	lobby_dirty = true; _push_session(code)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_session_challenge(code: String, nickname: String, role: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	if not _can_enter_session(sender) or not sessions.rooms.has(code) or role not in ["player","spectator"] or not SessionStore.safe_text(nickname,SessionStore.MAX_NICKNAME):
+		receive_session_error.rpc_id(sender,"참가할 수 없는 방입니다."); return
+	var nonce := Crypto.new().generate_random_bytes(16).hex_encode()
+	join_challenges[sender] = {"code":code,"nickname":nickname.strip_edges(),"role":role,"nonce":nonce,"deadline":Time.get_ticks_msec()+10000}
+	receive_session_challenge.rpc_id(sender,code,sessions.rooms[code].salt,nonce)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_join_session(response: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not join_challenges.has(sender): return
+	var challenge: Dictionary = join_challenges[sender]; join_challenges.erase(sender)
+	if not _can_enter_session(sender) or Time.get_ticks_msec() > challenge.deadline or not sessions.rooms.has(challenge.code):
+		receive_session_error.rpc_id(sender,"방이 종료되었거나 참가 시간이 초과되었습니다."); return
+	var room: Dictionary = sessions.rooms[challenge.code]
+	var expected := "" if room.secret.is_empty() else SessionStore.proof(room.secret,challenge.nonce,sender,challenge.code)
+	if not SessionStore.equal_secret(expected,response):
+		receive_session_error.rpc_id(sender,"비밀번호가 맞지 않습니다."); return
+	var error: String = sessions.join(sender,challenge.code,challenge.nickname,challenge.role,peer_decks[sender])
+	if not error.is_empty(): receive_session_error.rpc_id(sender,error); return
+	lobby_pages.erase(sender)
+	lobby_dirty = true; _push_session(challenge.code)
+	if room.phase in ["playing","finished"] and challenge.role == "spectator":
+		session_spectate.rpc_id(sender)
+		if models.has(room.match_id): receive_snapshot.rpc_id(sender,models[room.match_id].snapshot())
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_session_ready(ready: bool) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	if sessions.set_ready(sender,ready): _push_session(sessions.peer_to_room[sender])
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_session_deck(units: Array, structures: Array) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not validate_deck_payload(units,structures): return
+	if sessions.set_deck(sender,{"units":units,"structures":structures}):
+		peer_decks[sender] = {"units":units.duplicate(),"structures":structures.duplicate()}
+		_push_session(sessions.peer_to_room[sender])
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_session_start() -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	if not accepting_players or not sessions.can_start(sender):
+		receive_session_error.rpc_id(sender,"두 플레이어가 준비해야 시작할 수 있습니다."); return
+	var match_id := registry.next_match_id; registry.next_match_id += 1
+	var ids: Array = sessions.start(sender,match_id)
+	var room: Dictionary = sessions.room_for(sender)
+	var model := BattleModel.new()
+	registry.matches[match_id] = ids.duplicate()
+	for side in 2:
+		var id: int = ids[side]; registry.peer_to_match[id] = match_id; registry.peer_to_side[id] = side
+		var deck: Dictionary = room.members[id].deck
+		model.configure_deck(side,deck.units,deck.structures)
+	models[match_id] = model; session_matches[match_id] = room.code
+	_push_session(room.code); lobby_dirty = true
+	for side in 2: match_started.rpc_id(int(ids[side]),side)
+	for id in room.members:
+		if room.members[id].role == "spectator": session_spectate.rpc_id(int(id))
+	_broadcast_snapshot(match_id)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_session_return() -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	if sessions.return_from_battle(sender):
+		var room: Dictionary = sessions.room_for(sender)
+		if room.phase == "waiting": _cleanup_session_match(int(room.match_id)); room.match_id = 0; lobby_dirty = true
+		_push_session(room.code)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_session_leave() -> void:
+	if server_mode and can_process_request(multiplayer.get_remote_sender_id()): _leave_session(multiplayer.get_remote_sender_id())
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_session_chat(text: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not sessions.peer_to_room.has(sender) or not SessionStore.safe_text(text,SessionStore.MAX_CHAT): return
+	var now := Time.get_ticks_msec()
+	if now-int(chat_times.get(sender,-1000)) < 750: return
+	chat_times[sender] = now
+	var message: Dictionary = sessions.append_chat(sender,text)
+	if message.is_empty(): return
+	for id in sessions.room_for(sender).members:
+		if _peer_is_connected(int(id)): receive_session_chat.rpc_id(int(id),message)
+
+static func valid_session_state(data: Dictionary) -> bool:
+	if not _has_exact_keys(data,["code","name","owner","phase","locked","members","messages"]): return false
+	if not data.code is String or not is_valid_room_code(data.code) or not data.name is String or not is_valid_room_name(data.name): return false
+	if not data.locked is bool or data.phase not in ["waiting","playing","finished"] or not data.members is Array or not data.messages is Array: return false
+	if data.members.size()<1 or data.members.size()>TRANSPORT_MAX_PEERS or data.messages.size()>SessionStore.CHAT_HISTORY: return false
+	var players := 0; var ids: Dictionary = {}
+	for member in data.members:
+		if not member is Dictionary or not _has_exact_keys(member,["id","nickname","role","ready","returned","deck"]): return false
+		if not _number_in_range(member.id,1,2147483647) or float(member.id)!=floor(float(member.id)) or ids.has(int(member.id)): return false
+		if not member.nickname is String or not SessionStore.safe_text(member.nickname,SessionStore.MAX_NICKNAME) or member.role not in ["player","spectator"] or not member.ready is bool or not member.returned is bool: return false
+		if not member.deck is Dictionary or not _has_exact_keys(member.deck,["units","structures"]) or not member.deck.units is Array or not member.deck.structures is Array or not validate_deck_payload(member.deck.units,member.deck.structures): return false
+		ids[int(member.id)] = true
+		if member.role == "player": players += 1
+	if players<1 or players>2 or not _number_in_range(data.owner,1,2147483647) or float(data.owner)!=floor(float(data.owner)) or not ids.has(int(data.owner)): return false
+	for message in data.messages:
+		if not valid_chat_message(message): return false
+	return true
+
+static func valid_chat_message(message: Variant) -> bool:
+	return message is Dictionary and _has_exact_keys(message,["id","nickname","role","text"]) and _number_in_range(message.id,1,1e9) and message.nickname is String and SessionStore.safe_text(message.nickname,SessionStore.MAX_NICKNAME) and message.role in ["player","spectator"] and message.text is String and SessionStore.safe_text(message.text,SessionStore.MAX_CHAT)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_session_state(data: Dictionary) -> void:
+	if client_connection_state == "idle" or not valid_session_state(data): return
+	var self_member: Dictionary = {}
+	for member in data.members:
+		if int(member.id) == multiplayer.get_unique_id(): self_member = member
+	if self_member.is_empty(): return
+	client_session = data.duplicate(true)
+	client_is_spectator = self_member.role == "spectator"
+	pending_room_password = ""
+	if data.phase == "waiting" or (data.phase == "finished" and self_member.returned):
+		client_in_match = false; client_connection_state = "session"
+	elif client_connection_state != "in_match": client_connection_state = "session"
+	client_phase_elapsed = 0.0
+	session_changed.emit(client_session)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_session_challenge(code: String, salt: String, nonce: String) -> void:
+	if client_connection_state != "room_request" or not is_valid_room_code(code) or not _hex_string(nonce,32) or not (salt.is_empty() or _hex_string(salt,32)): return
+	var secret: String = SessionStore.verifier(pending_room_password,salt)
+	pending_room_password = ""
+	request_join_session.rpc_id(1,"" if salt.is_empty() else SessionStore.proof(secret,nonce,multiplayer.get_unique_id(),code))
+
+@rpc("authority", "call_remote", "reliable")
+func receive_session_error(text: String) -> void:
+	if text.length()>100: return
+	pending_room_password = ""
+	if client_session.is_empty(): client_connection_state = "lobby"
+	else: client_connection_state = "session" if client_session.phase != "playing" else "in_match"
+	session_error.emit(text)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_session_closed(text: String) -> void:
+	if text.length()>100: return
+	client_session.clear(); client_is_spectator = false; client_in_match = false; client_connection_state = "lobby"
+	session_closed.emit(text)
+	request_room_list.rpc_id(1,0)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_session_chat(message: Dictionary) -> void:
+	if client_session.is_empty() or not valid_chat_message(message): return
+	client_session.messages.append(message)
+	if client_session.messages.size()>SessionStore.CHAT_HISTORY: client_session.messages.pop_front()
+	session_chat.emit(message)
+
+@rpc("authority", "call_remote", "reliable")
+func session_spectate() -> void:
+	if client_session.is_empty() or not client_is_spectator: return
+	client_in_match = true; client_connection_state = "in_match"
+	spectate_started.emit()
+
+func create_session_room(title: String, password: String = "") -> bool:
+	if client_connection_state != "lobby" or not is_valid_room_name(title) or password.length()>32 or not SessionStore.safe_text(client_nickname,SessionStore.MAX_NICKNAME): return false
+	var salt := "" if password.is_empty() else Crypto.new().generate_random_bytes(16).hex_encode()
+	client_connection_state = "room_request"; client_phase_elapsed = 0.0
+	request_create_session.rpc_id(1,title.strip_edges(),client_nickname,salt,SessionStore.verifier(password,salt))
+	return true
+
+func join_session_room(code: String, password: String = "", spectator: bool = false) -> bool:
+	if client_connection_state != "lobby" or not is_valid_room_code(code) or password.length()>32 or not SessionStore.safe_text(client_nickname,SessionStore.MAX_NICKNAME): return false
+	pending_room_password = password
+	client_connection_state = "room_request"; client_phase_elapsed = 0.0
+	request_session_challenge.rpc_id(1,code,client_nickname,"spectator" if spectator else "player")
+	return true
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_lobby_deck(units: Array, structures: Array) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not _can_enter_session(sender) or not validate_deck_payload(units,structures): return
+	peer_decks[sender] = {"units":units.duplicate(),"structures":structures.duplicate()}
