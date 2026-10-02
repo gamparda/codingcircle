@@ -9,7 +9,7 @@ const STAGE_NAMES := [
 	"입문", "견습", "전진", "수비", "전술",
 	"공세", "정예", "최종전",
 ]
-const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer"]
+const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer", "berserker", "warlock", "necromancer"]
 const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret"]
 const LONG_BATTLE_START := 180.0
 const LONG_BATTLE_STEP := 60.0

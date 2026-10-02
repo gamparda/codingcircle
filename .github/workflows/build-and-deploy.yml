@@ -59,12 +59,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $contentVersion = "0.4.18"
-          $windowsVersion = "0.4.18"
+          $contentVersion = "0.4.19"
+          $windowsVersion = "0.4.19"
           $androidBinaryVersion = "0.4.18"
           $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?before=${{ github.sha }}"
           $previousAndroidVersion = if ($previous.PSObject.Properties.Name -contains "android_binary_version") { [string]$previous.android_binary_version } else { [string]$previous.version }
-          $buildAndroid = $previousAndroidVersion -ne $androidBinaryVersion
+          # Always ship a fresh signed APK, without forcing native upgrades for PCK-only changes.
+          $buildAndroid = $true
           "CONTENT_VERSION=$contentVersion" | Out-File $env:GITHUB_ENV -Append
           "WINDOWS_VERSION=$windowsVersion" | Out-File $env:GITHUB_ENV -Append
           "ANDROID_BINARY_VERSION=$androidBinaryVersion" | Out-File $env:GITHUB_ENV -Append
@@ -128,6 +129,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Independent release version tests failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/balance_feedback_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Focused balance and room connection regressions failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/new_units_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "New unit mechanics and wire regressions failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/new_units_ui_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "New unit UI regressions failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/support_ui_feedback_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Purchase and patch-note UI regressions failed" }
 

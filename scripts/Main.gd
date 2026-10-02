@@ -671,7 +671,7 @@ func _build_patch_notes_screen() -> void:
 
 func _build_deck_screen(preset_index: int = -1) -> void:
 	var index := int(save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, 2)
-	var column := _submenu(Localization.text("덱 편성"), Localization.text("유닛 4종 중 3종, 구조물 4종 중 3종을 선택합니다. 온라인에서도 서버가 이 덱을 검증합니다."))
+	var column := _submenu(Localization.text("덱 편성"), "유닛 7종 중 3종, 구조물 4종 중 3종을 선택합니다. 해골은 네크로맨서 소환 전용입니다.")
 	var tabs := HBoxContainer.new()
 	column.add_child(tabs)
 	for tab_index in 3:
@@ -686,17 +686,33 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	var selected: Dictionary = save_data.deck_presets[index]
 	var unit_buttons := {}
 	var structure_buttons := {}
-	var unit_row := HBoxContainer.new()
-	unit_row.add_theme_constant_override("separation", 8)
-	column.add_child(unit_row)
-	var unit_names := {"shield": Localization.text("탱커"), "swordsman": Localization.text("검사"), "archer": Localization.text("궁수"), "healer": Localization.text("마법사")}
+	var cards_scroll := ScrollContainer.new()
+	cards_scroll.name = "DeckCardsScroll"
+	cards_scroll.custom_minimum_size = Vector2(0, 300)
+	cards_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cards_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(cards_scroll)
+	var choices := VBoxContainer.new()
+	choices.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	choices.add_theme_constant_override("separation", 10)
+	cards_scroll.add_child(choices)
+	var unit_row := GridContainer.new()
+	unit_row.name = "DeckUnitGrid"
+	unit_row.columns = 4
+	unit_row.add_theme_constant_override("h_separation", 8)
+	unit_row.add_theme_constant_override("v_separation", 8)
+	choices.add_child(unit_row)
+	var unit_names := BattleModel.UNIT_NAMES
 	for kind in BattleModel.UNIT_STATS.keys():
 		var stats: Dictionary = BattleModel.UNIT_STATS[kind]
-		var role := Localization.text("공격속도 지원") if kind == "healer" else Localization.text("원거리") if kind == "archer" else Localization.text("방어") if kind == "shield" else Localization.text("근접 공격")
-		var card_text := Localization.text("%s\n비용 %d · HP %d · 공격 %d\nDPS %.1f · 사거리 %d · %s") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), float(stats.damage) / float(stats.interval), int(stats.range), role]
+		var role: String = {"healer": "공격속도 지원", "archer": "원거리", "shield": "방어", "swordsman": "근접 공격", "berserker": "체력 50% 이하: 광폭화", "warlock": "공격력 -30% 장판", "necromancer": "5초마다 해골 소환"}[kind]
+		var card_text := Localization.text("%s\n비용 %d · HP %d · 공격 %d\nDPS %.1f · 사거리 %d\n%s") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), float(stats.damage) / float(stats.interval), int(stats.range), role]
 		if kind == "healer":
 			card_text = Localization.text("%s\n비용 %d · HP %d · 범위 %d\n공속 +3%% 영구 · 상한 +30%% · 쿨 7초") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.range)]
 		var card := _styled_button(card_text, Color("#5b8cff"), false)
+		card.name = "DeckUnit_" + kind
+		card.tooltip_text = BattleModel.unit_stat_summary(kind)
+		card.add_theme_font_size_override("font_size", 13)
 		_configure_deck_card(card, card_text, Color("#5b8cff"), selected.units.has(kind))
 		card.custom_minimum_size = Vector2(240, 105)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -705,7 +721,7 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	var structure_grid := GridContainer.new()
 	structure_grid.columns = 5
 	structure_grid.add_theme_constant_override("h_separation", 8)
-	column.add_child(structure_grid)
+	choices.add_child(structure_grid)
 	var structure_names := {"wall": Localization.text("방벽"), "swamp": Localization.text("늪"), "turret": Localization.text("포탑"), "generator": Localization.text("발전기")}
 	var roles := {"wall": Localization.text("뒤 대상을 차폐 · 최대 2"), "swamp": Localization.text("반경 95 · 80% 감속 · 5초"), "turret": Localization.text("사거리 240 · 최대 1"), "generator": Localization.text("후방 전용 · 초당 +2")}
 	for kind in BattleModel.STRUCTURE_STATS.keys():
@@ -723,6 +739,7 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	var actions := HBoxContainer.new()
 	column.add_child(actions)
 	var save_button := _styled_button(Localization.text("덱 저장 및 사용"), Color("#5e6ad2"), true)
+	save_button.name = "DeckSaveButton"
 	save_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	save_button.pressed.connect(func():
 		var selected_units: Array = []
@@ -1138,8 +1155,8 @@ func _build_battle_screen() -> void:
 	row.add_theme_constant_override("separation", 8)
 	controls.add_child(row)
 	var preset := battle_preset if not battle_preset.is_empty() else _active_preset()
-	var unit_names := {"shield": Localization.text("탱커"), "healer": Localization.text("마법사"), "archer": Localization.text("궁수"), "swordsman": Localization.text("검사")}
-	var unit_colors := {"shield": Color("#5b8cff"), "healer": Color("#d8b85a"), "archer": Color("#8b72df"), "swordsman": Color("#d56b5f")}
+	var unit_names := BattleModel.UNIT_NAMES
+	var unit_colors := {"shield": Color("#5b8cff"), "healer": Color("#d8b85a"), "archer": Color("#8b72df"), "swordsman": Color("#d56b5f"), "berserker": Color("#db7254"), "warlock": Color("#a775e6"), "necromancer": Color("#906bd1")}
 	for kind in preset.units:
 		_add_spawn_button(row, unit_names[kind], kind, unit_colors[kind])
 	var separator := VSeparator.new()
@@ -1383,9 +1400,15 @@ func _show_stats_panel() -> void:
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 12)
 	grid.add_theme_constant_override("v_separation", 10)
-	content.add_child(grid)
-	var names := {"shield": Localization.text("탱커"), "healer": Localization.text("마법사"), "archer": Localization.text("궁수"), "swordsman": Localization.text("검사")}
-	for kind in ["shield", "healer", "archer", "swordsman"]:
+	var scroll := ScrollContainer.new()
+	scroll.name = "UnitStatsScroll"
+	scroll.custom_minimum_size = Vector2(0, 300)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	content.add_child(scroll)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(grid)
+	var names := BattleModel.UNIT_NAMES
+	for kind in names.keys():
 		var card := PanelContainer.new()
 		card.custom_minimum_size = Vector2(455, 126)
 		card.add_theme_stylebox_override("panel", _panel_style(Color("#171c28"), Color(1.0, 1.0, 1.0, 0.09), 10))

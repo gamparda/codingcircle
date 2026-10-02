@@ -1,0 +1,63 @@
+{
+  "berserker": {
+    "cutout_version": 2,
+    "portrait": [
+      254,
+      284
+    ],
+    "animation_canvas": [
+      478,
+      356
+    ],
+    "frames": {
+      "walk": 6,
+      "attack": 3
+    }
+  },
+  "warlock": {
+    "cutout_version": 2,
+    "portrait": [
+      224,
+      273
+    ],
+    "animation_canvas": [
+      470,
+      345
+    ],
+    "frames": {
+      "walk": 6,
+      "attack": 3
+    }
+  },
+  "skeleton": {
+    "cutout_version": 2,
+    "portrait": [
+      221,
+      275
+    ],
+    "animation_canvas": [
+      452,
+      369
+    ],
+    "frames": {
+      "walk": 6,
+      "attack": 3
+    }
+  },
+  "necromancer": {
+    "cutout_version": 2,
+    "portrait": [
+      226,
+      292
+    ],
+    "animation_canvas": [
+      630,
+      356
+    ],
+    "frames": {
+      "walk": 6,
+      "attack": 3,
+      "summon": 3
+    }
+  }
+}

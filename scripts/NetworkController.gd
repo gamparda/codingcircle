@@ -24,7 +24,7 @@ const EARLY_DISCONNECT_LIMIT := 3
 const EARLY_DISCONNECT_WINDOW_MSEC := 60000
 const QUICK_DISCONNECT_MSEC := 15000
 const ABUSE_BLOCK_MSEC := 120000
-const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer"]
+const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "skeleton"]
 const VALID_STRUCTURE_KINDS := ["wall", "swamp", "turret", "generator"]
 const ROOM_CODE_LENGTH := 6
 const ROOM_CODE_ALPHABET := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -340,7 +340,7 @@ static func _number_in_range(value: Variant, minimum: float, maximum: float) -> 
 	return _is_finite_number(value) and float(value) >= minimum and float(value) <= maximum
 
 static func is_valid_snapshot(data: Dictionary) -> bool:
-	if not _has_exact_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"]):
+	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses"]):
 		return false
 	var resources = data.resources
 	var base_hp = data.base_hp
@@ -362,7 +362,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		return false
 	var unit_ids := {}
 	for unit in units:
-		if not unit is Dictionary or not _has_exact_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"]):
+		if not unit is Dictionary or not _has_required_optional_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"], ["support_stacks"]):
 			return false
 		var unit_id = unit.id
 		var unit_side = unit.side
@@ -378,6 +378,8 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		for key in ["damage", "heal", "interval", "cooldown", "speed", "range"]:
 			if not _number_in_range(unit[key], 0.0, 10000.0):
 				return false
+		if unit.has("support_stacks") and (not unit.support_stacks is int or int(unit.support_stacks) < 0 or int(unit.support_stacks) > BattleModel.SUPPORT_MAX_STACKS):
+			return false
 	var structure_ids := {}
 	for structure in structures:
 		if not structure is Dictionary or not _has_exact_keys(structure, ["id", "side", "kind", "x", "hp", "max_hp"]):
@@ -394,9 +396,30 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		if not _number_in_range(structure.hp, 0.0, float(structure.max_hp)):
 			return false
 	var winner = data.winner
+	var curses = data.get("curses", [])
+	if not curses is Array or curses.size() > MAX_SNAPSHOT_UNITS:
+		return false
+	var sources := {}
+	for curse in curses:
+		if not curse is Dictionary or not _has_exact_keys(curse, ["source_id", "side", "x", "expires_at"]):
+			return false
+		if not curse.source_id is int or int(curse.source_id) <= 0 or sources.has(curse.source_id) or not curse.side is int or not is_valid_match_side(int(curse.side)):
+			return false
+		if not _number_in_range(curse.x, BattleModel.FIELD_LEFT, BattleModel.FIELD_RIGHT) or not _number_in_range(curse.expires_at, 0.0, 1000000000.0):
+			return false
+		sources[curse.source_id] = true
 	if not winner is int or int(winner) < -1 or int(winner) > 2:
 		return false
 	return _is_finite_number(data.elapsed) and float(data.elapsed) >= 0.0
+
+static func _has_required_optional_keys(value: Dictionary, required: Array, optional: Array) -> bool:
+	for key in required:
+		if not value.has(key):
+			return false
+	for key in value:
+		if not required.has(key) and not optional.has(key):
+			return false
+	return true
 
 func _process(delta: float) -> void:
 	if not server_mode:

@@ -9,7 +9,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 class ContentOnlyReleaseTest(unittest.TestCase):
     def test_release_versions_are_ready_for_the_one_time_binary_migration(self):
         build_info = json.loads((ROOT / "build_info.json").read_text(encoding="utf-8"))
-        self.assertEqual(build_info["version"], "0.4.18")
+        self.assertEqual(build_info["version"], "0.4.19")
         self.assertEqual(build_info["binary_version"], "0.4.18")
 
         project = (ROOT / "project.godot").read_text(encoding="utf-8")
@@ -17,11 +17,12 @@ class ContentOnlyReleaseTest(unittest.TestCase):
         android_export = (ROOT / "export_presets.cfg").read_text(encoding="utf-8")
         self.assertRegex(android_export, r'version/name="0\.4\.18"')
 
-    def test_ci_can_reuse_android_while_still_updating_windows_and_content(self):
+    def test_ci_ships_fresh_android_with_independent_binary_version(self):
         workflow = (ROOT / ".github" / "workflows" / "build-and-deploy.yml").read_text(encoding="utf-8")
-        self.assertIn('$contentVersion = "0.4.18"', workflow)
-        self.assertIn('$windowsVersion = "0.4.18"', workflow)
+        self.assertIn('$contentVersion = "0.4.19"', workflow)
+        self.assertIn('$windowsVersion = "0.4.19"', workflow)
         self.assertIn('$androidBinaryVersion = "0.4.18"', workflow)
+        self.assertIn("$buildAndroid = $true", workflow)
         self.assertIn("--export-pack Android dist/CatWarContent.pck", workflow)
         self.assertIn("if: env.BUILD_ANDROID == 'true'", workflow)
         self.assertIn("--export-release Android dist/CatWar.apk", workflow)

@@ -16,6 +16,10 @@ const UNIT_TEXTURES := {
 	"healer": preload("res://assets/units/healer.png"),
 	"archer": preload("res://assets/units/archer.png"),
 	"swordsman": preload("res://assets/units/swordsman.png"),
+	"berserker": preload("res://assets/units/berserker.png"),
+	"warlock": preload("res://assets/units/warlock.png"),
+	"necromancer": preload("res://assets/units/necromancer.png"),
+	"skeleton": preload("res://assets/units/skeleton.png"),
 }
 const UNIT_WALK_TEXTURES := {
 	"shield": [
@@ -38,7 +42,20 @@ const UNIT_WALK_TEXTURES := {
 		preload("res://assets/units/animations/swordsman/walk_2.png"), preload("res://assets/units/animations/swordsman/walk_3.png"),
 		preload("res://assets/units/animations/swordsman/walk_4.png"), preload("res://assets/units/animations/swordsman/walk_5.png"),
 	],
+	"berserker": [preload("res://assets/units/animations/berserker/walk_0.png"), preload("res://assets/units/animations/berserker/walk_1.png"), preload("res://assets/units/animations/berserker/walk_2.png"), preload("res://assets/units/animations/berserker/walk_3.png"), preload("res://assets/units/animations/berserker/walk_4.png"), preload("res://assets/units/animations/berserker/walk_5.png")],
+	"warlock": [preload("res://assets/units/animations/warlock/walk_0.png"), preload("res://assets/units/animations/warlock/walk_1.png"), preload("res://assets/units/animations/warlock/walk_2.png"), preload("res://assets/units/animations/warlock/walk_3.png"), preload("res://assets/units/animations/warlock/walk_4.png"), preload("res://assets/units/animations/warlock/walk_5.png")],
+	"necromancer": [preload("res://assets/units/animations/necromancer/walk_0.png"), preload("res://assets/units/animations/necromancer/walk_1.png"), preload("res://assets/units/animations/necromancer/walk_2.png"), preload("res://assets/units/animations/necromancer/walk_3.png"), preload("res://assets/units/animations/necromancer/walk_4.png"), preload("res://assets/units/animations/necromancer/walk_5.png")],
+	"skeleton": [preload("res://assets/units/animations/skeleton/walk_0.png"), preload("res://assets/units/animations/skeleton/walk_1.png"), preload("res://assets/units/animations/skeleton/walk_2.png"), preload("res://assets/units/animations/skeleton/walk_3.png"), preload("res://assets/units/animations/skeleton/walk_4.png"), preload("res://assets/units/animations/skeleton/walk_5.png")],
 }
+const UNIT_ATTACK_TEXTURES := {
+	"berserker": [preload("res://assets/units/animations/berserker/attack_0.png"), preload("res://assets/units/animations/berserker/attack_1.png"), preload("res://assets/units/animations/berserker/attack_2.png")],
+	"warlock": [preload("res://assets/units/animations/warlock/attack_0.png"), preload("res://assets/units/animations/warlock/attack_1.png"), preload("res://assets/units/animations/warlock/attack_2.png")],
+	"necromancer": [preload("res://assets/units/animations/necromancer/attack_0.png"), preload("res://assets/units/animations/necromancer/attack_1.png"), preload("res://assets/units/animations/necromancer/attack_2.png")],
+	"skeleton": [preload("res://assets/units/animations/skeleton/attack_0.png"), preload("res://assets/units/animations/skeleton/attack_1.png"), preload("res://assets/units/animations/skeleton/attack_2.png")],
+}
+const UNIT_SUMMON_TEXTURES := [
+preload("res://assets/units/animations/necromancer/summon_0.png"), preload("res://assets/units/animations/necromancer/summon_1.png"), preload("res://assets/units/animations/necromancer/summon_2.png")
+]
 const STARS := [
 	Vector2(0.08, 0.16), Vector2(0.15, 0.29), Vector2(0.23, 0.11),
 	Vector2(0.34, 0.23), Vector2(0.43, 0.13), Vector2(0.57, 0.21),
@@ -52,6 +69,10 @@ var selected_structure := ""
 var mouse_position := Vector2.ZERO
 var animation_time := 0.0
 var visual_events: Array = []
+var unit_actions: Dictionary = {}
+var last_unit_x: Dictionary = {}
+var moving_units: Dictionary = {}
+var cursed_units: Dictionary = {}
 var show_damage_numbers := true
 var show_battle_effects := true
 var effect_intensity := 0.65
@@ -62,6 +83,16 @@ func _ready() -> void:
 
 func set_snapshot(data: Dictionary) -> void:
 	snapshot = data
+	var positions := {}
+	moving_units.clear()
+	cursed_units.clear()
+	for unit in data.get("units", []):
+		positions[unit.id] = float(unit.x)
+		moving_units[unit.id] = last_unit_x.has(unit.id) and absf(float(last_unit_x[unit.id]) - float(unit.x)) > 0.05
+		for curse in data.get("curses", []):
+			if curse.side != unit.side and absf(float(curse.x) - float(unit.x)) <= BattleModel.CURSE_RADIUS:
+				cursed_units[unit.id] = true
+	last_unit_x = positions
 	queue_redraw()
 
 func push_combat_events(events: Array) -> void:
@@ -70,6 +101,10 @@ func push_combat_events(events: Array) -> void:
 			var visual: Dictionary = event.duplicate(true)
 			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else 0.7
 			visual_events.append(visual)
+			if event.get("type") == "SUMMON":
+				unit_actions[event.source_id] = {"type": "SUMMON", "started": animation_time}
+			elif event.get("type") == "ATTACK" and UNIT_ATTACK_TEXTURES.has(String(event.get("attack_kind", ""))):
+				unit_actions[event.attacker_id] = {"type": "ATTACK", "started": animation_time}
 	queue_redraw()
 
 func placement_error(kind: String, world_x: float) -> String:
@@ -98,6 +133,9 @@ func placement_error(kind: String, world_x: float) -> String:
 
 func _process(delta: float) -> void:
 	animation_time += delta
+	for id in unit_actions.keys():
+		if animation_time - float(unit_actions[id].started) >= 0.7:
+			unit_actions.erase(id)
 	for event in visual_events:
 		event.life = float(event.life) - delta
 	visual_events = visual_events.filter(func(event): return float(event.life) > 0.0)
@@ -129,6 +167,8 @@ func _draw() -> void:
 	_draw_base(world_to_screen_x(BattleModel.FIELD_LEFT), lane_y, display_side(0))
 	_draw_base(world_to_screen_x(BattleModel.FIELD_RIGHT), lane_y, display_side(1))
 
+	for curse in snapshot.get("curses", []):
+		_draw_curse(curse, scale_x, lane_y)
 	for structure in snapshot.get("structures", []):
 		_draw_structure(structure, scale_x, lane_y)
 	for unit in snapshot.get("units", []):
@@ -226,7 +266,14 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	if not walk_frames.is_empty():
 		var frame_rate: float = clamp(5.0 + float(unit.speed) / 20.0, 5.0, 10.0)
 		var frame_index: int = (int(animation_time * frame_rate) + int(unit.id) * 2) % walk_frames.size()
+		if UNIT_ATTACK_TEXTURES.has(kind) and not moving_units.get(unit.id, false):
+			frame_index = 0
 		texture = walk_frames[frame_index]
+	if unit_actions.has(unit.id) and UNIT_ATTACK_TEXTURES.has(kind):
+		var action: Dictionary = unit_actions[unit.id]
+		var frames: Array = UNIT_SUMMON_TEXTURES if action.type == "SUMMON" and kind == "necromancer" else UNIT_ATTACK_TEXTURES[kind]
+		var index := clampi(int((animation_time - float(action.started)) / 0.7 * frames.size()), 0, frames.size() - 1)
+		texture = frames[index]
 	var sprite_height: float = 86.0
 	if unit.kind == "shield":
 		sprite_height = 92.0
@@ -234,6 +281,8 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 		sprite_height = 90.0
 	elif unit.kind == "archer":
 		sprite_height = 86.0
+	if UNIT_ATTACK_TEXTURES.has(kind):
+		sprite_height *= float(texture.get_height()) / float(UNIT_TEXTURES[kind].get_height())
 	var sprite_width: float = sprite_height * float(texture.get_width()) / max(float(texture.get_height()), 1.0)
 
 	# Team halo and contact shadow stay independent from the supplied artwork.
@@ -253,10 +302,22 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	var bar_y: float = lane_y - 102.0 - float(int(unit.id) % 3) * 6.0
 	draw_rect(Rect2(x - 21.0, bar_y, 42.0, 6.0), Color(0.02, 0.03, 0.06, 0.88))
 	draw_rect(Rect2(x - 20.0, bar_y + 1.0, 40.0 * hp_ratio, 4.0), Color("#71e49a") if hp_ratio > 0.35 else Color("#ff6b72"))
+	if BattleModel.is_enraged(unit):
+		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 18.0), "광폭", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ff9a61"))
+	if cursed_units.has(unit.id):
+		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "▼30%", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c592ff"))
 	if show_battle_effects and kind != "healer":
 		var stacks := int(unit.get("support_stacks", 0))
 		if stacks > 0:
-			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "▲%d%%" % (mini(stacks, 10) * 3), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
+			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - (32.0 if cursed_units.has(unit.id) else 4.0)), "▲%d%%" % (mini(stacks, 10) * 3), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
+
+func _draw_curse(curse: Dictionary, scale_x: float, lane_y: float) -> void:
+	var x := world_to_screen_x(float(curse.x))
+	var radius := BattleModel.CURSE_RADIUS * scale_x
+	var team := BLUE if display_side(int(curse.side)) == 0 else RED
+	draw_ellipse(Vector2(x, lane_y - 2.0), radius, 11.0, Color(0.43, 0.18, 0.66, 0.58))
+	draw_arc(Vector2(x, lane_y - 3.0), radius, PI, TAU, 20, Color("#b483ef"), 2.0)
+	draw_circle(Vector2(x, lane_y + 3.0), 3.0, team)
 
 func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> void:
 	var x := world_to_screen_x(float(structure.x))
@@ -298,6 +359,8 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 		if show_battle_effects:
 			if event_type in ["ATTACK", "DAMAGE", "BASE_HIT"]:
 				draw_circle(Vector2(x, lane_y - 55.0), 9.0 + life * 10.0, Color(1.0, 0.72, 0.28, life * effect_intensity))
+			elif event_type in ["CURSE", "SUMMON"]:
+				draw_circle(Vector2(x, lane_y - 28.0), 22.0, Color(0.66, 0.28, 1.0, life * effect_intensity))
 			elif event_type == "SUPPORT_BUFF":
 				draw_circle(Vector2(x, lane_y - 60.0), 18.0, Color(0.35, 1.0, 0.58, life * effect_intensity))
 			elif event_type in ["DEATH", "STRUCTURE_DESTROYED"]:
