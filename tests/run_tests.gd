@@ -190,8 +190,10 @@ func _init() -> void:
 		var ai = ServerAI.new(1, 5)
 		ai.update(ai_model, 1.0)
 		expect_true(ai_model.units.any(func(unit): return unit.side == 1), "AI spends server-owned resources to spawn a unit")
+		ai_model.spawn_unit(0, "swordsman")
+		ai_model.units.back().x = 1100.0
 		ai.update(ai_model, 8.0)
-		expect_true(ai_model.structures.any(func(structure): return structure.side == 1), "unlocked AI stages place structures through normal game rules")
+		expect_true(ai_model.structures.any(func(structure): return structure.side == 1), "AI responds to a nearby threat with a legal defensive structure")
 
 		var easy_model = BattleModel.new()
 		var hard_model = BattleModel.new()
@@ -201,8 +203,10 @@ func _init() -> void:
 		var hard_ai = ServerAI.new(1, 8)
 		easy_ai.update(easy_model, 0.1)
 		hard_ai.update(hard_model, 0.1)
-		expect_true(float(hard_model.units[0].max_hp) > float(easy_model.units[0].max_hp), "higher stages strengthen AI unit health")
-		expect_true(float(hard_model.units[0].damage) > float(easy_model.units[0].damage), "higher stages strengthen AI unit damage")
+		var easy_unit: Dictionary = easy_model.units[0]
+		var hard_unit: Dictionary = hard_model.units[0]
+		expect_true(float(hard_unit.max_hp) / float(BattleModel.UNIT_STATS[hard_unit.kind].hp) > float(easy_unit.max_hp) / float(BattleModel.UNIT_STATS[easy_unit.kind].hp), "higher stages strengthen AI unit health relative to the selected role")
+		expect_true(float(hard_unit.damage) / float(BattleModel.UNIT_STATS[hard_unit.kind].damage) > float(easy_unit.damage) / float(BattleModel.UNIT_STATS[easy_unit.kind].damage), "higher stages strengthen AI unit damage relative to the selected role")
 		var long_model = BattleModel.new()
 		long_model.elapsed = 240.0
 		long_model.resources[1] = 0.0
