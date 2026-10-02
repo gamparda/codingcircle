@@ -411,7 +411,7 @@ func _build_connect_screen(message: String = "") -> void:
 	column.add_theme_constant_override("separation", 8)
 	panel.add_child(column)
 	var badge := Label.new()
-	badge.text = "◆  BATTLEFIELD PROTOCOL   /   v%s" % build_version()
+	badge.text = "◆  전장 개조 전략   /   v%s" % build_version()
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	badge.add_theme_font_size_override("font_size", 12)
 	badge.add_theme_color_override("font_color", Color("#8f98ad"))
@@ -1105,14 +1105,14 @@ func _build_battle_screen() -> void:
 	var resource_card := PanelContainer.new()
 	resource_card.position = Vector2(16, 16)
 	resource_card.size = Vector2(174, 108)
-	var own_color := Color("#5b8cff") if own_side == 0 else Color("#ff627d")
+	var own_color := Color("#5b8cff")
 	resource_card.add_theme_stylebox_override("panel", _panel_style(Color("#141720"), Color(own_color.r, own_color.g, own_color.b, 0.48), 10))
 	controls.add_child(resource_card)
 	var resource_inner := Control.new()
 	resource_inner.custom_minimum_size = Vector2(174, 108)
 	resource_card.add_child(resource_inner)
 	var resource_caption := Label.new()
-	resource_caption.text = "ENERGY"
+	resource_caption.text = "자원"
 	resource_caption.position = Vector2(14, 12)
 	resource_caption.size = Vector2(145, 18)
 	resource_caption.add_theme_font_size_override("font_size", 10)
@@ -1125,7 +1125,7 @@ func _build_battle_screen() -> void:
 	resource_label.add_theme_color_override("font_color", Color("#f6c85f"))
 	resource_inner.add_child(resource_label)
 	var side_label := Label.new()
-	side_label.text = Localization.text("●  %s 진영") % ("BLUE" if own_side == 0 else "RED")
+	side_label.text = "●  아군 진영"
 	side_label.position = Vector2(14, 76)
 	side_label.size = Vector2(145, 22)
 	side_label.add_theme_font_size_override("font_size", 12)
