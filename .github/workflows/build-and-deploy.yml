@@ -59,8 +59,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $contentVersion = "0.4.20"
-          $windowsVersion = "0.4.20"
+          $contentVersion = "0.5.0"
+          $windowsVersion = "0.5.0"
           $androidBinaryVersion = "0.4.18"
           $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?before=${{ github.sha }}"
           $previousAndroidVersion = if ($previous.PSObject.Properties.Name -contains "android_binary_version") { [string]$previous.android_binary_version } else { [string]$previous.version }
@@ -135,6 +135,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "New unit UI regressions failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/deck_layout_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Focused deck layout regression failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/v05_tactics_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "v0.5 AI tactics and health regression failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/v05_ui_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "v0.5 HUD and concise copy regression failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/support_ui_feedback_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Purchase and patch-note UI regressions failed" }
 

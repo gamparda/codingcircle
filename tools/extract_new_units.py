@@ -54,6 +54,26 @@ def cutout(path):
                     pixels[x,y] = (r,g,b,opacity)
     return im
 
+def body_anchor(image):
+    """Anchor the stable torso, not the swinging boot or trailing weapon."""
+    alpha = image.getchannel('A')
+    box = alpha.getbbox()
+    assert box
+    height = box[3] - box[1]
+    band = alpha.crop((box[0], box[1] + round(height * .35), box[2], box[1] + round(height * .65)))
+    weights = [sum(value * count for value, count in enumerate(band.crop((x, 0, x+1, band.height)).histogram())) for x in range(band.width)]
+    runs = []; start = None
+    for x, weight in enumerate(weights + [0]):
+        if weight >= band.height * 255 * .4 and start is None: start = x
+        elif weight < band.height * 255 * .4 and start is not None:
+            runs.append((start, x)); start = None
+    start, end = max(runs, key=lambda bounds: sum(weights[bounds[0]:bounds[1]])) if runs else (0, len(weights))
+    total = sum(weights[start:end]); cumulative = 0
+    for x in range(start, end):
+        cumulative += weights[x]
+        if cumulative >= total / 2: return box[0] + x
+    return (box[0] + box[2]) // 2
+
 def extract(sheet, bounds, role, group, index):
     crop = sheet.crop(bounds)
     # Neighboring large attack effects cross a nominal sprite-cell boundary.
@@ -66,6 +86,7 @@ def extract(sheet, bounds, role, group, index):
     bbox = crop.getchannel('A').getbbox()
     assert bbox, (role,group,index)
     crop = crop.crop(bbox)
+    if group == 'walk': return crop, body_anchor(crop)
     # Boots, not weapon/effect extent, define a consistent world-space anchor.
     strip = crop.getchannel('A').crop((0,max(0,crop.height-12),crop.width,crop.height))
     weights = [sum(strip.getpixel((x,y)) for y in range(strip.height)) for x in range(strip.width)]
@@ -119,8 +140,19 @@ def main():
                     alpha=ImageChops.subtract(alpha,matte)
                 image.putalpha(alpha); image.save(path)
         portrait=Image.open(OUT/(role+'.png')).convert('RGBA')
+        if role in regenerated or previous.get(role,{}).get('walk_anchor_version') != 1:
+            before=[]; after=[]
+            for path in sorted((OUT/'animations'/role).glob('walk_*.png')):
+                frame=Image.open(path).convert('RGBA')
+                anchor=body_anchor(frame); before.append(anchor)
+                shift=frame.width//2-anchor
+                aligned=Image.new('RGBA',frame.size,(0,0,0,0))
+                aligned.alpha_composite(frame,(shift,0))
+                assert sum(frame.getchannel('A').histogram()[1:]) == sum(aligned.getchannel('A').histogram()[1:]), ('clipped animation',path)
+                aligned.save(path); after.append(body_anchor(aligned))
+            print('torso alignment',role,'before span',max(before)-min(before),'after span',max(after)-min(after),flush=True)
         canvas=Image.open(OUT/'animations'/role/'walk_0.png')
-        metadata[role]={'cutout_version':2,'portrait':portrait.size,'animation_canvas':canvas.size,'frames':{group:len(rects) for group,rects in poses.items() if group!='idle'}}
+        metadata[role]={'cutout_version':2,'walk_anchor_version':1,'portrait':portrait.size,'animation_canvas':canvas.size,'frames':{group:len(rects) for group,rects in poses.items() if group!='idle'}}
         view=portrait.copy(); view.thumbnail((210,280),Image.Resampling.NEAREST)
         preview.alpha_composite(view,(row*240+(240-view.width)//2,315-view.height))
         ImageDraw.Draw(preview).text((row*240+25,325),role,fill=(220,225,235,255))

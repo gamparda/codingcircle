@@ -90,7 +90,7 @@ func _initialize() -> void:
 	check(not Network.is_valid_snapshot(bad), "reject non-array curse payloads")
 	bad = curse.snapshot(); bad.units[0].unexpected = true
 	check(not Network.is_valid_snapshot(bad), "schema still rejects unknown fields")
-	var legacy := curse.snapshot(); legacy.erase("curses")
+	var legacy := curse.snapshot(); legacy.erase("curses"); legacy.erase("base_max_hp")
 	for unit in legacy.units: unit.erase("support_stacks")
 	check(Network.is_valid_snapshot(legacy), "legacy six-field snapshots remain accepted")
 	caster.hp = 0.0; second.hp = 0.0

@@ -432,7 +432,7 @@ func _build_connect_screen(message: String = "") -> void:
 	divider.modulate = Color(1.0, 1.0, 1.0, 0.10)
 	column.add_child(divider)
 	var online_label := Label.new()
-	online_label.text = Localization.text("온라인 아레나 · ROOM CODE")
+	online_label.text = "온라인 대전"
 	online_label.add_theme_font_size_override("font_size", 12)
 	online_label.add_theme_color_override("font_color", Color("#6f7890"))
 	column.add_child(online_label)
@@ -492,7 +492,7 @@ func _build_connect_screen(message: String = "") -> void:
 		menu_button.pressed.connect(entry[1])
 		management_row.add_child(menu_button)
 	status_label = Label.new()
-	status_label.text = Localization.text(message) if not message.is_empty() else Localization.text("선택 덱: %s  ·  온라인은 전용 서버 권한형  ·  AI는 완전 오프라인") % Localization.text(String(_active_preset().name))
+	status_label.text = Localization.text(message) if not message.is_empty() else "선택 덱: %s" % String(_active_preset().name)
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_label.add_theme_font_size_override("font_size", 13)
@@ -671,7 +671,7 @@ func _build_patch_notes_screen() -> void:
 
 func _build_deck_screen(preset_index: int = -1) -> void:
 	var index := int(save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, 2)
-	var column := _submenu(Localization.text("덱 편성"), "유닛 7종 중 3종, 구조물 4종 중 3종을 선택합니다. 해골은 네크로맨서 소환 전용입니다.")
+	var column := _submenu(Localization.text("덱 편성"), "유닛 3종 · 구조물 3종 선택")
 	var deck_panel := column.get_parent() as PanelContainer
 	deck_panel.name = "DeckPanel"
 	deck_panel.position = Vector2(110, 18)
@@ -780,7 +780,7 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	actions.add_child(back)
 
 func _build_records_screen() -> void:
-	var column := _submenu(Localization.text("개인 전적"), Localization.text("user:// 로컬 기록이며 공식 랭킹이나 경쟁 기록으로 사용하지 않습니다."))
+	var column := _submenu(Localization.text("개인 전적"), "이 기기에 저장된 전적")
 	var stats: Dictionary = save_data.stats
 	var online_rate := 0.0 if int(stats.online_completed) == 0 else float(stats.online_wins) / float(stats.online_completed) * 100.0
 	var summary := Label.new()
@@ -800,7 +800,7 @@ func _build_records_screen() -> void:
 	column.add_child(back)
 
 func _build_settings_screen(mobile_layout_override: bool = false) -> void:
-	var outer := _submenu(Localization.text("설정"), Localization.text("오디오 · 화면 · 전투 연출 설정은 즉시 저장됩니다."))
+	var outer := _submenu(Localization.text("설정"), "변경 시 자동 저장")
 	var mobile_layout := OS.has_feature("mobile") or mobile_layout_override
 	var settings: Dictionary = save_data.settings
 	var quality_row := HBoxContainer.new()
@@ -1046,11 +1046,11 @@ func _start_local_ai_battle(stage: int = 1, reuse_deck: bool = false) -> void:
 		battle_preset = _active_preset().duplicate(true)
 	var preset := battle_preset
 	local_model.configure_deck(0, preset.units, preset.structures)
-	var ai_units := ["shield", "archer", "healer"] if current_ai_stage >= 5 else ["swordsman", "shield", "archer"]
-	var ai_structures := ["wall", "swamp", "turret"] if current_ai_stage >= 6 else ["wall", "swamp", "generator"]
+	var ai_units: Array = ServerAI.stage_unit_deck(current_ai_stage)
+	var ai_structures: Array = ServerAI.stage_structure_deck(current_ai_stage)
 	local_model.configure_deck(1, ai_units, ai_structures)
 	local_model.resources[1] = min(BattleModel.MAX_RESOURCE, 35.0 + float(current_ai_stage) * 10.0)
-	local_model.base_hp[1] = 300.0 + float(current_ai_stage) * 20.0
+	local_model.configure_base_health(1, 300.0 + float(current_ai_stage) * 20.0)
 	local_ai = ServerAI.new(1, current_ai_stage)
 	_build_battle_screen()
 	if not ai_smoke_mode and not bool(save_data.get("tutorial_completed", false)):
@@ -1554,10 +1554,13 @@ func _on_snapshot(data: Dictionary) -> void:
 	_refresh_purchase_buttons(float(resources[own_side]))
 	if local_ai_mode and tutorial_step == 2 and float(resources[own_side]) > tutorial_low_resource + 0.5:
 		_tutorial_advance(2)
+	var maxima: Array = data.get("base_max_hp", [BattleModel.BASE_MAX_HP, BattleModel.BASE_MAX_HP])
+	blue_hp_bar.max_value = float(maxima[0])
+	red_hp_bar.max_value = float(maxima[1])
 	blue_hp_bar.value = float(bases[0])
 	red_hp_bar.value = float(bases[1])
-	blue_hp_label.text = "%d / 500" % int(bases[0])
-	red_hp_label.text = "%d / 500" % int(bases[1])
+	blue_hp_label.text = "%d / %d" % [int(bases[0]), int(maxima[0])]
+	red_hp_label.text = "%d / %d" % [int(bases[1]), int(maxima[1])]
 	var elapsed_seconds := int(data.get("elapsed", 0.0))
 	timer_label.text = "%02d:%02d" % [elapsed_seconds / 60, elapsed_seconds % 60]
 	var winner: int = int(data.get("winner", -1))

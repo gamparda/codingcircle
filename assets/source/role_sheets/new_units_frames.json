@@ -1,6 +1,7 @@
 {
   "berserker": {
     "cutout_version": 2,
+    "walk_anchor_version": 1,
     "portrait": [
       254,
       284
@@ -16,6 +17,7 @@
   },
   "warlock": {
     "cutout_version": 2,
+    "walk_anchor_version": 1,
     "portrait": [
       224,
       273
@@ -31,6 +33,7 @@
   },
   "skeleton": {
     "cutout_version": 2,
+    "walk_anchor_version": 1,
     "portrait": [
       221,
       275
@@ -46,6 +49,7 @@
   },
   "necromancer": {
     "cutout_version": 2,
+    "walk_anchor_version": 1,
     "portrait": [
       226,
       292

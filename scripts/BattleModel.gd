@@ -53,6 +53,7 @@ const DEFAULT_STRUCTURE_DECK := ["wall", "swamp", "turret"]
 
 var resources: Array = [START_RESOURCE, START_RESOURCE]
 var base_hp: Array = [BASE_MAX_HP, BASE_MAX_HP]
+var base_max_hp: Array = [BASE_MAX_HP, BASE_MAX_HP]
 var units: Array = []
 var structures: Array = []
 var winner := -1
@@ -90,9 +91,15 @@ func resource_capacity(side: int) -> float:
 func resource_income(side: int) -> float:
 	return float(campaign_bonuses(int(campaign_levels[side])).income)
 
+func configure_base_health(side: int, maximum: float) -> void:
+	if side < 0 or side > 1 or not is_finite(maximum) or maximum <= 0.0:
+		return
+	base_max_hp[side] = minf(BASE_MAX_HP, maximum)
+	base_hp[side] = base_max_hp[side]
+
 func reset() -> void:
 	resources = [campaign_bonuses(int(campaign_levels[0])).starting_resources, campaign_bonuses(int(campaign_levels[1])).starting_resources]
-	base_hp = [BASE_MAX_HP, BASE_MAX_HP]
+	base_hp = base_max_hp.duplicate()
 	units.clear()
 	structures.clear()
 	winner = -1
@@ -464,4 +471,4 @@ func drain_combat_events() -> Array:
 	return result
 
 func snapshot() -> Dictionary:
-	return {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "units": units.duplicate(true), "structures": structures.duplicate(true), "curses": curses.duplicate(true), "winner": winner, "elapsed": elapsed}
+	return {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "base_max_hp": base_max_hp.duplicate(), "units": units.duplicate(true), "structures": structures.duplicate(true), "curses": curses.duplicate(true), "winner": winner, "elapsed": elapsed}

@@ -340,7 +340,7 @@ static func _number_in_range(value: Variant, minimum: float, maximum: float) -> 
 	return _is_finite_number(value) and float(value) >= minimum and float(value) <= maximum
 
 static func is_valid_snapshot(data: Dictionary) -> bool:
-	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses"]):
+	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses", "base_max_hp"]):
 		return false
 	var resources = data.resources
 	var base_hp = data.base_hp
@@ -355,6 +355,12 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 			return false
 	for value in base_hp:
 		if not _number_in_range(value, 0.0, 500.0):
+			return false
+	var maxima = data.get("base_max_hp", [BattleModel.BASE_MAX_HP, BattleModel.BASE_MAX_HP])
+	if not maxima is Array or maxima.size() != 2:
+		return false
+	for index in 2:
+		if not _number_in_range(maxima[index], 1.0, BattleModel.BASE_MAX_HP) or float(base_hp[index]) > float(maxima[index]):
 			return false
 	if not units is Array or units.size() > MAX_SNAPSHOT_UNITS:
 		return false

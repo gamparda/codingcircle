@@ -265,6 +265,8 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	var walk_frames: Array = UNIT_WALK_TEXTURES.get(kind, [])
 	if not walk_frames.is_empty():
 		var frame_rate: float = clamp(5.0 + float(unit.speed) / 20.0, 5.0, 10.0)
+		if UNIT_ATTACK_TEXTURES.has(kind):
+			frame_rate = clampf(float(unit.speed) / 8.0, 4.0, 6.0)
 		var frame_index: int = (int(animation_time * frame_rate) + int(unit.id) * 2) % walk_frames.size()
 		if UNIT_ATTACK_TEXTURES.has(kind) and not moving_units.get(unit.id, false):
 			frame_index = 0
