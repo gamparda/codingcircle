@@ -88,7 +88,7 @@ func _init() -> void:
 	)
 	expect_eq(int(BattleModel.UNIT_STATS.archer.range), 280, "archer keeps its established long range")
 	expect_eq(int(BattleModel.UNIT_STATS.archer.damage), 15, "archer damage is reduced")
-	expect_true(float(BattleModel.UNIT_STATS.healer.damage) > 0.0, "mage can damage enemies")
+	expect_eq(float(BattleModel.UNIT_STATS.healer.damage), 0.0, "mage is a pure support unit")
 	expect_true(float(BattleModel.UNIT_STATS.healer.heal) > 0.0, "mage can heal allies")
 	for kind in BattleModel.UNIT_STATS:
 		expect_true(float(BattleModel.UNIT_STATS[kind].interval) >= 1.2, "%s respects the minimum attack/heal interval" % kind)
@@ -113,17 +113,17 @@ func _init() -> void:
 	expect_true(not structures.place_structure(0, "wall", 200.0), "structure limit is enforced")
 	var placement_bounds = BattleModel.new()
 	placement_bounds.resources = [200.0, 200.0]
-	expect_true(placement_bounds.place_structure(0, "wall", 610.0), "blue placement boundary moves 10 units toward center")
+	expect_true(placement_bounds.place_structure(0, "wall", BattleModel.BLUE_BUILD_MAX), "blue forward boundary scales with the map")
 	var red_placement_bounds = BattleModel.new()
 	red_placement_bounds.resources = [200.0, 200.0]
-	expect_true(red_placement_bounds.place_structure(1, "wall", 670.0), "red placement boundary moves 10 units toward center")
-	expect_true(not placement_bounds.place_structure(0, "wall", 611.0), "blue cannot place beyond its reduced boundary")
-	expect_true(not placement_bounds.place_structure(1, "wall", 669.0), "red cannot place beyond its reduced boundary")
+	expect_true(red_placement_bounds.place_structure(1, "wall", BattleModel.RED_BUILD_MIN), "red forward boundary scales with the map")
+	expect_true(not placement_bounds.place_structure(0, "wall", BattleModel.BLUE_BUILD_MAX + 1.0), "blue cannot place beyond its boundary")
+	expect_true(not placement_bounds.place_structure(1, "wall", BattleModel.RED_BUILD_MIN - 1.0), "red cannot place beyond its boundary")
 
 	var base_rush = BattleModel.new()
 	base_rush.resources[0] = 100.0
 	base_rush.spawn_unit(0, "swordsman")
-	base_rush.units[0].x = 1170.0
+	base_rush.units[0].x = BattleModel.FIELD_RIGHT - 20.0
 	base_rush.units[0].damage = 999.0
 	base_rush.tick(float(base_rush.units[0].interval) + 0.01)
 	expect_eq(base_rush.winner, 0, "destroying the enemy base ends the match")
@@ -138,7 +138,7 @@ func _init() -> void:
 	var enemy_hp_before: float = mage_attack.units[1].hp
 	var mage_x_before: float = mage_attack.units[0].x
 	mage_attack.tick(float(mage_attack.units[0].interval) + 0.01)
-	expect_true(mage_attack.units[1].hp < enemy_hp_before, "mage damages an enemy in range")
+	expect_eq(mage_attack.units[1].hp, enemy_hp_before, "mage never damages an enemy in range")
 	expect_eq(mage_attack.units[0].x, mage_x_before, "mage stops instead of passing through an enemy")
 
 	var mage_heal = BattleModel.new()
@@ -158,12 +158,12 @@ func _init() -> void:
 	mage_wall.resources = [150.0, 200.0]
 	mage_wall.configure_deck(0, ["healer", "shield", "archer"], ["wall", "turret", "swamp"])
 	mage_wall.spawn_unit(0, "healer")
-	mage_wall.place_structure(1, "wall", 680.0)
-	mage_wall.units[0].x = 560.0
+	mage_wall.place_structure(1, "wall", 800.0)
+	mage_wall.units[0].x = 680.0
 	var wall_hp_before: float = mage_wall.structures[0].hp
 	var wall_block_x: float = mage_wall.units[0].x
 	mage_wall.tick(float(mage_wall.units[0].interval) + 0.01)
-	expect_true(mage_wall.structures[0].hp < wall_hp_before, "mage damages an enemy wall in range")
+	expect_eq(mage_wall.structures[0].hp, wall_hp_before, "mage never damages an enemy wall")
 	expect_eq(mage_wall.units[0].x, wall_block_x, "mage stops instead of passing through an enemy wall")
 
 	var MatchRegistry = load("res://scripts/MatchRegistry.gd")
@@ -353,7 +353,7 @@ func _init() -> void:
 	var Main = load("res://scripts/Main.gd")
 	expect_true(Main != null, "Main script loads")
 	expect_eq(Main.build_binary_version(), "0.4.9", "version-split migration advances the Android bootstrap once")
-	expect_eq(Main.build_version(), "0.4.15", "content pack version advances independently")
+	expect_eq(Main.build_version(), "0.4.16", "content pack version advances independently")
 	expect_true(NetworkController.is_valid_room_code(Main.DEFAULT_SMOKE_ROOM_CODE), "default smoke room code follows production room-code rules")
 	expect_true(Main.apk_update_required("Android", "0.4.4", "0.4.5"), "new content warns when it runs on an older Android APK")
 	expect_true(not Main.apk_update_required("Android", "0.4.5", "0.4.5"), "matching Android APK and content versions do not warn")
@@ -368,9 +368,9 @@ func _init() -> void:
 		expect_eq(Main.OFFICIAL_SERVER_ADDRESS, "ruellyya.kr", "official server address is fixed")
 		expect_eq(Main.OFFICIAL_SERVER_FALLBACK_ADDRESS, "211.176.222.145", "official server has a DNS-failure fallback address")
 		expect_eq(Main.OFFICIAL_SERVER_LAN_ADDRESS, "192.168.0.4", "official server LAN route targets the dedicated Linux host")
-		expect_eq(Main.official_connection_candidates(["192.168.0.3"]), ["192.168.0.4", "ruellyya.kr", "211.176.222.145"], "same-LAN clients try the dedicated server private route first")
-		expect_eq(Main.official_connection_candidates(PackedStringArray(["192.168.0.3"])), ["192.168.0.4", "ruellyya.kr", "211.176.222.145"], "runtime packed local-address lists use the LAN route")
-		expect_eq(Main.official_connection_candidates(["10.0.0.2"]), ["ruellyya.kr", "211.176.222.145"], "external clients keep domain and public-IP candidates")
+		expect_eq(Main.official_connection_candidates(["192.168.0.3"]), ["211.176.222.145", "192.168.0.4", "ruellyya.kr"], "public server address is attempted before any guessed private route")
+		expect_eq(Main.official_connection_candidates(PackedStringArray(["192.168.0.3"])), ["211.176.222.145", "192.168.0.4", "ruellyya.kr"], "runtime packed local-address lists retain the LAN fallback")
+		expect_eq(Main.official_connection_candidates(["10.0.0.2"]), ["211.176.222.145", "ruellyya.kr"], "external clients try the direct game endpoint first")
 		expect_eq(Main.OFFICIAL_SERVER_PORT, 7777, "official server port is fixed")
 		expect_true(Main.smoke_connect_allowed(true, "127.0.0.1"), "exported smoke client may connect to loopback")
 		expect_true(Main.smoke_connect_allowed(true, "127.0.0.2"), "exported fallback smoke may use another loopback address")

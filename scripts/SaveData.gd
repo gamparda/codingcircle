@@ -183,6 +183,13 @@ static func campaign_stars(stage: int, won: bool, elapsed: float, remaining_base
 		stars = 3
 	return stars
 
+static func campaign_growth_level(data: Dictionary) -> int:
+	var levels := 0
+	for record in data.get("campaign_records", []):
+		if record is Dictionary and bool(record.get("cleared", false)):
+			levels += 1
+	return clampi(levels, 0, 10)
+
 static func record_campaign(data: Dictionary, stage: int, won: bool, elapsed: float, remaining_base_hp: float) -> int:
 	var index := clampi(stage, 1, 10) - 1
 	var record: Dictionary = data.campaign_records[index]

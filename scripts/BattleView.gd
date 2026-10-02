@@ -107,16 +107,19 @@ func _process(delta: float) -> void:
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
-		var world_x: float = event.position.x / max(size.x, 1.0) * 1280.0
+		var world_x: float = screen_to_world_x(event.position.x)
 		battlefield_clicked.emit(world_x)
 
+func screen_to_world_x(screen_x: float) -> float:
+	return screen_x / max(size.x, 1.0) * BattleModel.WORLD_WIDTH
+
 func _draw() -> void:
-	var scale_x := size.x / 1280.0
+	var scale_x := size.x / BattleModel.WORLD_WIDTH
 	var lane_y := size.y * 0.72
 	_draw_sky(lane_y)
 	_draw_ground(lane_y)
-	_draw_base(90.0 * scale_x, lane_y, 0)
-	_draw_base(1190.0 * scale_x, lane_y, 1)
+	_draw_base(BattleModel.FIELD_LEFT * scale_x, lane_y, 0)
+	_draw_base(BattleModel.FIELD_RIGHT * scale_x, lane_y, 1)
 
 	for structure in snapshot.get("structures", []):
 		_draw_structure(structure, scale_x, lane_y)
@@ -243,6 +246,11 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	var bar_y: float = lane_y - 102.0 - float(int(unit.id) % 3) * 6.0
 	draw_rect(Rect2(x - 21.0, bar_y, 42.0, 6.0), Color(0.02, 0.03, 0.06, 0.88))
 	draw_rect(Rect2(x - 20.0, bar_y + 1.0, 40.0 * hp_ratio, 4.0), Color("#71e49a") if hp_ratio > 0.35 else Color("#ff6b72"))
+	if show_battle_effects and kind != "healer":
+		for ally in snapshot.get("units", []):
+			if ally.side == unit.side and ally.kind == "healer" and float(ally.hp) > 0.0 and abs(float(ally.x) - float(unit.x)) <= float(ally.range):
+				draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "▲35%", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
+				break
 
 func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> void:
 	var x := float(structure.x) * scale_x
@@ -297,7 +305,7 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 			draw_string(ThemeDB.fallback_font, Vector2(x - 14.0, lane_y - 95.0 - (0.7 - life) * 34.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, color)
 
 func _draw_build_preview(lane_y: float) -> void:
-	var world_x: float = mouse_position.x / max(size.x, 1.0) * 1280.0
+	var world_x: float = screen_to_world_x(mouse_position.x)
 	var valid := placement_error(selected_structure, world_x).is_empty()
 
 	var build_color := Color(0.30, 0.94, 0.60, 0.24) if valid else Color(1.0, 0.30, 0.40, 0.24)

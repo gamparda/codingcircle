@@ -117,7 +117,8 @@ func _ready() -> void:
 		network.connect_to_server(auto_address, _arg_int(args, "--port=", NetworkController.DEFAULT_PORT), auto_fallback)
 
 static func official_connection_candidates(local_addresses) -> Array:
-	var candidates: Array = []
+	# ENet uses the game server address directly, not the web proxy endpoint.
+	var candidates: Array = [OFFICIAL_SERVER_FALLBACK_ADDRESS]
 	for local_address in local_addresses:
 		if String(local_address).begins_with("192.168.0."):
 			candidates.append(OFFICIAL_SERVER_LAN_ADDRESS)
@@ -434,7 +435,7 @@ func _build_connect_screen(message: String = "") -> void:
 	column.add_child(online_label)
 
 	var endpoint_label := Label.new()
-	endpoint_label.text = Localization.text("공식 서버  ·  %s:%d") % [OFFICIAL_SERVER_ADDRESS, OFFICIAL_SERVER_PORT]
+	endpoint_label.text = Localization.text("공식 서버  ·  %s:%d") % [OFFICIAL_SERVER_FALLBACK_ADDRESS, OFFICIAL_SERVER_PORT]
 	endpoint_label.custom_minimum_size = Vector2(0, 48)
 	endpoint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	endpoint_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -504,6 +505,10 @@ func _normalize_room_code_input(value: String) -> void:
 	room_code_input.text = value.to_upper()
 	room_code_input.set_caret_column(caret)
 
+func _campaign_growth_summary() -> String:
+	var bonuses := BattleModel.campaign_bonuses(SaveData.campaign_growth_level(save_data))
+	return Localization.text("원정 성장 %d · 병력 +%d%% · 자원 %.1f/초 · 최대 %d") % [int(bonuses.levels), roundi((float(bonuses.stat_scale) - 1.0) * 100.0), float(bonuses.income), int(bonuses.capacity)]
+
 func _quit_game() -> void:
 	get_tree().quit()
 
@@ -561,6 +566,15 @@ func _build_ai_stage_screen(as_campaign: bool = false) -> void:
 	subtitle.add_theme_font_size_override("font_size", 14)
 	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
 	stage_column.add_child(subtitle)
+	if campaign_mode:
+		var growth := Label.new()
+		growth.name = "CampaignGrowthSummary"
+		growth.text = _campaign_growth_summary()
+		growth.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		growth.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		growth.add_theme_font_size_override("font_size", 13)
+		growth.add_theme_color_override("font_color", Color("#f0d592"))
+		stage_column.add_child(growth)
 	var grid := GridContainer.new()
 	grid.columns = 5
 	grid.add_theme_constant_override("h_separation", 10)
@@ -640,6 +654,8 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 		var stats: Dictionary = BattleModel.UNIT_STATS[kind]
 		var role := Localization.text("회복/지원") if kind == "healer" else Localization.text("원거리") if kind == "archer" else Localization.text("방어") if kind == "shield" else Localization.text("근접 공격")
 		var card_text := Localization.text("%s\n비용 %d · HP %d · 공격 %d\nDPS %.1f · 사거리 %d · %s") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), float(stats.damage) / float(stats.interval), int(stats.range), role]
+		if kind == "healer":
+			card_text = Localization.text("%s\n비용 %d · HP %d · 회복 %d\n공격속도 +35%% · 사거리 %d") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.heal), int(stats.range)]
 		var card := _styled_button(card_text, Color("#5b8cff"), false)
 		_configure_deck_card(card, card_text, Color("#5b8cff"), selected.units.has(kind))
 		card.custom_minimum_size = Vector2(240, 105)
@@ -651,7 +667,7 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 	structure_grid.add_theme_constant_override("h_separation", 8)
 	column.add_child(structure_grid)
 	var structure_names := {"wall": Localization.text("방벽"), "swamp": Localization.text("늪"), "turret": Localization.text("포탑"), "generator": Localization.text("발전기")}
-	var roles := {"wall": Localization.text("뒤 대상을 차폐 · 최대 2"), "swamp": Localization.text("반경 95 · 이동 45%"), "turret": Localization.text("사거리 240 · 최대 1"), "generator": Localization.text("후방 전용 · 초당 +1")}
+	var roles := {"wall": Localization.text("뒤 대상을 차폐 · 최대 2"), "swamp": Localization.text("반경 95 · 80% 감속 · 5초"), "turret": Localization.text("사거리 240 · 최대 1"), "generator": Localization.text("후방 전용 · 초당 +1")}
 	for kind in BattleModel.STRUCTURE_STATS.keys():
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 		var card_text := Localization.text("%s\n비용 %d · HP %d\n%s") % [structure_names[kind], int(stats.cost), int(stats.hp), roles[kind]]
@@ -937,6 +953,11 @@ func _connect_for_room(mode: String, code: String = "") -> void:
 	network.connect_to_candidates(official_connection_candidates(IP.get_local_addresses()), OFFICIAL_SERVER_PORT)
 
 func _on_room_created(code: String) -> void:
+	if is_instance_valid(room_code_input):
+		room_code_input.text = code
+		room_code_input.editable = false
+		room_code_input.add_theme_font_size_override("font_size", 22)
+		room_code_input.add_theme_color_override("font_color", Color("#f0d592"))
 	_on_connection_status(Localization.text("방 코드 %s · 상대가 참가하기를 기다리는 중...") % code)
 
 func _on_room_join_failed(error: String) -> void:
@@ -959,6 +980,8 @@ func _start_local_ai_battle(stage: int = 1, reuse_deck: bool = false) -> void:
 	current_ai_stage = clampi(stage, ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
 	own_side = 0
 	local_model = BattleModel.new()
+	if campaign_mode:
+		local_model.configure_campaign_growth(own_side, SaveData.campaign_growth_level(save_data))
 	if not reuse_deck or battle_preset.is_empty():
 		battle_preset = _active_preset().duplicate(true)
 	var preset := battle_preset
@@ -1101,7 +1124,10 @@ func _build_battle_screen() -> void:
 	var structure_colors := {"wall": Color("#7c879d"), "swamp": Color("#906bd1"), "turret": Color("#d56b5f"), "generator": Color("#3d8f83")}
 	for kind in preset.structures:
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
-		_add_structure_button(row, Localization.text("%s\n%d 자원") % [structure_names[kind], int(stats.cost)], kind, structure_colors[kind])
+		var card_text := Localization.text("%s\n%d 자원") % [structure_names[kind], int(stats.cost)]
+		if kind == "swamp":
+			card_text = Localization.text("%s · %d\n80%% 감속 · 5초") % [structure_names[kind], int(stats.cost)]
+		_add_structure_button(row, card_text, kind, structure_colors[kind])
 	# A raised z_index draws above the battlefield, but input follows sibling order.
 	# Add these actions after BattleView so it cannot consume their pointer events.
 	var stats_button := _styled_button(Localization.text("유닛 스탯"), Color("#3d8f83"), false)
@@ -1241,10 +1267,15 @@ func _create_hp_card(parent: Control, position_value: Vector2, side: int) -> voi
 		red_hp_label = value_label
 
 func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: Color) -> void:
-	var stats: Dictionary = BattleModel.UNIT_STATS[kind]
+	var stats: Dictionary = BattleModel.UNIT_STATS[kind].duplicate()
+	var growth_level := SaveData.campaign_growth_level(save_data) if local_ai_mode and campaign_mode else 0
+	var stat_scale := float(BattleModel.campaign_bonuses(growth_level).stat_scale)
+	for key in ["hp", "damage", "heal"]:
+		if stats.has(key):
+			stats[key] = float(stats[key]) * stat_scale
 	var primary := Localization.text("회복 %d") % int(stats.heal) if float(stats.get("heal", 0.0)) > 0.0 else Localization.text("공격 %d") % int(stats.damage)
 	var button := _styled_button(Localization.text("%s  ·  %d\n체력 %d  ·  %s") % [title, int(stats.cost), int(stats.hp), primary], color)
-	button.tooltip_text = BattleModel.unit_stat_summary(kind)
+	button.tooltip_text = BattleModel.unit_stat_summary(kind, growth_level)
 	button.custom_minimum_size = Vector2(136, 102)
 	_decorate_battle_card(button)
 	var portrait := Sprite2D.new()
@@ -1335,7 +1366,7 @@ func _show_stats_panel() -> void:
 		card_margin.add_theme_constant_override("margin_bottom", 12)
 		card.add_child(card_margin)
 		var label := Label.new()
-		label.text = "%s\n%s" % [names[kind], BattleModel.unit_stat_summary(kind)]
+		label.text = "%s\n%s" % [names[kind], BattleModel.unit_stat_summary(kind, SaveData.campaign_growth_level(save_data) if local_ai_mode and campaign_mode else 0)]
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		label.add_theme_font_size_override("font_size", 15)
 		label.add_theme_color_override("font_color", Color("#dce1ec"))
@@ -1428,7 +1459,8 @@ func _on_snapshot(data: Dictionary) -> void:
 	var own_structures: int = data.get("structures", []).filter(func(structure): return int(structure.side) == own_side).size()
 	if is_instance_valid(structure_count_label):
 		structure_count_label.text = Localization.text("구조물 %d / 3") % own_structures
-	resource_label.text = "%d / 150" % int(resources[own_side])
+	var resource_cap := local_model.resource_capacity(own_side) if local_ai_mode and is_instance_valid(local_model) else BattleModel.MAX_RESOURCE
+	resource_label.text = "%d / %d" % [int(resources[own_side]), int(resource_cap)]
 	if local_ai_mode and tutorial_step == 2 and float(resources[own_side]) > tutorial_low_resource + 0.5:
 		_tutorial_advance(2)
 	blue_hp_bar.value = float(bases[0])
@@ -1466,6 +1498,7 @@ func _show_result(winner: int) -> void:
 	updater.set_safe_to_update(true)
 	updater.check_for_update()
 	var awarded_stars := 0
+	var growth_before := SaveData.campaign_growth_level(save_data)
 	if not result_recorded:
 		result_recorded = true
 		if local_ai_mode:
@@ -1484,8 +1517,8 @@ func _show_result(winner: int) -> void:
 	var overlay := PanelContainer.new()
 	overlay.name = "ResultOverlay"
 	result_overlay = overlay
-	overlay.position = Vector2(350, 175)
-	overlay.size = Vector2(580, 370)
+	overlay.position = Vector2(350, 155)
+	overlay.size = Vector2(580, 410)
 	var result_color := Color("#f6c85f") if winner == own_side else Color("#8f98ad")
 	var overlay_style := _panel_style(Color("#121923"), Color(result_color.r, result_color.g, result_color.b, 0.55), 18)
 	overlay_style.shadow_color = Color(0.0, 0.0, 0.0, 0.58)
@@ -1493,7 +1526,7 @@ func _show_result(winner: int) -> void:
 	overlay.add_theme_stylebox_override("panel", overlay_style)
 	root_background.add_child(overlay)
 	var inner := Control.new()
-	inner.custom_minimum_size = Vector2(580, 370)
+	inner.custom_minimum_size = Vector2(580, 410)
 	overlay.add_child(inner)
 	var overline := Label.new()
 	overline.text = "MATCH COMPLETE"
@@ -1531,9 +1564,20 @@ func _show_result(winner: int) -> void:
 	details.add_theme_font_size_override("font_size", 15)
 	details.add_theme_color_override("font_color", Color("#dce1ec"))
 	inner.add_child(details)
+	if local_ai_mode and campaign_mode:
+		var growth := Label.new()
+		growth.name = "CampaignGrowthReward"
+		growth.text = Localization.text("첫 클리어 보상 · 병력 +3% · 자원 +0.5/초 · 보유 +10 · 시작 +5") if SaveData.campaign_growth_level(save_data) > growth_before else _campaign_growth_summary()
+		growth.position = Vector2(25, 250)
+		growth.size = Vector2(530, 44)
+		growth.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		growth.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		growth.add_theme_font_size_override("font_size", 12)
+		growth.add_theme_color_override("font_color", Color("#f0d592"))
+		inner.add_child(growth)
 	var rematch_text := Localization.text("다시 도전") if local_ai_mode else Localization.text("재경기 준비")
 	var rematch := _styled_button(rematch_text, Color("#5e6ad2"), true)
-	rematch.position = Vector2(25 if advances else 65, 268)
+	rematch.position = Vector2(25 if advances else 65, 306)
 	rematch.size = Vector2(165 if advances else 215, 58)
 	rematch.pressed.connect(func():
 		rematch.disabled = true
@@ -1546,7 +1590,7 @@ func _show_result(winner: int) -> void:
 	inner.add_child(rematch)
 	if advances:
 		var next_stage := _styled_button(Localization.text("다음 단계"), Color("#3d8f83"), true)
-		next_stage.position = Vector2(207, 268)
+		next_stage.position = Vector2(207, 306)
 		next_stage.size = Vector2(165, 58)
 		next_stage.pressed.connect(func():
 			next_stage.disabled = true
@@ -1555,7 +1599,7 @@ func _show_result(winner: int) -> void:
 		inner.add_child(next_stage)
 	var back := _styled_button(Localization.text("단계 선택") if local_ai_mode else Localization.text("이전 화면으로"), Color("#697386"), false)
 	back.name = "BackToMenuButton"
-	back.position = Vector2(389 if advances else 300, 268)
+	back.position = Vector2(389 if advances else 300, 306)
 	back.size = Vector2(165 if advances else 215, 58)
 	if local_ai_mode:
 		back.pressed.connect(_build_ai_stage_screen.bind(campaign_mode))

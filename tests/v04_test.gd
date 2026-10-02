@@ -40,15 +40,15 @@ func _init() -> void:
 	expect_true(economy.place_structure(0, "generator", 250.0), "generator can be placed in rear zone")
 	var before: float = economy.resources[0]
 	economy.tick(1.0)
-	expect_eq(economy.resources[0], before + 9.0, "generator adds one resource per second")
+	expect_eq(economy.resources[0], before + BattleModel.RESOURCE_RATE + 1.0, "generator adds one resource per second")
 	var shielding = BattleModel.new()
 	shielding.resources = [150.0, 150.0]
 	shielding.configure_deck(1, ["shield", "swordsman", "archer"], ["wall", "turret", "generator"])
 	shielding.spawn_unit(0, "archer")
 	shielding.spawn_unit(1, "swordsman")
-	shielding.place_structure(1, "wall", 700.0)
-	shielding.units[0].x = 560.0
-	shielding.units[1].x = 760.0
+	shielding.place_structure(1, "wall", 805.0)
+	shielding.units[0].x = 644.0
+	shielding.units[1].x = 874.0
 	var protected_hp: float = shielding.units[1].hp
 	var wall_hp: float = shielding.structures[0].hp
 	shielding.tick(2.0)
@@ -69,10 +69,10 @@ func _init() -> void:
 	turret_shielding.resources = [150.0, 150.0]
 	turret_shielding.configure_deck(0, ["shield", "archer", "healer"], ["turret", "wall", "swamp"])
 	turret_shielding.configure_deck(1, ["swordsman", "shield", "archer"], ["wall", "swamp", "generator"])
-	turret_shielding.place_structure(0, "turret", 550.0)
-	turret_shielding.place_structure(1, "wall", 670.0)
+	turret_shielding.place_structure(0, "turret", 650.0)
+	turret_shielding.place_structure(1, "wall", 800.0)
 	turret_shielding.spawn_unit(1, "swordsman")
-	turret_shielding.units[0].x = 700.0
+	turret_shielding.units[0].x = 850.0
 	var turret_blocked_unit_hp: float = turret_shielding.units[0].hp
 	var turret_blocking_wall_hp: float = turret_shielding.structures[1].hp
 	turret_shielding.tick(1.6)
@@ -80,8 +80,8 @@ func _init() -> void:
 	expect_true(turret_shielding.structures[1].hp < turret_blocking_wall_hp, "turret attacks the blocking wall first")
 	var boundary_spacing = BattleModel.new()
 	boundary_spacing.resources = [150.0, 150.0]
-	expect_true(boundary_spacing.place_structure(0, "wall", 610.0), "blue can build at its forward boundary")
-	expect_true(boundary_spacing.place_structure(1, "wall", 670.0), "enemy structures do not block red boundary placement")
+	expect_true(boundary_spacing.place_structure(0, "wall", BattleModel.BLUE_BUILD_MAX), "blue can build at its forward boundary")
+	expect_true(boundary_spacing.place_structure(1, "wall", BattleModel.RED_BUILD_MIN), "enemy structures do not block red boundary placement")
 	var BattleView = load("res://scripts/BattleView.gd")
 	var placement_view = BattleView.new()
 	placement_view.own_side = 0

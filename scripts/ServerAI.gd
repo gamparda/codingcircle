@@ -48,10 +48,10 @@ func update(model: BattleModel, delta: float) -> void:
 	_current_elapsed = model.elapsed
 	if stage > 1:
 		var bonus_income := float(stage - 1) * 0.40 * delta
-		model.resources[side] = min(BattleModel.MAX_RESOURCE, float(model.resources[side]) + bonus_income)
+		model.resources[side] = min(model.resource_capacity(side), float(model.resources[side]) + bonus_income)
 	var endurance_tier := long_battle_tier(model.elapsed)
 	if endurance_tier > 0:
-		model.resources[side] = min(BattleModel.MAX_RESOURCE, float(model.resources[side]) + float(endurance_tier) * 0.5 * delta)
+		model.resources[side] = min(model.resource_capacity(side), float(model.resources[side]) + float(endurance_tier) * 0.5 * delta)
 	spawn_timer -= delta
 	structure_timer += delta
 	if spawn_timer <= 0.0:
@@ -128,7 +128,7 @@ func _try_place_structure(model: BattleModel) -> void:
 	if kind == "generator":
 		positions = [1000.0] if side == 1 else [280.0]
 	for x in positions:
-		if model.place_structure(side, kind, float(x)):
+		if model.place_structure(side, kind, float(x) * BattleModel.WORLD_SCALE):
 			structure_cursor += 1
 			break
 	structure_timer = 0.0

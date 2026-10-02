@@ -28,6 +28,8 @@ const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer"]
 const VALID_STRUCTURE_KINDS := ["wall", "swamp", "turret", "generator"]
 const ROOM_CODE_LENGTH := 6
 const ROOM_CODE_ALPHABET := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+const CONNECTION_TIMEOUT := 4.0
+const ROOM_REQUEST_TIMEOUT := 8.0
 
 var registry := MatchRegistry.new()
 var models: Dictionary = {}
@@ -55,6 +57,7 @@ var client_connection_port := DEFAULT_PORT
 var client_room_mode := "create"
 var client_room_code := ""
 var client_connection_generation := 0
+var client_phase_elapsed := 0.0
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -75,6 +78,7 @@ static func connection_candidates(primary_address: String, fallback_address: Str
 
 func _on_connected_to_server() -> void:
 	client_connection_state = "connected"
+	client_phase_elapsed = 0.0
 	connection_status.emit(Localization.text("서버에 연결됨 · 덱 검증 중..."))
 	request_submit_deck.rpc_id(1, client_unit_deck, client_structure_deck)
 
@@ -148,6 +152,10 @@ func connect_to_candidates(candidates: Array, port: int = DEFAULT_PORT) -> bool:
 func _start_client_attempt(address: String) -> bool:
 	connection_status.emit(Localization.text("%s:%d 연결 중...") % [address, client_connection_port])
 	client_connection_state = "connecting"
+	client_phase_elapsed = 0.0
+	if multiplayer.multiplayer_peer is ENetMultiplayerPeer:
+		multiplayer.multiplayer_peer.close()
+	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_client(address, client_connection_port)
 	if error != OK:
@@ -164,7 +172,7 @@ func _retry_next_connection_candidate() -> bool:
 		return false
 	client_connection_index += 1
 	var fallback := String(client_connection_candidates[client_connection_index])
-	connection_status.emit(Localization.text("DNS 응답 실패 · 공식 서버 우회 주소로 다시 연결 중..."))
+	connection_status.emit(Localization.text("연결이 지연되어 다른 서버 주소로 재시도합니다."))
 	print("CLIENT_CONNECTION_FALLBACK address=%s" % fallback)
 	_start_fallback_if_current.call_deferred(fallback, client_connection_generation)
 	return true
@@ -177,6 +185,7 @@ func disconnect_from_server() -> void:
 	client_connection_generation += 1
 	client_in_match = false
 	client_connection_state = "idle"
+	client_phase_elapsed = 0.0
 	client_connection_candidates.clear()
 	client_connection_index = -1
 	if multiplayer.multiplayer_peer is ENetMultiplayerPeer:
@@ -342,7 +351,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 	if not base_hp is Array or base_hp.size() != 2:
 		return false
 	for value in resources:
-		if not _number_in_range(value, 0.0, 150.0):
+		if not _number_in_range(value, 0.0, BattleModel.MAX_RESOURCE):
 			return false
 	for value in base_hp:
 		if not _number_in_range(value, 0.0, 500.0):
@@ -380,7 +389,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		structure_ids[structure_id] = true
 		if not structure_side is int or not is_valid_match_side(structure_side) or not VALID_STRUCTURE_KINDS.has(String(structure.kind)):
 			return false
-		if not _number_in_range(structure.x, 0.0, 1280.0) or not _number_in_range(structure.max_hp, 0.01, 10000.0):
+		if not _number_in_range(structure.x, 0.0, BattleModel.WORLD_WIDTH) or not _number_in_range(structure.max_hp, 0.01, 10000.0):
 			return false
 		if not _number_in_range(structure.hp, 0.0, float(structure.max_hp)):
 			return false
@@ -391,6 +400,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 
 func _process(delta: float) -> void:
 	if not server_mode:
+		_advance_client_connection(delta)
 		return
 	tick_accumulator += delta
 	snapshot_accumulator += delta
@@ -406,6 +416,20 @@ func _process(delta: float) -> void:
 		for match_id in models.keys():
 			_broadcast_snapshot(int(match_id))
 		snapshot_accumulator = 0.0
+
+func _advance_client_connection(delta: float) -> void:
+	if client_connection_state not in ["connecting", "connected"]:
+		return
+	client_phase_elapsed += delta
+	if client_connection_state == "connecting" and client_phase_elapsed >= CONNECTION_TIMEOUT:
+		client_phase_elapsed = 0.0
+		if _retry_next_connection_candidate():
+			return
+		disconnect_from_server()
+		connection_status.emit(Localization.text("서버 연결 실패"))
+	elif client_connection_state == "connected" and client_phase_elapsed >= ROOM_REQUEST_TIMEOUT:
+		disconnect_from_server()
+		connection_status.emit(Localization.text("서버 응답 시간이 초과되었습니다. 다시 시도하세요."))
 
 func _on_peer_connected(peer_id: int) -> void:
 	if not server_mode:
@@ -564,8 +588,8 @@ func request_place_structure(kind: String, x: float) -> void:
 		return
 	var side := registry.get_side(sender)
 	var model: BattleModel = models[match_id]
-	var error := model.structure_placement_error(side, kind, clamp(x, 0.0, 1280.0))
-	var success := error.is_empty() and model.place_structure(side, kind, clamp(x, 0.0, 1280.0))
+	var error := model.structure_placement_error(side, kind, clamp(x, 0.0, BattleModel.WORLD_WIDTH))
+	var success := error.is_empty() and model.place_structure(side, kind, clamp(x, 0.0, BattleModel.WORLD_WIDTH))
 	if not success and error.is_empty():
 		error = Localization.text("구조물을 설치하지 못했습니다.")
 	receive_structure_placement_result.rpc_id(sender, success, error)
@@ -612,6 +636,8 @@ func receive_deck_accepted() -> void:
 @rpc("authority", "call_remote", "reliable")
 func receive_room_created(code: String) -> void:
 	if is_valid_room_code(code):
+		client_connection_state = "waiting"
+		client_phase_elapsed = 0.0
 		room_created.emit(code)
 
 @rpc("authority", "call_remote", "reliable")
@@ -635,6 +661,7 @@ func _broadcast_combat_events(match_id: int, events: Array) -> void:
 @rpc("authority", "call_remote", "reliable")
 func match_started(side: int) -> void:
 	if is_valid_match_side(side):
+		client_connection_state = "in_match"
 		client_in_match = true
 		match_found.emit(side)
 
