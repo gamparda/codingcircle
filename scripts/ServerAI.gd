@@ -14,6 +14,10 @@ const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret"]
 const LONG_BATTLE_START := 180.0
 const LONG_BATTLE_STEP := 60.0
 const LONG_BATTLE_MAX_TIER := 6
+const STAGE_HP_SCALE := [0.50, 0.68, 0.82, 0.74, 1.00, 1.28, 1.18, 1.05]
+const STAGE_DAMAGE_SCALE := [0.50, 0.64, 0.80, 0.75, 0.98, 1.22, 1.12, 1.02]
+const STAGE_BONUS_INCOME := [0.0, 0.2, 0.6, 0.75, 1.6, 3.0, 2.7, 2.1]
+const STAGE_SPAWN_INTERVAL := [3.0, 2.3, 1.62, 1.50, 1.40, 1.30, 1.20, 1.10]
 
 var side: int
 var stage: int
@@ -31,14 +35,14 @@ static func stage_name(difficulty_stage: int) -> String:
 	return Localization.text(String(STAGE_NAMES[index]))
 
 static func stage_summary(difficulty_stage: int) -> String:
-	return ["기본 전투", "광전사 공세", "장판·방어", "공속 지원", "지원 공세", "해골 군단", "저주·소환", "복합 전술"][clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1]
+	return ["기본 전투", "광전사 공세", "장판·방어", "공속 지원", "전선 공세", "해골 군단", "방어·소환", "복합 전술"][clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1]
 
 static func stage_unit_deck(difficulty_stage: int) -> Array:
 	var decks := [
 		["swordsman", "shield", "archer"], ["swordsman", "berserker", "archer"],
-		["shield", "archer", "warlock"], ["shield", "warlock", "healer"],
-		["berserker", "archer", "healer"], ["shield", "healer", "necromancer"],
-		["berserker", "warlock", "necromancer"], ["shield", "warlock", "necromancer"],
+		["shield", "archer", "warlock"], ["shield", "archer", "healer"],
+		["shield", "archer", "berserker"], ["berserker", "healer", "necromancer"],
+		["shield", "swordsman", "necromancer"], ["shield", "archer", "necromancer"],
 	]
 	return decks[clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1].duplicate()
 
@@ -55,9 +59,8 @@ func update(model: BattleModel, delta: float) -> void:
 	if model.winner != -1:
 		return
 	_current_elapsed = model.elapsed
-	if stage > 1:
-		var bonus_income := float(stage - 1) * 0.40 * delta
-		model.resources[side] = min(model.resource_capacity(side), float(model.resources[side]) + bonus_income)
+	var bonus_income := float(STAGE_BONUS_INCOME[stage - 1]) * delta
+	model.resources[side] = min(model.resource_capacity(side), float(model.resources[side]) + bonus_income)
 	var endurance_tier := long_battle_tier(model.elapsed)
 	if endurance_tier > 0:
 		model.resources[side] = min(model.resource_capacity(side), float(model.resources[side]) + float(endurance_tier) * 0.5 * delta)
@@ -133,8 +136,11 @@ func _try_spawn(model: BattleModel) -> void:
 		available.sort_custom(func(a, b): return _unit_score(a, state) > _unit_score(b, state))
 	var preferred := String(available[0])
 	# Protect the first summoner, curse counter or needed support purchase from cheap-unit spam.
-	var key_purchase: bool = (preferred == "necromancer" and int(state.counts.get(preferred, 0)) == 0) or (preferred == "warlock" and int(state.counts.get(preferred, 0)) == 0 and state.enemy_melee >= 2) or (preferred == "healer" and int(state.counts.get(preferred, 0)) == 0 and state.buff_need >= 2)
-	if stage >= 3 and key_purchase and not state.danger and float(model.resources[side]) < float(BattleModel.UNIT_STATS[preferred].cost):
+	var key_purchase: bool = (preferred == "necromancer" and int(state.counts.get(preferred, 0)) == 0) or (preferred == "warlock" and int(state.counts.get(preferred, 0)) == 0 and state.enemy_melee >= 2) or (preferred == "healer" and int(state.counts.get(preferred, 0)) == 0 and state.buff_need >= 2) or (preferred == "shield" and state.frontline == 0 and state.own > 0)
+	# A cheap fallback must not repeatedly spend the bank just below the price
+	# of the preferred damage dealer. Emergency defense still buys immediately.
+	var clear_preference: bool = state.own >= 2 and available.size() > 1 and _unit_score(preferred, state) >= _unit_score(String(available[1]), state) + 8.0
+	if stage >= 3 and (key_purchase or clear_preference) and not state.danger and float(model.resources[side]) < float(BattleModel.UNIT_STATS[preferred].cost):
 		spawn_timer = 0.5
 		return
 	for kind in available:
@@ -148,8 +154,8 @@ func _try_spawn(model: BattleModel) -> void:
 
 func _apply_stage_unit_bonus(unit: Dictionary) -> void:
 	var endurance_scale := 1.0 + float(long_battle_tier_from_spawn_time()) * 0.05
-	var hp_scale := (0.84 + float(stage) * 0.04) * endurance_scale
-	var damage_scale := (0.80 + float(stage) * 0.04) * endurance_scale
+	var hp_scale := float(STAGE_HP_SCALE[stage - 1]) * endurance_scale
+	var damage_scale := float(STAGE_DAMAGE_SCALE[stage - 1]) * endurance_scale
 	unit.max_hp = float(unit.max_hp) * hp_scale
 	unit.hp = float(unit.max_hp)
 	unit.damage = float(unit.damage) * damage_scale
@@ -190,7 +196,7 @@ func _try_place_structure(model: BattleModel) -> void:
 				return
 
 func _spawn_interval() -> float:
-	return 1.85 - float(stage - 1) * 0.115
+	return float(STAGE_SPAWN_INTERVAL[stage - 1])
 
 func _structure_interval() -> float:
 	return 9.0 - float(stage - 1) * 0.5

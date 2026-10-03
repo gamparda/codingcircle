@@ -130,6 +130,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Independent release version tests failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/balance_feedback_test.gd
           if ($LASTEXITCODE -ne 0) { throw "Focused balance and room connection regressions failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/simultaneous_combat_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "Simultaneous combat fairness regressions failed" }
+          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/balance_bot_test.gd
+          if ($LASTEXITCODE -ne 0) { throw "Benchmark purchase policy regressions failed" }
+          python tests/balance_analysis_test.py
+          if ($LASTEXITCODE -ne 0) { throw "Balance data integrity regressions failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/new_units_test.gd
           if ($LASTEXITCODE -ne 0) { throw "New unit mechanics and wire regressions failed" }
           & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/new_units_ui_test.gd
