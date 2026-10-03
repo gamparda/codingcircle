@@ -1748,11 +1748,11 @@ func _show_result(winner: int) -> void:
 		result_recorded = true
 		if local_ai_mode:
 			if campaign_mode:
-				awarded_stars = SaveData.record_campaign(save_data, current_ai_stage, winner == own_side, float(current_snapshot.elapsed), float(current_snapshot.base_hp[own_side]))
+				awarded_stars = SaveData.record_campaign(save_data, current_ai_stage, winner == own_side, float(current_snapshot.elapsed), float(current_snapshot.base_hp[own_side]), winner == 2)
 			elif not practice_used_tools:
 				save_data.stats.ai_matches += 1
 				save_data.stats.ai_wins += 1 if winner == own_side else 0
-				save_data.stats.ai_losses += 0 if winner == own_side else 1
+				save_data.stats.ai_losses += 1 if winner != own_side and winner != 2 else 0
 		else:
 			save_data.stats.online_completed += 1
 			save_data.stats.online_wins += 1 if winner == own_side else 0

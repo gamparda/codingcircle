@@ -87,7 +87,7 @@ func _init() -> void:
 		"swordsman cost efficiency stays near other damage units"
 	)
 	expect_eq(int(BattleModel.UNIT_STATS.archer.range), 280, "archer keeps its established long range")
-	expect_eq(int(BattleModel.UNIT_STATS.archer.damage), 15, "archer damage is reduced")
+	expect_eq(int(BattleModel.UNIT_STATS.archer.damage), 14, "archer damage is calibrated against melee pressure")
 	expect_eq(float(BattleModel.UNIT_STATS.healer.damage), 0.0, "mage is a pure support unit")
 	expect_eq(float(BattleModel.UNIT_STATS.healer.heal), 0.0, "mage has no healing")
 	for kind in BattleModel.UNIT_STATS:

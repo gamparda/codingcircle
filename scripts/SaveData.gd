@@ -196,7 +196,7 @@ static func campaign_growth_level(data: Dictionary) -> int:
 			levels += 1
 	return clampi(levels, 0, 8)
 
-static func record_campaign(data: Dictionary, stage: int, won: bool, elapsed: float, remaining_base_hp: float) -> int:
+static func record_campaign(data: Dictionary, stage: int, won: bool, elapsed: float, remaining_base_hp: float, drawn: bool = false) -> int:
 	var index := clampi(stage, 1, 8) - 1
 	var record: Dictionary = data.campaign_records[index]
 	record.attempts += 1
@@ -211,7 +211,7 @@ static func record_campaign(data: Dictionary, stage: int, won: bool, elapsed: fl
 		data.stats.highest_campaign = max(int(data.stats.highest_campaign), stage)
 	data.stats.ai_matches += 1
 	data.stats.ai_wins += 1 if won else 0
-	data.stats.ai_losses += 0 if won else 1
+	data.stats.ai_losses += 1 if not won and not drawn else 0
 	var total := 0
 	for stage_record in data.campaign_records:
 		total += int(stage_record.best_stars)

@@ -23,7 +23,7 @@ const BLUE_REAR_MAX := 350.0 * WORLD_SCALE
 const RED_REAR_MIN := 930.0 * WORLD_SCALE
 const SUPPORT_INCREMENT := 0.03
 const SUPPORT_MAX_STACKS := 10
-const SUPPORT_COOLDOWN := 7.0
+const SUPPORT_COOLDOWN := 4.0
 const SUPPORT_FOLLOW_DISTANCE := 65.0
 const CURSE_RADIUS := 30.0
 const CURSE_DURATION := 5.0
@@ -34,13 +34,13 @@ const UNIT_NAMES := {"shield": "탱커", "swordsman": "검사", "archer": "궁�
 	"berserker": "광전사", "warlock": "흑마법사", "necromancer": "네크로맨서", "skeleton": "해골"}
 
 const UNIT_STATS := {
-	"shield": {"cost": 35.0, "hp": 400.0, "damage": 2.0, "interval": 1.5, "speed": 48.0, "range": 34.0},
-	"swordsman": {"cost": 30.0, "hp": 82.0, "damage": 10.0, "interval": 1.4, "speed": 44.0, "range": 40.0},
-	"archer": {"cost": 45.0, "hp": 58.0, "damage": 15.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
-	"healer": {"cost": 45.0, "hp": 60.0, "damage": 0.0, "heal": 0.0, "interval": SUPPORT_COOLDOWN, "speed": 34.0, "range": 125.0},
+	"shield": {"cost": 45.0, "hp": 400.0, "damage": 2.0, "interval": 1.5, "speed": 48.0, "range": 34.0},
+	"swordsman": {"cost": 30.0, "hp": 82.0, "damage": 11.0, "interval": 1.4, "speed": 44.0, "range": 40.0},
+	"archer": {"cost": 50.0, "hp": 58.0, "damage": 14.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
+	"healer": {"cost": 25.0, "hp": 60.0, "damage": 0.0, "heal": 0.0, "interval": SUPPORT_COOLDOWN, "speed": 34.0, "range": 125.0},
 	"berserker": {"cost": 40.0, "hp": 155.0, "damage": 13.0, "interval": 1.4, "speed": 44.0, "range": 40.0},
-	"warlock": {"cost": 45.0, "hp": 50.0, "damage": 1.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
-	"necromancer": {"cost": 100.0, "hp": 50.0, "damage": 2.0, "interval": 1.5, "speed": 34.0, "range": 125.0},
+	"warlock": {"cost": 35.0, "hp": 50.0, "damage": 4.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
+	"necromancer": {"cost": 110.0, "hp": 50.0, "damage": 2.0, "interval": 1.5, "speed": 34.0, "range": 125.0},
 }
 const SUMMON_STATS := {"skeleton": {"cost": 0.0, "hp": 30.0, "damage": 10.0, "interval": 1.4, "speed": 44.0, "range": 40.0}}
 const STRUCTURE_STATS := {
@@ -174,7 +174,7 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 	if kind == "skeleton":
 		output = "소환 전용  ·  체력 %d\n" % int(stats.hp * stat_scale)
 	if kind == "healer":
-		return output + Localization.text("피해·회복 없음  ·  공속 +3% 영구 누적\n범위 125  ·  쿨 7초  ·  상한 +30%\n유닛 사망·전투 종료 시 초기화  ·  이동 34")
+		return output + Localization.text("피해·회복 없음  ·  공속 +3% 영구 누적\n범위 125  ·  쿨 4초  ·  상한 +30%\n유닛 사망·전투 종료 시 초기화  ·  이동 34")
 	else:
 		output += Localization.text("공격력 %d  ·  DPS %.1f\n") % [int(stats.damage * stat_scale), float(stats.damage) * stat_scale / interval]
 	output += Localization.text("공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d") % [interval, int(stats.range), int(stats.speed)]
@@ -187,7 +187,7 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 	return output
 
 static func battle_stat_summary() -> String:
-	return Localization.text("구조물  ·  방벽 35/체력 230  ·  늪 30/체력 100/80%% 감속/5초\n포탑 50/체력 115/공격 8/사거리 240  ·  발전기 50/체력 90/+2 자원\n마법사  ·  피해·회복 없음/공속 +3%% 영구 누적/범위 125/쿨 7초/상한 +30%%\n전장  ·  길이 +15%%  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
+	return Localization.text("구조물  ·  방벽 35/체력 230  ·  늪 30/체력 100/80%% 감속/5초\n포탑 50/체력 115/공격 8/사거리 240  ·  발전기 50/체력 90/+2 자원\n마법사  ·  피해·회복 없음/공속 +3%% 영구 누적/범위 125/쿨 4초/상한 +30%%\n전장  ·  길이 +15%%  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
 
 func _owned_structure_count(side: int, kind: String = "") -> int:
 	var count := 0
@@ -258,7 +258,12 @@ func tick(delta: float) -> void:
 		for kind in spawn_cooldowns[side].keys():
 			spawn_cooldowns[side][kind] = max(0.0, float(spawn_cooldowns[side][kind]) - delta)
 
-	_tick_turrets(delta)
+	# All combatants choose from the same positions/health. Applying an attack
+	# while choosing the next one gave earlier array entries a free lethal hit.
+	var pending_attacks: Array = []
+	var pending_base_hits: Array = []
+	var pending_moves: Array = []
+	_tick_turrets(delta, pending_attacks)
 	var pending_summons: Array = []
 	for unit in units:
 		unit.cooldown = max(0.0, float(unit.cooldown) - delta * support_attack_speed(unit))
@@ -273,10 +278,13 @@ func tick(delta: float) -> void:
 		if unit.kind == "healer":
 			_tick_support(unit, delta)
 			continue
+	for unit in units:
+		if float(unit.hp) <= 0.0 or unit.kind == "healer":
+			continue
 		var target = _find_target(unit)
 		if target != null:
 			if unit.cooldown <= 0.0:
-				_damage_target(unit, target, unit_attack_damage(unit))
+				pending_attacks.append({"attacker":unit, "target":target, "damage":unit_attack_damage(unit)})
 				unit.cooldown = unit.interval
 			continue
 
@@ -284,24 +292,37 @@ func tick(delta: float) -> void:
 		var blocking_wall = _blocking_wall(unit, enemy_base_x)
 		if blocking_wall != null and abs(float(blocking_wall.x) - float(unit.x)) <= float(unit.range) + 12.0:
 			if unit.cooldown <= 0.0:
-				_damage_target(unit, blocking_wall, unit_attack_damage(unit))
+				pending_attacks.append({"attacker":unit, "target":blocking_wall, "damage":unit_attack_damage(unit)})
 				unit.cooldown = unit.interval
 			continue
 		if abs(float(unit.x) - enemy_base_x) <= float(unit.range):
 			if unit.cooldown <= 0.0:
-				var enemy_side: int = 1 - int(unit.side)
-				var damage := unit_attack_damage(unit)
-				_record_damage(int(unit.side),String(unit.kind),minf(damage,maxf(0.0,float(base_hp[enemy_side]))),false)
-				base_hp[enemy_side] = max(0.0, float(base_hp[enemy_side]) - damage)
-				combat_events.append({"type": "BASE_HIT", "side": enemy_side, "amount": damage, "x": enemy_base_x})
-				if unit.kind == "warlock":
-					_install_curse(unit, enemy_base_x)
+				pending_base_hits.append({"attacker":unit, "damage":unit_attack_damage(unit), "x":enemy_base_x})
 				unit.cooldown = unit.interval
-				if base_hp[enemy_side] <= 0.0:
-					winner = int(unit.side)
 			continue
 		var direction := 1.0 if unit.side == 0 else -1.0
-		unit.x = clamp(float(unit.x) + direction * float(unit.speed) * _swamp_scale(unit) * delta, FIELD_LEFT, FIELD_RIGHT)
+		pending_moves.append({"unit":unit, "x":clamp(float(unit.x) + direction * float(unit.speed) * _swamp_scale(unit) * delta, FIELD_LEFT, FIELD_RIGHT)})
+
+	for attack in pending_attacks:
+		if attack.attacker.has("speed"):
+			_damage_target(attack.attacker, attack.target, attack.damage)
+		else:
+			var before := maxf(0.0, float(attack.target.hp))
+			var effective := minf(before, float(attack.damage))
+			_record_damage(int(attack.attacker.side), "turret", effective, attack.target.has("speed") and before > 0.0 and effective >= before)
+			attack.target.hp = maxf(0.0, before - float(attack.damage))
+			combat_events.append({"type":"ATTACK", "attacker_id":attack.attacker.id, "target_id":attack.target.id, "attack_kind":"turret", "x":attack.attacker.x})
+			combat_events.append({"type":"DAMAGE", "target_id":attack.target.id, "amount":attack.damage, "x":attack.target.x})
+	for hit in pending_base_hits:
+		var enemy_side := 1 - int(hit.attacker.side)
+		_record_damage(int(hit.attacker.side), String(hit.attacker.kind), minf(float(hit.damage), float(base_hp[enemy_side])), false)
+		base_hp[enemy_side] = maxf(0.0, float(base_hp[enemy_side]) - float(hit.damage))
+		combat_events.append({"type":"BASE_HIT", "side":enemy_side, "amount":hit.damage, "x":hit.x})
+		if hit.attacker.kind == "warlock": _install_curse(hit.attacker, hit.x)
+	for move in pending_moves:
+		move.unit.x = move.x
+	if base_hp[0] <= 0.0 or base_hp[1] <= 0.0:
+		winner = 2 if base_hp[0] <= 0.0 and base_hp[1] <= 0.0 else 1 if base_hp[0] <= 0.0 else 0
 
 	_emit_death_events()
 	units = units.filter(func(unit): return unit.hp > 0.0)
@@ -435,7 +456,7 @@ func _find_target(unit: Dictionary):
 	return best_structure
 
 
-func _tick_turrets(delta: float) -> void:
+func _tick_turrets(delta: float, pending_attacks: Array) -> void:
 	for structure in structures:
 		if String(structure.kind) != "turret" or float(structure.hp) <= 0.0:
 			continue
@@ -459,12 +480,7 @@ func _tick_turrets(delta: float) -> void:
 				nearest = candidate_distance
 		if target != null:
 			var damage := float(STRUCTURE_STATS.turret.damage) * curse_damage_scale(int(structure.side), float(structure.x))
-			var before := maxf(0.0,float(target.hp))
-			var effective := minf(before,maxf(0.0,damage))
-			_record_damage(int(structure.side),"turret",effective,target.has("speed") and before>0.0 and effective>=before)
-			target.hp = max(0.0, float(target.hp) - damage)
-			combat_events.append({"type": "ATTACK", "attacker_id": id, "target_id": target.id, "attack_kind": "turret", "x": structure.x})
-			combat_events.append({"type": "DAMAGE", "target_id": target.id, "amount": damage, "x": target.x})
+			pending_attacks.append({"attacker":structure, "target":target, "damage":damage})
 			structure_cooldowns[id] = float(STRUCTURE_STATS.turret.interval)
 
 func _swamp_scale(unit: Dictionary) -> float:

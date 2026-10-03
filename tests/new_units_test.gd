@@ -19,7 +19,7 @@ func model() -> BattleModel:
 	return result
 
 func _initialize() -> void:
-	for entry in [["berserker",155.0,13.0,40.0,40.0], ["warlock",50.0,1.0,280.0,45.0], ["necromancer",50.0,2.0,125.0,100.0]]:
+	for entry in [["berserker",155.0,13.0,40.0,40.0], ["warlock",50.0,4.0,280.0,35.0], ["necromancer",50.0,2.0,125.0,110.0]]:
 		var battle := model()
 		check(battle.spawn_unit(0, entry[0]), "new unit is purchasable: " + entry[0])
 		check(battle.units[0].max_hp == entry[1] and battle.units[0].damage == entry[2] and battle.units[0].range == entry[3], "requested stats: " + entry[0])
@@ -65,7 +65,7 @@ func _initialize() -> void:
 	caster.x = 500.0; caster.speed = 0.0; caster.cooldown = 0.0
 	victim.x = 780.0; victim.speed = 0.0; victim.cooldown = 999.0
 	curse.tick(0.01)
-	check(is_equal_approx(victim.hp, 154.0), "warlock's actual attack deals one damage")
+	check(is_equal_approx(victim.hp, 151.0), "warlock's actual attack deals four damage")
 	check(curse.curses.size() == 1 and curse.curses[0].x == victim.x, "attack installs the curse at the target, not the caster")
 	check(is_equal_approx(curse.unit_attack_damage(victim), 13.0 * 0.7), "enemy attack damage is reduced by thirty percent")
 	check(is_equal_approx(curse.curse_damage_scale(1, 810.0), 0.7) and curse.curse_damage_scale(1, 810.01) == 1.0, "curse radius is exactly thirty")

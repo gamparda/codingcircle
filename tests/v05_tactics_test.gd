@@ -53,7 +53,7 @@ func _initialize() -> void:
 	economy.resources[1]=70.0
 	planner._try_spawn(economy)
 	check(economy.units.is_empty() and economy.resources[1]==70.0, "AI saves for a first necromancer rather than wasting the bank on cheap units")
-	economy.resources[1]=100.0
+	economy.resources[1]=110.0
 	planner._try_spawn(economy)
 	check(economy.units.size()==1 and economy.units[0].kind=="necromancer", "AI buys its saved summoner")
 	economy.units[0].speed=0.0
@@ -63,7 +63,7 @@ func _initialize() -> void:
 	planner._try_place_structure(economy)
 	check(economy.structures.size()==1 and economy.structures[0].kind=="generator" and economy.structures[0].x>=BattleModel.RED_REAR_MIN, "AI protects an early generator in its legal rear zone")
 	var support := fixture(1,6)
-	support.spawn_unit(1,"shield"); support.spawn_cooldowns[1].clear(); support.spawn_unit(1,"shield")
+	support.spawn_unit(1,"berserker"); support.spawn_cooldowns[1].clear(); support.spawn_unit(1,"berserker")
 	support.resources[1]=180.0
 	planner._try_spawn(support)
 	check(support.units.back().kind=="healer", "AI prioritizes permanent speed support for an unbuffed formation")
@@ -71,6 +71,23 @@ func _initialize() -> void:
 		unit.support_stacks=BattleModel.SUPPORT_MAX_STACKS
 	var state := planner.tactical_state(support)
 	check(planner._unit_score("healer",state)<=8.0, "AI does not purchase redundant support for fully stacked troops")
+	var saving := fixture(1,3)
+	saving.spawn_unit(1,"shield"); saving.spawn_unit(1,"warlock")
+	saving.spawn_cooldowns[1].clear()
+	saving.resources[1]=40.0
+	var buyer := ServerAI.new(1,3)
+	buyer._try_spawn(saving)
+	check(saving.units.size()==2 and saving.resources[1]==40.0,"safe AI reserves its bank for preferred ranged damage instead of another cheap tank")
+	saving.resources[1]=50.0
+	buyer._try_spawn(saving)
+	check(saving.units.size()==3 and saving.units.back().kind=="archer","AI buys its saved damage dealer as soon as it is affordable")
+	var emergency := fixture(1,3)
+	emergency.spawn_unit(1,"shield"); emergency.spawn_unit(1,"warlock")
+	emergency.spawn_cooldowns[1].clear()
+	emergency.resources[1]=45.0
+	enemy(emergency,1,BattleModel.FIELD_RIGHT-200.0)
+	buyer._try_spawn(emergency)
+	check(emergency.units.back().side==1 and emergency.units.back().kind=="shield" and emergency.resources[1]==0.0,"base danger overrides saving and purchases immediate defense")
 	var counter := fixture(1,3)
 	enemy(counter,1,700.0); enemy(counter,1,720.0)
 	var counter_ai := ServerAI.new(1,3)
