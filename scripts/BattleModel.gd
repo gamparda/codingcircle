@@ -38,7 +38,7 @@ const UNIT_STATS := {
 	"swordsman": {"cost": 30.0, "hp": 82.0, "damage": 11.0, "interval": 1.4, "speed": 44.0, "range": 40.0},
 	"archer": {"cost": 50.0, "hp": 58.0, "damage": 14.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
 	"healer": {"cost": 25.0, "hp": 60.0, "damage": 0.0, "heal": 0.0, "interval": SUPPORT_COOLDOWN, "speed": 34.0, "range": 125.0},
-	"berserker": {"cost": 40.0, "hp": 155.0, "damage": 13.0, "interval": 1.4, "speed": 44.0, "range": 40.0},
+	"berserker": {"cost": 40.0, "hp": 155.0, "damage": 6.0, "interval": 1.4, "speed": 44.0, "range": 40.0},
 	"warlock": {"cost": 35.0, "hp": 50.0, "damage": 4.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
 	"necromancer": {"cost": 110.0, "hp": 50.0, "damage": 2.0, "interval": 1.5, "speed": 34.0, "range": 125.0},
 }
@@ -355,7 +355,7 @@ static func is_enraged(unit: Dictionary) -> bool:
 	return unit.kind == "berserker" and float(unit.hp) > 0.0 and float(unit.hp) <= float(unit.max_hp) * 0.5
 
 func unit_attack_damage(unit: Dictionary) -> float:
-	var damage := float(unit.damage) * (6.0 / 13.0 if is_enraged(unit) else 1.0)
+	var damage := float(unit.damage)
 	return damage * curse_damage_scale(int(unit.side), float(unit.x))
 
 func curse_damage_scale(side: int, x: float) -> float:

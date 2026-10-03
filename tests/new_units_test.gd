@@ -19,7 +19,7 @@ func model() -> BattleModel:
 	return result
 
 func _initialize() -> void:
-	for entry in [["berserker",155.0,13.0,40.0,40.0], ["warlock",50.0,4.0,280.0,35.0], ["necromancer",50.0,2.0,125.0,110.0]]:
+	for entry in [["berserker",155.0,6.0,40.0,40.0], ["warlock",50.0,4.0,280.0,35.0], ["necromancer",50.0,2.0,125.0,110.0]]:
 		var battle := model()
 		check(battle.spawn_unit(0, entry[0]), "new unit is purchasable: " + entry[0])
 		check(battle.units[0].max_hp == entry[1] and battle.units[0].damage == entry[2] and battle.units[0].range == entry[3], "requested stats: " + entry[0])
@@ -33,10 +33,10 @@ func _initialize() -> void:
 	rage.spawn_unit(0, "berserker")
 	var warrior: Dictionary = rage.units[0]
 	warrior.hp = warrior.max_hp * 0.5 + 0.01
-	check(not BattleModel.is_enraged(warrior) and is_equal_approx(rage.unit_attack_damage(warrior), 13.0), "above 50 percent retains normal damage")
+	check(not BattleModel.is_enraged(warrior) and is_equal_approx(rage.unit_attack_damage(warrior), 6.0), "above 50 percent retains normal damage")
 	warrior.hp = warrior.max_hp * 0.5
 	check(BattleModel.is_enraged(warrior), "exactly 50 percent activates rage")
-	check(is_equal_approx(rage.unit_attack_damage(warrior), 6.0), "rage reduces attack damage to six")
+	check(is_equal_approx(rage.unit_attack_damage(warrior), 6.0), "rage retains attack damage of six")
 	check(is_equal_approx(rage.support_attack_speed(warrior), 1.5), "rage increases attack speed by 50 percent")
 	warrior.support_stacks = 10
 	check(is_equal_approx(rage.support_attack_speed(warrior), 1.5 * 1.3), "rage combines with the separate capped mage buff")
@@ -67,7 +67,7 @@ func _initialize() -> void:
 	curse.tick(0.01)
 	check(is_equal_approx(victim.hp, 151.0), "warlock's actual attack deals four damage")
 	check(curse.curses.size() == 1 and curse.curses[0].x == victim.x, "attack installs the curse at the target, not the caster")
-	check(is_equal_approx(curse.unit_attack_damage(victim), 13.0 * 0.7), "enemy attack damage is reduced by thirty percent")
+	check(is_equal_approx(curse.unit_attack_damage(victim), 6.0 * 0.7), "enemy attack damage is reduced by thirty percent")
 	check(is_equal_approx(curse.curse_damage_scale(1, 810.0), 0.7) and curse.curse_damage_scale(1, 810.01) == 1.0, "curse radius is exactly thirty")
 	check(curse.curse_damage_scale(0, 780.0) == 1.0, "curse never weakens friendly units")
 	curse.spawn_cooldowns[0].clear()
@@ -75,7 +75,7 @@ func _initialize() -> void:
 	var second: Dictionary = curse.units.back()
 	second.speed = 0.0; second.cooldown = 999.0
 	curse._install_curse(second, 780.0)
-	check(curse.curses.size() == 2 and is_equal_approx(curse.unit_attack_damage(victim), 13.0 * 0.7), "overlapping casters do not multiply the reduction")
+	check(curse.curses.size() == 2 and is_equal_approx(curse.unit_attack_damage(victim), 6.0 * 0.7), "overlapping casters do not multiply the reduction")
 	curse._install_curse(caster, 900.0)
 	check(curse.curses.size() == 2 and curse.curses.any(func(zone): return zone.source_id == caster.id and zone.x == 900.0), "a caster replaces its previous zone")
 	check(Network.is_valid_snapshot(curse.snapshot()), "real occupied model snapshot, permanent stacks and curse zones pass online validation")

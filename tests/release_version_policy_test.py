@@ -9,7 +9,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 class ContentOnlyReleaseTest(unittest.TestCase):
     def test_release_versions_are_ready_for_the_one_time_binary_migration(self):
         build_info = json.loads((ROOT / "build_info.json").read_text(encoding="utf-8"))
-        self.assertEqual(build_info["version"], "0.6.4")
+        self.assertEqual(build_info["version"], "0.6.5")
         self.assertEqual(build_info["binary_version"], "0.4.18")
 
         project = (ROOT / "project.godot").read_text(encoding="utf-8")
@@ -19,8 +19,8 @@ class ContentOnlyReleaseTest(unittest.TestCase):
 
     def test_ci_ships_fresh_android_with_independent_binary_version(self):
         workflow = (ROOT / ".github" / "workflows" / "build-and-deploy.yml").read_text(encoding="utf-8")
-        self.assertIn('$contentVersion = "0.6.4"', workflow)
-        self.assertIn('$windowsVersion = "0.6.4"', workflow)
+        self.assertIn('$contentVersion = "0.6.5"', workflow)
+        self.assertIn('$windowsVersion = "0.6.5"', workflow)
         self.assertIn('$androidBinaryVersion = "0.4.18"', workflow)
         self.assertIn("$buildAndroid = $true", workflow)
         self.assertIn("--export-pack Android dist/CatWarContent.pck", workflow)
