@@ -64,7 +64,7 @@ func run() -> void:
 	var scroll := main.find_child("PatchNotesScroll", true, false) as ScrollContainer
 	var back := main.find_child("PatchNotesBack", true, false) as Button
 	check(scroll != null and back != null, "patch notes open with scroll and fixed back action")
-	check(tree_text(main).contains("v0.7.2") and tree_text(main).contains("v0.3.3"), "patch notes include current and previous releases")
+	check(tree_text(main).contains("v0.8.0") and tree_text(main).contains("v0.3.3"), "patch notes include current and previous releases")
 	check(tree_text(main).contains("상한은 +30%") and tree_text(main).contains("9→8/초"), "patch notes describe shipped balance values")
 	check(back.get_global_rect().end.y <= 720.0, "patch notes back action stays inside the viewport")
 	capture("patch-notes")
@@ -116,9 +116,10 @@ func run() -> void:
 	expected.append("v0.7.0")
 	expected.append("v0.7.1")
 	expected.append("v0.7.2")
+	expected.append("v0.8.0")
 	var versions: Array = history.map(func(entry): return entry.version)
 	check(versions.size() == expected.size() and expected.all(func(version): return versions.count(version) == 1), "every release since 0.3.3 has exactly one patch-note entry")
-	check(history[0].version == "v0.7.2" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
+	check(history[0].version == "v0.8.0" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
 	main.campaign_mode = false
 	var saved_progress: Dictionary = main.save_data.duplicate(true)
 	main._start_local_ai_battle(8)
