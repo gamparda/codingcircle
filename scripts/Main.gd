@@ -6,6 +6,7 @@ const LobbyFlow = preload("res://scripts/screens/LobbyFlow.gd")
 const BattleFlow = preload("res://scripts/screens/BattleFlow.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const ReplayScreens = preload("res://scripts/screens/ReplayScreens.gd")
+const AchievementsScreen = preload("res://scripts/screens/AchievementsScreen.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
 const DeckScreen = preload("res://scripts/screens/DeckScreen.gd")
 const SettingsScreen = preload("res://scripts/screens/SettingsScreen.gd")
@@ -76,6 +77,8 @@ var last_replay_path := ""
 var replay_viewer = null
 var quick_wait_started_msec := 0
 var battle_curve: Array = []
+var ghost_context: Dictionary = {}   # {"mode": "ghost" | "branch", "replay": Dictionary, "tick": int}
+var daily_challenge: Dictionary = {} # today's challenge while a daily battle is running
 var curve_next_elapsed := 0.0
 var current_ai_stage := 1
 var bgm_player: AudioStreamPlayer
@@ -536,6 +539,9 @@ func _enlarge_for_touch(node: Node) -> void:
 		button.custom_minimum_size.y = maxf(button.custom_minimum_size.y, UIKit.TOUCH_MIN_HEIGHT)
 	elif node is Slider and is_ancestor_of(node):
 		(node as Slider).custom_minimum_size.y = maxf((node as Slider).custom_minimum_size.y, 44.0)
+
+func _build_achievements_screen() -> void:
+	AchievementsScreen._build_achievements_screen(self)
 
 func _build_replay_list() -> void:
 	ReplayScreens._build_replay_list(self)

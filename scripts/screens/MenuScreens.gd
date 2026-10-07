@@ -5,6 +5,7 @@ const Localization = preload("res://scripts/Localization.gd")
 const PatchNotes = preload("res://scripts/PatchNotes.gd")
 const PracticeTools = preload("res://scripts/PracticeTools.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
+const Achievements = preload("res://scripts/Achievements.gd")
 const HeroShowcase = preload("res://scripts/ui/HeroShowcase.gd")
 const SUBMENU_FRAME := preload("res://scenes/ui/SubMenuFrame.tscn")
 const PATCH_NOTES_SCREEN := preload("res://scenes/ui/PatchNotesScreen.tscn")
@@ -302,6 +303,10 @@ static func _build_patch_notes_screen(main) -> void:
 static func _build_records_screen(main) -> void:
 	var frame = _show_scene(main, RECORDS_SCREEN, Localization.text("개인 전적"), "이 기기에 저장된 전적")
 	frame.populate(main.save_data)
+	var gallery = main._styled_button(Localization.text("업적 보기  (%d / %d)") % [Achievements.unlocked_count(main.save_data), Achievements.DEFS.size()], UIKit.GOLD_DEEP, false)
+	gallery.name = "AchievementsButton"
+	gallery.pressed.connect(main._build_achievements_screen)
+	frame.column.add_child(gallery)
 	var back = main._styled_button(Localization.text("메인 화면으로"), Color("#697386"), false)
 	back.pressed.connect(main._build_connect_screen)
 	frame.column.add_child(back)

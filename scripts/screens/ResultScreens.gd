@@ -8,6 +8,8 @@ const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const HpBar = preload("res://scripts/ui/HpBar.gd")
 const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
+const Achievements = preload("res://scripts/Achievements.gd")
+const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
 const Report = preload("res://scripts/BattleReport.gd")
 
 static func _show_result(main, winner: int) -> void:
@@ -23,6 +25,7 @@ static func _show_result(main, winner: int) -> void:
 	main.updater.check_for_update()
 	var awarded_stars := 0
 	var growth_before := SaveData.campaign_growth_level(main.save_data)
+	var unlocked: Array = []
 	if not main.result_recorded and not main.network.client_is_spectator:
 		main.result_recorded = true
 		if main.local_ai_mode:
@@ -40,6 +43,7 @@ static func _show_result(main, winner: int) -> void:
 			main.save_data.stats.online_wins += 1 if winner == main.own_side else 0
 			main.save_data.stats.online_losses += 1 if winner != main.own_side and winner != 2 else 0
 			main.save_data.stats.online_draws += 1 if winner == 2 else 0
+		unlocked = _judge_achievements(main, winner)
 		SaveData.save_data(main.save_data)
 	var screen := Control.new()
 	screen.name = "ResultOverlay"
@@ -54,7 +58,7 @@ static func _show_result(main, winner: int) -> void:
 	screen.add_child(dim)
 	# Online results get an extra strip for the opponent and the player's record.
 	var strip_extra := 0.0 if main.local_ai_mode else 56.0
-	var notes_extra := 40.0 # one row for the battle summary line and unlocked achievements
+	var notes_extra := 40.0 + (28.0 if not unlocked.is_empty() else 0.0) # summary line, plus a row for new achievements
 	var extra := strip_extra + notes_extra
 	var overlay := PanelContainer.new()
 	overlay.name = "ResultPanel"
@@ -159,6 +163,17 @@ static func _show_result(main, winner: int) -> void:
 		summary_label.add_theme_color_override("font_color", UIKit.GOLD)
 		summary_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		inner.add_child(summary_label)
+	if not unlocked.is_empty():
+		var names := PackedStringArray()
+		for entry in unlocked:
+			names.append("%s %s" % [entry.icon, Localization.text(String(entry.name))])
+		var toast := ToastLabel.new()
+		toast.name = "AchievementToast"
+		toast.tone = UIKit.GOLD
+		toast.text = Localization.text("업적 달성!  ") + "   ".join(names)
+		inner.add_child(toast)
+		toast.place_center(290.0, notes_y + 32.0)
+		UIKit.UISounds.play("victory", -12.0)
 	var rematch_text := Localization.text("다시 도전") if main.local_ai_mode else ("대기실로" if not main.network.client_session.is_empty() else Localization.text("재경기 준비"))
 	var rematch = main._styled_button(rematch_text, Color("#5e6ad2"), true)
 	rematch.position = Vector2(25 if advances else 65, 306 + extra)
@@ -296,6 +311,34 @@ static func _match_strip(main, winner: int, at: Vector2, width: float) -> Contro
 	percent.add_theme_color_override("font_color", UIKit.GOLD)
 	record_box.add_child(percent)
 	return strip
+
+## Updates streaks and unlocks achievements for a finished, countable battle. Experiments return [].
+static func _judge_achievements(main, winner: int) -> Array:
+	var mode := ""
+	if not main.local_ai_mode:
+		mode = "online"
+	elif not main.ghost_context.is_empty():
+		mode = "ghost"
+	elif not main.daily_challenge.is_empty():
+		mode = "daily"
+	elif main.campaign_mode:
+		mode = "campaign"
+	elif not main.practice_used_tools:
+		mode = "practice"
+	if mode == "":
+		return []
+	var won: bool = winner == main.own_side
+	if mode != "ghost":
+		Achievements.record_outcome(main.save_data, won, not won and winner != 2)
+	var snapshot: Dictionary = main.current_snapshot
+	var reports: Array = snapshot.get("battle_report", [{}, {}])
+	var own: Dictionary = reports[main.own_side] if reports.size() == 2 else {}
+	return Achievements.evaluate(main.save_data, {
+		"mode": mode, "won": won, "seconds": float(snapshot.get("elapsed", 0.0)),
+		"own_base": float(snapshot.get("base_hp", [0.0, 0.0])[main.own_side]),
+		"own_base_max": float(snapshot.get("base_max_hp", [500.0, 500.0])[main.own_side]),
+		"structures_built": int(own.get("structures_built", 0)), "kills": int(own.get("kills", 0)),
+		"curve": main.battle_curve, "own_side": main.own_side})
 
 static func _show_battle_report(main) -> void:
 	if not Report.valid(main.current_snapshot.get("battle_report",[])): return

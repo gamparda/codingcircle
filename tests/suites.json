@@ -43,7 +43,8 @@
     "tests/online_result_ui_test.gd",
     "tests/replay_analysis_test.gd",
     "tests/deck_simulator_ui_test.gd",
-    "tests/deck_analysis_test.gd"
+    "tests/deck_analysis_test.gd",
+    "tests/achievements_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",

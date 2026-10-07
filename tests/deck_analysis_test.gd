@@ -42,7 +42,7 @@ func run() -> void:
 	check(line.call([0.0, -0.2, 0.1, 0.0, 0.2], 0, 0).contains("접전"), "narrow win")
 	check(line.call([0.5, 0.4, -0.2, -0.6], 1, 0).contains("전세를 내줬"), "blown lead")
 	check(line.call([-0.1, -0.3, -0.4, -0.5], 1, 0).contains("처음부터 밀렸"), "dominated")
-	check(line.call([-0.3, -0.5, -0.4, -0.7], 1, 1).contains("안정적") and line.call([-0.3, -0.5, -0.4, -0.7], 0, 1).contains("처음부터"), "perspective flips for the red side")
+	check(line.call([-0.3, -0.5, -0.4, -0.7], 1, 1).contains("안정적") and line.call([0.2, 0.4, 0.5, 0.6], 0, 1).contains("처음부터"), "perspective flips for the red side")
 	check(line.call([0.0, 0.0, 0.0, 0.0], 2, 0).contains("무승부"), "draw")
 	check(line.call([0.1], 0, 0) == "" and line.call([0.1, 0.2, 0.3, 0.4], -1, 0) == "", "too little data gives no sentence")
 	var snapshot := {"base_hp": [500.0, 100.0], "units": [{"side": 0, "hp": 50.0}, {"side": 1, "hp": 10.0}]}

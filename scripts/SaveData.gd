@@ -46,7 +46,10 @@ static func default_data() -> Dictionary:
 		"stats": {
 			"ai_matches": 0, "ai_wins": 0, "ai_losses": 0, "highest_campaign": 0, "total_stars": 0,
 			"online_completed": 0, "online_wins": 0, "online_losses": 0, "online_draws": 0, "online_interrupted": 0,
+			"win_streak": 0, "best_streak": 0, "daily_completed": 0,
 		},
+		"achievements": {},
+		"daily": {},
 	}
 
 static func _migrate_removed_structures(structures: Array, fallback: Array) -> Array:
@@ -89,6 +92,8 @@ static func apply_graphics_profile(settings: Dictionary, quality: String, mobile
 	for key in profile:
 		settings[key] = profile[key]
 	settings.graphics_quality = quality
+
+const DAILY_HISTORY := 60
 
 static func sanitize(raw: Variant) -> Dictionary:
 	var clean := default_data()
@@ -145,6 +150,18 @@ static func sanitize(raw: Variant) -> Dictionary:
 		for key in clean.stats.keys():
 			if _is_integer(raw.stats.get(key)):
 				clean.stats[key] = max(0, int(raw.stats[key]))
+	if raw.get("achievements") is Dictionary:
+		for id in preload("res://scripts/Achievements.gd").ids():
+			if _is_integer(raw.achievements.get(id)):
+				clean.achievements[id] = max(0, int(raw.achievements[id]))
+	if raw.get("daily") is Dictionary:
+		var days: Array = raw.daily.keys()
+		days.sort()
+		for key in days.slice(maxi(0, days.size() - DAILY_HISTORY)):
+			var entry = raw.daily[key]
+			if String(key).length() == 8 and String(key).is_valid_int() and entry is Dictionary and _is_integer(entry.get("score")):
+				clean.daily[String(key)] = {"won": bool(entry.get("won", false)), "score": clampi(int(entry.score), 0, 100000),
+					"seconds": clampf(float(entry.get("seconds", 0.0)), 0.0, 100000.0)}
 	clean.stats.highest_campaign = mini(8, int(clean.stats.highest_campaign))
 	clean.stats.total_stars = 0
 	for record in clean.campaign_records:
