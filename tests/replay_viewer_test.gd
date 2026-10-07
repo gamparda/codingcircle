@@ -56,12 +56,13 @@ func run() -> void:
 	check(main.find_child("PlayReplayButton", true, false) != null and main.find_child("DeleteReplayButton", true, false) != null, "card offers play and delete")
 
 	main._play_replay(saved)
-	await process_frame
 	var viewer = main.replay_viewer
-	check(viewer != null and viewer.player != null and viewer.player.ticks <= 3, "viewer starts at the beginning")
-	for i in 30:
-		await process_frame
-	check(viewer.player.ticks > 0, "playback advances over time")
+	# Checked before any frame runs: how far a frame advances depends on the machine's frame time.
+	check(viewer != null and viewer.player != null and viewer.player.ticks == 0, "viewer starts at the beginning")
+	await process_frame
+	for i in 5:
+		viewer._process(0.1) # fixed deltas keep this independent of the machine's frame rate
+	check(viewer.player.ticks >= 10, "playback advances with elapsed time")
 	viewer.seek(int(replay.result.ticks) / 2)
 	check(viewer.player.ticks >= int(replay.result.ticks) / 2 - 1 and not viewer.player.is_finished(), "seek jumps to the middle of the battle")
 	viewer.cycle_speed()
@@ -79,8 +80,8 @@ func run() -> void:
 	viewer._process(0.1)
 	check(viewer.find_child("ReplayEndBanner", true, false) != null, "end banner announces the winner")
 	viewer._restart()
+	check(viewer.player.ticks == 0 and not viewer.finished_shown, "restart rewinds to the beginning")
 	await process_frame
-	check(viewer.player.ticks <= 3, "restart rewinds to the beginning")
 	viewer.find_child("ReplayClose", true, false).pressed.emit()
 	await process_frame
 	await process_frame
