@@ -1,0 +1,17 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "archer"
+display_name = "궁수"
+order = 2
+summon_only = false
+cost = 50.0
+hp = 58.0
+damage = 14.0
+interval = 1.5
+speed = 34.0
+range = 280.0
+extra = {}

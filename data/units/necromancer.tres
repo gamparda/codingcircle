@@ -1,0 +1,17 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "necromancer"
+display_name = "네크로맨서"
+order = 6
+summon_only = false
+cost = 110.0
+hp = 50.0
+damage = 2.0
+interval = 1.5
+speed = 34.0
+range = 125.0
+extra = {}

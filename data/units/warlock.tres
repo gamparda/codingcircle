@@ -1,0 +1,17 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "warlock"
+display_name = "흑마법사"
+order = 5
+summon_only = false
+cost = 35.0
+hp = 50.0
+damage = 4.0
+interval = 1.5
+speed = 34.0
+range = 280.0
+extra = {}

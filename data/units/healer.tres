@@ -1,0 +1,19 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "healer"
+display_name = "마법사"
+order = 3
+summon_only = false
+cost = 25.0
+hp = 60.0
+damage = 0.0
+interval = 4.0
+speed = 34.0
+range = 125.0
+extra = {
+"heal": 0.0
+}

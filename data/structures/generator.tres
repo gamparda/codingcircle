@@ -1,0 +1,15 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/StructureDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "generator"
+display_name = "발전기"
+order = 3
+cost = 50.0
+hp = 90.0
+params = {
+"income": 2.0,
+"max_count": 1
+}

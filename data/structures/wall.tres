@@ -1,0 +1,14 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/StructureDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "wall"
+display_name = "방벽"
+order = 0
+cost = 35.0
+hp = 230.0
+params = {
+"max_count": 2
+}

@@ -1,0 +1,17 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "berserker"
+display_name = "광전사"
+order = 4
+summon_only = false
+cost = 40.0
+hp = 155.0
+damage = 6.0
+interval = 1.4
+speed = 44.0
+range = 40.0
+extra = {}

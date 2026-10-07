@@ -1,0 +1,17 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "shield"
+display_name = "탱커"
+order = 0
+summon_only = false
+cost = 45.0
+hp = 400.0
+damage = 2.0
+interval = 1.5
+speed = 48.0
+range = 34.0
+extra = {}

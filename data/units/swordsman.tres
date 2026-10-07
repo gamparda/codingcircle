@@ -1,0 +1,17 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "swordsman"
+display_name = "검사"
+order = 1
+summon_only = false
+cost = 30.0
+hp = 82.0
+damage = 11.0
+interval = 1.4
+speed = 44.0
+range = 40.0
+extra = {}

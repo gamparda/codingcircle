@@ -3,6 +3,7 @@ extends RefCounted
 
 const Localization = preload("res://scripts/Localization.gd")
 const Report = preload("res://scripts/BattleReport.gd")
+const GameData = preload("res://scripts/data/GameData.gd")
 
 const WORLD_SCALE := 1.15
 const WORLD_WIDTH := 1280.0 * WORLD_SCALE
@@ -30,25 +31,11 @@ const CURSE_DURATION := 5.0
 const CURSE_DAMAGE_SCALE := 0.70
 const SUMMON_INTERVAL := 5.0
 const MAX_ACTIVE_UNITS := 256
-const UNIT_NAMES := {"shield": "탱커", "swordsman": "검사", "archer": "궁수", "healer": "마법사",
-	"berserker": "광전사", "warlock": "흑마법사", "necromancer": "네크로맨서", "skeleton": "해골"}
-
-const UNIT_STATS := {
-	"shield": {"cost": 45.0, "hp": 400.0, "damage": 2.0, "interval": 1.5, "speed": 48.0, "range": 34.0},
-	"swordsman": {"cost": 30.0, "hp": 82.0, "damage": 11.0, "interval": 1.4, "speed": 44.0, "range": 40.0},
-	"archer": {"cost": 50.0, "hp": 58.0, "damage": 14.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
-	"healer": {"cost": 25.0, "hp": 60.0, "damage": 0.0, "heal": 0.0, "interval": SUPPORT_COOLDOWN, "speed": 34.0, "range": 125.0},
-	"berserker": {"cost": 40.0, "hp": 155.0, "damage": 6.0, "interval": 1.4, "speed": 44.0, "range": 40.0},
-	"warlock": {"cost": 35.0, "hp": 50.0, "damage": 4.0, "interval": 1.5, "speed": 34.0, "range": 280.0},
-	"necromancer": {"cost": 110.0, "hp": 50.0, "damage": 2.0, "interval": 1.5, "speed": 34.0, "range": 125.0},
-}
-const SUMMON_STATS := {"skeleton": {"cost": 0.0, "hp": 30.0, "damage": 10.0, "interval": 1.4, "speed": 44.0, "range": 40.0}}
-const STRUCTURE_STATS := {
-	"wall": {"cost": 35.0, "hp": 230.0, "max_count": 2},
-	"swamp": {"cost": 30.0, "hp": 100.0, "speed_scale": 0.20, "radius": 95.0, "lifetime": 5.0},
-	"turret": {"cost": 50.0, "hp": 115.0, "damage": 8.0, "interval": 1.5, "range": 240.0, "max_count": 1},
-	"generator": {"cost": 50.0, "hp": 90.0, "income": 2.0, "max_count": 1},
-}
+# Unit/structure numbers live in res://data/**.tres (see scripts/data/GameData.gd).
+static var UNIT_STATS: Dictionary = GameData.unit_stats()
+static var SUMMON_STATS: Dictionary = GameData.summon_stats()
+static var STRUCTURE_STATS: Dictionary = GameData.structure_stats()
+static var UNIT_NAMES: Dictionary = GameData.unit_names()
 const DEFAULT_UNIT_DECK := ["shield", "swordsman", "archer"]
 const DEFAULT_STRUCTURE_DECK := ["wall", "swamp", "turret"]
 
