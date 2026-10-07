@@ -45,9 +45,9 @@ class ReleasePolicyTest(unittest.TestCase):
         self.assertNotIn("binary_version = $BinaryVersion", build_script)
 
     def test_android_notice_displays_required_binary_version(self):
-        main_script = (ROOT / "scripts" / "Main.gd").read_text(encoding="utf-8")
-        notice = main_script.split("func _show_android_apk_notice() -> void:", 1)[1].split("\nfunc ", 1)[0]
-        self.assertIn("_on_update_started(build_binary_version())", notice)
+        overlay = (ROOT / "scripts" / "screens" / "UpdateOverlay.gd").read_text(encoding="utf-8")
+        notice = overlay.split("static func _show_android_apk_notice(main) -> void:", 1)[1].split("\nstatic func ", 1)[0]
+        self.assertIn("main._on_update_started(main.build_binary_version())", notice)
 
     def test_pck_localization_does_not_require_a_new_global_class_cache(self):
         localized_scripts = [
@@ -64,6 +64,11 @@ class ReleasePolicyTest(unittest.TestCase):
         for name in localized_scripts:
             source = (ROOT / "scripts" / name).read_text(encoding="utf-8")
             self.assertIn(preload_line, source, name)
+        for path in sorted((ROOT / "scripts" / "screens").glob("*.gd")):
+            source = path.read_text(encoding="utf-8")
+            if "Localization." in source:
+                self.assertIn(preload_line, source, path.name)
+            self.assertNotIn("class_name", source, path.name)
         localization_source = (ROOT / "scripts" / "Localization.gd").read_text(encoding="utf-8")
         self.assertNotIn("class_name Localization", localization_source)
 
