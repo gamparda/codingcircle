@@ -3,6 +3,7 @@ extends Node
 
 const Localization = preload("res://scripts/Localization.gd")
 const SessionStore = preload("res://scripts/RoomSessions.gd")
+const ServerReplays = preload("res://scripts/ServerReplays.gd")
 
 signal connection_status(text: String)
 signal match_found(side: int)
@@ -52,6 +53,7 @@ const ROOM_REQUEST_TIMEOUT := 8.0
 
 var registry := MatchRegistry.new()
 var models: Dictionary = {}
+var replays := ServerReplays.new()
 var rematch_ready: Dictionary = {}
 var server_mode := false
 var allow_test_room_codes := false
@@ -482,7 +484,10 @@ func _process(delta: float) -> void:
 	while tick_accumulator >= TICK_RATE:
 		for match_id in models.keys():
 			var model: BattleModel = models[match_id]
-			if not _match_paused(int(match_id)): model.tick(TICK_RATE)
+			if not _match_paused(int(match_id)) and model.winner == -1:
+				model.tick(TICK_RATE)
+				replays.on_tick(int(match_id))
+			replays.settle(int(match_id), model)
 			if model.winner != -1 and session_matches.has(match_id):
 				var code: String = session_matches[match_id]
 				if sessions.rooms.has(code) and sessions.rooms[code].phase == "playing":
@@ -546,6 +551,7 @@ func _start_paired_match(paired: Dictionary) -> void:
 		var deck: Dictionary = peer_decks[int(player_id)]
 		model.configure_deck(int(paired[player_id]), deck.units, deck.structures)
 	models[match_id] = model
+	replays.begin(match_id, model, {"mode": "room"})
 	rematch_ready[match_id] = {}
 	for player_id in paired.keys():
 		match_started.rpc_id(int(player_id), int(paired[player_id]))
@@ -586,6 +592,7 @@ func _on_peer_disconnected(peer_id: int) -> void:
 		if int(player_id) != peer_id and _peer_is_connected(int(player_id)):
 			_disconnect_orphaned_peer.call_deferred(int(player_id))
 	models.erase(match_id)
+	replays.drop(match_id)
 	rematch_ready.erase(match_id)
 	peer_decks.erase(peer_id)
 	request_windows.erase(peer_id)
@@ -671,8 +678,8 @@ func request_spawn(kind: String) -> void:
 	var match_id := registry.get_match_id(sender)
 	if models.has(match_id) and not _match_paused(match_id):
 		var side := registry.get_side(sender)
-		if models[match_id].unit_decks[side].has(kind):
-			models[match_id].spawn_unit(side, kind)
+		if models[match_id].unit_decks[side].has(kind) and models[match_id].spawn_unit(side, kind):
+			replays.on_spawn(match_id, side, kind)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_place_structure(kind: String, x: float) -> void:
@@ -692,7 +699,10 @@ func request_place_structure(kind: String, x: float) -> void:
 	var side := registry.get_side(sender)
 	var model: BattleModel = models[match_id]
 	var error := model.structure_placement_error(side, kind, clamp(x, 0.0, BattleModel.WORLD_WIDTH))
-	var success := error.is_empty() and model.place_structure(side, kind, clamp(x, 0.0, BattleModel.WORLD_WIDTH))
+	var placed_x: float = clamp(x, 0.0, BattleModel.WORLD_WIDTH)
+	var success := error.is_empty() and model.place_structure(side, kind, placed_x)
+	if success:
+		replays.on_place(match_id, side, kind, placed_x)
 	if not success and error.is_empty():
 		error = Localization.text("구조물을 설치하지 못했습니다.")
 	receive_structure_placement_result.rpc_id(sender, success, error)
@@ -715,6 +725,7 @@ func request_rematch() -> void:
 	rematch_ready[match_id][sender] = true
 	if rematch_ready[match_id].size() >= 2:
 		models[match_id].reset()
+		replays.begin(match_id, models[match_id], {"mode": "rematch"})
 		rematch_ready[match_id] = {}
 		_broadcast_snapshot(match_id)
 
@@ -902,7 +913,7 @@ func _cleanup_session_match(match_id: int) -> void:
 	for id in registry.matches.get(match_id,[]):
 		if registry.get_match_id(int(id)) == match_id:
 			registry.peer_to_match.erase(id); registry.peer_to_side.erase(id)
-	registry.matches.erase(match_id); models.erase(match_id); rematch_ready.erase(match_id); session_matches.erase(match_id)
+	registry.matches.erase(match_id); models.erase(match_id); replays.drop(match_id); rematch_ready.erase(match_id); session_matches.erase(match_id)
 
 func _leave_session(peer_id: int, disconnected: bool = false, preserve_result: bool = false) -> void:
 	var result := sessions.leave(peer_id,preserve_result)
@@ -1010,6 +1021,7 @@ func request_session_start() -> void:
 		var deck: Dictionary = room.members[id].deck
 		model.configure_deck(side,deck.units,deck.structures)
 	models[match_id] = model; session_matches[match_id] = room.code
+	replays.begin(match_id, model, {"mode": "session"})
 	_push_session(room.code); lobby_dirty = true
 	for side in 2: match_started.rpc_id(int(ids[side]),side)
 	for id in room.members:
@@ -1151,6 +1163,7 @@ static func valid_recovery_state(data: Variant) -> bool:
 func _finish_match(match_id: int, winner: int) -> void:
 	if not models.has(match_id) or models[match_id].winner != -1: return
 	models[match_id].winner = winner
+	replays.settle(match_id, models[match_id])
 	if session_matches.has(match_id):
 		sessions.finish(String(session_matches[match_id])); _push_session(String(session_matches[match_id]))
 	_broadcast_snapshot(match_id); lobby_dirty = true

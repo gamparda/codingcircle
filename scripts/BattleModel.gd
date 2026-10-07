@@ -500,6 +500,12 @@ func _record_damage(side: int, kind: String, amount: float, killed: bool) -> voi
 	if killed:
 		battle_report[side].kills += 1; battle_report[side].units[kind].kills += 1
 
+## Fingerprint of the full simulation state; replays use it to prove determinism.
+func state_hash() -> String:
+	var data := snapshot()
+	data.erase("battle_report")
+	return JSON.stringify(data, "", true).sha256_text()
+
 func snapshot() -> Dictionary:
 	var data := {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "base_max_hp": base_max_hp.duplicate(), "units": units.duplicate(true), "structures": structures.duplicate(true), "curses": curses.duplicate(true), "winner": winner, "elapsed": elapsed,
 		"spawn_cooldowns":spawn_cooldowns.duplicate(true)}

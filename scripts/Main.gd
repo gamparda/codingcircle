@@ -39,6 +39,7 @@ var local_ai_mode := false
 var ai_smoke_mode := false
 const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
 const PracticeTools = preload("res://scripts/PracticeTools.gd")
+const BattleReplay = preload("res://scripts/BattleReplay.gd")
 var practice = PracticeTools.new()
 var practice_used_tools := false
 var practice_pause_button: Button
@@ -56,6 +57,9 @@ var binding_hint: Label
 var binding_capture_overlay: Control
 var local_model: BattleModel
 var local_ai: ServerAI
+var local_recorder = null # BattleReplay.Recorder for campaign battles
+var local_step_accumulator := 0.0
+var last_replay_path := ""
 var current_ai_stage := 1
 var bgm_player: AudioStreamPlayer
 const CombatSounds = preload("res://scripts/CombatSounds.gd")
@@ -226,7 +230,13 @@ func _process(delta: float) -> void:
 		updater.set_safe_to_update(_server_can_update())
 	if local_ai_mode and battle_active and is_instance_valid(local_model) and not is_instance_valid(action_overlay):
 		if campaign_mode:
-			local_ai.update(local_model, delta); local_model.tick(delta)
+			# Fixed 30 Hz steps keep campaign battles deterministic, so their replays reproduce exactly.
+			local_step_accumulator += minf(delta, 0.25)
+			var step := 1.0 / float(BattleReplay.DEFAULT_HZ)
+			while local_step_accumulator >= step and local_model.winner == -1:
+				local_ai.update(local_model, step); local_model.tick(step)
+				if local_recorder != null: local_recorder.on_tick()
+				local_step_accumulator -= step
 		else: practice.advance(local_model,local_ai,delta,own_side)
 		_on_combat_events(local_model.drain_combat_events())
 		_on_snapshot(local_model.snapshot())
@@ -1161,6 +1171,10 @@ func _start_local_ai_battle(stage: int = 1, reuse_deck: bool = false) -> void:
 		_begin_tutorial()
 	if ai_smoke_mode:
 		local_model.spawn_unit(0, String(preset.units[0]))
+	local_step_accumulator = 0.0
+	local_recorder = null
+	if campaign_mode and not ai_smoke_mode:
+		local_recorder = BattleReplay.Recorder.new(local_model, BattleReplay.DEFAULT_HZ, {"side": 1, "stage": current_ai_stage}, {"mode": "campaign", "stage": current_ai_stage})
 	_on_snapshot(local_model.snapshot())
 
 func _build_battle_screen() -> void:
@@ -1647,6 +1661,7 @@ func _on_battlefield_clicked(world_x: float) -> void:
 	if local_ai_mode:
 		if not campaign_mode: practice.refill(local_model,own_side)
 		if local_model.place_structure(own_side, kind, world_x):
+			if local_recorder != null: local_recorder.on_place(own_side, kind, world_x)
 			_show_placement_status(Localization.text("건설 완료"))
 			battle_view.selected_structure = ""
 			_refresh_structure_selection()
@@ -1747,6 +1762,9 @@ func _show_result(winner: int) -> void:
 	if not result_recorded and not network.client_is_spectator:
 		result_recorded = true
 		if local_ai_mode:
+			if local_recorder != null and is_instance_valid(local_model):
+				last_replay_path = BattleReplay.save(local_recorder.finish(local_model), "stage%d" % current_ai_stage)
+				local_recorder = null
 			if campaign_mode:
 				awarded_stars = SaveData.record_campaign(save_data, current_ai_stage, winner == own_side, float(current_snapshot.elapsed), float(current_snapshot.base_hp[own_side]), winner == 2)
 			elif not practice_used_tools:
@@ -2160,6 +2178,7 @@ func _purchase_unit(kind: String) -> void:
 	if local_ai_mode:
 		if not campaign_mode: practice.refill(local_model,own_side)
 		accepted = local_model.spawn_unit(own_side,kind)
+		if accepted and local_recorder != null: local_recorder.on_spawn(own_side, kind)
 		if accepted: _tutorial_advance(0)
 	else:
 		network.send_spawn(kind); accepted = true
