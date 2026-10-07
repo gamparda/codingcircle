@@ -56,21 +56,15 @@ jobs:
             Copy-Item ".ci/templates/templates/*" $templateDir -Recurse -Force
           }
 
-      - name: Resolve independent release versions
+      - name: Resolve release versions from release.json
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $contentVersion = "0.6.5"
-          $windowsVersion = "0.6.5"
-          $androidBinaryVersion = "0.4.18"
-          $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?before=${{ github.sha }}"
-          $previousAndroidVersion = if ($previous.PSObject.Properties.Name -contains "android_binary_version") { [string]$previous.android_binary_version } else { [string]$previous.version }
+          python tools/release_meta.py check
+          if ($LASTEXITCODE -ne 0) { throw "Generated version files drifted from release.json (run: python tools/release_meta.py sync)" }
+          python tools/release_meta.py github-env | Out-File $env:GITHUB_ENV -Append
           # Always ship a fresh signed APK, without forcing native upgrades for PCK-only changes.
-          $buildAndroid = $true
-          "CONTENT_VERSION=$contentVersion" | Out-File $env:GITHUB_ENV -Append
-          "WINDOWS_VERSION=$windowsVersion" | Out-File $env:GITHUB_ENV -Append
-          "ANDROID_BINARY_VERSION=$androidBinaryVersion" | Out-File $env:GITHUB_ENV -Append
-          "BUILD_ANDROID=$($buildAndroid.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_ENV -Append
+          "BUILD_ANDROID=true" | Out-File $env:GITHUB_ENV -Append
 
       - name: Configure signed Android export
         if: env.BUILD_ANDROID == 'true'
@@ -107,77 +101,24 @@ jobs:
         shell: pwsh
         run: choco install innosetup --yes --no-progress
 
-      - name: Test and build Windows plus content
+      - name: Run test suites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python tools/run_suite.py all
+          if ($LASTEXITCODE -ne 0) { throw "Test suites failed" }
+
+      - name: Build Windows plus content
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $iscc = (Get-ChildItem "C:/Program Files (x86)/Inno Setup 6" -Filter ISCC.exe -Recurse | Select-Object -First 1).FullName
           if (-not $iscc) { throw "Inno Setup compiler was not found" }
-          ./tools/build_release.ps1 -GodotPath $env:GODOT_CONSOLE -IsccPath $iscc -Version $env:WINDOWS_VERSION -ContentVersion $env:CONTENT_VERSION -BinaryVersion $env:ANDROID_BINARY_VERSION -Commit "${{ github.sha }}"
+          ./tools/build_release.ps1 -GodotPath $env:GODOT_CONSOLE -IsccPath $iscc -ContentVersion $env:CONTENT_VERSION -Version $env:WINDOWS_VERSION -BinaryVersion $env:ANDROID_BINARY_VERSION -Commit "${{ github.sha }}" -SkipTests
 
           $presets = Get-Content export_presets.cfg -Raw
           $presets = $presets -replace 'version/code=\d+', "version/code=${{ github.run_number }}"
-          $presets = $presets -replace 'version/name="[^"]+"', "version/name=`"$env:ANDROID_BINARY_VERSION`""
           [System.IO.File]::WriteAllText((Join-Path $PWD "export_presets.cfg"), $presets, [System.Text.UTF8Encoding]::new($false))
-
-          & $env:GODOT_CONSOLE --headless --path . --script res://tests/security_windows_updater.gd
-          if ($LASTEXITCODE -ne 0) { throw "Windows updater security tests failed" }
-          python tests/security_linux_updater_test.py
-          if ($LASTEXITCODE -ne 0) { throw "Linux updater tests failed" }
-          python tests/localization_catalog_test.py
-          if ($LASTEXITCODE -ne 0) { throw "Localization catalog tests failed" }
-          python tests/release_version_policy_test.py
-          if ($LASTEXITCODE -ne 0) { throw "Independent release version tests failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/balance_feedback_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Focused balance and room connection regressions failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/simultaneous_combat_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Simultaneous combat fairness regressions failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/balance_bot_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Benchmark purchase policy regressions failed" }
-          python tests/balance_analysis_test.py
-          if ($LASTEXITCODE -ne 0) { throw "Balance data integrity regressions failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/new_units_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "New unit mechanics and wire regressions failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/new_units_ui_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "New unit UI regressions failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/deck_layout_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Focused deck layout regression failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/v05_tactics_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "v0.5 AI tactics and health regression failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/v05_ui_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "v0.5 HUD and concise copy regression failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/combat_polish_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Combat interpolation/timer/sound regression failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/reconnect_admission_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Reconnect and uncapped admission regression failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_browser_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Room browser lifecycle/protocol regression failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_browser_ui_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Room browser UI navigation regression failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/key_bindings_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "key_bindings_test failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/practice_campaign_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "practice_campaign_test failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/network_recovery_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "network_recovery_test failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/battle_experience_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "battle_experience_test failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/battle_experience_ui_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "battle_experience_ui_test failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_sessions_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "room_sessions_test failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_sessions_wire_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "room_sessions_wire_test failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_sessions_ui_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "room_sessions_ui_test failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/room_browser_wire_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Room browser real two-client RPC regression failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/combat_polish_ui_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Combat feedback and mirrored placement regression failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/ai_battle_spotcheck.gd
-          if ($LASTEXITCODE -ne 0) { throw "Bounded AI purchase regression failed" }
-          & $env:GODOT_CONSOLE --headless --single-threaded-scene --path . --script res://tests/support_ui_feedback_test.gd
-          if ($LASTEXITCODE -ne 0) { throw "Purchase and patch-note UI regressions failed" }
 
           New-Item -ItemType Directory -Force dist | Out-Null
           if ($env:BUILD_ANDROID -eq "true") {
@@ -229,7 +170,8 @@ jobs:
           [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n$androidSha  CatWar.apk`n$contentSha  CatWarContent.pck`n", [System.Text.UTF8Encoding]::new($false))
           New-Item -ItemType File -Force site/.nojekyll | Out-Null
 
-      - name: Publish versioned GitHub Release
+      - name: Publish GitHub Release (new versions only)
+        id: release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -239,13 +181,23 @@ jobs:
           $assets = @("site/CatWarSetup.exe", "site/CatWar.apk", "site/CatWarContent.pck", "site/update.json", "site/SHA256SUMS.txt")
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag @assets --clobber --repo $env:GITHUB_REPOSITORY
-            if ($LASTEXITCODE -ne 0) { throw "Failed to replace release assets" }
-            gh release edit $tag --title "Cat War $env:CONTENT_VERSION" --latest --repo $env:GITHUB_REPOSITORY
+            # A published tag is immutable. Re-pushes of the same version are dev builds:
+            # they only update the Pages channel and the dev-build artifact below.
+            "published=false" | Out-File $env:GITHUB_OUTPUT -Append
+            Write-Host "Release $tag already exists and is left untouched. Bump release.json for a new release."
           } else {
             gh release create $tag @assets --target $env:GITHUB_SHA --title "Cat War $env:CONTENT_VERSION" --notes-file CHANGELOG.md --latest --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw "Failed to publish GitHub Release" }
+            "published=true" | Out-File $env:GITHUB_OUTPUT -Append
           }
-          if ($LASTEXITCODE -ne 0) { throw "Failed to publish GitHub Release" }
+
+      - name: Keep dev build as workflow artifact
+        if: steps.release.outputs.published != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-build-${{ github.run_number }}-${{ github.sha }}
+          path: site/*
+          retention-days: 14
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

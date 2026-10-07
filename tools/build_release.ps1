@@ -5,7 +5,7 @@ param(
     [string]$ContentVersion = "",
     [string]$BinaryVersion = "",
     [string]$Commit = "local",
-    [string]$UpdateUrl = "https://gamparda.github.io/codingcircle/update.json"
+    [switch]$SkipTests
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,35 +41,18 @@ $Godot = Resolve-Godot $GodotPath
 $Iscc = Resolve-Iscc $IsccPath
 New-Item -ItemType Directory -Force $Builds, $Dist | Out-Null
 
-$BuildInfoPath = Join-Path $Root "build_info.json"
-$ExistingBuildInfo = Get-Content $BuildInfoPath -Raw | ConvertFrom-Json
-if (-not $Version) { $Version = [string]$ExistingBuildInfo.version }
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "Version must use numeric major.minor.patch format, for example 0.4.2"
+# release.json is the only place versions are edited; this regenerates build_info.json,
+# project.godot and export_presets.cfg from it and stamps the target commit.
+$Python = (Get-Command python -ErrorAction Stop).Source
+$ReleaseJson = Get-Content (Join-Path $Root "release.json") -Raw | ConvertFrom-Json
+if (-not $Version) { $Version = [string]$ReleaseJson.windows_version }
+if (-not $ContentVersion) { $ContentVersion = [string]$ReleaseJson.content_version }
+if (-not $BinaryVersion) { $BinaryVersion = [string]$ReleaseJson.android_binary_version }
+if ($Version -ne [string]$ReleaseJson.windows_version -or $ContentVersion -ne [string]$ReleaseJson.content_version -or $BinaryVersion -ne [string]$ReleaseJson.android_binary_version) {
+    throw "Version parameters disagree with release.json. Edit release.json instead of passing versions."
 }
-if (-not $ContentVersion) { $ContentVersion = [string]$ExistingBuildInfo.version }
-if ($ContentVersion -notmatch '^\d+\.\d+\.\d+$') {
-    throw "ContentVersion must use numeric major.minor.patch format"
-}
-if (-not $BinaryVersion) {
-    $BinaryVersion = if ($ExistingBuildInfo.PSObject.Properties.Name -contains "binary_version") { [string]$ExistingBuildInfo.binary_version } else { $Version }
-}
-if ($BinaryVersion -notmatch '^\d+\.\d+\.\d+$') {
-    throw "BinaryVersion must use numeric major.minor.patch format"
-}
-$BuildInfo = [ordered]@{
-    version = $ContentVersion
-    binary_version = $BinaryVersion
-    commit = $Commit
-    update_url = $UpdateUrl
-} | ConvertTo-Json
-[System.IO.File]::WriteAllText($BuildInfoPath, $BuildInfo + "`n", [System.Text.UTF8Encoding]::new($false))
-
-$ExportPresetPath = Join-Path $Root "export_presets.cfg"
-$ExportPreset = Get-Content $ExportPresetPath -Raw
-$ExportPreset = $ExportPreset -replace 'application/file_version="[^"]+"', "application/file_version=`"$Version`""
-$ExportPreset = $ExportPreset -replace 'application/product_version="[^"]+"', "application/product_version=`"$Version`""
-[System.IO.File]::WriteAllText($ExportPresetPath, $ExportPreset, [System.Text.UTF8Encoding]::new($false))
+& $Python (Join-Path $PSScriptRoot "release_meta.py") sync $Commit
+if ($LASTEXITCODE -ne 0) { throw "release_meta.py sync failed" }
 
 Write-Host "Building Cat War $Version ($Commit)" -ForegroundColor Green
 
@@ -77,13 +60,14 @@ Write-Host "[0/4] Initializing Godot project metadata..." -ForegroundColor Cyan
 & $Godot --headless --path $Root --editor --quit
 if ($LASTEXITCODE -ne 0) { throw "Godot project initialization failed with exit code $LASTEXITCODE" }
 
-Write-Host "[1/4] Running game rule tests..." -ForegroundColor Cyan
-& $Godot --headless --path $Root --script res://tests/run_tests.gd
-if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE" }
-& $Godot --headless --path $Root --script res://tests/v04_test.gd
-if ($LASTEXITCODE -ne 0) { throw "v0.4 tests failed with exit code $LASTEXITCODE" }
-& $Godot --headless --path $Root --script res://tests/ui_flow_test.gd
-if ($LASTEXITCODE -ne 0) { throw "UI flow tests failed with exit code $LASTEXITCODE" }
+Write-Host "[1/4] Running test suites..." -ForegroundColor Cyan
+if ($SkipTests) {
+    Write-Host "  skipped (-SkipTests): the caller already ran tools/run_suite.py" -ForegroundColor Yellow
+} else {
+    $env:GODOT_CONSOLE = $Godot
+    & $Python (Join-Path $PSScriptRoot "run_suite.py") all
+    if ($LASTEXITCODE -ne 0) { throw "Test suites failed" }
+}
 
 Write-Host "[2/4] Exporting Windows game/server executable..." -ForegroundColor Cyan
 & $Godot --headless --path $Root --export-release "Windows Desktop" (Join-Path $Builds "CatWar.exe")
