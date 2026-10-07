@@ -3,7 +3,10 @@ extends Node
 
 const Localization = preload("res://scripts/Localization.gd")
 const SessionStore = preload("res://scripts/RoomSessions.gd")
+const Protocol = preload("res://scripts/NetworkProtocol.gd")
+const PeerAdmission = preload("res://scripts/PeerAdmission.gd")
 const ServerReplays = preload("res://scripts/ServerReplays.gd")
+const ServerBattle = preload("res://scripts/ServerBattle.gd")
 const QuickQueue = preload("res://scripts/QuickQueue.gd")
 
 signal connection_status(text: String)
@@ -25,7 +28,7 @@ signal recovery_changed(data: Dictionary) # {paused, reconnect_remaining}
 signal reconnect_status(active: bool, remaining: float)
 signal quick_match_status(state: String) # "queued" | "cancelled" | "timeout"
 
-const RECONNECT_GRACE := 20.0
+const RECONNECT_GRACE := Protocol.RECONNECT_GRACE
 var client_reconnect_token := ""
 var client_reconnect_code := ""
 var client_reconnecting := false
@@ -38,35 +41,41 @@ var ping_sequence := 0
 var pending_ping: Dictionary = {}
 
 const DEFAULT_PORT := 7777
-const TICK_RATE := 1.0 / 30.0
-const SNAPSHOT_RATE := 1.0 / 12.0
-const MAX_REQUESTS_PER_SECOND := 24
-const MAX_SNAPSHOT_UNITS := 256
-const MAX_SNAPSHOT_STRUCTURES := 16
-const TRANSPORT_MAX_PEERS := 4095 # ENet protocol ceiling, not an application admission quota.
-const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "skeleton"]
-const VALID_STRUCTURE_KINDS := ["wall", "swamp", "turret", "generator"]
-const ROOM_LIST_PAGE_SIZE := 12
-const ROOM_NAME_LENGTH := 24
-const ROOM_CODE_LENGTH := 6
-const ROOM_CODE_ALPHABET := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+const TICK_RATE := ServerBattle.TICK_RATE
+const SNAPSHOT_RATE := ServerBattle.SNAPSHOT_RATE
+const MAX_REQUESTS_PER_SECOND := PeerAdmission.MAX_REQUESTS_PER_SECOND
+const MAX_SNAPSHOT_UNITS := Protocol.MAX_SNAPSHOT_UNITS
+const MAX_SNAPSHOT_STRUCTURES := Protocol.MAX_SNAPSHOT_STRUCTURES
+const TRANSPORT_MAX_PEERS := Protocol.TRANSPORT_MAX_PEERS
+const VALID_UNIT_KINDS := Protocol.VALID_UNIT_KINDS
+const VALID_STRUCTURE_KINDS := Protocol.VALID_STRUCTURE_KINDS
+const ROOM_LIST_PAGE_SIZE := Protocol.ROOM_LIST_PAGE_SIZE
+const ROOM_NAME_LENGTH := Protocol.ROOM_NAME_LENGTH
+const ROOM_CODE_LENGTH := Protocol.ROOM_CODE_LENGTH
+const ROOM_CODE_ALPHABET := Protocol.ROOM_CODE_ALPHABET
 const CONNECTION_TIMEOUT := 4.0
 const ROOM_REQUEST_TIMEOUT := 8.0
 
 var registry := MatchRegistry.new()
-var models: Dictionary = {}
-var replays := ServerReplays.new()
+var battle := ServerBattle.new()
+var models: Dictionary:
+	get: return battle.models
+var replays: ServerReplays:
+	get: return battle.replays
 var quick_queue := QuickQueue.new()
-var rematch_ready: Dictionary = {}
+var rematch_ready: Dictionary:
+	get: return battle.rematch_ready
 var server_mode := false
 var allow_test_room_codes := false
 var client_in_match := false
 var accepting_players := true
-var tick_accumulator := 0.0
-var snapshot_accumulator := 0.0
-var request_windows: Dictionary = {}
-var peer_addresses: Dictionary = {}
-var address_connection_counts: Dictionary = {}
+var admission := PeerAdmission.new()
+var request_windows: Dictionary:
+	get: return admission.request_windows
+var peer_addresses: Dictionary:
+	get: return admission.peer_addresses
+var address_connection_counts: Dictionary:
+	get: return admission.address_connection_counts
 var peer_decks: Dictionary = {}
 var client_unit_deck: Array = BattleModel.DEFAULT_UNIT_DECK.duplicate()
 var client_structure_deck: Array = BattleModel.DEFAULT_STRUCTURE_DECK.duplicate()
@@ -115,7 +124,7 @@ func _on_connected_to_server() -> void:
 	request_submit_deck.rpc_id(1, client_unit_deck, client_structure_deck)
 
 static func validate_deck_payload(unit_deck: Array, structure_deck: Array) -> bool:
-	return BattleModel._valid_deck(unit_deck, BattleModel.UNIT_STATS) and BattleModel._valid_deck(structure_deck, BattleModel.STRUCTURE_STATS)
+	return Protocol.validate_deck_payload(unit_deck, structure_deck)
 
 func set_client_deck(unit_deck: Array, structure_deck: Array) -> bool:
 	if not validate_deck_payload(unit_deck, structure_deck):
@@ -275,37 +284,13 @@ func can_accept_rematch(model: BattleModel) -> bool:
 	return accepting_players and model.winner != -1
 
 func can_process_request(peer_id: int, now_msec: int = -1) -> bool:
-	if peer_id <= 0:
-		return false
-	var now := Time.get_ticks_msec() if now_msec < 0 else now_msec
-	var window: Dictionary = request_windows.get(peer_id, {"started": now, "count": 0})
-	if now - int(window.started) >= 1000:
-		window = {"started": now, "count": 0}
-	if int(window.count) >= MAX_REQUESTS_PER_SECOND:
-		request_windows[peer_id] = window
-		return false
-	window.count = int(window.count) + 1
-	request_windows[peer_id] = window
-	return true
+	return admission.can_process_request(peer_id, now_msec)
 
 func register_peer_address(peer_id: int, address: String) -> bool:
-	if peer_id <= 0 or address.is_empty() or peer_addresses.has(peer_id):
-		return false
-	var count := int(address_connection_counts.get(address, 0))
-	peer_addresses[peer_id] = address
-	address_connection_counts[address] = count + 1
-	return true
+	return admission.register_peer_address(peer_id, address)
 
 func release_peer_address(peer_id: int) -> void:
-	if not peer_addresses.has(peer_id):
-		return
-	var address := String(peer_addresses[peer_id])
-	peer_addresses.erase(peer_id)
-	var count := int(address_connection_counts.get(address, 0)) - 1
-	if count <= 0:
-		address_connection_counts.erase(address)
-	else:
-		address_connection_counts[address] = count
+	admission.release_peer_address(peer_id)
 
 func can_create_match() -> bool:
 	return true # No application-level match quota.
@@ -334,135 +319,31 @@ func _disconnect_orphaned_peer(peer_id: int) -> void:
 		_disconnect_peer(peer_id)
 
 static func is_safe_command_text(value: String) -> bool:
-	return not value.is_empty() and value.length() <= 32 and value == value.to_lower() and value.is_valid_identifier()
+	return Protocol.is_safe_command_text(value)
 
 static func is_valid_room_code(value: String) -> bool:
-	if value.length() != ROOM_CODE_LENGTH:
-		return false
-	for character in value:
-		if not ROOM_CODE_ALPHABET.contains(character):
-			return false
-	return true
+	return Protocol.is_valid_room_code(value)
 
 static func is_safe_position(value: float) -> bool:
-	return is_finite(value)
+	return Protocol.is_safe_position(value)
 
 static func is_valid_match_side(side: int) -> bool:
-	return side == 0 or side == 1
+	return Protocol.is_valid_match_side(side)
 
 static func _is_finite_number(value: Variant) -> bool:
-	return (value is int or value is float) and is_finite(float(value))
+	return Protocol._is_finite_number(value)
 
 static func _has_exact_keys(value: Dictionary, expected: Array) -> bool:
-	if value.size() != expected.size():
-		return false
-	for key in expected:
-		if not value.has(key):
-			return false
-	return true
+	return Protocol._has_exact_keys(value, expected)
 
 static func _number_in_range(value: Variant, minimum: float, maximum: float) -> bool:
-	return _is_finite_number(value) and float(value) >= minimum and float(value) <= maximum
+	return Protocol._number_in_range(value, minimum, maximum)
 
 static func is_valid_snapshot(data: Dictionary) -> bool:
-	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses", "base_max_hp", "spawn_cooldowns", "battle_report", "network"]):
-		return false
-	if data.has("network") and not valid_recovery_state(data.network): return false
-	if data.has("battle_report") and (int(data.get("winner",-1)) == -1 or not preload("res://scripts/BattleReport.gd").valid(data.battle_report)): return false
-	if data.has("spawn_cooldowns"):
-		if not data.spawn_cooldowns is Array or data.spawn_cooldowns.size()!=2: return false
-		for side in data.spawn_cooldowns:
-			if not side is Dictionary or side.size()>BattleModel.UNIT_STATS.size(): return false
-			for kind in side:
-				if not BattleModel.UNIT_STATS.has(kind) or not _number_in_range(side[kind],0.0,0.35): return false
-	var resources = data.resources
-	var base_hp = data.base_hp
-	var units = data.units
-	var structures = data.structures
-	if not resources is Array or resources.size() != 2:
-		return false
-	if not base_hp is Array or base_hp.size() != 2:
-		return false
-	for value in resources:
-		if not _number_in_range(value, 0.0, BattleModel.MAX_RESOURCE):
-			return false
-	for value in base_hp:
-		if not _number_in_range(value, 0.0, 500.0):
-			return false
-	var maxima = data.get("base_max_hp", [BattleModel.BASE_MAX_HP, BattleModel.BASE_MAX_HP])
-	if not maxima is Array or maxima.size() != 2:
-		return false
-	for index in 2:
-		if not _number_in_range(maxima[index], 1.0, BattleModel.BASE_MAX_HP) or float(base_hp[index]) > float(maxima[index]):
-			return false
-	if not units is Array or units.size() > MAX_SNAPSHOT_UNITS:
-		return false
-	if not structures is Array or structures.size() > MAX_SNAPSHOT_STRUCTURES:
-		return false
-	var unit_ids := {}
-	for unit in units:
-		if not unit is Dictionary or not _has_required_optional_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"], ["support_stacks", "summon_remaining"]):
-			return false
-		var unit_id = unit.id
-		var unit_side = unit.side
-		if not unit_id is int or int(unit_id) <= 0 or unit_ids.has(unit_id):
-			return false
-		unit_ids[unit_id] = true
-		if not unit_side is int or not is_valid_match_side(unit_side) or not VALID_UNIT_KINDS.has(String(unit.kind)):
-			return false
-		if not _number_in_range(unit.x, -256.0, 1536.0) or not _number_in_range(unit.max_hp, 0.01, 10000.0):
-			return false
-		if not _number_in_range(unit.hp, 0.0, float(unit.max_hp)):
-			return false
-		for key in ["damage", "heal", "interval", "cooldown", "speed", "range"]:
-			if not _number_in_range(unit[key], 0.0, 10000.0):
-				return false
-		if unit.has("support_stacks") and (not unit.support_stacks is int or int(unit.support_stacks) < 0 or int(unit.support_stacks) > BattleModel.SUPPORT_MAX_STACKS):
-			return false
-		if unit.has("summon_remaining") and (unit.kind != "necromancer" or not _number_in_range(unit.summon_remaining, 0.0, BattleModel.SUMMON_INTERVAL)):
-			return false
-	var structure_ids := {}
-	for structure in structures:
-		if not structure is Dictionary or not _has_required_optional_keys(structure, ["id", "side", "kind", "x", "hp", "max_hp"], ["expires_at"]):
-			return false
-		var structure_id = structure.id
-		var structure_side = structure.side
-		if not structure_id is int or int(structure_id) <= 0 or structure_ids.has(structure_id):
-			return false
-		structure_ids[structure_id] = true
-		if not structure_side is int or not is_valid_match_side(structure_side) or not VALID_STRUCTURE_KINDS.has(String(structure.kind)):
-			return false
-		if not _number_in_range(structure.x, 0.0, BattleModel.WORLD_WIDTH) or not _number_in_range(structure.max_hp, 0.01, 10000.0):
-			return false
-		if not _number_in_range(structure.hp, 0.0, float(structure.max_hp)):
-			return false
-		if structure.has("expires_at") and (structure.kind != "swamp" or not _number_in_range(structure.expires_at, 0.0, 1000000000.0)):
-			return false
-	var winner = data.winner
-	var curses = data.get("curses", [])
-	if not curses is Array or curses.size() > MAX_SNAPSHOT_UNITS:
-		return false
-	var sources := {}
-	for curse in curses:
-		if not curse is Dictionary or not _has_exact_keys(curse, ["source_id", "side", "x", "expires_at"]):
-			return false
-		if not curse.source_id is int or int(curse.source_id) <= 0 or sources.has(curse.source_id) or not curse.side is int or not is_valid_match_side(int(curse.side)):
-			return false
-		if not _number_in_range(curse.x, BattleModel.FIELD_LEFT, BattleModel.FIELD_RIGHT) or not _number_in_range(curse.expires_at, 0.0, 1000000000.0):
-			return false
-		sources[curse.source_id] = true
-	if not winner is int or int(winner) < -1 or int(winner) > 2:
-		return false
-	return _is_finite_number(data.elapsed) and float(data.elapsed) >= 0.0
+	return Protocol.is_valid_snapshot(data)
 
 static func _has_required_optional_keys(value: Dictionary, required: Array, optional: Array) -> bool:
-	for key in required:
-		if not value.has(key):
-			return false
-	for key in value:
-		if not required.has(key) and not optional.has(key):
-			return false
-	return true
+	return Protocol._has_required_optional_keys(value, required, optional)
 
 func _process(delta: float) -> void:
 	if not server_mode:
@@ -485,29 +366,20 @@ func _process(delta: float) -> void:
 				lobby_pages.erase(peer_id)
 			elif _peer_is_connected(int(peer_id)):
 				_send_room_listing(int(peer_id), int(lobby_pages[peer_id]), listing)
-	tick_accumulator += delta
-	snapshot_accumulator += delta
-	while tick_accumulator >= TICK_RATE:
-		for match_id in models.keys():
-			var model: BattleModel = models[match_id]
-			if not _match_paused(int(match_id)) and model.winner == -1:
-				model.tick(TICK_RATE)
-				replays.on_tick(int(match_id))
-			replays.settle(int(match_id), model)
-			if model.winner != -1 and session_matches.has(match_id):
-				var code: String = session_matches[match_id]
-				if sessions.rooms.has(code) and sessions.rooms[code].phase == "playing":
-					sessions.finish(code)
-					_push_session(code)
-					lobby_dirty = true
-			var events := model.drain_combat_events()
-			if not events.is_empty():
-				_broadcast_combat_events(int(match_id), events)
-		tick_accumulator -= TICK_RATE
-	if snapshot_accumulator >= SNAPSHOT_RATE:
+	var step := battle.advance(delta, _match_paused)
+	for tick in step.ticks:
+		var match_id: int = tick.match_id
+		if tick.finished and session_matches.has(match_id):
+			var code: String = session_matches[match_id]
+			if sessions.rooms.has(code) and sessions.rooms[code].phase == "playing":
+				sessions.finish(code)
+				_push_session(code)
+				lobby_dirty = true
+		if not tick.events.is_empty():
+			_broadcast_combat_events(match_id, tick.events)
+	if step.snapshot_due:
 		for match_id in models.keys():
 			_broadcast_snapshot(int(match_id))
-		snapshot_accumulator = 0.0
 
 func _advance_client_connection(delta: float) -> void:
 	if client_reconnecting:
@@ -821,11 +693,7 @@ func opponent_left() -> void:
 	opponent_disconnected.emit()
 
 static func is_valid_room_name(title: String) -> bool:
-	var value := title.strip_edges()
-	if value.is_empty() or value.length() > ROOM_NAME_LENGTH: return false
-	for index in value.length():
-		if value.unicode_at(index) < 32 or value.unicode_at(index) == 127: return false
-	return true
+	return Protocol.is_valid_room_name(title)
 
 func _send_room_listing(peer_id: int, page: int, listing: Array) -> void:
 	var last_page := maxi(0, (listing.size()-1) / ROOM_LIST_PAGE_SIZE)
@@ -851,22 +719,7 @@ func request_leave_room() -> void:
 	_send_room_listing(sender,0,_all_room_listings())
 
 static func is_valid_room_listing(data: Dictionary) -> bool:
-	if not _has_exact_keys(data,["rooms","page","total"]) or not data.rooms is Array: return false
-	if not _number_in_range(data.page,0,TRANSPORT_MAX_PEERS) or not _number_in_range(data.total,0,TRANSPORT_MAX_PEERS): return false
-	if float(data.page) != floor(float(data.page)) or float(data.total) != floor(float(data.total)) or data.rooms.size() > ROOM_LIST_PAGE_SIZE: return false
-	var last_page := maxi(0,(int(data.total)-1)/ROOM_LIST_PAGE_SIZE)
-	if int(data.page)>last_page or data.rooms.size()!=mini(ROOM_LIST_PAGE_SIZE,maxi(0,int(data.total)-int(data.page)*ROOM_LIST_PAGE_SIZE)): return false
-	var codes: Dictionary = {}
-	for item in data.rooms:
-		if not item is Dictionary or not _has_required_optional_keys(item,["code","name","players"],["locked","state","spectators"]): return false
-		if not item.code is String or not is_valid_room_code(item.code) or codes.has(item.code): return false
-		if not item.name is String or not is_valid_room_name(item.name) or not _number_in_range(item.players,1,2) or float(item.players)!=floor(float(item.players)): return false
-		if not item.has("state") and int(item.players)!=1: return false
-		if item.has("locked") and not item.locked is bool: return false
-		if item.has("state") and item.state not in ["waiting","playing","finished"]: return false
-		if item.has("spectators") and (not _number_in_range(item.spectators,0,TRANSPORT_MAX_PEERS) or float(item.spectators)!=floor(float(item.spectators))): return false
-		codes[item.code] = true
-	return true
+	return Protocol.is_valid_room_listing(data)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_room_list(data: Dictionary) -> void:
@@ -940,10 +793,7 @@ func _leave_session(peer_id: int, disconnected: bool = false, preserve_result: b
 	if not disconnected and _peer_is_connected(peer_id): receive_session_closed.rpc_id(peer_id,"")
 
 static func _hex_string(value: String, length: int) -> bool:
-	if value.length() != length: return false
-	for char_value in value:
-		if not char_value in "0123456789abcdef": return false
-	return true
+	return Protocol._hex_string(value, length)
 
 func _can_enter_session(peer_id: int) -> bool:
 	return accepting_players and peer_decks.has(peer_id) and not registry.has_match(peer_id) and not registry.peer_to_room.has(peer_id) and not sessions.peer_to_room.has(peer_id) and not quick_queue.has(peer_id)
@@ -1109,27 +959,10 @@ func request_session_chat(text: String) -> void:
 		if _peer_is_connected(int(id)): receive_session_chat.rpc_id(int(id),message)
 
 static func valid_session_state(data: Dictionary) -> bool:
-	if not _has_exact_keys(data,["code","name","owner","phase","locked","members","messages"]): return false
-	if not data.code is String or not is_valid_room_code(data.code) or not data.name is String or not is_valid_room_name(data.name): return false
-	if not data.locked is bool or data.phase not in ["waiting","playing","finished"] or not data.members is Array or not data.messages is Array: return false
-	if data.members.size()<1 or data.members.size()>TRANSPORT_MAX_PEERS or data.messages.size()>SessionStore.CHAT_HISTORY: return false
-	var players := 0; var ids: Dictionary = {}
-	for member in data.members:
-		if not member is Dictionary or not _has_required_optional_keys(member,["id","nickname","role","ready","returned","deck"],["connected","reconnect_remaining"]): return false
-		if not _number_in_range(member.id,1,2147483647) or float(member.id)!=floor(float(member.id)) or ids.has(int(member.id)): return false
-		if not member.nickname is String or not SessionStore.safe_text(member.nickname,SessionStore.MAX_NICKNAME) or member.role not in ["player","spectator"] or not member.ready is bool or not member.returned is bool: return false
-		if not member.deck is Dictionary or not _has_exact_keys(member.deck,["units","structures"]) or not member.deck.units is Array or not member.deck.structures is Array or not validate_deck_payload(member.deck.units,member.deck.structures): return false
-		if member.has("connected") and not member.connected is bool: return false
-		if member.has("reconnect_remaining") and not _number_in_range(member.reconnect_remaining,0.0,RECONNECT_GRACE): return false
-		ids[int(member.id)] = true
-		if member.role == "player": players += 1
-	if players<1 or players>2 or not _number_in_range(data.owner,1,2147483647) or float(data.owner)!=floor(float(data.owner)) or not ids.has(int(data.owner)): return false
-	for message in data.messages:
-		if not valid_chat_message(message): return false
-	return true
+	return Protocol.valid_session_state(data)
 
 static func valid_chat_message(message: Variant) -> bool:
-	return message is Dictionary and _has_exact_keys(message,["id","nickname","role","text"]) and _number_in_range(message.id,1,1e9) and message.nickname is String and SessionStore.safe_text(message.nickname,SessionStore.MAX_NICKNAME) and message.role in ["player","spectator"] and message.text is String and SessionStore.safe_text(message.text,SessionStore.MAX_CHAT)
+	return Protocol.valid_chat_message(message)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_session_state(data: Dictionary) -> void:
@@ -1229,7 +1062,7 @@ func _recovery_state(match_id: int) -> Dictionary:
 	return {"paused":_match_paused(match_id),"reconnect_remaining":remaining}
 
 static func valid_recovery_state(data: Variant) -> bool:
-	return data is Dictionary and _has_exact_keys(data,["paused","reconnect_remaining"]) and data.paused is bool and _number_in_range(data.reconnect_remaining,0.0,RECONNECT_GRACE)
+	return Protocol.valid_recovery_state(data)
 
 func _finish_match(match_id: int, winner: int) -> void:
 	if not models.has(match_id) or models[match_id].winner != -1: return

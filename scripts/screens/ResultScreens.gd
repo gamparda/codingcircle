@@ -24,7 +24,7 @@ static func _show_result(main, winner: int) -> void:
 		main.result_recorded = true
 		if main.local_ai_mode:
 			if main.local_recorder != null and is_instance_valid(main.local_model):
-				main.last_replay_path = BattleReplay.save(main.local_recorder.finish(main.local_model), "stage%d" % main.current_ai_stage)
+				if main.local_recorder.ticks > 0: main.last_replay_path = BattleReplay.save(main.local_recorder.finish(main.local_model), "stage%d" % main.current_ai_stage)
 				main.local_recorder = null
 			if main.campaign_mode:
 				awarded_stars = SaveData.record_campaign(main.save_data, main.current_ai_stage, winner == main.own_side, float(main.current_snapshot.elapsed), float(main.current_snapshot.base_hp[main.own_side]), winner == 2)
