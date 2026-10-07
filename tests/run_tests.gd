@@ -355,7 +355,7 @@ func _init() -> void:
 	var Main = load("res://scripts/Main.gd")
 	expect_true(Main != null, "Main script loads")
 	expect_eq(Main.build_binary_version(), "0.4.18", "Korean-only release updates the native Android bootstrap")
-	expect_eq(Main.build_version(), "0.6.5", "content pack version advances independently")
+	expect_eq(Main.build_version(), "0.7.0", "content pack version advances independently")
 	expect_true(NetworkController.is_valid_room_code(Main.DEFAULT_SMOKE_ROOM_CODE), "default smoke room code follows production room-code rules")
 	expect_true(Main.apk_update_required("Android", "0.4.4", "0.4.5"), "new content warns when it runs on an older Android APK")
 	expect_true(not Main.apk_update_required("Android", "0.4.5", "0.4.5"), "matching Android APK and content versions do not warn")
