@@ -6,6 +6,7 @@ const UIKit = preload("res://scripts/ui/UIKit.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
+const HpBar = preload("res://scripts/ui/HpBar.gd")
 const Report = preload("res://scripts/BattleReport.gd")
 
 static func _show_result(main, winner: int) -> void:
@@ -50,10 +51,12 @@ static func _show_result(main, winner: int) -> void:
 	dim.size = Vector2(1280, 720)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	screen.add_child(dim)
+	# Online results get an extra strip for the opponent and the player's record.
+	var extra := 0.0 if main.local_ai_mode else 56.0
 	var overlay := PanelContainer.new()
 	overlay.name = "ResultPanel"
-	overlay.position = Vector2(350, 155)
-	overlay.size = Vector2(580, 410)
+	overlay.position = Vector2(350, 155 - extra * 0.5)
+	overlay.size = Vector2(580, 410 + extra)
 	var won: bool = winner == main.own_side
 	var result_color := UIKit.GOLD if won else (UIKit.TEXT_MUTED if winner == 2 else UIKit.DANGER.lightened(0.15))
 	overlay.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI.lerp(result_color, 0.08), UIKit.SURFACE.darkened(0.2), Color(result_color.r, result_color.g, result_color.b, 0.7), 18, 1.5, 1.0, Color(result_color.r, result_color.g, result_color.b, 0.35) if won else Color(0, 0, 0, 0), 0.12, 16))
@@ -64,7 +67,7 @@ static func _show_result(main, winner: int) -> void:
 	dim.modulate.a = 0.0
 	dim.create_tween().tween_property(dim, "modulate:a", 1.0, 0.3)
 	var inner := Control.new()
-	inner.custom_minimum_size = Vector2(580, 410)
+	inner.custom_minimum_size = Vector2(580, 410 + extra)
 	overlay.add_child(inner)
 	var overline := Label.new()
 	overline.text = "MATCH COMPLETE"
@@ -138,9 +141,11 @@ static func _show_result(main, winner: int) -> void:
 		growth.add_theme_font_size_override("font_size", 12)
 		growth.add_theme_color_override("font_color", Color("#f0d592"))
 		inner.add_child(growth)
+	if not main.local_ai_mode:
+		inner.add_child(_match_strip(main, winner, Vector2(28, 252), 524))
 	var rematch_text := Localization.text("다시 도전") if main.local_ai_mode else ("대기실로" if not main.network.client_session.is_empty() else Localization.text("재경기 준비"))
 	var rematch = main._styled_button(rematch_text, Color("#5e6ad2"), true)
-	rematch.position = Vector2(25 if advances else 65, 306)
+	rematch.position = Vector2(25 if advances else 65, 306 + extra)
 	rematch.size = Vector2(165 if advances else 215, 58)
 	rematch.pressed.connect(func():
 		rematch.disabled = true
@@ -155,7 +160,7 @@ static func _show_result(main, winner: int) -> void:
 	inner.add_child(rematch)
 	if advances:
 		var next_stage = main._styled_button(Localization.text("다음 단계"), Color("#3d8f83"), true)
-		next_stage.position = Vector2(207, 306)
+		next_stage.position = Vector2(207, 306 + extra)
 		next_stage.size = Vector2(165, 58)
 		next_stage.pressed.connect(func():
 			next_stage.disabled = true
@@ -164,13 +169,117 @@ static func _show_result(main, winner: int) -> void:
 		inner.add_child(next_stage)
 	var back = main._styled_button(Localization.text("단계 선택") if main.local_ai_mode else Localization.text("이전 화면으로"), Color("#697386"), false)
 	back.name = "BackToMenuButton"
-	back.position = Vector2(389 if advances else 300, 306)
+	back.position = Vector2(389 if advances else 300, 306 + extra)
 	back.size = Vector2(165 if advances else 215, 58)
 	if main.local_ai_mode:
 		back.pressed.connect(main._build_ai_stage_screen.bind(main.campaign_mode))
 	else:
 		back.pressed.connect(main._exit_battle_to_menu)
 	inner.add_child(back)
+
+## Opponent card + personal online record, shown under the result details of online matches.
+static func _match_strip(main, winner: int, at: Vector2, width: float) -> Control:
+	var strip := HBoxContainer.new()
+	strip.name = "MatchStrip"
+	strip.position = at
+	strip.size = Vector2(width, 64)
+	strip.add_theme_constant_override("separation", 12)
+	var spectator: bool = main.network.client_is_spectator
+	var opponent_side: int = 1 - int(main.own_side)
+	var members: Array = main.network.client_session.get("members", []).filter(func(member): return member.role == "player")
+	var opponent_name: String = String(main._report_side_name(opponent_side))
+	var deck: Array = []
+	if members.size() == 2:
+		deck = members[opponent_side].deck.units
+	var tone := UIKit.TEAM_RED if opponent_side == 1 else UIKit.TEAM_BLUE
+	# Opponent card.
+	var card := PanelContainer.new()
+	card.name = "OpponentCard"
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI.lerp(tone, 0.10), UIKit.SURFACE.darkened(0.1), Color(tone.r, tone.g, tone.b, 0.6), 12, 1.0, 0.0, Color(0, 0, 0, 0), 0.08), 12, 8))
+	strip.add_child(card)
+	var card_row := HBoxContainer.new()
+	card_row.add_theme_constant_override("separation", 10)
+	card.add_child(card_row)
+	var avatar := PanelContainer.new()
+	avatar.custom_minimum_size = Vector2(44, 44)
+	var ring := StyleBoxFlat.new()
+	ring.bg_color = Color(tone.r, tone.g, tone.b, 0.25)
+	ring.border_color = tone
+	ring.set_border_width_all(2)
+	ring.set_corner_radius_all(22)
+	ring.anti_aliasing = true
+	avatar.add_theme_stylebox_override("panel", ring)
+	card_row.add_child(avatar)
+	var initial := Label.new()
+	initial.text = opponent_name.left(1).to_upper() if not opponent_name.is_empty() else "?"
+	initial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	UIKit.display(initial, 20, tone.lightened(0.4))
+	avatar.add_child(initial)
+	var names := VBoxContainer.new()
+	names.alignment = BoxContainer.ALIGNMENT_CENTER
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card_row.add_child(names)
+	var caption := Label.new()
+	caption.text = Localization.text("상대") if not spectator else Localization.text("상대 진영")
+	caption.add_theme_font_size_override("font_size", 11)
+	caption.add_theme_color_override("font_color", UIKit.TEXT_DIM)
+	names.add_child(caption)
+	var nickname := Label.new()
+	nickname.name = "OpponentName"
+	nickname.text = opponent_name
+	nickname.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	nickname.add_theme_font_size_override("font_size", 16)
+	names.add_child(nickname)
+	var deck_row := HBoxContainer.new()
+	deck_row.add_theme_constant_override("separation", 0)
+	card_row.add_child(deck_row)
+	for kind in deck:
+		var icon := TextureRect.new()
+		icon.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
+		icon.custom_minimum_size = Vector2(28, 40)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		deck_row.add_child(icon)
+	if spectator:
+		return strip
+	# Record card: wins / losses / draws and win-rate bar.
+	var stats: Dictionary = main.save_data.stats
+	var total := int(stats.online_completed)
+	var wins := int(stats.online_wins)
+	var losses := int(stats.online_losses)
+	var draws := int(stats.online_draws)
+	var rate := 0.0 if total == 0 else float(wins) / float(total)
+	var record := PanelContainer.new()
+	record.name = "RecordCard"
+	record.custom_minimum_size.x = 214
+	record.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE.darkened(0.1), Color(UIKit.GOLD.r, UIKit.GOLD.g, UIKit.GOLD.b, 0.5), 12, 1.0, 0.0, Color(0, 0, 0, 0), 0.08), 12, 8))
+	strip.add_child(record)
+	var record_box := VBoxContainer.new()
+	record_box.add_theme_constant_override("separation", 4)
+	record.add_child(record_box)
+	var headline := Label.new()
+	headline.name = "RecordSummary"
+	headline.text = Localization.text("내 온라인 전적  %d승 %d패 %d무") % [wins, losses, draws]
+	headline.add_theme_font_size_override("font_size", 12)
+	headline.add_theme_color_override("font_color", UIKit.TEXT)
+	record_box.add_child(headline)
+	var bar := HpBar.new()
+	bar.color = UIKit.SUCCESS
+	bar.pulse_below = 0.0
+	bar.show_ticks = false
+	bar.custom_minimum_size = Vector2(190, 8)
+	bar.max_value = 1.0
+	bar.value = rate
+	record_box.add_child(bar)
+	var percent := Label.new()
+	percent.text = Localization.text("승률 %d%%  ·  %d경기") % [roundi(rate * 100.0), total]
+	percent.add_theme_font_size_override("font_size", 11)
+	percent.add_theme_color_override("font_color", UIKit.GOLD)
+	record_box.add_child(percent)
+	return strip
 
 static func _show_battle_report(main) -> void:
 	if not Report.valid(main.current_snapshot.get("battle_report",[])): return
