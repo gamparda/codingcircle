@@ -28,7 +28,7 @@ jobs:
       matrix:
         suite: [unit, network, ui, security, balance, release]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download Godot
         shell: pwsh
@@ -53,7 +53,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out tested source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Cache Godot export templates
         uses: actions/cache@v4
@@ -215,7 +215,7 @@ jobs:
 
       - name: Keep dev build as workflow artifact
         if: steps.release.outputs.published != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dev-build-${{ github.run_number }}-${{ github.sha }}
           path: site/*
@@ -244,7 +244,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Render actual multiplayer scenes
         shell: bash
         run: |
@@ -260,7 +260,7 @@ jobs:
           LP_NUM_THREADS=1 OMP_NUM_THREADS=1 timeout 90s xvfb-run -a -s '-screen 0 1920x1080x24' "$GODOT" --single-threaded-scene --rendering-method gl_compatibility --rendering-driver opengl3 --path . --script tests/battle_experience_ui_test.gd -- --capture-dir="$PWD/.ci/multiplayer-preview"
           LP_NUM_THREADS=1 OMP_NUM_THREADS=1 timeout 90s xvfb-run -a -s '-screen 0 1920x1080x24' "$GODOT" --single-threaded-scene --rendering-method gl_compatibility --rendering-driver opengl3 --path . --script tests/practice_campaign_test.gd -- --capture-dir="$PWD/.ci/multiplayer-preview"
           LP_NUM_THREADS=1 OMP_NUM_THREADS=1 timeout 90s xvfb-run -a -s '-screen 0 1920x1080x24' "$GODOT" --single-threaded-scene --rendering-method gl_compatibility --rendering-driver opengl3 --path . --script tests/key_bindings_test.gd -- --capture-dir="$PWD/.ci/multiplayer-preview"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: multiplayer-preview
           path: .ci/multiplayer-preview/*.png

@@ -5,6 +5,8 @@ const Localization = preload("res://scripts/Localization.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const ReplayViewer = preload("res://scripts/ui/ReplayViewer.gd")
+const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
+const REPLAY_LIST_SCREEN := preload("res://scenes/ui/ReplayListScreen.tscn")
 
 static func describe(replay: Dictionary) -> Dictionary:
 	var meta: Dictionary = replay.get("meta", {})
@@ -33,17 +35,10 @@ static func _stamp(path: String) -> String:
 	return file.get_basename()
 
 static func _build_replay_list(main) -> void:
-	var column = main._submenu("리플레이", "저장된 전투를 다시 보고 분석합니다 (최근 %d개)" % BattleReplay.MAX_SAVED)
-	var scroll := ScrollContainer.new()
-	scroll.name = "ReplayScroll"
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	column.add_child(scroll)
-	var rows := VBoxContainer.new()
-	rows.name = "ReplayRows"
-	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rows.add_theme_constant_override("separation", 10)
-	scroll.add_child(rows)
+	var frame = MenuScreens._show_scene(main, REPLAY_LIST_SCREEN, "리플레이", "저장된 전투를 다시 보고 분석합니다 (최근 %d개)" % BattleReplay.MAX_SAVED)
+	var column: VBoxContainer = frame.column
+	var rows: VBoxContainer = column.get_node("ReplayScroll/ReplayRows")
+	var status: Label = column.get_node("ReplayStatus")
 	var paths: Array = BattleReplay.list_saved()
 	var shown := 0
 	for path in paths:
@@ -73,24 +68,14 @@ static func _build_replay_list(main) -> void:
 		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 		empty.add_child(hint)
-	var status := Label.new()
-	status.name = "ReplayStatus"
-	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status.add_theme_color_override("font_color", UIKit.GOLD)
-	column.add_child(status)
-	var footer := HBoxContainer.new()
-	footer.add_theme_constant_override("separation", 10)
-	column.add_child(footer)
-	var back = main._styled_button(Localization.text("메인 화면으로"), Color("#697386"), false)
-	back.name = "ReplayBack"
-	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var back: Button = column.get_node("Footer/ReplayBack")
+	UIKit.style_button(back, Color("#697386"), false, 16)
+	back.text = Localization.text("메인 화면으로")
 	back.pressed.connect(main._build_connect_screen)
-	footer.add_child(back)
-	var import_button = main._styled_button(Localization.text("클립보드에서 가져오기"), UIKit.TEAL, false)
-	import_button.name = "ImportReplayButton"
-	import_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var import_button: Button = column.get_node("Footer/ImportReplayButton")
+	UIKit.style_button(import_button, UIKit.TEAL, false, 16)
+	import_button.text = Localization.text("클립보드에서 가져오기")
 	import_button.pressed.connect(func(): status.text = import_text(main, DisplayServer.clipboard_get()))
-	footer.add_child(import_button)
 
 static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	var info := describe(replay)

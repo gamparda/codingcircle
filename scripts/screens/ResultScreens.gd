@@ -133,7 +133,7 @@ static func _show_result(main, winner: int) -> void:
 	if main.local_ai_mode and main.campaign_mode:
 		var growth := Label.new()
 		growth.name = "CampaignGrowthReward"
-		growth.text = CampaignBrief.result_conditions(main.current_ai_stage,winner==main.own_side,float(main.current_snapshot.elapsed),float(main.current_snapshot.base_hp[main.own_side])) + "\n" + ("첫 클리어 보상 · 병력 +3% · 자원 +0.5/초 · 보유 +10 · 시작 +5" if SaveData.campaign_growth_level(main.save_data)>growth_before else main._campaign_growth_summary())
+		growth.text = CampaignBrief.result_conditions(main.current_ai_stage,winner==main.own_side,float(main.current_snapshot.elapsed),float(main.current_snapshot.base_hp[main.own_side])) + "\n" + (BattleModel.campaign_reward_text() if SaveData.campaign_growth_level(main.save_data)>growth_before else main._campaign_growth_summary())
 		growth.position = Vector2(25, 250)
 		growth.size = Vector2(530, 44)
 		growth.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

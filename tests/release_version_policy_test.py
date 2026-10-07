@@ -41,7 +41,7 @@ class ReleasePolicyTest(unittest.TestCase):
         self.assertNotIn("--clobber", workflow, "a published version tag must never be overwritten")
         self.assertNotIn("gh release upload", workflow)
         self.assertIn("gh release create $tag", workflow)
-        self.assertIn("actions/upload-artifact@v4", workflow)
+        self.assertRegex(workflow, r"actions/upload-artifact@v[0-9]+")
         self.assertIn("dev-build", workflow)
 
     def test_windows_build_tool_reads_release_json(self):

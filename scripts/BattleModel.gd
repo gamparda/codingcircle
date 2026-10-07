@@ -64,11 +64,20 @@ var curses: Array = []
 var summon_timers: Dictionary = {}
 var battle_report: Array = [Report.empty_side(),Report.empty_side()]
 
+## What one cleared campaign stage adds (first clear only).
+const CAMPAIGN_STAT_STEP := 0.03
+const CAMPAIGN_INCOME_STEP := 0.5
+const CAMPAIGN_CAPACITY_STEP := 10.0
+const CAMPAIGN_START_STEP := 5.0
+
 static func campaign_bonuses(cleared_stages: int) -> Dictionary:
 	var levels := clampi(cleared_stages, 0, 8)
-	return {"levels": levels, "stat_scale": 1.0 + levels * 0.03,
-		"income": RESOURCE_RATE + levels * 0.5, "capacity": MAX_RESOURCE + levels * 10.0,
-		"starting_resources": START_RESOURCE + levels * 5.0}
+	return {"levels": levels, "stat_scale": 1.0 + levels * CAMPAIGN_STAT_STEP,
+		"income": RESOURCE_RATE + levels * CAMPAIGN_INCOME_STEP, "capacity": MAX_RESOURCE + levels * CAMPAIGN_CAPACITY_STEP,
+		"starting_resources": START_RESOURCE + levels * CAMPAIGN_START_STEP}
+
+static func campaign_reward_text() -> String:
+	return Localization.text("첫 클리어 보상 · 병력 +%d%% · 자원 +%s/초 · 보유 +%d · 시작 +%d") % [roundi(CAMPAIGN_STAT_STEP * 100.0), str(CAMPAIGN_INCOME_STEP), int(CAMPAIGN_CAPACITY_STEP), int(CAMPAIGN_START_STEP)]
 
 func configure_campaign_growth(side: int, cleared_stages: int) -> void:
 	if side < 0 or side > 1:
