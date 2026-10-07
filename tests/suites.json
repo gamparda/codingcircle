@@ -33,7 +33,8 @@
     "tests/room_browser_ui_test.gd",
     "tests/room_sessions_ui_test.gd",
     "tests/combat_polish_ui_test.gd",
-    "tests/support_ui_feedback_test.gd"
+    "tests/support_ui_feedback_test.gd",
+    "tests/scene_screens_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",

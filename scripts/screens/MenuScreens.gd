@@ -4,6 +4,9 @@ extends RefCounted
 const Localization = preload("res://scripts/Localization.gd")
 const PatchNotes = preload("res://scripts/PatchNotes.gd")
 const PracticeTools = preload("res://scripts/PracticeTools.gd")
+const SUBMENU_FRAME := preload("res://scenes/ui/SubMenuFrame.tscn")
+const PATCH_NOTES_SCREEN := preload("res://scenes/ui/PatchNotesScreen.tscn")
+const RECORDS_SCREEN := preload("res://scenes/ui/RecordsScreen.tscn")
 
 static func _add_menu_portrait(main, parent: Control, texture_path: String, position_value: Vector2, accent: Color, label_text: String) -> void:
 	var frame := PanelContainer.new()
@@ -219,80 +222,31 @@ static func _build_ai_stage_screen(main, as_campaign: bool = false) -> void:
 	back_button.pressed.connect(main._build_connect_screen)
 	stage_column.add_child(back_button)
 
-static func _submenu(main, title_text: String, subtitle_text: String) -> VBoxContainer:
+static func _show_scene(main, scene: PackedScene, title_text: String, subtitle_text: String) -> Node:
 	main.battle_active = false
 	main._clear_screen()
 	main.root_background = main._make_background()
-	var panel := PanelContainer.new()
-	panel.position = Vector2(110, 35)
-	panel.size = Vector2(1060, 650)
-	var style = main._panel_style(Color("#121923"), Color(0.36, 0.55, 0.70, 0.5), 18)
-	style.content_margin_left = 32
-	style.content_margin_right = 32
-	style.content_margin_top = 24
-	style.content_margin_bottom = 24
-	panel.add_theme_stylebox_override("panel", style)
-	main.root_background.add_child(panel)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 10)
-	panel.add_child(column)
-	var title := Label.new()
-	title.text = Localization.text(title_text)
-	title.add_theme_font_size_override("font_size", 30)
-	title.add_theme_color_override("font_color", Color("#f5f7fb"))
-	column.add_child(title)
-	var subtitle := Label.new()
-	subtitle.text = Localization.text(subtitle_text)
-	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
-	column.add_child(subtitle)
-	return column
+	var frame = scene.instantiate()
+	main.root_background.add_child(frame)
+	frame.setup(title_text, subtitle_text)
+	return frame
+
+## Full-screen sub-menu frame (layout in scenes/ui/SubMenuFrame.tscn); returns its content column.
+static func _submenu(main, title_text: String, subtitle_text: String) -> VBoxContainer:
+	return _show_scene(main, SUBMENU_FRAME, title_text, subtitle_text).column
 
 static func _build_patch_notes_screen(main) -> void:
-	var column = main._submenu("패치노트", "최신 변경 사항과 이전 업데이트")
-	var scroll := ScrollContainer.new()
-	scroll.name = "PatchNotesScroll"
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	column.add_child(scroll)
-	var content := VBoxContainer.new()
-	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_theme_constant_override("separation", 14)
-	scroll.add_child(content)
-	var entries: Array = PatchNotes.entries()
-	for entry in entries:
-		var heading := Label.new()
-		heading.text = String(entry.version)
-		heading.add_theme_font_size_override("font_size", 24)
-		heading.add_theme_color_override("font_color", Color("#86f7ad"))
-		content.add_child(heading)
-		for change in entry.changes:
-			var label := Label.new()
-			label.text = "• " + Localization.text(String(change))
-			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			label.add_theme_font_size_override("font_size", 18)
-			label.add_theme_color_override("font_color", Color("#dce1ec"))
-			content.add_child(label)
+	var frame = _show_scene(main, PATCH_NOTES_SCREEN, "패치노트", "최신 변경 사항과 이전 업데이트")
+	frame.populate()
 	var back = main._styled_button(Localization.text("메인 화면으로"), Color("#697386"))
 	back.name = "PatchNotesBack"
 	back.pressed.connect(main._build_connect_screen)
-	column.add_child(back)
+	frame.column.add_child(back)
 
 static func _build_records_screen(main) -> void:
-	var column = main._submenu(Localization.text("개인 전적"), "이 기기에 저장된 전적")
-	var stats: Dictionary = main.save_data.stats
-	var online_rate := 0.0 if int(stats.online_completed) == 0 else float(stats.online_wins) / float(stats.online_completed) * 100.0
-	var summary := Label.new()
-	summary.text = Localization.text("AI  ·  경기 %d  /  승 %d  /  패 %d  /  최고 캠페인 %02d  /  별 %d\n\n온라인  ·  완료 %d  /  승 %d  /  패 %d  /  무 %d  /  중단 %d  /  승률 %.1f%%") % [stats.ai_matches, stats.ai_wins, stats.ai_losses, stats.highest_campaign, stats.total_stars, stats.online_completed, stats.online_wins, stats.online_losses, stats.online_draws, stats.online_interrupted, online_rate]
-	summary.add_theme_font_size_override("font_size", 20)
-	column.add_child(summary)
-	var records := Label.new()
-	var lines: Array = []
-	for stage in ServerAI.MAX_STAGE:
-		var record: Dictionary = main.save_data.campaign_records[stage]
-		lines.append(Localization.text("%02d %-5s  %s  도전 %d / 승 %d  최단 %.1f초  최고 기지 HP %d") % [stage + 1, ServerAI.stage_name(stage + 1), "★".repeat(record.best_stars) + "☆".repeat(3 - record.best_stars), record.attempts, record.wins, record.fastest_win, int(record.best_base_hp)])
-	records.text = "\n".join(lines)
-	records.add_theme_font_size_override("font_size", 16)
-	column.add_child(records)
+	var frame = _show_scene(main, RECORDS_SCREEN, Localization.text("개인 전적"), "이 기기에 저장된 전적")
+	frame.populate(main.save_data)
 	var back = main._styled_button(Localization.text("메인 화면으로"), Color("#697386"), false)
 	back.pressed.connect(main._build_connect_screen)
-	column.add_child(back)
+	frame.column.add_child(back)
+

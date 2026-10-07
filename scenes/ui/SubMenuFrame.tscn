@@ -1,0 +1,42 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/SubMenuFrame.gd" id="1_frame"]
+
+[sub_resource type="StyleBoxFlat" id="Style_panel"]
+content_margin_left = 32.0
+content_margin_top = 24.0
+content_margin_right = 32.0
+content_margin_bottom = 24.0
+bg_color = Color(0.0705882, 0.0980392, 0.137255, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.36, 0.55, 0.7, 0.5)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+shadow_color = Color(0, 0, 0, 0.24)
+shadow_size = 8
+
+[node name="SubMenuFrame" type="PanelContainer"]
+offset_left = 110.0
+offset_top = 35.0
+offset_right = 1170.0
+offset_bottom = 685.0
+theme_override_styles/panel = SubResource("Style_panel")
+script = ExtResource("1_frame")
+
+[node name="Column" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Column"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.960784, 0.968627, 0.984314, 1)
+theme_override_font_sizes/font_size = 30
+
+[node name="Subtitle" type="Label" parent="Column"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.560784, 0.596078, 0.678431, 1)

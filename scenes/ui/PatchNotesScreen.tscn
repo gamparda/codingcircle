@@ -1,0 +1,17 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/ui/SubMenuFrame.tscn" id="1_frame"]
+[ext_resource type="Script" path="res://scripts/ui/PatchNotesScreen.gd" id="2_script"]
+
+[node name="PatchNotesScreen" instance=ExtResource("1_frame")]
+script = ExtResource("2_script")
+
+[node name="PatchNotesScroll" type="ScrollContainer" parent="Column" index="2"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Entries" type="VBoxContainer" parent="Column/PatchNotesScroll" index="0"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 14
