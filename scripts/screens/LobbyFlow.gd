@@ -77,14 +77,34 @@ static func _toggle_quick_match(main) -> void:
 	if main.network.client_connection_state == "queued": main.network.cancel_quick_match()
 	elif main.network.start_quick_match():
 		main._refresh_quick_button(); main._set_lobby_enabled(false)
-		if is_instance_valid(main.status_label): main.status_label.text = "상대를 찾는 중..."
+		main.quick_wait_started_msec = Time.get_ticks_msec()
+		_tick_quick_wait(main, main.quick_wait_started_msec)
+
+const AI_HINT_AFTER_SECONDS := 20
 
 static func _on_quick_match_status(main, state: String) -> void:
 	main._refresh_quick_button()
 	if main.multiplayer_screen != "lobby": return
 	main._set_lobby_enabled(state != "queued")
+	if state == "queued":
+		main.quick_wait_started_msec = Time.get_ticks_msec()
+		_tick_quick_wait(main, main.quick_wait_started_msec)
+		return
+	main.quick_wait_started_msec = 0
 	if is_instance_valid(main.status_label):
-		main.status_label.text = {"queued": "상대를 찾는 중... 다시 누르면 취소합니다.", "cancelled": "빠른 대전을 취소했습니다.", "timeout": "상대를 찾지 못했습니다. 다시 시도하거나 방을 만들어 보세요."}.get(state, "")
+		main.status_label.text = {"cancelled": "빠른 대전을 취소했습니다.", "timeout": "상대를 찾지 못했습니다. 다시 시도하거나 방을 만들어 보세요."}.get(state, "")
+
+## Shows how long the player has been waiting and, after a while, suggests offline play.
+static func _tick_quick_wait(main, started: int) -> void:
+	if main.quick_wait_started_msec != started or main.network.client_connection_state != "queued":
+		return
+	var seconds := int((Time.get_ticks_msec() - started) / 1000)
+	if is_instance_valid(main.status_label):
+		var text := "상대를 찾는 중...  %d초  ·  다시 누르면 취소합니다." % seconds
+		if seconds >= AI_HINT_AFTER_SECONDS:
+			text += "\n아직 상대가 없어요. 기다리는 동안 AI 캠페인을 즐길 수도 있습니다."
+		main.status_label.text = text
+	main.get_tree().create_timer(1.0).timeout.connect(func(): _tick_quick_wait(main, started))
 
 static func _refresh_quick_button(main) -> void:
 	if not is_instance_valid(main.quick_button_ref): return

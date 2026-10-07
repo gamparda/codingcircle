@@ -29,6 +29,10 @@ func run()->void:
 	check(quick!=null and not quick.disabled and quick.text.contains("빠른 대전"),"lobby offers a one-button quick match")
 	main.network.client_connection_state="queued";main._on_quick_match_status("queued")
 	check(quick.text.contains("취소") and not quick.disabled and main.connect_button_ref.disabled,"queued state turns the button into cancel and locks room creation")
+	check(main.status_label.text.contains("초") and not main.status_label.text.contains("AI 캠페인"),"queued status shows the waiting time without a hint at first")
+	var started:int=Time.get_ticks_msec()-25000;main.quick_wait_started_msec=started
+	load("res://scripts/screens/LobbyFlow.gd")._tick_quick_wait(main,started)
+	check(main.status_label.text.contains("AI 캠페인"),"a long wait suggests offline play")
 	main.network.client_connection_state="lobby";main._on_quick_match_status("cancelled")
 	check(quick.text.contains("빠른 대전") and not main.connect_button_ref.disabled,"cancel restores the lobby")
 	var data:Dictionary={"rooms":[{"code":"ABC234","name":"처음 하는 분 환영","players":1},{"code":"DEF234","name":"한 판 같이 해요","players":1}],"page":0,"total":2}
