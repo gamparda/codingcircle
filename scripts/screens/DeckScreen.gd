@@ -3,43 +3,27 @@ extends RefCounted
 
 const Localization = preload("res://scripts/Localization.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
+const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
+const DECK_SCREEN := preload("res://scenes/ui/DeckScreen.tscn")
 
 static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	var index := int(main.save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, 2)
-	var column = main._submenu(Localization.text("덱 편성"), "유닛 3종 · 구조물 3종 선택")
-	var deck_panel := column.get_parent() as PanelContainer
-	deck_panel.name = "DeckPanel"
-	deck_panel.position = Vector2(110, 18)
-	deck_panel.size = Vector2(1060, 684)
-	column.add_theme_constant_override("separation", 8)
-	var tabs := HBoxContainer.new()
-	column.add_child(tabs)
+	var frame = MenuScreens._show_scene(main, DECK_SCREEN, "덱 편성", "유닛 3종 · 구조물 3종 선택")
+	var column: VBoxContainer = frame.column
+	var tabs: HBoxContainer = column.get_node("Tabs")
 	for tab_index in 3:
 		var tab = main._styled_button(String(main.save_data.deck_presets[tab_index].name), Color("#5e6ad2"), tab_index == index)
 		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tab.pressed.connect(main._build_deck_screen.bind(tab_index))
 		tabs.add_child(tab)
-	var name_edit := LineEdit.new()
+	var name_edit: LineEdit = column.get_node("NameEdit")
 	name_edit.text = String(main.save_data.deck_presets[index].name)
 	name_edit.placeholder_text = Localization.text("프리셋 이름")
-	column.add_child(name_edit)
 	var selected: Dictionary = main.save_data.deck_presets[index]
 	var unit_buttons := {}
 	var structure_buttons := {}
-	var choices := VBoxContainer.new()
-	choices.name = "DeckChoices"
-	choices.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	choices.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	choices.add_theme_constant_override("separation", 10)
-	column.add_child(choices)
-	var unit_row := GridContainer.new()
-	unit_row.name = "DeckUnitGrid"
-	unit_row.columns = 4
-	unit_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	unit_row.size_flags_stretch_ratio = 2.0
-	unit_row.add_theme_constant_override("h_separation", 8)
-	unit_row.add_theme_constant_override("v_separation", 8)
-	choices.add_child(unit_row)
+	var choices: VBoxContainer = column.get_node("DeckChoices")
+	var unit_row: GridContainer = choices.get_node("DeckUnitGrid")
 	var unit_names := BattleModel.UNIT_NAMES
 	for kind in BattleModel.UNIT_STATS.keys():
 		var stats: Dictionary = BattleModel.UNIT_STATS[kind]
@@ -58,13 +42,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		_dress_card(card, UIKit.UNIT_COLORS[kind], kind, true)
 		unit_buttons[kind] = card
 		unit_row.add_child(card)
-	var structure_grid := GridContainer.new()
-	structure_grid.name = "DeckStructureGrid"
-	structure_grid.columns = 4
-	structure_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	structure_grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	structure_grid.add_theme_constant_override("h_separation", 8)
-	choices.add_child(structure_grid)
+	var structure_grid: GridContainer = choices.get_node("DeckStructureGrid")
 	var structure_names := {"wall": Localization.text("방벽"), "swamp": Localization.text("늪"), "turret": Localization.text("포탑"), "generator": Localization.text("발전기")}
 	var structure_stats: Dictionary = BattleModel.STRUCTURE_STATS
 	var roles := {
@@ -92,15 +70,10 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		var row_height := maxf(108.0, (choices.size.y - row_gap - group_gap) / 3.0)
 		unit_row.size_flags_stretch_ratio = 2.0 + row_gap / row_height
 	)
-	var status := Label.new()
-	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status.add_theme_color_override("font_color", Color("#ff8a96"))
-	column.add_child(status)
-	var actions := HBoxContainer.new()
-	column.add_child(actions)
-	var save_button = main._styled_button(Localization.text("덱 저장 및 사용"), Color("#5e6ad2"), true)
-	save_button.name = "DeckSaveButton"
-	save_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var status: Label = column.get_node("Status")
+	var save_button: Button = column.get_node("Actions/DeckSaveButton")
+	UIKit.style_button(save_button, Color("#5e6ad2"), true, 16)
+	save_button.text = Localization.text("덱 저장 및 사용")
 	save_button.pressed.connect(func():
 		var selected_units: Array = []
 		var selected_structures: Array = []
@@ -116,11 +89,10 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		SaveData.save_data(main.save_data)
 		main._build_connect_screen(Localization.text("덱을 저장했습니다."))
 	)
-	actions.add_child(save_button)
-	var back = main._styled_button(Localization.text("취소"), Color("#697386"), false)
-	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var back: Button = column.get_node("Actions/DeckCancelButton")
+	UIKit.style_button(back, Color("#697386"), false, 16)
+	back.text = Localization.text("취소")
 	back.pressed.connect(main._build_connect_screen)
-	actions.add_child(back)
 
 static func _configure_deck_card(main, card: Button, base_text: String, color: Color, selected: bool) -> void:
 	card.toggle_mode = true

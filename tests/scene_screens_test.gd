@@ -48,6 +48,6 @@ func run() -> void:
 	main._build_deck_screen()
 	await process_frame
 	var deck_panel = main.find_child("DeckPanel", true, false)
-	check(deck_panel != null and deck_panel.scene_file_path == "res://scenes/ui/SubMenuFrame.tscn", "deck editor is a (resized) SubMenuFrame scene instance")
+	check(deck_panel != null and deck_panel.scene_file_path == "res://scenes/ui/DeckScreen.tscn" and deck_panel.find_child("DeckSaveButton", true, false) is Button and deck_panel.find_child("Tabs", true, false).get_child_count() == 3, "deck editor is the DeckScreen scene with its skeleton declared in the .tscn")
 	print("scene_screens_test failures=%d" % failures)
 	quit(1 if failures > 0 else 0)

@@ -1,0 +1,58 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/ui/SubMenuFrame.tscn" id="1_frame"]
+[ext_resource type="Script" path="res://scripts/ui/SubMenuFrame.gd" id="2_script"]
+
+[node name="DeckPanel" instance=ExtResource("1_frame")]
+offset_top = 18.0
+offset_bottom = 702.0
+script = ExtResource("2_script")
+
+[node name="Column" parent="." index="0"]
+theme_override_constants/separation = 8
+
+[node name="Tabs" type="HBoxContainer" parent="Column" index="2"]
+layout_mode = 2
+
+[node name="NameEdit" type="LineEdit" parent="Column" index="3"]
+layout_mode = 2
+placeholder_text = "프리셋 이름"
+
+[node name="DeckChoices" type="VBoxContainer" parent="Column" index="4"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 10
+
+[node name="DeckUnitGrid" type="GridContainer" parent="Column/DeckChoices" index="0"]
+layout_mode = 2
+size_flags_vertical = 3
+size_flags_stretch_ratio = 2.0
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
+columns = 4
+
+[node name="DeckStructureGrid" type="GridContainer" parent="Column/DeckChoices" index="1"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/h_separation = 8
+columns = 4
+
+[node name="Status" type="Label" parent="Column" index="5"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.541176, 0.588235, 1)
+horizontal_alignment = 1
+
+[node name="Actions" type="HBoxContainer" parent="Column" index="6"]
+layout_mode = 2
+
+[node name="DeckSaveButton" type="Button" parent="Column/Actions" index="0"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "덱 저장 및 사용"
+
+[node name="DeckCancelButton" type="Button" parent="Column/Actions" index="1"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "취소"
