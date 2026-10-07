@@ -410,8 +410,9 @@ static func _show_stats_panel(main) -> void:
 	var panel := PanelContainer.new()
 	panel.position = Vector2(145, 72)
 	panel.size = Vector2(990, 576)
-	panel.add_theme_stylebox_override("panel", main._panel_style(Color("#10141e"), Color("#3d8f83"), 16))
+	panel.add_theme_stylebox_override("panel", UIKit.panel_box(UIKit.TEAL, 16, 1.0))
 	main.stats_overlay.add_child(panel)
+	UIKit.reveal(panel, 0.25, 12.0)
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 28)
 	margin.add_theme_constant_override("margin_right", 28)
@@ -443,22 +444,28 @@ static func _show_stats_panel(main) -> void:
 	scroll.add_child(grid)
 	var names := BattleModel.UNIT_NAMES
 	for kind in names.keys():
+		var unit_color: Color = UIKit.UNIT_COLORS.get(kind, UIKit.ACCENT)
 		var card := PanelContainer.new()
 		card.custom_minimum_size = Vector2(455, 126)
-		card.add_theme_stylebox_override("panel", main._panel_style(Color("#171c28"), Color(1.0, 1.0, 1.0, 0.09), 10))
+		card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI.lerp(unit_color, 0.08), UIKit.SURFACE.darkened(0.12), Color(unit_color.r, unit_color.g, unit_color.b, 0.5), 12, 1.0, 0.0, Color(0, 0, 0, 0), 0.08), 14, 10))
 		grid.add_child(card)
-		var card_margin := MarginContainer.new()
-		card_margin.add_theme_constant_override("margin_left", 16)
-		card_margin.add_theme_constant_override("margin_right", 16)
-		card_margin.add_theme_constant_override("margin_top", 12)
-		card_margin.add_theme_constant_override("margin_bottom", 12)
-		card.add_child(card_margin)
+		var card_row := HBoxContainer.new()
+		card_row.add_theme_constant_override("separation", 14)
+		card.add_child(card_row)
+		var portrait := TextureRect.new()
+		portrait.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
+		portrait.custom_minimum_size = Vector2(78, 100)
+		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		card_row.add_child(portrait)
 		var label := Label.new()
 		label.text = "%s\n%s" % [names[kind], BattleModel.unit_stat_summary(kind, int(main.local_model.campaign_levels[main.own_side]) if main.local_ai_mode and is_instance_valid(main.local_model) else 0)]
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		label.add_theme_font_size_override("font_size", 15)
-		label.add_theme_color_override("font_color", Color("#dce1ec"))
-		card_margin.add_child(label)
+		label.add_theme_font_size_override("font_size", 14)
+		label.add_theme_color_override("font_color", UIKit.TEXT)
+		card_row.add_child(label)
 	var world_stats := Label.new()
 	world_stats.text = BattleModel.battle_stat_summary()
 	world_stats.add_theme_font_size_override("font_size", 13)

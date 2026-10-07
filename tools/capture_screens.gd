@@ -42,6 +42,9 @@ func run() -> void:
 	main._on_room_list({"rooms":[{"code":"ABC233","name":"같이 대전해요","players":1,"state":"waiting"},{"code":"DEF456","name":"고수만 오세요","players":2,"state":"playing","locked":true,"spectators":3}],"page":0,"total":2})
 	await shot("07_lobby")
 	main.campaign_mode = true
+	main._show_stage_brief(3)
+	await shot("07b_brief", 4)
+	main._dismiss_action_overlay()
 	main._start_local_ai_battle(3)
 	for i in 240:
 		await process_frame
@@ -49,6 +52,9 @@ func run() -> void:
 	for i in 120:
 		await process_frame
 	await shot("08_battle")
+	main._show_stats_panel()
+	await shot("08b_stats", 4)
+	main._dismiss_stats_panel()
 	main.local_model.winner = 0
 	main._on_snapshot(main.local_model.snapshot())
 	await shot("09_result", 8)

@@ -2,6 +2,7 @@ extends RefCounted
 ## ResultScreens: screen/UI code moved out of Main.gd. `main` is the Main node; state stays on Main.
 
 const Localization = preload("res://scripts/Localization.gd")
+const UIKit = preload("res://scripts/ui/UIKit.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
@@ -38,17 +39,29 @@ static func _show_result(main, winner: int) -> void:
 			main.save_data.stats.online_losses += 1 if winner != main.own_side and winner != 2 else 0
 			main.save_data.stats.online_draws += 1 if winner == 2 else 0
 		SaveData.save_data(main.save_data)
+	var screen := Control.new()
+	screen.name = "ResultOverlay"
+	screen.position = Vector2.ZERO
+	screen.size = Vector2(1280, 720)
+	screen.mouse_filter = Control.MOUSE_FILTER_STOP
+	main.result_overlay = screen
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.03, 0.07, 0.62)
+	dim.size = Vector2(1280, 720)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_child(dim)
 	var overlay := PanelContainer.new()
-	overlay.name = "ResultOverlay"
-	main.result_overlay = overlay
+	overlay.name = "ResultPanel"
 	overlay.position = Vector2(350, 155)
 	overlay.size = Vector2(580, 410)
-	var result_color := Color("#f6c85f") if winner == main.own_side else Color("#8f98ad")
-	var overlay_style = main._panel_style(Color("#121923"), Color(result_color.r, result_color.g, result_color.b, 0.55), 18)
-	overlay_style.shadow_color = Color(0.0, 0.0, 0.0, 0.58)
-	overlay_style.shadow_size = 28
-	overlay.add_theme_stylebox_override("panel", overlay_style)
-	main.root_background.add_child(overlay)
+	var won: bool = winner == main.own_side
+	var result_color := UIKit.GOLD if won else (UIKit.TEXT_MUTED if winner == 2 else UIKit.DANGER.lightened(0.15))
+	overlay.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI.lerp(result_color, 0.08), UIKit.SURFACE.darkened(0.2), Color(result_color.r, result_color.g, result_color.b, 0.7), 18, 1.5, 1.0, Color(result_color.r, result_color.g, result_color.b, 0.35) if won else Color(0, 0, 0, 0), 0.12, 16))
+	screen.add_child(overlay)
+	main.root_background.add_child(screen)
+	UIKit.reveal(overlay, 0.35, 18.0)
+	dim.modulate.a = 0.0
+	dim.create_tween().tween_property(dim, "modulate:a", 1.0, 0.3)
 	var inner := Control.new()
 	inner.custom_minimum_size = Vector2(580, 410)
 	overlay.add_child(inner)
@@ -62,12 +75,33 @@ static func _show_result(main, winner: int) -> void:
 	inner.add_child(overline)
 	var result := Label.new()
 	result.text = "전투 종료" if main.network.client_is_spectator else (Localization.text("무승부") if winner == 2 else (Localization.text("승리") if winner == main.own_side else Localization.text("패배")))
-	result.position = Vector2(0, 64)
-	result.size = Vector2(580, 82)
+	result.position = Vector2(0, 54)
+	result.size = Vector2(580, 76)
 	result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result.add_theme_font_size_override("font_size", 52)
+	result.add_theme_font_size_override("font_size", 56)
 	result.add_theme_color_override("font_color", result_color)
+	result.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.5))
+	result.add_theme_constant_override("outline_size", 8)
 	inner.add_child(result)
+	if main.local_ai_mode and main.campaign_mode and won:
+		var stars := HBoxContainer.new()
+		stars.name = "ResultStars"
+		stars.position = Vector2(0, 122)
+		stars.size = Vector2(580, 34)
+		stars.alignment = BoxContainer.ALIGNMENT_CENTER
+		stars.add_theme_constant_override("separation", 10)
+		inner.add_child(stars)
+		for star_index in 3:
+			var star := Label.new()
+			star.text = "★" if star_index < awarded_stars else "☆"
+			star.add_theme_font_size_override("font_size", 30)
+			star.add_theme_color_override("font_color", UIKit.GOLD if star_index < awarded_stars else UIKit.TEXT_DIM)
+			star.pivot_offset = Vector2(15, 17)
+			star.scale = Vector2.ZERO
+			stars.add_child(star)
+			var pop := star.create_tween()
+			pop.tween_interval(0.35 + 0.18 * star_index)
+			pop.tween_property(star, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	var advances = main.local_ai_mode and main.campaign_mode and winner == main.own_side and main.current_ai_stage < ServerAI.MAX_STAGE
 	var note := Label.new()
 	if main.local_ai_mode:
@@ -75,8 +109,8 @@ static func _show_result(main, winner: int) -> void:
 		if not main.campaign_mode and main.practice_used_tools: note.text = "실험 설정 결과는 전적에 기록하지 않습니다."
 	else:
 		note.text = "같은 방에서 덱을 바꾸고 다시 대전할 수 있습니다." if not main.network.client_session.is_empty() else Localization.text("두 플레이어가 모두 준비하면 다시 시작합니다.")
-	note.position = Vector2(0, 157)
-	note.size = Vector2(580, 34)
+	note.position = Vector2(0, 160)
+	note.size = Vector2(580, 30)
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	note.add_theme_color_override("font_color", Color("#8f98ad"))
 	inner.add_child(note)

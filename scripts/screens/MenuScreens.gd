@@ -170,12 +170,8 @@ static func _build_ai_stage_screen(main, as_campaign: bool = false) -> void:
 	var panel := PanelContainer.new()
 	panel.position = Vector2(140, 48)
 	panel.size = Vector2(1000, 624)
-	var panel_style = main._panel_style(Color("#121923"), Color(0.55, 0.36, 0.96, 0.55), 20)
-	panel_style.content_margin_left = 38
-	panel_style.content_margin_right = 38
-	panel_style.content_margin_top = 30
-	panel_style.content_margin_bottom = 30
-	panel.add_theme_stylebox_override("panel", panel_style)
+	panel.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.panel_box(Color(0.55, 0.40, 0.98), 18, 1.0), 38, 28))
+	UIKit.reveal(panel, 0.3, 12.0)
 	main.root_background.add_child(panel)
 	var stage_column := VBoxContainer.new()
 	stage_column.add_theme_constant_override("separation", 14)
@@ -225,12 +221,63 @@ static func _build_ai_stage_screen(main, as_campaign: bool = false) -> void:
 		stage_button.custom_minimum_size = Vector2(220, 130)
 		stage_button.add_theme_font_size_override("font_size", 14)
 		stage_button.disabled = locked
+		_dress_stage_card(stage_button, color, stage, locked, stage == main.current_ai_stage, record)
 		stage_button.pressed.connect(main._show_stage_brief.bind(stage) if main.campaign_mode else main._start_local_ai_battle.bind(stage))
 		grid.add_child(stage_button)
 	var back_button = main._styled_button(Localization.text("메인 화면으로"), Color("#596174"), false)
 	back_button.custom_minimum_size.y = 48
 	back_button.pressed.connect(main._build_connect_screen)
 	stage_column.add_child(back_button)
+
+## Stage tile: gradient frame tinted by difficulty, big faded numeral, difficulty pips, lock veil.
+static func _dress_stage_card(card: Button, color: Color, stage: int, locked: bool, current: bool, record: Dictionary) -> void:
+	card.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var base := UIKit.SURFACE_HI.lerp(color, 0.10 if not locked else 0.0)
+	var border := Color(color.r, color.g, color.b, 0.55 if not locked else 0.18)
+	var normal := UIKit.box(base, UIKit.SURFACE.darkened(0.16), border, 14, 1.0, 0.45, Color(0, 0, 0, 0), 0.08)
+	var hover := UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.24), UIKit.SURFACE.lerp(color, 0.10), color.lightened(0.35), 14, 1.5, 0.85, Color(color.r, color.g, color.b, 0.5), 0.16)
+	var chosen := UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.40), UIKit.SURFACE.lerp(color, 0.18), UIKit.GOLD, 14, 2.0, 0.9, Color(1.0, 0.85, 0.4, 0.45), 0.2) if current else hover
+	var map := {"normal": chosen if current else normal, "hover": hover, "pressed": chosen, "hover_pressed": chosen, "disabled": normal}
+	for state in map:
+		var style: StyleBox = map[state].duplicate()
+		style.content_margin_left = 18
+		style.content_margin_right = 16
+		style.content_margin_top = 16
+		style.content_margin_bottom = 30
+		card.add_theme_stylebox_override(state, style)
+	card.add_theme_color_override("font_disabled_color", UIKit.TEXT_DIM)
+	UIKit.juice(card, 1.03)
+	var numeral := Label.new()
+	numeral.name = "StageNumeral"
+	numeral.text = "%d" % stage
+	numeral.size = Vector2(100, 90)
+	numeral.position = Vector2(112, 22)
+	numeral.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	numeral.add_theme_font_size_override("font_size", 78)
+	numeral.add_theme_color_override("font_color", Color(color.r, color.g, color.b, 0.16 if not locked else 0.06))
+	numeral.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(numeral)
+	var pips := HBoxContainer.new()
+	pips.name = "DifficultyPips"
+	pips.position = Vector2(18, 108)
+	pips.add_theme_constant_override("separation", 3)
+	pips.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(pips)
+	for i in ServerAI.MAX_STAGE:
+		var pip := ColorRect.new()
+		pip.custom_minimum_size = Vector2(14, 4)
+		pip.color = (color if not locked else UIKit.TEXT_DIM) if i < stage else Color(1, 1, 1, 0.10)
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pips.add_child(pip)
+	if current and not locked:
+		var tag := Label.new()
+		tag.text = "NEXT" if int(record.best_stars) == 0 else "●"
+		tag.position = Vector2(170, 104)
+		tag.add_theme_font_size_override("font_size", 11)
+		tag.add_theme_color_override("font_color", UIKit.GOLD)
+		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(tag)
 
 static func _show_scene(main, scene: PackedScene, title_text: String, subtitle_text: String) -> Node:
 	main.battle_active = false
@@ -239,6 +286,7 @@ static func _show_scene(main, scene: PackedScene, title_text: String, subtitle_t
 	var frame = scene.instantiate()
 	main.root_background.add_child(frame)
 	frame.setup(title_text, subtitle_text)
+	UIKit.reveal(frame, 0.26, 10.0)
 	return frame
 
 ## Full-screen sub-menu frame (layout in scenes/ui/SubMenuFrame.tscn); returns its content column.

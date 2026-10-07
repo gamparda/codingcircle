@@ -4,6 +4,7 @@ extends RefCounted
 const Localization = preload("res://scripts/Localization.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
+const UIKit = preload("res://scripts/ui/UIKit.gd")
 
 static func _build_settings_screen(main, mobile_layout_override: bool = false) -> void:
 	var outer = main._submenu(Localization.text("설정"), "변경 시 자동 저장")
@@ -49,8 +50,23 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	master.value_changed.connect(main._preview_bus_volume.bind("Master"))
 	bgm.value_changed.connect(main._preview_bus_volume.bind("BGM"))
 	sfx.value_changed.connect(main._preview_bus_volume.bind("SFX"))
+	controls.columns = 3
+	controls.add_theme_constant_override("h_separation", 20)
+	controls.add_theme_constant_override("v_separation", 14)
 	for pair in [[Localization.text("전체 음량"), master], [Localization.text("BGM 음량"), bgm], [Localization.text("효과음 음량"), sfx]]:
-		var label := Label.new(); label.text = pair[0]; controls.add_child(label); pair[1].custom_minimum_size.x = 600; controls.add_child(pair[1])
+		var label := Label.new(); label.text = pair[0]; label.custom_minimum_size.x = 150; controls.add_child(label)
+		var slider: HSlider = pair[1]
+		slider.custom_minimum_size = Vector2(520, 28)
+		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		controls.add_child(slider)
+		var readout := Label.new()
+		readout.custom_minimum_size.x = 56
+		readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		readout.add_theme_color_override("font_color", UIKit.GOLD)
+		readout.text = "%d%%" % roundi(slider.value * 100.0)
+		slider.value_changed.connect(func(value): readout.text = "%d%%" % roundi(value * 100.0))
+		controls.add_child(readout)
 	var muted := CheckButton.new(); muted.text = Localization.text("음소거"); muted.button_pressed = settings.muted; muted.toggled.connect(func(enabled): AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), enabled)); column.add_child(muted)
 	main._add_settings_section(column, "화면")
 	var fullscreen := CheckButton.new(); fullscreen.name = "FullscreenToggle"; fullscreen.text = Localization.text("전체화면 (F11)").replace(" (F11)", "") if mobile_layout else Localization.text("전체화면 (F11)"); fullscreen.button_pressed = settings.fullscreen; column.add_child(fullscreen)
@@ -124,15 +140,24 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	var back = main._styled_button(Localization.text("취소"), Color("#697386"), false); back.pressed.connect(func(): main._apply_settings(); main._build_connect_screen()); outer.add_child(back)
 
 static func _add_settings_section(main, parent: VBoxContainer, title: String) -> void:
+	var spacer := Control.new()
+	spacer.custom_minimum_size.y = 6
+	parent.add_child(spacer)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	parent.add_child(row)
+	var accent := ColorRect.new()
+	accent.color = UIKit.GOLD
+	accent.custom_minimum_size = Vector2(4, 22)
+	row.add_child(accent)
 	var heading := Label.new()
 	heading.text = Localization.text(title)
-	heading.add_theme_font_size_override("font_size", 18)
-	heading.add_theme_color_override("font_color", Color("#ebcd8c"))
-	parent.add_child(heading)
+	heading.add_theme_font_size_override("font_size", 19)
+	heading.add_theme_color_override("font_color", UIKit.GOLD)
+	row.add_child(heading)
 	var divider := HSeparator.new()
-	divider.add_theme_constant_override("separation", 3)
+	divider.add_theme_constant_override("separation", 6)
 	parent.add_child(divider)
-
 static func _add_binding_settings(main, column: VBoxContainer) -> void:
 	main._add_settings_section(column,"전투 단축키")
 	var grid := GridContainer.new(); grid.name="BattleKeyBindings"; grid.columns=3; grid.add_theme_constant_override("h_separation",12); grid.add_theme_constant_override("v_separation",8); column.add_child(grid)

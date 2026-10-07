@@ -1,5 +1,7 @@
 extends RefCounted
 
+const UIKit = preload("res://scripts/ui/UIKit.gd")
+
 const INK := Color("#101a29")
 const EDGE := Color("#2b415c")
 const MUTED := Color("#92a3bc")
@@ -13,10 +15,8 @@ static func label(text: String, size: int = 16, color: Color = Color.WHITE) -> L
 
 static func panel(main, parent: Node, name: String, bounds: Rect2, padding: int = 24) -> VBoxContainer:
 	var box := PanelContainer.new(); box.name = name; box.position = bounds.position; box.size = bounds.size
-	var style: StyleBoxFlat = main._panel_style(INK,EDGE,16)
-	style.content_margin_left = padding; style.content_margin_right = padding
-	style.content_margin_top = padding; style.content_margin_bottom = padding
-	box.add_theme_stylebox_override("panel",style); parent.add_child(box)
+	box.add_theme_stylebox_override("panel",UIKit.with_margins(UIKit.panel_box(),padding,padding)); parent.add_child(box)
+	UIKit.reveal(box,0.28,10.0)
 	var content := VBoxContainer.new(); content.add_theme_constant_override("separation",12); box.add_child(content)
 	return content
 
@@ -88,8 +88,7 @@ static func listing(main, data: Dictionary) -> void:
 		var note := label("대기 중인 방이 없습니다. 오른쪽 위에서 방을 만들 수 있습니다.",13,MUTED); note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; empty.add_child(note)
 	for room in data.rooms:
 		var card := PanelContainer.new(); card.name = "RoomRow"; card.custom_minimum_size.y = 78
-		var style: StyleBoxFlat = main._panel_style(Color("#18263a"),EDGE,10)
-		style.content_margin_left = 16; style.content_margin_right = 16; style.content_margin_top = 10; style.content_margin_bottom = 10; card.add_theme_stylebox_override("panel",style); main.lobby_rows.add_child(card)
+		card.add_theme_stylebox_override("panel",UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI,UIKit.SURFACE,Color(EDGE.r,EDGE.g,EDGE.b,0.8),12,1.0,0.35,Color(0,0,0,0),0.08),16,10)); main.lobby_rows.add_child(card)
 		var row := HBoxContainer.new(); row.add_theme_constant_override("separation",12); card.add_child(row)
 		var details := VBoxContainer.new(); details.size_flags_horizontal = Control.SIZE_EXPAND_FILL; row.add_child(details)
 		var name_label := label(("▣  " if room.get("locked",false) else "◇  ")+String(room.name),18); name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS; details.add_child(name_label)
@@ -144,7 +143,7 @@ static func update_room(main, data: Dictionary) -> void:
 		else: spectators.append(member.nickname)
 	for index in 2:
 		var slot := PanelContainer.new(); slot.custom_minimum_size.y = 90
-		var style: StyleBoxFlat = main._panel_style(Color("#18263a"),EDGE,12); style.content_margin_left = 16; style.content_margin_right = 16; style.content_margin_top = 14; style.content_margin_bottom = 14; slot.add_theme_stylebox_override("panel",style); main.session_roster.add_child(slot)
+		slot.add_theme_stylebox_override("panel",UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI,UIKit.SURFACE,Color(EDGE.r,EDGE.g,EDGE.b,0.8),12,1.0,0.3,Color(0,0,0,0),0.08),16,14)); main.session_roster.add_child(slot)
 		var text := VBoxContainer.new(); slot.add_child(text)
 		if index < players.size():
 			var member: Dictionary = players[index]

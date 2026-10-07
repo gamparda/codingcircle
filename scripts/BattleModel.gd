@@ -30,6 +30,8 @@ const CURSE_RADIUS := 30.0
 const CURSE_DURATION := 5.0
 const CURSE_DAMAGE_SCALE := 0.70
 const SUMMON_INTERVAL := 5.0
+const RAGE_HP_FRACTION := 0.5
+const RAGE_SPEED_MULTIPLIER := 1.5
 const MAX_ACTIVE_UNITS := 256
 # Unit/structure numbers live in res://data/**.tres (see scripts/data/GameData.gd).
 static var UNIT_STATS: Dictionary = GameData.unit_stats()
@@ -160,21 +162,34 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 	var output := Localization.text("비용 %d  ·  체력 %d\n") % [int(stats.cost), int(stats.hp * stat_scale)]
 	if kind == "skeleton":
 		output = "소환 전용  ·  체력 %d\n" % int(stats.hp * stat_scale)
+	var support_step := roundi(SUPPORT_INCREMENT * 100.0)
+	var support_cap := roundi(SUPPORT_INCREMENT * SUPPORT_MAX_STACKS * 100.0)
 	if kind == "healer":
-		return output + Localization.text("피해·회복 없음  ·  공속 +3% 영구 누적\n범위 125  ·  쿨 4초  ·  상한 +30%\n유닛 사망·전투 종료 시 초기화  ·  이동 34")
+		return output + Localization.text("피해·회복 없음  ·  공속 +%d%% 영구 누적\n범위 %d  ·  쿨 %d초  ·  상한 +%d%%\n유닛 사망·전투 종료 시 초기화  ·  이동 %d") % [support_step, int(stats.range), int(stats.interval), support_cap, int(stats.speed)]
 	else:
 		output += Localization.text("공격력 %d  ·  DPS %.1f\n") % [int(stats.damage * stat_scale), float(stats.damage) * stat_scale / interval]
 	output += Localization.text("공격 간격 %.2f초  ·  사거리 %d  ·  이동 %d") % [interval, int(stats.range), int(stats.speed)]
 	if kind == "berserker":
-		output += "\n체력 50%% 이하: 공속 +50%% · 공격력 %d" % int(6.0 * stat_scale)
+		output += "\n체력 %d%% 이하: 공속 +%d%% · 공격력 %d" % [roundi(RAGE_HP_FRACTION * 100.0), roundi((RAGE_SPEED_MULTIPLIER - 1.0) * 100.0), int(float(stats.damage) * stat_scale)]
 	elif kind == "warlock":
-		output += "\n공격 대상에 반경 30 장판 · 적 공격력 -30%\n5초 유지 · 시전자당 1개 · 중첩 없음"
+		output += "\n공격 대상에 반경 %d 장판 · 적 공격력 -%d%%\n%d초 유지 · 시전자당 1개 · 중첩 없음" % [int(CURSE_RADIUS), roundi((1.0 - CURSE_DAMAGE_SCALE) * 100.0), int(CURSE_DURATION)]
 	elif kind == "necromancer":
-		output += "\n5초마다 해골 소환 · 추가 자원 없음\n해골 체력 %d · 공격 %d · 사거리 40" % [int(30.0 * stat_scale), int(10.0 * stat_scale)]
+		var skeleton: Dictionary = SUMMON_STATS.skeleton
+		output += "\n%d초마다 해골 소환 · 추가 자원 없음\n해골 체력 %d · 공격 %d · 사거리 %d" % [int(SUMMON_INTERVAL), int(float(skeleton.hp) * stat_scale), int(float(skeleton.damage) * stat_scale), int(skeleton.range)]
 	return output
 
 static func battle_stat_summary() -> String:
-	return Localization.text("구조물  ·  방벽 35/체력 230  ·  늪 30/체력 100/80%% 감속/5초\n포탑 50/체력 115/공격 8/사거리 240  ·  발전기 50/체력 90/+2 자원\n마법사  ·  피해·회복 없음/공속 +3%% 영구 누적/범위 125/쿨 4초/상한 +30%%\n전장  ·  길이 +15%%  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
+	var wall: Dictionary = STRUCTURE_STATS.wall
+	var swamp: Dictionary = STRUCTURE_STATS.swamp
+	var turret: Dictionary = STRUCTURE_STATS.turret
+	var generator: Dictionary = STRUCTURE_STATS.generator
+	var healer: Dictionary = UNIT_STATS.healer
+	var structures_line := Localization.text("구조물  ·  방벽 %d/체력 %d  ·  늪 %d/체력 %d/%d%% 감속/%d초\n포탑 %d/체력 %d/공격 %d/사거리 %d  ·  발전기 %d/체력 %d/+%d 자원") % [
+		int(wall.cost), int(wall.hp), int(swamp.cost), int(swamp.hp), roundi((1.0 - float(swamp.speed_scale)) * 100.0), int(swamp.lifetime),
+		int(turret.cost), int(turret.hp), int(turret.damage), int(turret.range), int(generator.cost), int(generator.hp), int(generator.income)]
+	var support_line := Localization.text("마법사  ·  피해·회복 없음/공속 +%d%% 영구 누적/범위 %d/쿨 %d초/상한 +%d%%") % [roundi(SUPPORT_INCREMENT * 100.0), int(healer.range), int(healer.interval), roundi(SUPPORT_INCREMENT * SUPPORT_MAX_STACKS * 100.0)]
+	var field_line := Localization.text("전장  ·  길이 +%d%%  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [roundi((WORLD_SCALE - 1.0) * 100.0), int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
+	return structures_line + "\n" + support_line + "\n" + field_line
 
 func _owned_structure_count(side: int, kind: String = "") -> int:
 	var count := 0
@@ -336,10 +351,10 @@ func support_attack_speed(unit: Dictionary) -> float:
 	if unit.kind == "healer" or float(unit.hp) <= 0.0:
 		return 1.0
 	var multiplier := 1.0 + mini(SUPPORT_MAX_STACKS, maxi(0, int(unit.get("support_stacks", 0)))) * SUPPORT_INCREMENT
-	return multiplier * (1.5 if is_enraged(unit) else 1.0)
+	return multiplier * (RAGE_SPEED_MULTIPLIER if is_enraged(unit) else 1.0)
 
 static func is_enraged(unit: Dictionary) -> bool:
-	return unit.kind == "berserker" and float(unit.hp) > 0.0 and float(unit.hp) <= float(unit.max_hp) * 0.5
+	return unit.kind == "berserker" and float(unit.hp) > 0.0 and float(unit.hp) <= float(unit.max_hp) * RAGE_HP_FRACTION
 
 func unit_attack_damage(unit: Dictionary) -> float:
 	var damage := float(unit.damage)
