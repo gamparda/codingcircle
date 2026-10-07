@@ -5,6 +5,8 @@ const Localization = preload("res://scripts/Localization.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
+const UIKit = preload("res://scripts/ui/UIKit.gd")
+const HpBar = preload("res://scripts/ui/HpBar.gd")
 
 static func _build_battle_screen(main) -> void:
 	main.base_warning_fired = false; main.client_purchase_gates.clear(); main.sound_gate.clear()
@@ -15,14 +17,17 @@ static func _build_battle_screen(main) -> void:
 	main.root_background = main._make_background()
 
 	var top := ColorRect.new()
-	top.color = Color("#0b0d13")
+	top.color = Color("#090d17")
 	top.position = Vector2.ZERO
 	top.size = Vector2(1280, 88)
 	main.root_background.add_child(top)
-	var top_line := ColorRect.new()
-	top_line.color = Color(1.0, 1.0, 1.0, 0.08)
-	top_line.position = Vector2(0, 87)
-	top_line.size = Vector2(1280, 1)
+	var top_line := TextureRect.new()
+	top_line.texture = _team_gradient(main.own_side)
+	top_line.stretch_mode = TextureRect.STRETCH_SCALE
+	top_line.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	top_line.position = Vector2(0, 85)
+	top_line.size = Vector2(1280, 3)
+	top_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(top_line)
 	main._create_hp_card(top, Vector2(18, 12), main.own_side)
 	main._create_hp_card(top, Vector2(842, 12), 1 - main.own_side)
@@ -30,7 +35,7 @@ static func _build_battle_screen(main) -> void:
 	var timer_card := PanelContainer.new()
 	timer_card.position = Vector2(530, 12)
 	timer_card.size = Vector2(220, 64)
-	timer_card.add_theme_stylebox_override("panel", main._panel_style(Color("#141720"), Color(1.0, 1.0, 1.0, 0.08), 10))
+	timer_card.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE.darkened(0.2), Color(1, 1, 1, 0.16), 14, 1.0, 0.6, Color(0, 0, 0, 0), 0.10))
 	top.add_child(timer_card)
 	var timer_inner := Control.new()
 	timer_inner.custom_minimum_size = Vector2(220, 64)
@@ -39,8 +44,8 @@ static func _build_battle_screen(main) -> void:
 	main.timer_label.position = Vector2(0, 7)
 	main.timer_label.size = Vector2(220, 34)
 	main.timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	main.timer_label.add_theme_font_size_override("font_size", 25)
-	main.timer_label.add_theme_color_override("font_color", Color("#f5f7fb"))
+	main.timer_label.add_theme_font_size_override("font_size", 28)
+	main.timer_label.add_theme_color_override("font_color", UIKit.TEXT)
 	timer_inner.add_child(main.timer_label)
 	var mode_label := Label.new()
 	mode_label.text = "AI 단계 %02d" % main.current_ai_stage if main.local_ai_mode else ("관전 중" if main.network.client_is_spectator else "온라인 대전")
@@ -77,7 +82,7 @@ static func _build_battle_screen(main) -> void:
 	main.root_background.add_child(main.structure_count_label)
 
 	var controls := ColorRect.new()
-	controls.color = Color("#0b0d13")
+	controls.color = Color("#090d17")
 	controls.position = Vector2(0, 580)
 	controls.size = Vector2(1280, 140)
 	main.root_background.add_child(controls)
@@ -89,8 +94,8 @@ static func _build_battle_screen(main) -> void:
 	var resource_card := PanelContainer.new()
 	resource_card.position = Vector2(16, 16)
 	resource_card.size = Vector2(174, 108)
-	var own_color := Color("#5b8cff")
-	resource_card.add_theme_stylebox_override("panel", main._panel_style(Color("#141720"), Color(own_color.r, own_color.g, own_color.b, 0.48), 10))
+	var own_color := UIKit.TEAM_BLUE
+	resource_card.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI.lerp(own_color, 0.12), UIKit.SURFACE.darkened(0.2), Color(own_color.r, own_color.g, own_color.b, 0.6), 14, 1.0, 0.6, Color(own_color.r, own_color.g, own_color.b, 0.35), 0.08))
 	controls.add_child(resource_card)
 	var resource_inner := Control.new()
 	resource_inner.custom_minimum_size = Vector2(174, 108)
@@ -105,12 +110,23 @@ static func _build_battle_screen(main) -> void:
 	main.resource_label = Label.new()
 	main.resource_label.position = Vector2(14, 28)
 	main.resource_label.size = Vector2(145, 42)
-	main.resource_label.add_theme_font_size_override("font_size", 25)
-	main.resource_label.add_theme_color_override("font_color", Color("#f6c85f"))
+	main.resource_label.add_theme_font_size_override("font_size", 27)
+	main.resource_label.add_theme_color_override("font_color", UIKit.GOLD)
 	resource_inner.add_child(main.resource_label)
+	var resource_bar := HpBar.new()
+	resource_bar.name = "ResourceBar"
+	resource_bar.color = UIKit.GOLD_DEEP
+	resource_bar.pulse_below = 0.0
+	resource_bar.show_ticks = false
+	resource_bar.position = Vector2(14, 66)
+	resource_bar.size = Vector2(146, 8)
+	resource_bar.max_value = BattleModel.MAX_RESOURCE
+	resource_bar.value = 0.0
+	resource_inner.add_child(resource_bar)
+	main.resource_label.set_meta("bar", resource_bar)
 	var side_label := Label.new()
 	side_label.text = "●  아군 진영"
-	side_label.position = Vector2(14, 76)
+	side_label.position = Vector2(14, 80)
 	side_label.size = Vector2(145, 22)
 	side_label.add_theme_font_size_override("font_size", 12)
 	side_label.add_theme_color_override("font_color", own_color)
@@ -173,38 +189,56 @@ static func _build_battle_screen(main) -> void:
 	main.base_warning_label = Label.new(); main.base_warning_label.name = "BaseDangerWarning"; main.base_warning_label.text = "기지 체력 위험"; main.base_warning_label.position = Vector2(530,96); main.base_warning_label.size = Vector2(220,28); main.base_warning_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; main.base_warning_label.add_theme_color_override("font_color",Color("#ff8a96")); main.base_warning_label.visible = false; main.root_background.add_child(main.base_warning_label)
 	main.cancel_build_button = main._styled_button("설치 취소 · Esc",Color("#697386")); main.cancel_build_button.name = "CancelBuildButton"; main.cancel_build_button.position = Vector2(536,500); main.cancel_build_button.size = Vector2(208,44); main.cancel_build_button.visible = false; main.cancel_build_button.z_index = 10; main.cancel_build_button.pressed.connect(main._cancel_build_selection); main.root_background.add_child(main.cancel_build_button)
 
+static func _team_gradient(own_side: int) -> GradientTexture2D:
+	var gradient := Gradient.new()
+	var left := UIKit.TEAM_BLUE
+	var right := UIKit.TEAM_RED
+	gradient.colors = PackedColorArray([Color(left.r, left.g, left.b, 0.9), Color(1, 1, 1, 0.06), Color(right.r, right.g, right.b, 0.9)])
+	gradient.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.width = 256
+	texture.height = 4
+	texture.fill_from = Vector2(0, 0)
+	texture.fill_to = Vector2(1, 0)
+	return texture
+
 static func _create_hp_card(main, parent: Control, position_value: Vector2, side: int) -> void:
 	var card := PanelContainer.new()
 	card.position = position_value
 	card.size = Vector2(420, 64)
-	var color := Color("#5b8cff") if side == main.own_side else Color("#ff627d")
-	card.add_theme_stylebox_override("panel", main._panel_style(Color("#141720"), Color(color.r, color.g, color.b, 0.34), 10))
+	var color := UIKit.TEAM_BLUE if side == main.own_side else UIKit.TEAM_RED
+	card.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.10), UIKit.SURFACE.darkened(0.2), Color(color.r, color.g, color.b, 0.55), 12, 1.0, 0.6, Color(color.r, color.g, color.b, 0.35), 0.08))
 	parent.add_child(card)
 	var inner := Control.new()
 	inner.custom_minimum_size = Vector2(420, 64)
 	card.add_child(inner)
+	var accent := ColorRect.new()
+	accent.color = color
+	accent.position = Vector2(0, 14)
+	accent.size = Vector2(4, 36)
+	accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_child(accent)
 	var faction := Label.new()
 	faction.text = "아군 기지" if side == main.own_side else "적군 기지"
-	faction.position = Vector2(14, 7)
+	faction.position = Vector2(16, 7)
 	faction.size = Vector2(240, 22)
-	faction.add_theme_font_size_override("font_size", 12)
-	faction.add_theme_color_override("font_color", color)
+	faction.add_theme_font_size_override("font_size", 13)
+	faction.add_theme_color_override("font_color", color.lightened(0.25))
 	inner.add_child(faction)
 	var value_label := Label.new()
-	value_label.position = Vector2(300, 6)
-	value_label.size = Vector2(104, 23)
+	value_label.position = Vector2(300, 5)
+	value_label.size = Vector2(104, 24)
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	value_label.add_theme_font_size_override("font_size", 14)
-	value_label.add_theme_color_override("font_color", Color("#dce1ec"))
+	value_label.add_theme_font_size_override("font_size", 16)
+	value_label.add_theme_color_override("font_color", UIKit.TEXT)
 	inner.add_child(value_label)
-	var hp_bar := ProgressBar.new()
-	hp_bar.position = Vector2(14, 35)
-	hp_bar.size = Vector2(390, 12)
+	var hp_bar := HpBar.new()
+	hp_bar.color = color
+	hp_bar.position = Vector2(16, 34)
+	hp_bar.size = Vector2(388, 16)
 	hp_bar.max_value = BattleModel.BASE_MAX_HP
 	hp_bar.value = BattleModel.BASE_MAX_HP
-	hp_bar.show_percentage = false
-	hp_bar.add_theme_stylebox_override("background", main._panel_style(Color("#080a0f"), Color(1.0, 1.0, 1.0, 0.05), 6))
-	hp_bar.add_theme_stylebox_override("fill", main._panel_style(color, color, 6))
 	inner.add_child(hp_bar)
 	if side == 0:
 		main.blue_hp_bar = hp_bar
@@ -231,26 +265,67 @@ static func _add_spawn_button(main, row: HBoxContainer, title: String, kind: Str
 	button.modulate = Color(0.4, 0.4, 0.4, 1.0)
 	main.purchase_buttons.append(button)
 	button.custom_minimum_size = Vector2(136, 102)
+	button.set_meta("card_color", color)
 	main._decorate_battle_card(button)
+	_card_badges(main, button, color)
 	var portrait := Sprite2D.new()
 	portrait.name = "BattleUnitPortrait"
 	portrait.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
-	portrait.position = Vector2(68, 25)
-	portrait.scale = Vector2(0.17, 0.17)
+	portrait.position = Vector2(68, 27)
+	portrait.scale = Vector2(0.185, 0.185)
 	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	button.add_child(portrait)
 	button.pressed.connect(main._purchase_unit.bind(kind))
 	row.add_child(button)
 
 static func _decorate_battle_card(main, button: Button) -> void:
+	var color: Color = button.get_meta("card_color", UIKit.ACCENT)
 	button.add_theme_font_size_override("font_size", 12)
+	button.add_theme_color_override("font_color", UIKit.TEXT)
+	var normal := UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.20), UIKit.SURFACE.darkened(0.16), Color(color.r, color.g, color.b, 0.75), 12, 1.0, 0.55, Color(0, 0, 0, 0), 0.10)
+	var hover := UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.34), UIKit.SURFACE.lerp(color, 0.10), color.lightened(0.35), 12, 1.5, 0.9, Color(color.r, color.g, color.b, 0.55), 0.18)
+	var pressed := UIKit.box(UIKit.SURFACE.darkened(0.15), UIKit.BG_DEEP, color, 12, 1.0, 0.1, Color(0, 0, 0, 0), 0.0)
+	var selected := UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.46), UIKit.SURFACE.lerp(color, 0.22), UIKit.GOLD, 12, 2.0, 0.9, Color(1.0, 0.85, 0.4, 0.5), 0.2)
 	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
-		var style := button.get_theme_stylebox(state).duplicate() as StyleBoxFlat
-		style.content_margin_top = 52
+		var style: StyleBox = {"normal": normal, "hover": hover, "pressed": selected if button.toggle_mode else pressed, "hover_pressed": selected if button.toggle_mode else pressed, "disabled": normal}[state].duplicate()
+		style.content_margin_top = 54
 		style.content_margin_bottom = 5
 		style.content_margin_left = 4
 		style.content_margin_right = 4
 		button.add_theme_stylebox_override(state, style)
+	UIKit.juice(button, 1.04)
+
+static func _card_badges(main, button: Button, color: Color) -> void:
+	var cost := float(button.get_meta("purchase_cost", 0.0))
+	var badge := Label.new()
+	badge.name = "CostBadge"
+	badge.text = "%d" % int(cost)
+	badge.position = Vector2(92, 5)
+	badge.size = Vector2(38, 20)
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	badge.add_theme_font_size_override("font_size", 12)
+	badge.add_theme_color_override("font_color", Color("#2b1d02"))
+	var pill := StyleBoxFlat.new()
+	pill.bg_color = UIKit.GOLD
+	pill.border_color = UIKit.GOLD_DEEP
+	pill.set_border_width_all(1)
+	pill.set_corner_radius_all(10)
+	pill.anti_aliasing = true
+	badge.add_theme_stylebox_override("normal", pill)
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(badge)
+	var glow := Control.new()
+	glow.name = "PortraitGlow"
+	glow.position = Vector2.ZERO
+	glow.size = Vector2(136, 52)
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glow.draw.connect(func():
+		for i in 5:
+			var t := float(i) / 4.0
+			glow.draw_circle(Vector2(68, 28), 30.0 - t * 18.0, Color(color.r, color.g, color.b, 0.06 + t * 0.07)))
+	button.add_child(glow)
+	button.move_child(glow, 0)
 
 static func _add_structure_button(main, row: HBoxContainer, title: String, kind: String, color: Color) -> void:
 	var button = main._styled_button(title, color)
@@ -263,7 +338,9 @@ static func _add_structure_button(main, row: HBoxContainer, title: String, kind:
 	button.disabled = true
 	button.modulate = Color(0.4, 0.4, 0.4, 1.0)
 	main.purchase_buttons.append(button)
+	button.set_meta("card_color", color)
 	main._decorate_battle_card(button)
+	_card_badges(main, button, color)
 	var emblem := Label.new()
 	emblem.name = "StructureEmblem"
 	emblem.text = {"wall": "▤", "swamp": "≈", "turret": "⌖", "generator": "⚡"}.get(kind, "◆")
@@ -283,8 +360,42 @@ static func _add_structure_button(main, row: HBoxContainer, title: String, kind:
 	main.structure_buttons.append(button)
 
 static func _add_purchase_labels(main, button: Button, key_text: String) -> void:
-	var hotkey := Label.new(); hotkey.name = "PurchaseHotkey"; hotkey.text = key_text; hotkey.position = Vector2(6,4); hotkey.add_theme_font_size_override("font_size",11); hotkey.add_theme_color_override("font_color",Color("#d2d8e8")); hotkey.mouse_filter = Control.MOUSE_FILTER_IGNORE; button.add_child(hotkey)
-	var state := Label.new(); state.name = "PurchaseState"; state.position = Vector2(28,2); state.size = Vector2(106,18); state.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT; state.add_theme_font_size_override("font_size",10); state.add_theme_color_override("font_color",Color("#f0d592")); state.mouse_filter = Control.MOUSE_FILTER_IGNORE; state.add_theme_stylebox_override("normal",main._panel_style(Color(0.03,0.04,0.06,0.9),Color.TRANSPARENT,3)); button.add_child(state)
+	var hotkey := Label.new()
+	hotkey.name = "PurchaseHotkey"
+	hotkey.text = key_text
+	hotkey.position = Vector2(7, 6)
+	hotkey.custom_minimum_size = Vector2(22, 20)
+	hotkey.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hotkey.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hotkey.add_theme_font_size_override("font_size", 12)
+	hotkey.add_theme_color_override("font_color", UIKit.TEXT)
+	var keycap := StyleBoxFlat.new()
+	keycap.bg_color = Color(0.03, 0.05, 0.09, 0.85)
+	keycap.border_color = Color(1, 1, 1, 0.22)
+	keycap.set_border_width_all(1)
+	keycap.border_width_bottom = 2
+	keycap.set_corner_radius_all(5)
+	keycap.content_margin_left = 5
+	keycap.content_margin_right = 5
+	keycap.anti_aliasing = true
+	hotkey.add_theme_stylebox_override("normal", keycap)
+	hotkey.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(hotkey)
+	var state := Label.new()
+	state.name = "PurchaseState"
+	state.position = Vector2(8, 32)
+	state.size = Vector2(120, 18)
+	state.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	state.add_theme_font_size_override("font_size", 11)
+	state.add_theme_color_override("font_color", UIKit.GOLD)
+	state.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pill := StyleBoxFlat.new()
+	pill.bg_color = Color(0.02, 0.03, 0.06, 0.82)
+	pill.set_corner_radius_all(9)
+	pill.anti_aliasing = true
+	state.add_theme_stylebox_override("normal", pill)
+	state.visible = false
+	button.add_child(state)
 
 static func _show_stats_panel(main) -> void:
 	main._dismiss_stats_panel()
@@ -394,6 +505,7 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 		if state_label:
 			var state_text := "관전" if main.network.client_is_spectator else ("자원 -%d" % missing if missing>0 else ("대기 %.1f초" % cooldown if cooldown>0.001 else ""))
 			if state_label.text!=state_text: state_label.text = state_text
+			state_label.visible = not state_text.is_empty()
 		if button.disabled != unavailable:
 			button.disabled = unavailable
 			button.modulate = Color(0.4, 0.4, 0.4, 1.0) if unavailable else Color.WHITE

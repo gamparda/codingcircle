@@ -4,6 +4,8 @@ extends RefCounted
 const Localization = preload("res://scripts/Localization.gd")
 const PatchNotes = preload("res://scripts/PatchNotes.gd")
 const PracticeTools = preload("res://scripts/PracticeTools.gd")
+const UIKit = preload("res://scripts/ui/UIKit.gd")
+const HeroShowcase = preload("res://scripts/ui/HeroShowcase.gd")
 const SUBMENU_FRAME := preload("res://scenes/ui/SubMenuFrame.tscn")
 const PATCH_NOTES_SCREEN := preload("res://scenes/ui/PatchNotesScreen.tscn")
 const RECORDS_SCREEN := preload("res://scenes/ui/RecordsScreen.tscn")
@@ -48,95 +50,103 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	var backdrop := MenuBackdrop.new()
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	main.root_background.add_child(backdrop)
-	main._add_menu_portrait(main.root_background, "res://assets/units/tanker.png", Vector2(42, 232), Color("#86abff"), "탱커")
-	main._add_menu_portrait(main.root_background, "res://assets/units/archer.png", Vector2(1022, 232), Color("#e5c47d"), "궁수")
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(680, 520)
-	panel.position = Vector2(300, 100)
-	main.root_background.add_child(panel)
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("#121923")
-	style.border_color = Color("#667789")
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(8)
-	style.content_margin_left = 48
-	style.content_margin_right = 48
-	style.content_margin_top = 20
-	style.content_margin_bottom = 18
-	style.shadow_color = Color(0.0, 0.0, 0.0, 0.55)
-	style.shadow_size = 18
-	panel.add_theme_stylebox_override("panel", style)
 
+	# Hero stage on the right: rotating roster showcase.
+	var hero := HeroShowcase.new()
+	hero.name = "HeroShowcase"
+	hero.position = Vector2(660, 84)
+	hero.size = Vector2(560, 560)
+	main.root_background.add_child(hero)
+
+	# Left column: brand + navigation.
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 8)
-	panel.add_child(column)
-	var badge := Label.new()
-	badge.text = "◆  전장 개조 전략   /   v%s" % main.build_version()
-	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	badge.add_theme_font_size_override("font_size", 12)
-	badge.add_theme_color_override("font_color", Color("#8f98ad"))
+	column.name = "MenuColumn"
+	column.position = Vector2(84, 74)
+	column.size = Vector2(500, 580)
+	column.add_theme_constant_override("separation", 10)
+	main.root_background.add_child(column)
+
+	var badge := PanelContainer.new()
+	badge.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(Color(0.43, 0.49, 1.0, 0.22), Color(0.43, 0.49, 1.0, 0.10), Color(0.55, 0.6, 1.0, 0.7), 12, 1.0, 0.0, Color(0, 0, 0, 0), 0.0), 14, 4))
+	badge.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	column.add_child(badge)
+	var badge_label := Label.new()
+	badge_label.text = "◆  전장 개조 전략   ·   v%s" % main.build_version()
+	badge_label.add_theme_font_size_override("font_size", 13)
+	badge_label.add_theme_color_override("font_color", Color("#b9c2ff"))
+	badge.add_child(badge_label)
+
 	var title := Label.new()
-	title.text = "CAT  WAR"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 42)
-	title.add_theme_color_override("font_color", Color("#f0d592"))
+	title.name = "GameTitle"
+	title.text = "CAT WAR"
+	title.add_theme_font_size_override("font_size", 92)
+	title.add_theme_color_override("font_color", UIKit.GOLD)
+	title.add_theme_color_override("font_outline_color", Color("#3a2a0c"))
+	title.add_theme_constant_override("outline_size", 14)
+	title.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.55))
+	title.add_theme_constant_override("shadow_offset_y", 6)
+	title.add_theme_constant_override("shadow_offset_x", 0)
 	column.add_child(title)
 	var subtitle := Label.new()
 	subtitle.text = Localization.text("자동 전투  ×  전장 개조  ×  실시간 전략")
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_font_size_override("font_size", 16)
-	subtitle.add_theme_color_override("font_color", Color("#858da0"))
+	subtitle.add_theme_font_size_override("font_size", 17)
+	subtitle.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	column.add_child(subtitle)
-	var divider := HSeparator.new()
-	divider.modulate = Color(1.0, 1.0, 1.0, 0.10)
-	column.add_child(divider)
-	var online_label := Label.new()
-	online_label.text = "온라인 대전"
-	online_label.add_theme_font_size_override("font_size", 12)
-	online_label.add_theme_color_override("font_color", Color("#6f7890"))
-	column.add_child(online_label)
+	var gap := Control.new()
+	gap.custom_minimum_size.y = 14
+	column.add_child(gap)
 
-	var multiplayer_button = main._styled_button("멀티플레이",Color("#5e6ad2"),true)
+	var multiplayer_button = main._styled_button("멀티플레이", Color("#6d7cff"), true)
 	multiplayer_button.name = "MultiplayerButton"
+	multiplayer_button.custom_minimum_size.y = 68
+	multiplayer_button.add_theme_font_size_override("font_size", 22)
+	multiplayer_button.text = "▶   " + Localization.text("멀티플레이")
 	multiplayer_button.pressed.connect(main._open_multiplayer)
 	column.add_child(multiplayer_button)
-	var or_label := Label.new()
-	or_label.text = Localization.text("──────────────   또는   ──────────────")
-	or_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	or_label.add_theme_color_override("font_color", Color("#454b5a"))
-	or_label.add_theme_font_size_override("font_size", 12)
-	column.add_child(or_label)
+
 	var ai_row := HBoxContainer.new()
-	ai_row.add_theme_constant_override("separation", 8)
+	ai_row.add_theme_constant_override("separation", 10)
 	column.add_child(ai_row)
-	var campaign_button = main._styled_button(Localization.text("AI 캠페인"), Color("#8b5cf6"), false)
+	var campaign_button = main._styled_button(Localization.text("AI 캠페인"), Color("#8b6cf6"), false)
+	campaign_button.name = "CampaignButton"
+	campaign_button.custom_minimum_size.y = 56
 	campaign_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	campaign_button.pressed.connect(main._build_ai_stage_screen.bind(true))
 	ai_row.add_child(campaign_button)
-	var practice_button = main._styled_button(Localization.text("AI 연습"), Color("#6d5bd0"), false)
+	var practice_button = main._styled_button(Localization.text("AI 연습"), Color("#5fa8d3"), false)
+	practice_button.name = "PracticeButton"
+	practice_button.custom_minimum_size.y = 56
 	practice_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	practice_button.pressed.connect(main._build_ai_stage_screen.bind(false))
 	ai_row.add_child(practice_button)
+
 	var management_row := HBoxContainer.new()
-	management_row.add_theme_constant_override("separation", 8)
+	management_row.add_theme_constant_override("separation", 10)
 	column.add_child(management_row)
-	for entry in [[Localization.text("덱 편성"), main._build_deck_screen], [Localization.text("전적"), main._build_records_screen], [Localization.text("설정"), main._build_settings_screen], [Localization.text("종료"), main._quit_game]]:
-		var menu_button = main._styled_button(entry[0], Color("#3d8f83"), false)
+	for entry in [[Localization.text("덱 편성"), main._build_deck_screen, "DeckButton"], [Localization.text("전적"), main._build_records_screen, "RecordsButton"], [Localization.text("설정"), main._build_settings_screen, "SettingsButton"], [Localization.text("종료"), main._quit_game, "QuitButton"]]:
+		var menu_button = main._styled_button(entry[0], Color("#3ec6b0") if entry[2] != "QuitButton" else Color("#ff6b81"), false)
+		menu_button.name = entry[2]
+		menu_button.custom_minimum_size = Vector2(0, 46)
+		menu_button.add_theme_font_size_override("font_size", 15)
 		menu_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		menu_button.pressed.connect(entry[1])
 		management_row.add_child(menu_button)
+
+	var deck_chip := PanelContainer.new()
+	deck_chip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	deck_chip.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE, UIKit.EDGE, 12, 1.0, 0.0, Color(0, 0, 0, 0), 0.06), 14, 6))
+	column.add_child(deck_chip)
 	main.status_label = Label.new()
 	main.status_label.text = Localization.text(message) if not message.is_empty() else "선택 덱: %s" % String(main._active_preset().name)
-	main.status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	main.status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	main.status_label.add_theme_font_size_override("font_size", 13)
-	main.status_label.add_theme_color_override("font_color", Color("#747d91"))
-	column.add_child(main.status_label)
-	var patch_notes = main._styled_button(Localization.text("패치노트"), Color("#3d8f83"))
+	main.status_label.add_theme_font_size_override("font_size", 14)
+	main.status_label.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	deck_chip.add_child(main.status_label)
+
+	var patch_notes = main._styled_button(Localization.text("패치노트"), Color("#3ec6b0"))
 	patch_notes.name = "PatchNotesButton"
-	patch_notes.position = Vector2(1035, 20)
-	patch_notes.size = Vector2(225, 50)
+	patch_notes.position = Vector2(1086, 22)
+	patch_notes.size = Vector2(170, 42)
+	patch_notes.custom_minimum_size = Vector2(0, 0)
 	patch_notes.add_theme_font_size_override("font_size", 14)
 	patch_notes.pressed.connect(main._build_patch_notes_screen)
 	main.root_background.add_child(patch_notes)

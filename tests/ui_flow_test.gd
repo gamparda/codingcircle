@@ -42,8 +42,14 @@ func run() -> void:
 	root.add_child(main)
 	await process_frame
 	expect_true(tree_text(main).contains("v%s" % main.build_version()), "main menu reads the configured build version")
-	var menu_portraits := main.find_children("MenuUnitPortrait", "Sprite2D", true, false)
-	expect_true(menu_portraits.size() == 2 and menu_portraits[0].texture != null and menu_portraits[1].texture != null, "menu flanks display loaded unit artwork")
+	var hero = main.find_child("HeroShowcase", true, false)
+	expect_true(hero != null and hero.sprite.texture != null and hero.name_label.text != "", "menu hero stage displays loaded unit artwork")
+	var seen := {}
+	for step in hero.ORDER.size():
+		hero._show_unit(step, false)
+		expect_true(hero.sprite.texture != null and hero.chips.get_child_count() >= 3, "hero stage shows artwork and stat chips for %s" % hero.ORDER[step])
+		seen[hero.sprite.texture.resource_path] = true
+	expect_true(seen.size() == hero.ORDER.size(), "every roster unit has distinct menu artwork")
 	for required_button in ["멀티플레이", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
 		expect_true(find_button(main, required_button) != null, "main menu exposes %s" % required_button)
 	expect_true(find_button(main,"방 만들기")==null and main.find_child("RoomCodeInput",true,false)==null,"main menu delegates room controls to the multiplayer browser")

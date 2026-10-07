@@ -1,35 +1,74 @@
 class_name MenuBackdrop
 extends Control
+## Animated menu background: vertical night gradient, faction glows, a faint grid and drifting embers.
 
-const DOTS := [
-	Vector2(0.07, 0.13), Vector2(0.16, 0.35), Vector2(0.24, 0.18),
-	Vector2(0.31, 0.72), Vector2(0.42, 0.09), Vector2(0.58, 0.16),
-	Vector2(0.69, 0.78), Vector2(0.78, 0.27), Vector2(0.87, 0.11),
-	Vector2(0.94, 0.61), Vector2(0.12, 0.84), Vector2(0.83, 0.89)
-]
+const PARTICLES := 46
+const TOP := Color("#060a12")
+const BOTTOM := Color("#101b36")
+
+var _seeds: Array = []
+var _time := 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261008
+	for i in PARTICLES:
+		_seeds.append({"x": rng.randf(), "y": rng.randf(), "speed": rng.randf_range(6.0, 22.0), "size": rng.randf_range(1.2, 3.2),
+			"phase": rng.randf() * TAU, "warm": rng.randf() < 0.35})
+
+func _process(delta: float) -> void:
+	_time += delta
+	queue_redraw()
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), Color("#08090e"))
-	# Sparse technical grid.
+	# Gradient sky as stacked bands.
+	var bands := 36
+	for i in bands:
+		var t := float(i) / float(bands - 1)
+		draw_rect(Rect2(0.0, size.y * float(i) / bands, size.x, size.y / bands + 1.0), TOP.lerp(BOTTOM, t * t))
 	for x in range(0, int(size.x) + 1, 64):
-		draw_line(Vector2(x, 0), Vector2(x, size.y), Color(1.0, 1.0, 1.0, 0.025), 1.0)
+		draw_line(Vector2(x, 0), Vector2(x, size.y), Color(1.0, 1.0, 1.0, 0.018), 1.0)
 	for y in range(0, int(size.y) + 1, 64):
-		draw_line(Vector2(0, y), Vector2(size.x, y), Color(1.0, 1.0, 1.0, 0.025), 1.0)
+		draw_line(Vector2(0, y), Vector2(size.x, y), Color(1.0, 1.0, 1.0, 0.018), 1.0)
 
-	# Cool opposing glows hint at the two battle factions.
-	draw_circle(Vector2(size.x * 0.12, size.y * 0.46), 340.0, Color(0.20, 0.36, 0.95, 0.045))
-	draw_circle(Vector2(size.x * 0.88, size.y * 0.55), 330.0, Color(0.94, 0.20, 0.44, 0.040))
-	draw_circle(Vector2(size.x * 0.50, size.y * 0.52), 265.0, Color(0.43, 0.38, 0.95, 0.035))
+	# Opposing faction glows (soft radial falloff, slowly breathing).
+	var breathe := 1.0 + sin(_time * 0.5) * 0.04
+	_glow(Vector2(size.x * 0.10, size.y * 0.62), 520.0 * breathe, Color(0.25, 0.42, 1.0), 0.10)
+	_glow(Vector2(size.x * 0.92, size.y * 0.30), 460.0 * breathe, Color(1.0, 0.26, 0.45), 0.08)
+	_glow(Vector2(size.x * 0.68, size.y * 0.55), 380.0, Color(0.52, 0.45, 1.0), 0.07)
 
-	for point in DOTS:
-		var center := Vector2(point.x * size.x, point.y * size.y)
-		draw_circle(center, 2.0, Color(0.72, 0.78, 1.0, 0.44))
-		draw_circle(center, 7.0, Color(0.48, 0.56, 1.0, 0.05))
+	# Horizon silhouette of the battlefield skyline.
+	var ground := size.y * 0.86
+	var points := PackedVector2Array([Vector2(0, size.y), Vector2(0, ground)])
+	var x := 0.0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77
+	while x < size.x + 40.0:
+		var height := rng.randf_range(10.0, 46.0)
+		var width := rng.randf_range(28.0, 70.0)
+		points.append(Vector2(x, ground - height))
+		points.append(Vector2(x + width, ground - height))
+		x += width
+	points.append(Vector2(size.x, size.y))
+	draw_colored_polygon(points, Color(0.02, 0.035, 0.07, 0.85))
 
-	# Decorative orbit lines around the login card.
-	var center := Vector2(size.x * 0.5, size.y * 0.5)
-	draw_arc(center, 390.0, -2.7, 0.1, 80, Color(0.46, 0.50, 0.82, 0.10), 1.0)
-	draw_arc(center, 430.0, 0.4, 2.6, 80, Color(0.82, 0.38, 0.57, 0.08), 1.0)
+	# Embers drifting upward.
+	for seed in _seeds:
+		var py := fposmod(float(seed.y) * size.y - _time * float(seed.speed), size.y)
+		var px := float(seed.x) * size.x + sin(_time * 0.6 + float(seed.phase)) * 14.0
+		var twinkle := 0.45 + 0.55 * (0.5 + 0.5 * sin(_time * 1.7 + float(seed.phase)))
+		var color := Color(1.0, 0.82, 0.55) if bool(seed.warm) else Color(0.66, 0.74, 1.0)
+		draw_circle(Vector2(px, py), float(seed.size) * 3.2, Color(color.r, color.g, color.b, 0.05 * twinkle))
+		draw_circle(Vector2(px, py), float(seed.size), Color(color.r, color.g, color.b, 0.55 * twinkle))
+
+	# Vignette.
+	for i in 6:
+		var inset := float(i) * 18.0
+		var alpha := 0.10 * (1.0 - float(i) / 6.0)
+		draw_rect(Rect2(inset, inset, size.x - inset * 2.0, size.y - inset * 2.0), Color(0, 0, 0, alpha), false, 18.0)
+
+func _glow(center: Vector2, radius: float, color: Color, strength: float) -> void:
+	for i in 14:
+		var t := float(i) / 13.0
+		draw_circle(center, radius * (1.0 - t * 0.85), Color(color.r, color.g, color.b, strength * 0.07 * (0.3 + t)))

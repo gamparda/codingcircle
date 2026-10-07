@@ -2,6 +2,7 @@ extends Control
 
 const Localization = preload("res://scripts/Localization.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
+const UIKit = preload("res://scripts/ui/UIKit.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
 const DeckScreen = preload("res://scripts/screens/DeckScreen.gd")
 const SettingsScreen = preload("res://scripts/screens/SettingsScreen.gd")
@@ -132,6 +133,7 @@ var settings_touch_dragged := false
 var settings_touch_start := Vector2.ZERO
 
 func _ready() -> void:
+	theme = UIKit.build_theme()
 	network.connection_status.connect(_on_connection_status)
 	network.match_found.connect(_on_match_found)
 	network.snapshot_received.connect(_on_snapshot)
@@ -535,39 +537,7 @@ func _styled_button(text_value: String, color: Color, filled: bool = false) -> B
 	var button := Button.new()
 	button.text = Localization.text(text_value)
 	button.custom_minimum_size = Vector2(120, 50)
-	button.add_theme_font_size_override("font_size", 16)
-	button.add_theme_color_override("font_color", Color("#f3f4f0"))
-	button.add_theme_color_override("font_disabled_color", Color("#778294"))
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = color.darkened(0.22) if filled else Color("#19232f")
-	normal.border_color = color.lightened(0.12) if filled else Color(color.r, color.g, color.b, 0.70)
-	normal.set_border_width_all(2 if filled else 1)
-	normal.set_corner_radius_all(5)
-	normal.content_margin_left = 12
-	normal.content_margin_right = 12
-	normal.content_margin_top = 7
-	normal.content_margin_bottom = 7
-	var hover := normal.duplicate()
-	hover.bg_color = color if filled else Color("#273444")
-	hover.border_color = color.lightened(0.28)
-	var pressed := hover.duplicate()
-	pressed.bg_color = color.darkened(0.38) if filled else Color("#101a26")
-	pressed.set_border_width_all(2)
-	var disabled := normal.duplicate()
-	disabled.bg_color = Color("#121923")
-	disabled.border_color = Color("#343c47")
-	var focus := StyleBoxFlat.new()
-	focus.bg_color = Color.TRANSPARENT
-	focus.border_color = Color("#f0d592")
-	focus.set_border_width_all(2)
-	focus.set_corner_radius_all(5)
-	button.add_theme_stylebox_override("normal", normal)
-	button.add_theme_stylebox_override("hover", hover)
-	button.add_theme_stylebox_override("pressed", pressed)
-	button.add_theme_stylebox_override("hover_pressed", pressed)
-	button.add_theme_stylebox_override("disabled", disabled)
-	button.add_theme_stylebox_override("focus", focus)
-	return button
+	return UIKit.style_button(button, color, filled, 16)
 
 func _on_connection_status(text: String) -> void:
 	if not local_ai_mode and network.client_connection_state == "idle" and multiplayer_screen == "session":
@@ -781,6 +751,10 @@ func _on_snapshot(data: Dictionary) -> void:
 		structure_count_label.text = Localization.text("구조물 %d / 3") % own_structures
 	var resource_cap := local_model.resource_capacity(own_side) if local_ai_mode and is_instance_valid(local_model) else BattleModel.MAX_RESOURCE
 	resource_label.text = "%d / %d" % [int(resources[own_side]), int(resource_cap)]
+	var resource_bar = resource_label.get_meta("bar", null)
+	if is_instance_valid(resource_bar):
+		resource_bar.max_value = resource_cap
+		resource_bar.value = float(resources[own_side])
 	_refresh_purchase_buttons(float(resources[own_side]))
 	if local_ai_mode and tutorial_step == 2 and float(resources[own_side]) > tutorial_low_resource + 0.5:
 		_tutorial_advance(2)

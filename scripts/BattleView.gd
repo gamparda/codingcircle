@@ -247,11 +247,12 @@ func _draw() -> void:
 		_draw_build_preview(lane_y)
 
 func _draw_sky(lane_y: float) -> void:
-	draw_rect(Rect2(0, 0, size.x, lane_y), Color("#090b13"))
-	var bands := [Color("#0d1120"), Color("#11182a"), Color("#152039"), Color("#1a2944")]
-	for i in bands.size():
-		var top := lane_y * float(i) / float(bands.size())
-		draw_rect(Rect2(0, top, size.x, lane_y / float(bands.size()) + 1.0), bands[i])
+	var top_color := Color("#070a14")
+	var horizon_color := Color("#1d2f52")
+	var steps := 40
+	for i in steps:
+		var t := float(i) / float(steps - 1)
+		draw_rect(Rect2(0, lane_y * float(i) / steps, size.x, lane_y / steps + 1.0), top_color.lerp(horizon_color, t * t * 0.95 + t * 0.05))
 
 	# Territory lighting keeps the two sides readable without a hard split.
 	draw_colored_polygon(PackedVector2Array([
@@ -263,35 +264,78 @@ func _draw_sky(lane_y: float) -> void:
 		Vector2(size.x * 0.60, 0), Vector2(size.x, 0)
 	]), Color(0.60, 0.16, 0.28, 0.10))
 
-	for star in STARS:
+	var clock := float(Time.get_ticks_msec()) / 1000.0
+	for index in STARS.size():
+		var star: Vector2 = STARS[index]
 		var point := Vector2(star.x * size.x, star.y * lane_y)
-		draw_circle(point, 1.6, Color(0.80, 0.86, 1.0, 0.62))
-		draw_circle(point, 4.5, Color(0.55, 0.66, 1.0, 0.08))
+		var twinkle := 0.55 + 0.45 * sin(clock * 1.4 + float(index) * 1.7)
+		draw_circle(point, 1.5, Color(0.80, 0.86, 1.0, 0.60 * twinkle))
+		draw_circle(point, 4.5, Color(0.55, 0.66, 1.0, 0.08 * twinkle))
 
 	var moon := Vector2(size.x * 0.5, lane_y * 0.32)
-	draw_circle(moon, min(size.x, size.y) * 0.105, Color(0.43, 0.48, 0.72, 0.08))
-	draw_circle(moon, min(size.x, size.y) * 0.078, Color(0.58, 0.62, 0.82, 0.10))
-	draw_arc(moon, min(size.x, size.y) * 0.105, 0.0, TAU, 64, Color(0.64, 0.70, 1.0, 0.12), 1.0)
+	var moon_radius := minf(size.x, size.y) * 0.078
+	for i in 6:
+		draw_circle(moon, moon_radius * (2.4 - float(i) * 0.27), Color(0.55, 0.62, 0.95, 0.018 + float(i) * 0.006))
+	draw_circle(moon, moon_radius, Color(0.84, 0.88, 1.0, 0.92))
+	draw_circle(moon + Vector2(-moon_radius * 0.28, -moon_radius * 0.12), moon_radius * 0.22, Color(0.72, 0.77, 0.92, 0.55))
+	draw_circle(moon + Vector2(moon_radius * 0.30, moon_radius * 0.26), moon_radius * 0.15, Color(0.72, 0.77, 0.92, 0.5))
+	draw_circle(moon + Vector2(moon_radius * 0.05, -moon_radius * 0.48), moon_radius * 0.10, Color(0.72, 0.77, 0.92, 0.45))
 
-	# Distant city silhouettes.
+	# Drifting cloud banks.
+	for i in 4:
+		var cx := fposmod(float(i) * size.x * 0.31 + clock * (5.0 + float(i) * 2.0), size.x + 400.0) - 200.0
+		var cy := lane_y * (0.22 + 0.13 * float(i % 3))
+		for puff in 5:
+			draw_circle(Vector2(cx + float(puff) * 34.0, cy + sin(float(puff) * 1.9) * 6.0), 30.0 - float(puff % 3) * 6.0, Color(0.5, 0.6, 0.9, 0.035))
+
+	# Haze where the city meets the battlefield.
+	for i in 8:
+		var t := float(i) / 7.0
+		draw_rect(Rect2(0, lane_y - 110.0 + t * 110.0, size.x, 110.0 / 8.0 + 1.0), Color(0.34, 0.42, 0.78, 0.010 + t * 0.020))
+
+	# Distant city: two parallax layers.
+	for i in 14:
+		var building_x := float(i) * size.x / 13.0 - 30.0
+		var height := 40.0 + float((i * 29) % 70)
+		draw_rect(Rect2(building_x, lane_y - height, size.x / 13.0 - 6.0, height), Color(0.11, 0.15, 0.27, 0.9))
 	for i in 18:
 		var building_x := float(i) * size.x / 17.0 - 15.0
 		var height := 18.0 + float((i * 17) % 44)
-		draw_rect(Rect2(building_x, lane_y - height, size.x / 19.0, height), Color("#111827"))
+		draw_rect(Rect2(building_x, lane_y - height, size.x / 19.0, height), Color("#0e1524"))
+		draw_rect(Rect2(building_x, lane_y - height, size.x / 19.0, 2.0), Color(0.4, 0.5, 0.8, 0.12))
 		if i % 3 == 0:
-			draw_rect(Rect2(building_x + 9.0, lane_y - height + 10.0, 3.0, 5.0), Color(0.96, 0.78, 0.35, 0.38))
+			var lit := 0.30 + 0.20 * sin(clock * 0.7 + float(i))
+			draw_rect(Rect2(building_x + 9.0, lane_y - height + 10.0, 3.0, 5.0), Color(0.96, 0.78, 0.35, lit))
 
 func _draw_ground(lane_y: float) -> void:
-	draw_rect(Rect2(0, lane_y, size.x, size.y - lane_y), Color("#10141d"))
-	draw_rect(Rect2(0, lane_y, size.x, 4.0), Color("#3d4658"))
-	draw_rect(Rect2(0, lane_y + 5.0, size.x, 2.0), Color(0.45, 0.53, 0.70, 0.14))
+	var rows := 14
+	for i in rows:
+		var t := float(i) / float(rows - 1)
+		draw_rect(Rect2(0, lane_y + (size.y - lane_y) * float(i) / rows, size.x, (size.y - lane_y) / rows + 1.0), Color("#141b2b").lerp(Color("#080b13"), t))
+	# Team-tinted build zones fade toward the centre.
+	for i in 10:
+		var t := float(i) / 9.0
+		var w := size.x * 0.47 * (1.0 - t * 0.85)
+		draw_rect(Rect2(0, lane_y, w, size.y - lane_y), Color(0.20, 0.36, 0.85, 0.012 + t * 0.010))
+		draw_rect(Rect2(size.x - w, lane_y, w, size.y - lane_y), Color(0.90, 0.22, 0.38, 0.012 + t * 0.010))
+	# Lane edge glows blue to red.
+	var segments := 64
+	for i in segments:
+		var t := float(i) / float(segments - 1)
+		var color := BLUE.lerp(RED, smoothstep(0.35, 0.65, t))
+		var x0 := size.x * float(i) / segments
+		draw_rect(Rect2(x0, lane_y, size.x / segments + 1.0, 3.0), Color(color.r, color.g, color.b, 0.55))
+		draw_rect(Rect2(x0, lane_y + 3.0, size.x / segments + 1.0, 14.0), Color(color.r, color.g, color.b, 0.05))
+	draw_rect(Rect2(0, lane_y - 1.0, size.x, 1.0), Color(1, 1, 1, 0.10))
 	for i in 16:
 		var x := float(i) * size.x / 15.0
-		draw_line(Vector2(x, lane_y + 12.0), Vector2(x - 24.0, size.y), Color(0.42, 0.48, 0.62, 0.10), 1.0)
-	draw_rect(Rect2(0, lane_y, size.x * 0.47, size.y - lane_y), Color(0.20, 0.36, 0.75, 0.05))
-	draw_rect(Rect2(size.x * 0.53, lane_y, size.x * 0.47, size.y - lane_y), Color(0.80, 0.20, 0.34, 0.05))
-	draw_line(Vector2(size.x * 0.5, lane_y - 28.0), Vector2(size.x * 0.5, size.y), Color(0.85, 0.88, 1.0, 0.16), 1.0)
-	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 5.0, Color("#79839a"))
+		draw_line(Vector2(x, lane_y + 16.0), Vector2(x - 40.0, size.y), Color(0.42, 0.50, 0.70, 0.09), 1.0)
+	for j in 4:
+		var y := lane_y + 24.0 + float(j) * float(j) * 9.0 + float(j) * 12.0
+		draw_line(Vector2(0, y), Vector2(size.x, y), Color(0.42, 0.50, 0.70, 0.05), 1.0)
+	draw_line(Vector2(size.x * 0.5, lane_y - 28.0), Vector2(size.x * 0.5, size.y), Color(0.85, 0.88, 1.0, 0.14), 1.0)
+	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 7.0, Color(0.5, 0.56, 0.78, 0.35))
+	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 4.0, Color("#aab4d2"))
 
 func _draw_base(x: float, lane_y: float, side: int) -> void:
 	var color := BLUE if side == 0 else RED
@@ -375,8 +419,7 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 
 	var hp_ratio: float = float(unit.hp) / max(float(unit.max_hp), 1.0)
 	var bar_y: float = lane_y - 102.0 - float(int(unit.id) % 3) * 6.0
-	draw_rect(Rect2(x - 21.0, bar_y, 42.0, 6.0), Color(0.02, 0.03, 0.06, 0.88))
-	draw_rect(Rect2(x - 20.0, bar_y + 1.0, 40.0 * hp_ratio, 4.0), Color("#71e49a") if hp_ratio > 0.35 else Color("#ff6b72"))
+	_draw_unit_bar(Rect2(x - 22.0, bar_y, 44.0, 7.0), hp_ratio, color)
 	if show_battle_effects and rage_flashes.has(unit.id):
 		draw_arc(Vector2(x, lane_y - 43.0), 42.0, 0.0, TAU, 24, Color(1.0, 0.48, 0.20, float(rage_flashes[unit.id]) * effect_intensity), 3.0)
 	if kind == "necromancer" and unit.has("summon_remaining"):
@@ -393,6 +436,25 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 			for dot in BattleModel.SUPPORT_MAX_STACKS:
 				draw_circle(Vector2(x - 18.0 + dot * 4.0, bar_y + 10.0), 1.3, Color("#86f7ad") if dot < stacks else Color("#293d39"))
 			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - (32.0 if cursed_units.has(unit.id) else 4.0)), "▲%d%%" % (mini(stacks, 10) * 3), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
+
+func _draw_unit_bar(rect: Rect2, ratio: float, team: Color) -> void:
+	var back := StyleBoxFlat.new()
+	back.bg_color = Color(0.02, 0.03, 0.06, 0.92)
+	back.border_color = Color(team.r, team.g, team.b, 0.75)
+	back.set_border_width_all(1)
+	back.set_corner_radius_all(4)
+	back.anti_aliasing = true
+	draw_style_box(back, rect)
+	if ratio <= 0.0:
+		return
+	var tone := Color("#6ee7a1") if ratio > 0.35 else Color("#ff6b81")
+	var inner := rect.grow(-1.5)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = tone.darkened(0.2)
+	fill.set_corner_radius_all(3)
+	fill.anti_aliasing = true
+	draw_style_box(fill, Rect2(inner.position, Vector2(maxf(inner.size.y, inner.size.x * ratio), inner.size.y)))
+	draw_rect(Rect2(inner.position + Vector2(1.5, 0.0), Vector2(maxf(0.0, inner.size.x * ratio - 3.0), inner.size.y * 0.45)), Color(1, 1, 1, 0.28))
 
 func _draw_curse(curse: Dictionary, scale_x: float, lane_y: float) -> void:
 	var x := world_to_screen_x(float(curse.x))
