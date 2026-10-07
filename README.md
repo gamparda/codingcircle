@@ -19,47 +19,31 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 
 ## 주요 기능
 
-- 중앙 전용 서버의 6자리 방 코드 기반 1대1 매칭
-- 서버 판정 자원, 생산, 이동, 공격속도 버프, 피해, 승패
-- 인터넷 없이 실행되는 8단계 AI 캠페인과 자유 연습. 연습은 선택 단계 이전을 모두 클리어한 성장 수치를 임시 적용하며 실제 진행 기록은 변경하지 않음
-- 단계별 AI 병력 강화, 자원 보너스, 전술 변화와 3분 이후 장기전 점진 버프
-- 승리·기지 HP·완료 시간에 따른 단계식 1~3성 평가와 캠페인 진행 저장
-- 첫 AI 전투에서 소환→설치→자원 회복을 실제 행동에 맞춰 안내(건너뛰기 가능, 완료 상태 저장)
-- 전장 이동 거리를 15% 확대하고 건설 구역·입력 좌표·렌더링을 같은 월드 좌표로 동기화
-- 늪은 기존 반경 95에서 적 이동속도를 80% 감소시키며 설치 후 5초에 사라지는 단기 지형 효과
-- 검사 사거리 40, 탱커 이동속도 48·비용 35·기본 공격력 2. 마법사는 피해·회복 없이 범위 125의 아군 유닛에 공속 +3%를 영구 누적하며 쿨 7초, 유닛별 최대 +30%. 사망·새 전투에서 초기화
-- 자원이 부족한 유닛·구조물 카드는 초상까지 어두워지고 비활성화되며 자원이 모이면 다시 활성화. 메인 메뉴의 패치노트에서 현재·이전 변경 내역 확인
-- 기본 자원은 시작 70·초당 8·보유 한도 180. 발전기는 비용 50·체력 90·추가 수입 +2/초. 캠페인 단계 첫 클리어마다 병력 체력·공격 +3%, 초당 자원 +0.5, 보유 한도 +10, 시작 자원 +5가 누적되며 온라인에는 적용되지 않음
-- 캠페인 성장은 기존 단계별 클리어 기록에서 복원하므로 기존 저장에도 적용되며 재도전·패배로 중복 획득되지 않음
-- 방 생성은 직접 게임 서버 주소를 우선하며 연결 시도 4초·방 응답 8초 제한, 재시도·실패 시 조작 복구와 생성 코드 강조 표시
-- 결과 화면에 남은 기지 체력·경과 시간·사용 덱 표시, 캠페인 승리 후 같은 덱·같은 단계 재도전과 다음 단계 선택 분리
-- 전투 버튼을 체력 패널과 겹치지 않는 전장 상단 양쪽에 배치; 설정 항목은 스크롤하고 저장·취소는 화면에 고정
-- 전장보다 나중에 전투 버튼을 추가해 클릭 입력이 전장에 가로채이지 않도록 수정 (렌더링 창의 마우스 클릭 검사 포함)
-- 메뉴의 유닛 아트, 전투 유닛 카드 초상과 구조물 아이콘, 선택 상태 표시를 추가하고 버튼·패널의 색·테두리를 통일
-- 설정을 오디오·화면·전투 연출로 구분하고 모바일에서 PC 전용 F11 안내를 숨김
-- 새 설정 기본값은 1920×1080 창 크기·60FPS·높음 화질. 화질 프리셋 자동/높음/중간/낮음은 창 크기(데스크톱), FPS 제한, 전투 효과를 함께 설정하며 자동은 기기 화면 크기에 맞춰 적용. 기존 저장의 사용자 설정은 유지
-- Android 설정에서는 화질 선택을 스크롤 밖에 두고 창 해상도·개별 FPS 선택은 숨김(전체화면은 기기 화면 사용); 터치 스와이프로 나머지 설정을 스크롤
-- 방 코드 입력은 왼쪽에서 오른쪽으로 입력하며 자동 대문자 변환 시 커서 위치 유지
-- 유닛 7종 중 3종, 구조물 4종 중 3종을 고르는 3개 덱 프리셋. 덱 선택은 스크롤 없이 유닛 두 줄·구조물 한 줄로 표시하며, 각 행은 같은 카드 폭·높이를 사용하고 저장·취소는 고정
-- 제공 WAV 음원을 반복 재생하는 게임 BGM
-- 탱커 / 마법사(영구 누적 공격속도 지원) / 궁수 / 검사
-- 광전사: 체력 155·공격 13·사거리 40·비용 40. 체력 50% 이하에서는 공속 +50%·공격 6. 기본 공격 간격 1.4초·이동 44
-- 흑마법사: 체력 50·공격 1·사거리 280·비용 45. 공격 대상에 반경 30·공격력 -30% 장판, 5초 유지·시전자당 1개·중첩 없음. 기본 공격 간격 1.5초·이동 34
-- 네크로맨서: 체력 50·공격 2·사거리 125·비용 100. 공속과 독립적으로 5초마다 추가 자원 없이 해골 소환. 기본 공격 간격 1.5초·이동 34
-- 해골: 소환 전용·체력 30·공격 10·사거리 40·공격 간격 1.4초·이동 44. 소환자 성장 수치를 이어받으며 소환자가 죽어도 남음
-- 신규 네 캐릭터의 배경·밝은 테두리를 제거한 투명 PNG, 고정 발 위치 이동·공격 프레임과 소환 연출. 장판·광폭화·공격력 감소 상태를 전장에 표시
-- 병력 총량은 온라인 스냅샷 한도와 같은 256으로 제한. 소환 전용 해골 구매/덱 편성은 서버가 거부하며 실제 모델의 공속 중첩·장판 스냅샷을 검증
-- 방벽 / 늪 / 포탑 / 자원 발전기와 진영별 설치 구역, 시간 제한 없는 전투
-- 전체 음량·BGM·효과음, 전체화면(F11), 해상도, VSync, FPS 및 전투 효과 설정
-- 한국어 전용 서비스. 기존 외국어 저장 설정도 한국어로 복원하고 번역 카탈로그·언어 선택 메뉴는 제거
-- 온라인에서 양쪽 플레이어 모두 아군이 왼쪽인 시점으로 표시. 기지·유닛·구조물·이동 방향·전투 효과·건설 좌표와 체력 HUD를 함께 반전하며 서버 좌표는 변경하지 않음
-- 게임 내 패치노트와 CHANGELOG.md에 v0.3.3부터 모든 출시 버전의 변경 내역 수록
-- 실시간 상태 스냅샷 동기화
-- 연결 종료 처리와 양쪽 동의 재경기
-- 투명 PNG 캐릭터와 픽셀아트 렌더링
-- Windows 설치·제거 프로그램
-- Android ARMv7·ARM64용 서명 APK와 터치 조작
-- Android 실행 시 설치 화면 없이 자동 갱신되는 게임 콘텐츠 팩
+게임 규칙의 세부 수치(비용·체력·공격력 등)는 README에 적지 않습니다. 실제 값은 `data/units`, `data/structures`의 `.tres` 리소스가 정하고, 현재 표는 [docs/UNITS.md](docs/UNITS.md)에 자동 생성됩니다. 변경 이력은 게임 내 패치노트와 `CHANGELOG.md`에 있습니다.
+
+**전투**
+- 1대1 자동 전투와 전장 개조: 7종 유닛 중 3종, 4종 구조물 중 3종으로 덱을 구성하고 자원으로 병력을 생산하거나 구조물을 설치합니다.
+- 서버 권한형 판정: 자원·생산·이동·공격·승패를 전용 서버가 같은 `BattleModel` 규칙으로 계산하고 스냅샷으로 동기화합니다.
+- 동시 공격 판정, 지원·광폭화·장판·소환 같은 유닛별 특수 능력, 방벽·늪·포탑·발전기 구조물.
+- 기지가 먼저 파괴된 쪽이 패배하며 시간 제한은 없습니다.
+
+**온라인**
+- 방 기반 멀티플레이: 대기방·준비·방장 시작·같은 방 재대전·비밀번호·방 채팅·관전. 연결이 끊기면 제한 시간 동안 재접속을 기다리며 전투를 일시정지합니다.
+- **빠른 대전**: 로비의 버튼 하나로 대기열에 들어가 먼저 기다린 두 플레이어가 자동으로 방을 만들고 바로 시작합니다. 언제든 취소할 수 있습니다.
+- 온라인에서는 양쪽 모두 아군이 왼쪽인 시점으로 표시합니다. 서버 좌표는 바뀌지 않습니다.
+
+**오프라인**
+- 서버 없이 즐기는 8단계 AI 캠페인(별 1~3개 평가, 진행·성장 저장)과 자유 연습.
+- 첫 AI 전투에서 소환→설치→자원 회복을 실제 행동에 맞춰 안내합니다(건너뛰기 가능).
+
+**리플레이**
+- 서버가 진행한 모든 온라인 전투와 AI 캠페인 전투는 플레이어 명령만 `user://replays/`에 JSON으로 저장됩니다(최근 50개 유지). 전투가 결정론적이므로 같은 규칙으로 다시 계산하면 결과가 똑같이 재현됩니다.
+- 저장된 리플레이는 규칙 변경 뒤에도 결과가 같은지 검증하거나 밸런스·버그 재현에 쓸 수 있습니다. [리플레이 사용법](#리플레이-사용법)을 참고하세요.
+
+**기타**
+- 한국어 전용, 오디오(BGM·효과음)·화면·전투 연출·키 설정, 터치 조작과 모바일 화면 구성.
+- 개인 전적과 덱 프리셋 저장, 투명 PNG 캐릭터와 픽셀아트 렌더링.
+- Windows 설치·제거 프로그램, Android ARMv7·ARM64 서명 APK와 설치 화면 없이 갱신되는 콘텐츠 팩.
 
 ## 설치 프로그램 사용
 
@@ -82,7 +66,7 @@ Android에서는 Release의 `CatWar.apk`를 내려받아 최초 한 번 설치�
 `main` 브랜치에 코드가 푸시될 때마다 `.github/workflows/build-and-deploy.yml`이 다음 작업을 수행합니다.
 
 1. 전투 규칙·v0.4 기능·UI 흐름 테스트와 오프라인 AI 검증
-2. workflow에 지정된 출시 버전과 대상 커밋으로 새 빌드 생성
+2. `release.json`에 지정된 출시 버전과 대상 커밋으로 새 빌드 생성
 3. Windows 게임/서버 EXE·설치 프로그램, Android APK와 콘텐츠 팩 생성
 4. 설치 프로그램·APK·콘텐츠 팩의 SHA-256 및 APK 서명 검증
 5. 버전 태그와 GitHub Release 생성
@@ -97,7 +81,28 @@ Android 부트스트랩은 실행 직후 같은 메타데이터를 확인합니�
 - 전용 서버: 활성 매치가 없을 때만 설치 및 재시작
 - 업데이트 서버 접속 실패: 현재 실행은 유지하고 나중에 자동 재시도
 
-테스트를 통과한 최신 `main` 빌드가 곧 자동 업데이트 채널이자 GitHub Release가 됩니다. 출시할 때는 `.github/workflows/build-and-deploy.yml`의 `$contentVersion`·`$windowsVersion`, `build_info.json`, `export_presets.cfg`의 콘텐츠·Windows 버전을 맞추고 Android 네이티브 바이너리 버전은 독립적으로 유지합니다. 빌드 스크립트는 `build_info.json`의 커밋 값을 실제 대상 SHA로 교체하고, Pages용 `update.json`은 workflow가 SHA-256과 배포 시각을 포함해 생성합니다. GitHub Pages 배포가 처음이라면 저장소의 **Settings → Pages → Source**가 `GitHub Actions`로 설정되어 있어야 합니다.
+테스트를 통과한 최신 `main` 빌드가 곧 자동 업데이트 채널(GitHub Pages)이 됩니다. GitHub Release는 **새 버전 번호일 때만** 만들어집니다.
+
+### 버전 관리
+
+버전은 **`release.json` 한 곳에서만** 고칩니다.
+
+```json
+{ "content_version": "0.6.5", "windows_version": "0.6.5", "android_binary_version": "0.4.18", "update_url": "..." }
+```
+
+```powershell
+python tools/release_meta.py sync    # release.json → build_info.json, project.godot, export_presets.cfg
+python tools/release_meta.py check   # 생성 파일이 release.json과 어긋나면 실패(CI가 실행)
+```
+
+Android 네이티브 바이너리 버전은 콘텐츠·Windows 버전과 독립적으로 유지합니다. 빌드 스크립트는 `build_info.json`의 커밋 값을 실제 대상 SHA로 교체하고, Pages용 `update.json`은 workflow가 SHA-256과 배포 시각을 포함해 생성합니다.
+
+### 정식 릴리스와 개발 빌드
+
+- `release.json`의 `content_version`이 **새 값**이면 `v<버전>` 태그와 GitHub Release가 만들어집니다.
+- 이미 존재하는 태그는 **덮어쓰지 않습니다.** 같은 버전으로 다시 푸시하면 업데이트 채널(Pages)만 갱신되고 산출물은 `dev-build-*` workflow 아티팩트(14일 보관)로만 남습니다. 정식 릴리스를 새로 내려면 `release.json`의 버전을 올리세요.
+- GitHub Pages 배포가 처음이라면 저장소의 **Settings → Pages → Source**가 `GitHub Actions`로 설정되어 있어야 합니다.
 
 각 Release에는 다음 파일이 포함됩니다.
 
@@ -150,7 +155,7 @@ Godot 또는 Inno Setup을 사용자 지정 위치에 설치했다면 다음처�
 powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1 -GodotPath "C:\경로\godot_console.exe" -IsccPath "C:\경로\ISCC.exe"
 ```
 
-버전을 직접 지정해 빌드할 수도 있습니다.
+대상 커밋을 지정하거나 테스트를 건너뛸 수 있습니다. 버전 번호는 인자로 바꾸지 않고 `release.json`을 고칩니다.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1 -Version "0.4.2" -Commit "테스트커밋SHA"
@@ -161,8 +166,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1 -Version "0.4
 ### 1. 테스트
 
 ```powershell
-godot --headless --path . --script res://tests/run_tests.gd
+python tools/run_suite.py all        # unit · network · ui · security · balance · release
+python tools/run_suite.py unit ui    # 일부만
 ```
+
+자세한 구성은 [테스트](#테스트)를 참고하세요.
 
 ### 2. 게임과 서버 겸용 EXE
 
@@ -208,30 +216,79 @@ Windows 또는 Android 클라이언트를 실행하고 **AI 캠페인** 또는 *
 
 ```text
 project.godot                 Godot 프로젝트 설정
+release.json                  버전의 유일한 원본 (콘텐츠·Windows·Android 바이너리)
+build_info.json               release.json에서 생성되는 빌드 버전·커밋·업데이트 주소
+data/units, data/structures   유닛·구조물 수치 (.tres Resource) — 전투·UI·AI 공용
 scenes/Bootstrap.tscn         Android 콘텐츠 확인·복구 후 게임을 여는 시작 장면
 scenes/Main.tscn              메인 게임 장면
-scripts/Bootstrap.gd          콘텐츠 팩 다운로드·SHA 검증·원자 교체·롤백
-scripts/Main.gd               메뉴, HUD, 클라이언트/서버 실행 모드
+scenes/ui/                    화면 프레임·기록·패치노트 등 .tscn 화면
+scripts/Main.gd               실행 모드, 입력, 화면 전환, 클라이언트/서버 연결
+scripts/screens/              Main에서 분리한 화면: MenuScreens, DeckScreen, SettingsScreen,
+                              BattleHud, ResultScreens, UpdateOverlay, Tutorial, PracticeUI
+scripts/ui/                   .tscn 화면에 붙는 스크립트
+scripts/MultiplayerUI.gd      로비·대기실·방 만들기 UI
 scripts/BattleModel.gd        서버 권한형 전투 규칙
-scripts/NetworkController.gd  ENet 연결, RPC, 서버 스냅샷
-scripts/MatchRegistry.gd      방 코드 방 관리와 진영 배정
+scripts/data/                 UnitDef·StructureDef Resource와 GameData 로더
+scripts/BattleReplay.gd       리플레이 기록·검증·재생
+scripts/NetworkController.gd  ENet 연결, RPC 진입점, 방·재접속·빠른 대전 흐름
+scripts/NetworkProtocol.gd    네트워크 페이로드 검증과 프로토콜 상수
+scripts/PeerAdmission.gd      요청 속도 제한과 주소별 접속 수
+scripts/ServerBattle.gd       서버 전투 틱·스냅샷 주기·진행 중 매치
+scripts/ServerReplays.gd      서버 리플레이 기록과 저장
+scripts/QuickQueue.gd         빠른 대전 대기열
+scripts/RoomSessions.gd       방·멤버·준비·채팅 상태
+scripts/MatchRegistry.gd      매치와 진영 배정
 scripts/ServerAI.gd           오프라인 AI 판단
 scripts/SaveData.gd           덱·캠페인·전적·설정 저장 및 검증
 scripts/UpdateManager.gd      버전 확인, 다운로드, 해시 검증, 무인 업데이트
 scripts/BattleView.gd         전장과 캐릭터 렌더링
-build_info.json               현재 빌드 버전·커밋·업데이트 주소
 assets/units/                 최종 투명 캐릭터 PNG
 assets/source/role_sheets/    사용자가 제공한 원본 시트
-tools/extract_sprites.py      원본 시트 배경 제거 도구
+tools/run_suite.py            테스트 묶음 실행기 (tests/suites.json)
+tools/release_meta.py         release.json 동기화·검증
+tools/gen_unit_docs.py        data/ → docs/UNITS.md 생성
+tools/replay_tool.gd          저장된 리플레이 재계산·검증
 tools/build_release.ps1       테스트·EXE·설치 파일 통합 빌드
 installer/CatWar.iss          Inno Setup 설치 프로그램 정의
 .github/workflows/            푸시별 자동 테스트·빌드·Pages 배포
-server/StartServer.cmd        Windows 서버 실행 런처
-server/linux/                 Linux 자동 업데이트 서비스·타이머
-tests/run_tests.gd            전투·지원·구조물·매칭 테스트
-tests/v04_test.gd             덱·구조물·캠페인·저장 회귀 테스트
-tests/ui_flow_test.gd         메뉴·설정·온라인 응답 UI 테스트
+server/                       Windows 서버 런처, Linux 자동 업데이트 서비스·타이머
+tests/                        suites.json 으로 묶인 회귀 테스트
 ```
+
+## 데이터와 밸런스
+
+- 유닛·구조물 수치는 `data/units/*.tres`, `data/structures/*.tres`에서 **한 번만** 정의합니다. 새 파일을 추가하면 `scripts/data/GameData.gd`의 목록에도 등록해야 하며 `tests/unit_data_test.gd`가 누락을 잡습니다.
+- 수치를 바꾼 뒤 `python tools/gen_unit_docs.py`로 [docs/UNITS.md](docs/UNITS.md)를 갱신합니다(테스트가 최신 여부를 확인).
+- 대규모 자동 대전 실험은 [docs/BALANCE_BENCHMARK.md](docs/BALANCE_BENCHMARK.md), 지난 조정 결과는 [docs/BALANCE_RESULTS.md](docs/BALANCE_RESULTS.md)를 참고하세요.
+
+## 테스트
+
+`tests/suites.json`이 모든 테스트를 묶음으로 나눕니다. 새 테스트 파일은 반드시 한 묶음에 등록해야 하며 `suites_cover_all_tests_test.py`가 확인합니다.
+
+| 묶음 | 내용 |
+|---|---|
+| `unit` | 전투 규칙, 데이터, AI, 저장, 리플레이 |
+| `network` | 프로토콜, 방·재접속·빠른 대전(실제 2~4 클라이언트 RPC 포함) |
+| `ui` | 메뉴·덱·전투 HUD·대기방·.tscn 화면 |
+| `security` | 업데이트 스크립트와 설치 프로그램 보안 |
+| `balance` | 벤치마크 구매 정책, 밸런스 데이터 무결성, 수치 문서 최신 여부 |
+| `release` | 버전 정책, 번역 카탈로그, 묶음 누락 검사 |
+| `render` · `production` | `all`에 포함되지 않음. 실제 화면(xvfb/GPU)이나 운영 서버가 필요한 수동 점검 |
+
+```powershell
+python tools/run_suite.py all
+```
+
+## 리플레이 사용법
+
+```powershell
+# 저장된 모든 리플레이를 다시 계산해 기록된 결과와 같은지 검증 (규칙이 바뀌면 실패)
+godot --headless --path . --script res://tools/replay_tool.gd -- --all
+# 특정 파일
+godot --headless --path . --script res://tools/replay_tool.gd -- --file=user://replays/파일.json
+```
+
+파일에는 초기 덱·자원·기지 체력, 틱 번호가 붙은 생산/설치 명령, AI 단계(있는 경우), 결과 해시만 들어 있어 보통 수 KB입니다. 서버 매치는 30Hz 고정 간격, 캠페인 전투도 30Hz 고정 간격으로 진행되어 결과가 정확히 재현됩니다.
 
 ## 캐릭터 PNG 재생성
 
