@@ -15,7 +15,8 @@
     "tests/balance_feedback_test.gd",
     "tests/replay_test.gd",
     "tests/ui_sounds_test.gd",
-    "tests/practice_replay_test.gd"
+    "tests/practice_replay_test.gd",
+    "tests/deck_simulator_test.gd"
   ],
   "network": [
     "tests/network_recovery_test.gd",
@@ -40,7 +41,8 @@
     "tests/replay_viewer_test.gd",
     "tests/touch_layout_test.gd",
     "tests/online_result_ui_test.gd",
-    "tests/replay_analysis_test.gd"
+    "tests/replay_analysis_test.gd",
+    "tests/deck_simulator_ui_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",

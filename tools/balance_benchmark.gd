@@ -28,7 +28,7 @@ func run() -> void:
 	if output == null:
 		printerr("Cannot write benchmark output: ", options.output); quit(1); return
 	start_us = Time.get_ticks_usec()
-	output.store_line(JSON.stringify({"type":"metadata", "engine":Engine.get_version_info().string, "options":options, "unit_stats":BattleModel.UNIT_STATS, "structure_stats":BattleModel.STRUCTURE_STATS, "summon_interval":BattleModel.SUMMON_INTERVAL, "ai_max_stage":ServerAI.MAX_STAGE, "deck_count":decks.size(), "policies":POLICIES, "model_sha256":FileAccess.get_sha256("res://scripts/BattleModel.gd"), "data_sha256":_data_hash(), "ai_sha256":FileAccess.get_sha256("res://scripts/ServerAI.gd"), "bot_sha256":FileAccess.get_sha256("res://tools/BalanceBot.gd")}))
+	output.store_line(JSON.stringify({"type":"metadata", "engine":Engine.get_version_info().string, "options":options, "unit_stats":BattleModel.UNIT_STATS, "structure_stats":BattleModel.STRUCTURE_STATS, "summon_interval":BattleModel.SUMMON_INTERVAL, "ai_max_stage":ServerAI.MAX_STAGE, "deck_count":decks.size(), "policies":POLICIES, "model_sha256":FileAccess.get_sha256("res://scripts/BattleModel.gd"), "data_sha256":_data_hash(), "ai_sha256":FileAccess.get_sha256("res://scripts/ServerAI.gd"), "bot_sha256":FileAccess.get_sha256("res://scripts/AutoPlayer.gd")}))
 	for repetition in options.seeds:
 		for policy in POLICIES:
 			for a in decks.size():

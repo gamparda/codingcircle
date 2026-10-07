@@ -3,7 +3,9 @@ extends RefCounted
 
 const Localization = preload("res://scripts/Localization.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
+const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
+const DeckSimulatorPanel = preload("res://scripts/ui/DeckSimulatorPanel.gd")
 const DECK_SCREEN := preload("res://scenes/ui/DeckScreen.tscn")
 
 static func _build_deck_screen(main, preset_index: int = -1) -> void:
@@ -89,6 +91,29 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		SaveData.save_data(main.save_data)
 		main._build_connect_screen(Localization.text("덱을 저장했습니다."))
 	)
+	var simulate := Button.new()
+	simulate.name = "DeckSimulateButton"
+	simulate.text = Localization.text("덱 시뮬레이션")
+	simulate.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UIKit.style_button(simulate, UIKit.TEAL, false, 16)
+	column.get_node("Actions").add_child(simulate)
+	column.get_node("Actions").move_child(simulate, 1)
+	simulate.pressed.connect(func():
+		var picked_units: Array = []
+		var picked_structures: Array = []
+		for kind in unit_buttons:
+			if unit_buttons[kind].button_pressed: picked_units.append(kind)
+		for kind in structure_buttons:
+			if structure_buttons[kind].button_pressed: picked_structures.append(kind)
+		if not NetworkController.validate_deck_payload(picked_units, picked_structures):
+			status.text = Localization.text("유닛과 구조물을 각각 정확히 3종 선택해야 합니다.")
+			return
+		status.text = ""
+		var dialog = main._action_panel("덱 시뮬레이션", Rect2(190, 70, 900, 580))
+		var panel := DeckSimulatorPanel.new()
+		dialog.add_child(panel)
+		panel.setup(picked_units, picked_structures, 3)
+		MultiplayerUI.button(main, dialog, "닫기", "CloseSimulatorButton", main._dismiss_action_overlay))
 	var back: Button = column.get_node("Actions/DeckCancelButton")
 	UIKit.style_button(back, Color("#697386"), false, 16)
 	back.text = Localization.text("취소")
