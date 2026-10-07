@@ -39,6 +39,7 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 **리플레이**
 - 서버가 진행한 모든 온라인 전투와 AI 캠페인·(도구를 쓰지 않은) AI 연습 전투는 플레이어 명령만 `user://replays/`에 JSON으로 저장됩니다(최근 50개 유지). 전투가 결정론적이므로 같은 규칙으로 다시 계산하면 결과가 똑같이 재현됩니다.
 - 메인 메뉴의 **리플레이**에서 저장된 전투를 목록으로 보고 재생·삭제할 수 있습니다. 재생 화면은 일시정지, 0.5~8배속, 처음부터 다시 보기, 시간 막대로 원하는 지점 이동을 지원합니다.
+- **전세 그래프:** 재생 화면 아래에 어느 쪽이 앞서는지 보여주는 곡선(파랑 위·빨강 아래)이 그려지고, 첫 교전·구조물 파괴·기지 체력 위기·전세 역전·결정타가 마커로 표시됩니다. 곡선이나 마커를 눌러 이동하거나 **이전/다음 순간** 버튼으로 하이라이트를 건너뛸 수 있습니다. 단축키: Space 일시정지, ←/→ 5초 이동, N/P 다음/이전 순간.
 - 리플레이는 **복사** 버튼으로 한 줄 텍스트가 되어 클립보드에 복사되고, 다른 사람이 **클립보드에서 가져오기**로 목록에 추가할 수 있습니다(손상·조작된 텍스트는 거부).
 - 규칙이 바뀐 뒤에도 결과가 같은지 검증하거나 밸런스·버그 재현에 쓸 수도 있습니다. [리플레이 사용법](#리플레이-사용법)을 참고하세요.
 
@@ -232,12 +233,13 @@ scripts/screens/              Main에서 분리한 화면과 흐름: MenuScreens
 scripts/net/                  NetworkController에서 분리한 서버·클라이언트 흐름:
                               SessionFlow, ReconnectFlow, ClientSessionFlow
 scripts/ui/                   UIKit(팔레트·테마·그라데이션 스타일), UISounds, HeroShowcase, HpBar,
-                              ToastLabel, ReplayViewer, .tscn 화면에 붙는 스크립트
+                              ToastLabel, ReplayViewer, MomentumGraph, .tscn 화면에 붙는 스크립트
 assets/fonts/                 Black Han Sans(OFL)와 라이선스
 scripts/MultiplayerUI.gd      로비·대기실·방 만들기 UI
 scripts/BattleModel.gd        서버 권한형 전투 규칙
 scripts/data/                 UnitDef·StructureDef Resource와 GameData 로더
 scripts/BattleReplay.gd       리플레이 기록·검증·재생
+scripts/ReplayAnalysis.gd     리플레이 전세 곡선·하이라이트 분석
 scripts/NetworkController.gd  ENet 연결, RPC 진입점, 방·재접속·빠른 대전 흐름
 scripts/NetworkProtocol.gd    네트워크 페이로드 검증과 프로토콜 상수
 scripts/PeerAdmission.gd      요청 속도 제한과 주소별 접속 수

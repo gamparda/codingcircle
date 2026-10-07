@@ -8,6 +8,10 @@ const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const HpBar = preload("res://scripts/ui/HpBar.gd")
 const CombatSounds = preload("res://scripts/CombatSounds.gd")
+const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
+const MomentumGraph = preload("res://scripts/ui/MomentumGraph.gd")
+const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
+const JUMP_LEAD_TICKS := 30 # land a second before a highlight so the moment plays out
 const SPEEDS := [0.5, 1.0, 2.0, 4.0, 8.0]
 
 var replay: Dictionary = {}
@@ -30,10 +34,15 @@ var end_banner: Control
 var sound_players: Array = []
 var last_sound_msec := 0
 var title_text := ""
+var analysis: Dictionary = {}
+var graph: MomentumGraph
+var moment_toast: ToastLabel
+var last_announced_tick := 0
 
 func open(replay_data: Dictionary, title: String = "") -> void:
 	replay = replay_data
 	title_text = title
+	analysis = ReplayAnalysis.analyze(replay)
 	name = "ReplayViewer"
 	position = Vector2.ZERO
 	size = Vector2(1280, 720)
@@ -54,6 +63,11 @@ func _build() -> void:
 	add_child(view)
 	_build_top_bar()
 	_build_bottom_bar()
+	moment_toast = ToastLabel.new()
+	moment_toast.name = "MomentToast"
+	moment_toast.tone = UIKit.GOLD
+	add_child(moment_toast)
+	moment_toast.place_center(640.0, 100.0)
 	for i in 4:
 		var voice := AudioStreamPlayer.new()
 		voice.bus = "SFX" if AudioServer.get_bus_index("SFX") >= 0 else "Master"
@@ -128,25 +142,41 @@ func _build_bottom_bar() -> void:
 	bar.position = Vector2(0, 580)
 	bar.size = Vector2(1280, 140)
 	add_child(bar)
+	graph = MomentumGraph.new()
+	graph.name = "MomentumGraph"
+	graph.position = Vector2(40, 6)
+	graph.size = Vector2(1200, 42)
+	graph.setup(analysis)
+	graph.seek_requested.connect(func(tick): seek(tick))
+	bar.add_child(graph)
 	progress = HSlider.new()
 	progress.name = "ReplayProgress"
-	progress.position = Vector2(40, 22)
-	progress.size = Vector2(1200, 28)
+	progress.position = Vector2(40, 50)
+	progress.size = Vector2(1200, 24)
 	progress.min_value = 0
 	progress.max_value = maxf(1.0, float(replay.get("result", {}).get("ticks", 1)))
 	progress.step = 1
 	progress.value_changed.connect(_on_scrub)
 	bar.add_child(progress)
 	var row := HBoxContainer.new()
-	row.position = Vector2(40, 72)
+	row.position = Vector2(40, 82)
 	row.size = Vector2(1200, 52)
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("separation", 10)
 	bar.add_child(row)
+	var previous := _control_button(row, "ReplayPreviousMoment", "◀ 이전 순간", UIKit.ACCENT, false)
+	previous.custom_minimum_size.x = 130
+	previous.pressed.connect(jump_previous_moment)
 	play_button = _control_button(row, "ReplayPlayPause", "일시정지", UIKit.ACCENT, true)
+	play_button.custom_minimum_size.x = 120
 	play_button.pressed.connect(toggle_pause)
+	var next := _control_button(row, "ReplayNextMoment", "다음 순간 ▶", UIKit.ACCENT, false)
+	next.custom_minimum_size.x = 130
+	next.pressed.connect(jump_next_moment)
 	var restart := _control_button(row, "ReplayRestart", "처음부터", UIKit.TEAL, false)
+	restart.custom_minimum_size.x = 110
 	restart.pressed.connect(_restart)
 	speed_button = _control_button(row, "ReplaySpeed", "1배속", UIKit.GOLD_DEEP, false)
+	speed_button.custom_minimum_size.x = 100
 	speed_button.pressed.connect(cycle_speed)
 	var info := Label.new()
 	info.name = "ReplayInfo"
@@ -156,6 +186,7 @@ func _build_bottom_bar() -> void:
 	info.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	row.add_child(info)
 	var close := _control_button(row, "ReplayClose", "나가기", UIKit.DANGER, false)
+	close.custom_minimum_size.x = 110
 	close.pressed.connect(func(): closed.emit())
 
 func _control_button(parent: Control, node_name: String, text: String, color: Color, primary: bool) -> Button:
@@ -176,6 +207,7 @@ func _restart() -> void:
 	if is_instance_valid(end_banner):
 		end_banner.queue_free()
 	view.visual_events.clear()
+	last_announced_tick = 0
 	view.set_snapshot(player.model.snapshot())
 	_refresh_hud()
 	if play_button:
@@ -200,6 +232,7 @@ func seek(tick: int) -> void:
 	player.model.drain_combat_events()
 	view.visual_events.clear()
 	finished_shown = false
+	last_announced_tick = player.ticks
 	if is_instance_valid(end_banner):
 		end_banner.queue_free()
 	view.set_snapshot(player.model.snapshot())
@@ -220,11 +253,41 @@ func _process(delta: float) -> void:
 		accumulator -= player.dt
 		steps += 1
 	if steps > 0:
+		_announce_between(last_announced_tick, player.ticks)
 		view.set_snapshot(player.model.snapshot())
 		if not events.is_empty():
 			view.push_combat_events(events)
 			_play_sounds(events)
 		_refresh_hud()
+
+## Shows a toast for every highlight the playhead just passed.
+func _announce_between(from_tick: int, to_tick: int) -> void:
+	for item in analysis.get("highlights", []):
+		if int(item.tick) > from_tick and int(item.tick) <= to_tick:
+			moment_toast.text = String(item.text)
+			get_tree().create_timer(3.0).timeout.connect(func():
+				if is_instance_valid(moment_toast) and moment_toast.text == String(item.text):
+					moment_toast.text = "")
+	last_announced_tick = to_tick
+
+func jump_next_moment() -> void:
+	var item := ReplayAnalysis.next_after(analysis.get("highlights", []), player.ticks + JUMP_LEAD_TICKS)
+	if not item.is_empty():
+		seek(maxi(0, int(item.tick) - JUMP_LEAD_TICKS))
+
+func jump_previous_moment() -> void:
+	var item := ReplayAnalysis.previous_before(analysis.get("highlights", []), player.ticks + JUMP_LEAD_TICKS)
+	seek(maxi(0, int(item.tick) - JUMP_LEAD_TICKS) if not item.is_empty() else 0)
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not (event is InputEventKey and event.pressed and not event.echo):
+		return
+	match event.keycode:
+		KEY_SPACE: toggle_pause()
+		KEY_RIGHT: seek(mini(int(replay.get("result", {}).get("ticks", 0)), player.ticks + 150))
+		KEY_LEFT: seek(maxi(0, player.ticks - 150))
+		KEY_N: jump_next_moment()
+		KEY_P: jump_previous_moment()
 
 func _play_sounds(events: Array) -> void:
 	var now := Time.get_ticks_msec()
@@ -252,6 +315,7 @@ func _refresh_hud() -> void:
 	blue_label.text = "%d / %d" % [int(model.base_hp[0]), int(model.base_max_hp[0])]
 	red_label.text = "%d / %d" % [int(model.base_hp[1]), int(model.base_max_hp[1])]
 	progress.set_value_no_signal(float(player.ticks))
+	graph.set_playhead(player.ticks)
 
 func _show_end() -> void:
 	if finished_shown:
