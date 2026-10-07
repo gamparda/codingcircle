@@ -22,7 +22,12 @@ class ReleasePolicyTest(unittest.TestCase):
         self.assertIn("tools/release_meta.py github-env", workflow)
         self.assertNotRegex(workflow, r'\$(content|windows)Version = "\d')
         self.assertNotRegex(workflow, r'\$androidBinaryVersion = "\d')
-        self.assertIn("python tools/run_suite.py all", workflow)
+        self.assertIn("python tools/run_suite.py ${{ matrix.suite }}", workflow)
+        suites = json.loads((ROOT / "tests" / "suites.json").read_text(encoding="utf-8"))
+        default = [name for name in suites if name not in ("render", "production")]
+        matrix = re.search(r"suite: \[([^\]]+)\]", workflow).group(1)
+        self.assertEqual([item.strip() for item in matrix.split(",")], default, "CI matrix must list every default suite")
+        self.assertIn("needs: [tests, multiplayer-preview]", workflow)
         self.assertIn("--export-pack Android dist/CatWarContent.pck", workflow)
         self.assertIn("--export-release Android dist/CatWar.apk", workflow)
         self.assertIn("-ContentVersion $env:CONTENT_VERSION", workflow)

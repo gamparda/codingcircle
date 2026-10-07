@@ -19,8 +19,37 @@ env:
   GODOT_STATUS: stable
 
 jobs:
+  tests:
+    name: tests (${{ matrix.suite }})
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, network, ui, security, balance, release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Godot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force .ci | Out-Null
+          $release = "${env:GODOT_VERSION}-${env:GODOT_STATUS}"
+          Invoke-WebRequest "https://github.com/godotengine/godot/releases/download/$release/Godot_v${env:GODOT_VERSION}-${env:GODOT_STATUS}_win64.exe.zip" -OutFile .ci/godot.zip
+          Expand-Archive .ci/godot.zip -DestinationPath .ci/godot -Force
+          $godot = (Get-ChildItem .ci/godot -Filter "*_console.exe" -Recurse | Select-Object -First 1).FullName
+          if (-not $godot) { throw "Godot console executable was not found" }
+          "GODOT_CONSOLE=$godot" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Run ${{ matrix.suite }} suite
+        shell: pwsh
+        run: |
+          python tools/run_suite.py ${{ matrix.suite }}
+          if ($LASTEXITCODE -ne 0) { throw "${{ matrix.suite }} suite failed" }
+
   build:
-    needs: multiplayer-preview
+    needs: [tests, multiplayer-preview]
     runs-on: windows-latest
     steps:
       - name: Check out tested source
@@ -100,13 +129,6 @@ jobs:
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --yes --no-progress
-
-      - name: Run test suites
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          python tools/run_suite.py all
-          if ($LASTEXITCODE -ne 0) { throw "Test suites failed" }
 
       - name: Build Windows plus content
         shell: pwsh

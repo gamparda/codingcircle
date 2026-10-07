@@ -38,10 +38,12 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 
 **리플레이**
 - 서버가 진행한 모든 온라인 전투와 AI 캠페인 전투는 플레이어 명령만 `user://replays/`에 JSON으로 저장됩니다(최근 50개 유지). 전투가 결정론적이므로 같은 규칙으로 다시 계산하면 결과가 똑같이 재현됩니다.
-- 저장된 리플레이는 규칙 변경 뒤에도 결과가 같은지 검증하거나 밸런스·버그 재현에 쓸 수 있습니다. [리플레이 사용법](#리플레이-사용법)을 참고하세요.
+- 메인 메뉴의 **리플레이**에서 저장된 전투를 목록으로 보고 재생·삭제할 수 있습니다. 재생 화면은 일시정지, 0.5~8배속, 처음부터 다시 보기, 시간 막대로 원하는 지점 이동을 지원합니다.
+- 규칙이 바뀐 뒤에도 결과가 같은지 검증하거나 밸런스·버그 재현에 쓸 수도 있습니다. [리플레이 사용법](#리플레이-사용법)을 참고하세요.
 
 **기타**
-- 한국어 전용, 오디오(BGM·효과음)·화면·전투 연출·키 설정, 터치 조작과 모바일 화면 구성.
+- 한국어 전용, 오디오(BGM·효과음)·화면·전투 연출·키 설정. 버튼·전투 카드·결과 화면의 UI 효과음은 실행 중 합성하므로 별도 음원 파일이 없습니다.
+- 터치 기기에서는 모든 버튼과 슬라이더가 손가락 크기(최소 높이 58)로 커집니다. 제목과 큰 숫자에는 번들 글꼴 Black Han Sans(OFL)를 씁니다.
 - 개인 전적과 덱 프리셋 저장, 투명 PNG 캐릭터와 픽셀아트 렌더링.
 - Windows 설치·제거 프로그램, Android ARMv7·ARM64 서명 APK와 설치 화면 없이 갱신되는 콘텐츠 팩.
 
@@ -65,7 +67,7 @@ Android에서는 Release의 `CatWar.apk`를 내려받아 최초 한 번 설치�
 
 `main` 브랜치에 코드가 푸시될 때마다 `.github/workflows/build-and-deploy.yml`이 다음 작업을 수행합니다.
 
-1. 전투 규칙·v0.4 기능·UI 흐름 테스트와 오프라인 AI 검증
+1. 테스트 묶음(unit · network · ui · security · balance · release)을 병렬 job으로 실행
 2. `release.json`에 지정된 출시 버전과 대상 커밋으로 새 빌드 생성
 3. Windows 게임/서버 EXE·설치 프로그램, Android APK와 콘텐츠 팩 생성
 4. 설치 프로그램·APK·콘텐츠 팩의 SHA-256 및 APK 서명 검증
@@ -223,9 +225,14 @@ scenes/Bootstrap.tscn         Android 콘텐츠 확인·복구 후 게임을 여
 scenes/Main.tscn              메인 게임 장면
 scenes/ui/                    화면 프레임·기록·패치노트 등 .tscn 화면
 scripts/Main.gd               실행 모드, 입력, 화면 전환, 클라이언트/서버 연결
-scripts/screens/              Main에서 분리한 화면: MenuScreens, DeckScreen, SettingsScreen,
-                              BattleHud, ResultScreens, UpdateOverlay, Tutorial, PracticeUI
-scripts/ui/                   .tscn 화면에 붙는 스크립트
+scripts/screens/              Main에서 분리한 화면과 흐름: MenuScreens, DeckScreen, SettingsScreen,
+                              BattleHud, BattleFlow, LobbyFlow, ResultScreens, ReplayScreens,
+                              UpdateOverlay, Tutorial, PracticeUI
+scripts/net/                  NetworkController에서 분리한 서버·클라이언트 흐름:
+                              SessionFlow, ReconnectFlow, ClientSessionFlow
+scripts/ui/                   UIKit(팔레트·테마·그라데이션 스타일), UISounds, HeroShowcase, HpBar,
+                              ToastLabel, ReplayViewer, .tscn 화면에 붙는 스크립트
+assets/fonts/                 Black Han Sans(OFL)와 라이선스
 scripts/MultiplayerUI.gd      로비·대기실·방 만들기 UI
 scripts/BattleModel.gd        서버 권한형 전투 규칙
 scripts/data/                 UnitDef·StructureDef Resource와 GameData 로더
@@ -269,7 +276,7 @@ tests/                        suites.json 으로 묶인 회귀 테스트
 |---|---|
 | `unit` | 전투 규칙, 데이터, AI, 저장, 리플레이 |
 | `network` | 프로토콜, 방·재접속·빠른 대전(실제 2~4 클라이언트 RPC 포함) |
-| `ui` | 메뉴·덱·전투 HUD·대기방·.tscn 화면 |
+| `ui` | 메뉴·덱·전투 HUD·대기방·.tscn 화면·리플레이 뷰어·터치 크기 검사 |
 | `security` | 업데이트 스크립트와 설치 프로그램 보안 |
 | `balance` | 벤치마크 구매 정책, 밸런스 데이터 무결성, 수치 문서 최신 여부 |
 | `release` | 버전 정책, 번역 카탈로그, 묶음 누락 검사 |
