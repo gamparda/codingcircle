@@ -69,7 +69,7 @@ Android에서는 Release의 `CatWar.apk`를 내려받아 최초 한 번 설치�
 2. `release.json`에 지정된 출시 버전과 대상 커밋으로 새 빌드 생성
 3. Windows 게임/서버 EXE·설치 프로그램, Android APK와 콘텐츠 팩 생성
 4. 설치 프로그램·APK·콘텐츠 팩의 SHA-256 및 APK 서명 검증
-5. 버전 태그와 GitHub Release 생성
+5. 새 버전일 때만 버전 태그와 GitHub Release 생성(기존 태그는 덮어쓰지 않음)
 6. GitHub Pages에 `update.json`, `CatWarSetup.exe`, `CatWar.apk`, `CatWarContent.pck` 배포
 
 게임은 `https://gamparda.github.io/codingcircle/update.json`을 시작 시점과 비전투 상태에서 60초마다 확인합니다. 최신 버전이 발견되면 업데이트를 건너뛸 수 없으며, 설치 파일을 다운로드하고 SHA-256을 검증한 다음 게임을 종료해 무인 설치하고 자동 재실행합니다.
