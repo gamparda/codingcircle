@@ -28,6 +28,12 @@ const UNIT_COLORS := {"shield": Color("#5b8cff"), "swordsman": Color("#f0765f"),
 	"necromancer": Color("#8e6fd8"), "skeleton": Color("#b9c2d6")}
 
 static var _cache: Dictionary = {}
+## Phones need bigger hit areas (about 48dp). Tests flip this to check the touch layout on desktop.
+static var force_touch := false
+const TOUCH_MIN_HEIGHT := 58.0
+
+static func is_touch() -> bool:
+	return force_touch or OS.has_feature("mobile") or OS.has_feature("android")
 
 # ---------------------------------------------------------------- display font
 ## Black Han Sans (OFL) for titles and big numbers. Glyphs it lacks fall back to the system font.
@@ -153,6 +159,8 @@ static func style_button(button: Button, accent: Color, primary: bool = false, f
 	button.add_theme_color_override("font_pressed_color", TEXT)
 	button.add_theme_color_override("font_disabled_color", TEXT_DIM)
 	button.focus_mode = Control.FOCUS_ALL
+	if is_touch():
+		button.custom_minimum_size.y = maxf(button.custom_minimum_size.y, TOUCH_MIN_HEIGHT)
 	juice(button)
 	button.mouse_entered.connect(func():
 		if not button.disabled: UISounds.play("hover"))

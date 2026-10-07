@@ -36,7 +36,8 @@
     "tests/combat_polish_ui_test.gd",
     "tests/support_ui_feedback_test.gd",
     "tests/scene_screens_test.gd",
-    "tests/replay_viewer_test.gd"
+    "tests/replay_viewer_test.gd",
+    "tests/touch_layout_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",

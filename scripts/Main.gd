@@ -136,6 +136,8 @@ var settings_touch_start := Vector2.ZERO
 
 func _ready() -> void:
 	theme = UIKit.build_theme()
+	if UIKit.is_touch():
+		get_tree().node_added.connect(_enlarge_for_touch)
 	network.connection_status.connect(_on_connection_status)
 	network.match_found.connect(_on_match_found)
 	network.snapshot_received.connect(_on_snapshot)
@@ -520,6 +522,14 @@ func _build_patch_notes_screen() -> void:
 
 func _build_deck_screen(preset_index: int = -1) -> void:
 	DeckScreen._build_deck_screen(self, preset_index)
+
+## On touch devices every button gets a finger-sized minimum height as it enters the tree.
+func _enlarge_for_touch(node: Node) -> void:
+	if node is BaseButton and is_ancestor_of(node):
+		var button := node as BaseButton
+		button.custom_minimum_size.y = maxf(button.custom_minimum_size.y, UIKit.TOUCH_MIN_HEIGHT)
+	elif node is Slider and is_ancestor_of(node):
+		(node as Slider).custom_minimum_size.y = maxf((node as Slider).custom_minimum_size.y, 44.0)
 
 func _build_replay_list() -> void:
 	ReplayScreens._build_replay_list(self)

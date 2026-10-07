@@ -8,6 +8,8 @@ func _init() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--out="):
 			out_dir = arg.trim_prefix("--out=")
+		elif arg == "--touch":
+			preload("res://scripts/ui/UIKit.gd").force_touch = true
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	call_deferred("run")
 
