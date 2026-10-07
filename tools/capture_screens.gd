@@ -46,6 +46,9 @@ func run() -> void:
 	await shot("07b_brief", 4)
 	main._dismiss_action_overlay()
 	main._start_local_ai_battle(3)
+	for i in 14:
+		await process_frame
+	await shot("08a_intro", 2)
 	for i in 240:
 		await process_frame
 	main._purchase_unit(main.battle_preset.units[0])

@@ -40,7 +40,7 @@ func _ready() -> void:
 	add_child(sprite)
 	name_label = Label.new()
 	name_label.name = "HeroName"
-	name_label.add_theme_font_size_override("font_size", 40)
+	UIKit.display(name_label, 46)
 	name_label.add_theme_color_override("font_color", UIKit.TEXT)
 	name_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
 	name_label.add_theme_constant_override("outline_size", 6)
@@ -76,11 +76,11 @@ func _layout() -> void:
 	sprite.pivot_offset = sprite.size * 0.5
 	name_label.position = Vector2(0, 392)
 	name_label.size = Vector2(w, 54)
-	role_label.position = Vector2(0, 446)
+	role_label.position = Vector2(0, 452)
 	role_label.size = Vector2(w, 26)
-	chips.position = Vector2(0, 486)
+	chips.position = Vector2(0, 492)
 	chips.size = Vector2(w, 36)
-	dots.position = Vector2(0, 536)
+	dots.position = Vector2(0, 540)
 	dots.size = Vector2(w, 14)
 
 func _process(delta: float) -> void:

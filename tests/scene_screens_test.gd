@@ -20,6 +20,8 @@ func run() -> void:
 	main.updater.enabled = false
 	await process_frame
 
+	var UIKit = load("res://scripts/ui/UIKit.gd")
+	check(UIKit.display_font() is FontFile, "bundled display font is imported and loadable")
 	for path in ["res://scenes/ui/SubMenuFrame.tscn", "res://scenes/ui/PatchNotesScreen.tscn", "res://scenes/ui/RecordsScreen.tscn"]:
 		check(load(path) is PackedScene, "%s loads as a scene" % path)
 

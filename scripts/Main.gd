@@ -1124,7 +1124,7 @@ func _confirm_surrender() -> void:
 func _on_latency_updated(milliseconds: int) -> void:
 	if not is_instance_valid(latency_label): return
 	latency_label.text="지연 %dms"%milliseconds if milliseconds>=0 else "지연 측정 중"
-	latency_label.modulate=Color("#ff8a96") if milliseconds>200 else Color("#a7afc0")
+	latency_label.tone = UIKit.DANGER if milliseconds>200 else (UIKit.GOLD if milliseconds>120 else UIKit.TEAL); latency_label.add_theme_color_override("font_color",latency_label.tone.lightened(0.5)); latency_label.refresh_style()
 
 func _on_reconnect_status(active: bool, remaining: float) -> void:
 	if active:

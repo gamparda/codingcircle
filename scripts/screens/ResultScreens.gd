@@ -78,8 +78,7 @@ static func _show_result(main, winner: int) -> void:
 	result.position = Vector2(0, 54)
 	result.size = Vector2(580, 76)
 	result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result.add_theme_font_size_override("font_size", 56)
-	result.add_theme_color_override("font_color", result_color)
+	UIKit.display(result, 62, result_color)
 	result.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.5))
 	result.add_theme_constant_override("outline_size", 8)
 	inner.add_child(result)

@@ -79,8 +79,7 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	var title := Label.new()
 	title.name = "GameTitle"
 	title.text = "CAT WAR"
-	title.add_theme_font_size_override("font_size", 92)
-	title.add_theme_color_override("font_color", UIKit.GOLD)
+	UIKit.display(title, 96, UIKit.GOLD)
 	title.add_theme_color_override("font_outline_color", Color("#3a2a0c"))
 	title.add_theme_constant_override("outline_size", 14)
 	title.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.55))
@@ -179,8 +178,7 @@ static func _build_ai_stage_screen(main, as_campaign: bool = false) -> void:
 	var title := Label.new()
 	title.text = Localization.text("AI 캠페인") if main.campaign_mode else Localization.text("AI 연습")
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 34)
-	title.add_theme_color_override("font_color", Color("#f5f7fb"))
+	UIKit.display(title, 38, UIKit.TEXT)
 	stage_column.add_child(title)
 	var subtitle := Label.new()
 	subtitle.text = Localization.text("승리하여 다음 단계를 해금하고 별과 기록을 남기세요.") if main.campaign_mode else Localization.text("이전 단계를 모두 클리어한 성장 수치로 연습합니다. 실제 진행도는 바뀌지 않습니다.")
@@ -254,7 +252,7 @@ static func _dress_stage_card(card: Button, color: Color, stage: int, locked: bo
 	numeral.size = Vector2(100, 90)
 	numeral.position = Vector2(112, 22)
 	numeral.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	numeral.add_theme_font_size_override("font_size", 78)
+	UIKit.display(numeral, 84)
 	numeral.add_theme_color_override("font_color", Color(color.r, color.g, color.b, 0.16 if not locked else 0.06))
 	numeral.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(numeral)

@@ -342,7 +342,8 @@ func _draw_base(x: float, lane_y: float, side: int) -> void:
 	var light := BLUE_LIGHT if side == 0 else RED_LIGHT
 	var facing := 1.0 if side == 0 else -1.0
 	# Soft territory glow.
-	draw_circle(Vector2(x, lane_y - 56.0), 82.0, Color(color.r, color.g, color.b, 0.08))
+	for i in 6:
+		draw_circle(Vector2(x, lane_y - 56.0), 100.0 - float(i) * 12.0, Color(color.r, color.g, color.b, 0.025 + float(i) * 0.012))
 	# Fortress body and feet.
 	draw_rect(Rect2(x - 43.0, lane_y - 92.0, 86.0, 92.0), Color("#171d2a"))
 	draw_rect(Rect2(x - 43.0, lane_y - 92.0, 5.0, 92.0), color)
@@ -354,16 +355,24 @@ func _draw_base(x: float, lane_y: float, side: int) -> void:
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(x + 8.0, lane_y - 92.0), Vector2(x + 27.0, lane_y - 123.0), Vector2(x + 42.0, lane_y - 92.0)
 	]), Color("#242c3c"))
+	# Battlements and glowing windows give the fortress some life.
+	for i in 5:
+		draw_rect(Rect2(x - 43.0 + float(i) * 19.0, lane_y - 100.0, 11.0, 8.0), Color("#242c3c"))
+	var flicker := 0.55 + 0.35 * sin(float(Time.get_ticks_msec()) / 600.0 + x)
+	for row in 2:
+		for col in 3:
+			draw_rect(Rect2(x - 30.0 + float(col) * 24.0, lane_y - 44.0 + float(row) * 16.0, 7.0, 9.0), Color(light.r, light.g, light.b, 0.25 + 0.3 * flicker * float((row + col) % 2 + 1) / 2.0))
 	# Face, gate and banner.
 	draw_circle(Vector2(x - 15.0, lane_y - 70.0), 3.0, light)
 	draw_circle(Vector2(x + 15.0, lane_y - 70.0), 3.0, light)
 	draw_line(Vector2(x, lane_y - 61.0), Vector2(x + 7.0 * facing, lane_y - 57.0), light, 2.0)
 	draw_arc(Vector2(x, lane_y - 6.0), 22.0, PI, TAU, 20, Color("#090c12"), 10.0)
 	draw_line(Vector2(x + 46.0 * facing, lane_y - 108.0), Vector2(x + 46.0 * facing, lane_y - 150.0), Color("#7d879b"), 2.0)
+	var wave := sin(float(Time.get_ticks_msec()) / 280.0 + x) * 3.0
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(x + 46.0 * facing, lane_y - 149.0),
 		Vector2(x + 46.0 * facing, lane_y - 132.0),
-		Vector2(x + 72.0 * facing, lane_y - 140.0)
+		Vector2(x + 72.0 * facing, lane_y - 140.0 + wave)
 	]), color)
 
 func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
@@ -516,7 +525,9 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 		var life := float(event.life)
 		if show_battle_effects:
 			if event_type in ["ATTACK", "DAMAGE", "BASE_HIT"]:
+				draw_circle(Vector2(x, lane_y - 55.0), 18.0 + life * 20.0, Color(1.0, 0.55, 0.2, life * effect_intensity * 0.18))
 				draw_circle(Vector2(x, lane_y - 55.0), 9.0 + life * 10.0, Color(1.0, 0.72, 0.28, life * effect_intensity))
+				draw_circle(Vector2(x, lane_y - 55.0), 4.0 + life * 4.0, Color(1.0, 0.96, 0.8, life * effect_intensity))
 			elif event_type in ["CURSE", "SUMMON"]:
 				draw_circle(Vector2(x, lane_y - 28.0), 22.0, Color(0.66, 0.28, 1.0, life * effect_intensity))
 			elif event_type == "SUPPORT_BUFF":
@@ -528,8 +539,13 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 		if show_damage_numbers and event_type in ["DAMAGE", "HEAL", "BASE_HIT"]:
 			var amount := int(event.get("amount", 0))
 			var text := "+%d" % amount if event_type == "HEAL" else "-%d" % amount
-			var color := Color("#75f0a4") if event_type == "HEAL" else Color("#ff8a96")
-			draw_string(ThemeDB.fallback_font, Vector2(x - 14.0 + (float(event.get("text_lane",0))-1.5)*8.0, lane_y - 95.0 - float(event.get("text_lane",0))*20.0 - (0.7 - life) * 34.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, color)
+			var color := Color("#75f0a4") if event_type == "HEAL" else (Color("#ffd36a") if event_type == "BASE_HIT" else Color("#ff8a96"))
+			color.a = clampf(life * 2.2, 0.0, 1.0)
+			var font_size := 17 + mini(amount, 30) / 3 + (6 if event_type == "BASE_HIT" else 0)
+			var text_position := Vector2(x - 14.0 + (float(event.get("text_lane",0))-1.5)*8.0, lane_y - 95.0 - float(event.get("text_lane",0))*20.0 - (0.7 - life) * 34.0)
+			var display: Font = preload("res://assets/fonts/BlackHanSans-Regular.ttf")
+			draw_string_outline(display, text_position, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 5, Color(0.02, 0.03, 0.07, color.a * 0.9))
+			draw_string(display, text_position, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 
 func build_preview(world_x: float) -> Dictionary:
 	var kind := selected_structure

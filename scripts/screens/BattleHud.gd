@@ -7,6 +7,7 @@ const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const HpBar = preload("res://scripts/ui/HpBar.gd")
+const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
 
 static func _build_battle_screen(main) -> void:
 	main.base_warning_fired = false; main.client_purchase_gates.clear(); main.sound_gate.clear()
@@ -41,11 +42,10 @@ static func _build_battle_screen(main) -> void:
 	timer_inner.custom_minimum_size = Vector2(220, 64)
 	timer_card.add_child(timer_inner)
 	main.timer_label = Label.new()
-	main.timer_label.position = Vector2(0, 7)
+	main.timer_label.position = Vector2(0, 3)
 	main.timer_label.size = Vector2(220, 34)
 	main.timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	main.timer_label.add_theme_font_size_override("font_size", 28)
-	main.timer_label.add_theme_color_override("font_color", UIKit.TEXT)
+	UIKit.display(main.timer_label, 30, UIKit.TEXT)
 	timer_inner.add_child(main.timer_label)
 	var mode_label := Label.new()
 	mode_label.text = "AI 단계 %02d" % main.current_ai_stage if main.local_ai_mode else ("관전 중" if main.network.client_is_spectator else "온라인 대전")
@@ -67,12 +67,10 @@ static func _build_battle_screen(main) -> void:
 	main.battle_view.effect_intensity = float(main.save_data.settings.effect_intensity)
 	main.battle_view.battlefield_clicked.connect(main._on_battlefield_clicked)
 	main.root_background.add_child(main.battle_view)
-	main.placement_status_label = Label.new()
-	main.placement_status_label.position = Vector2(360, 548)
-	main.placement_status_label.size = Vector2(560, 28)
-	main.placement_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	main.placement_status_label.add_theme_color_override("font_color", Color("#ff8a96"))
+	main.placement_status_label = ToastLabel.new()
+	main.placement_status_label.tone = UIKit.DANGER
 	main.root_background.add_child(main.placement_status_label)
+	main.placement_status_label.place_center(640.0, 540.0)
 	main.structure_count_label = Label.new()
 	main.structure_count_label.position = Vector2(1030, 548)
 	main.structure_count_label.size = Vector2(220, 28)
@@ -110,8 +108,7 @@ static func _build_battle_screen(main) -> void:
 	main.resource_label = Label.new()
 	main.resource_label.position = Vector2(14, 28)
 	main.resource_label.size = Vector2(145, 42)
-	main.resource_label.add_theme_font_size_override("font_size", 27)
-	main.resource_label.add_theme_color_override("font_color", UIKit.GOLD)
+	UIKit.display(main.resource_label, 28, UIKit.GOLD)
 	resource_inner.add_child(main.resource_label)
 	var resource_bar := HpBar.new()
 	resource_bar.name = "ResourceBar"
@@ -179,15 +176,91 @@ static func _build_battle_screen(main) -> void:
 		var goal := Label.new(); goal.name = "CampaignBattleGoal"; goal.text = CampaignBrief.goal(main.current_ai_stage); goal.position = Vector2(160,98); goal.size = Vector2(340,48); goal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; goal.add_theme_font_size_override("font_size",12); goal.mouse_filter = Control.MOUSE_FILTER_IGNORE; main.root_background.add_child(goal)
 	if not main.local_ai_mode:
 		for side in 2:
-			var name_label := Label.new(); name_label.name = "BattlePlayerName%d"%side; name_label.text = main._report_side_name(side); name_label.position = Vector2(164 if side==main.own_side else 918,154); name_label.size = Vector2(270,28); name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if side==main.own_side else HORIZONTAL_ALIGNMENT_RIGHT; name_label.add_theme_font_size_override("font_size",13); name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE; main.root_background.add_child(name_label)
-		main.latency_label = Label.new(); main.latency_label.name = "LatencyLabel"; main.latency_label.position = Vector2(760,96); main.latency_label.size = Vector2(150,20); main.latency_label.add_theme_font_size_override("font_size",12); main.latency_label.mouse_filter = Control.MOUSE_FILTER_IGNORE; main.root_background.add_child(main.latency_label)
+			var name_label := ToastLabel.new(); name_label.name = "BattlePlayerName%d"%side; name_label.text = main._report_side_name(side)
+			name_label.tone = UIKit.TEAM_BLUE if side == main.own_side else UIKit.TEAM_RED
+			main.root_background.add_child(name_label)
+			name_label.place_edge(164.0 if side == main.own_side else 1116.0, 154.0, side != main.own_side)
+			name_label.add_theme_font_size_override("font_size", 14)
+		main.latency_label = ToastLabel.new(); main.latency_label.name = "LatencyLabel"; main.latency_label.tone = UIKit.TEAL; main.root_background.add_child(main.latency_label)
+		main.latency_label.place_edge(1116.0, 96.0, true)
+		main.latency_label.add_theme_font_size_override("font_size", 13)
 		var surrender = main._styled_button("항복",Color("#8f4652")); surrender.name = "SurrenderButton"; surrender.position = Vector2(14,98); surrender.size = Vector2(136,48); surrender.z_index = 10; surrender.visible = not main.network.client_is_spectator; surrender.pressed.connect(main._confirm_surrender); main.root_background.add_child(surrender)
-		main.recovery_label = Label.new(); main.recovery_label.name = "NetworkRecoveryStatus"; main.recovery_label.position = Vector2(350,155); main.recovery_label.size = Vector2(580,38); main.recovery_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; main.recovery_label.add_theme_color_override("font_color",Color("#f0d592")); main.recovery_label.mouse_filter = Control.MOUSE_FILTER_IGNORE; main.root_background.add_child(main.recovery_label)
+		main.recovery_label = ToastLabel.new(); main.recovery_label.name = "NetworkRecoveryStatus"; main.recovery_label.tone = UIKit.GOLD; main.root_background.add_child(main.recovery_label)
+		main.recovery_label.place_center(640.0, 156.0)
 	if not main.network.client_session.is_empty(): main._add_battle_chat()
 	if not main.local_ai_mode: main._on_latency_updated(main.network.latency_ms)
 
-	main.base_warning_label = Label.new(); main.base_warning_label.name = "BaseDangerWarning"; main.base_warning_label.text = "기지 체력 위험"; main.base_warning_label.position = Vector2(530,96); main.base_warning_label.size = Vector2(220,28); main.base_warning_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; main.base_warning_label.add_theme_color_override("font_color",Color("#ff8a96")); main.base_warning_label.visible = false; main.root_background.add_child(main.base_warning_label)
+	main.base_warning_label = ToastLabel.new(); main.base_warning_label.name = "BaseDangerWarning"; main.base_warning_label.text = "기지 체력 위험"; main.base_warning_label.tone = UIKit.DANGER; main.base_warning_label.visible = false; main.root_background.add_child(main.base_warning_label)
+	main.base_warning_label.place_center(640.0, 96.0)
 	main.cancel_build_button = main._styled_button("설치 취소 · Esc",Color("#697386")); main.cancel_build_button.name = "CancelBuildButton"; main.cancel_build_button.position = Vector2(536,500); main.cancel_build_button.size = Vector2(208,44); main.cancel_build_button.visible = false; main.cancel_build_button.z_index = 10; main.cancel_build_button.pressed.connect(main._cancel_build_selection); main.root_background.add_child(main.cancel_build_button)
+	_battle_intro(main)
+
+## "STAGE 03 · 전진" style band that slides in, holds, and leaves. Purely decorative (ignores input).
+static func _battle_intro(main) -> void:
+	var title_text := ""
+	var sub_text := ""
+	if main.local_ai_mode and main.campaign_mode:
+		title_text = "STAGE %02d" % main.current_ai_stage
+		sub_text = ServerAI.stage_name(main.current_ai_stage)
+	elif main.local_ai_mode:
+		title_text = "PRACTICE"
+		sub_text = Localization.text("AI 단계 %02d") % main.current_ai_stage
+	elif main.network.client_is_spectator:
+		title_text = "SPECTATE"
+		sub_text = Localization.text("관전 중")
+	else:
+		title_text = "BATTLE START"
+		sub_text = Localization.text("온라인 대전")
+	var band := Control.new()
+	band.name = "BattleIntroBanner"
+	band.position = Vector2(0, 250)
+	band.size = Vector2(1280, 120)
+	band.z_index = 40
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fill := ColorRect.new()
+	fill.color = Color(0.02, 0.03, 0.08, 0.72)
+	fill.size = band.size
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	band.add_child(fill)
+	for edge_y in [0.0, 118.0]:
+		var edge := TextureRect.new()
+		edge.texture = _team_gradient(main.own_side)
+		edge.stretch_mode = TextureRect.STRETCH_SCALE
+		edge.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		edge.position = Vector2(0, edge_y)
+		edge.size = Vector2(1280, 2)
+		edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		band.add_child(edge)
+	var title := Label.new()
+	title.text = title_text
+	title.size = Vector2(1280, 70)
+	title.position = Vector2(0, 8)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	UIKit.display(title, 58, UIKit.GOLD)
+	title.add_theme_color_override("font_outline_color", Color(0.1, 0.07, 0.02, 0.9))
+	title.add_theme_constant_override("outline_size", 10)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	band.add_child(title)
+	var sub := Label.new()
+	sub.text = sub_text
+	sub.size = Vector2(1280, 30)
+	sub.position = Vector2(0, 78)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.add_theme_font_size_override("font_size", 18)
+	sub.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	band.add_child(sub)
+	main.root_background.add_child(band)
+	band.modulate.a = 0.0
+	band.position.x = -160.0
+	var tween := band.create_tween()
+	tween.tween_property(band, "modulate:a", 1.0, 0.22)
+	tween.parallel().tween_property(band, "position:x", 0.0, 0.32).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_interval(0.9)
+	tween.tween_property(band, "modulate:a", 0.0, 0.3)
+	tween.parallel().tween_property(band, "position:x", 160.0, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.tween_callback(band.queue_free)
 
 static func _team_gradient(own_side: int) -> GradientTexture2D:
 	var gradient := Gradient.new()

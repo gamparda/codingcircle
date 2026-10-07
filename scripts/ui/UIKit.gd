@@ -27,6 +27,19 @@ const UNIT_COLORS := {"shield": Color("#5b8cff"), "swordsman": Color("#f0765f"),
 
 static var _cache: Dictionary = {}
 
+# ---------------------------------------------------------------- display font
+## Black Han Sans (OFL) for titles and big numbers. Glyphs it lacks fall back to the system font.
+static func display_font() -> Font:
+	if not _cache.has("display_font"):
+		_cache["display_font"] = load("res://assets/fonts/BlackHanSans-Regular.ttf")
+	return _cache["display_font"]
+
+static func display(label: Control, size: int, color: Color = Color(0, 0, 0, 0)) -> void:
+	label.add_theme_font_override("font", display_font())
+	label.add_theme_font_size_override("font_size", size)
+	if color.a > 0.0:
+		label.add_theme_color_override("font_color", color)
+
 # ---------------------------------------------------------------- rounded gradient boxes
 ## Soft anti-aliased rounded rectangle with a vertical gradient, inner border, top highlight and
 ## drop shadow, as a 9-sliced StyleBoxTexture. `glow` tints the shadow (e.g. accent buttons).

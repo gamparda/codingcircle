@@ -11,6 +11,7 @@ static func label(text: String, size: int = 16, color: Color = Color.WHITE) -> L
 	var node := Label.new(); node.text = text
 	node.add_theme_font_size_override("font_size",size)
 	node.add_theme_color_override("font_color",color)
+	if size >= 24: node.add_theme_font_override("font",UIKit.display_font())
 	return node
 
 static func panel(main, parent: Node, name: String, bounds: Rect2, padding: int = 24) -> VBoxContainer:
@@ -94,7 +95,12 @@ static func listing(main, data: Dictionary) -> void:
 		var name_label := label(("▣  " if room.get("locked",false) else "◇  ")+String(room.name),18); name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS; details.add_child(name_label)
 		var phase := String(room.get("state","waiting"))
 		var phase_text := "전투 중" if phase == "playing" else ("결과 확인 중" if phase == "finished" else "대기 중")
-		details.add_child(label("%s  ·  %d / 2  ·  관전 %d" % [phase_text,int(room.players),int(room.get("spectators",0))],12,MUTED))
+		var meta_row := HBoxContainer.new(); meta_row.add_theme_constant_override("separation",10); details.add_child(meta_row)
+		var phase_tone := UIKit.DANGER if phase == "playing" else (UIKit.GOLD if phase == "finished" else UIKit.SUCCESS)
+		var chip := PanelContainer.new(); chip.add_theme_stylebox_override("panel",UIKit.with_margins(UIKit.box(Color(phase_tone.r,phase_tone.g,phase_tone.b,0.22),Color(phase_tone.r,phase_tone.g,phase_tone.b,0.10),Color(phase_tone.r,phase_tone.g,phase_tone.b,0.8),10,1.0,0.0,Color(0,0,0,0),0.0),10,2)); meta_row.add_child(chip)
+		chip.add_child(label("●  "+phase_text,12,phase_tone.lightened(0.35)))
+		var pips := label("●".repeat(int(room.players))+"○".repeat(maxi(0,2-int(room.players))),12,UIKit.TEXT_MUTED); meta_row.add_child(pips)
+		meta_row.add_child(label("%s  ·  %d / 2  ·  관전 %d" % [phase_text,int(room.players),int(room.get("spectators",0))],12,MUTED))
 		var join := button(main,row,"참가","JoinRoomButton",func(): main._prompt_room_entry(room,false),true); join.set_meta("room_code",room.code)
 		join.set_meta("available",phase=="waiting" and int(room.players)<2)
 		join.disabled = main.network.client_connection_state != "lobby" or not bool(join.get_meta("available"))
@@ -106,6 +112,10 @@ static func room(main) -> void:
 	var column := panel(main,main.root_background,"SessionRoomPanel",Rect2(64,28,1152,664))
 	var header := HBoxContainer.new(); header.add_theme_constant_override("separation",12); column.add_child(header)
 	main.session_title = label("대기실",28,GOLD); main.session_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL; header.add_child(main.session_title)
+	var code_chip := Button.new(); code_chip.name = "SessionRoomCode"; code_chip.focus_mode = Control.FOCUS_NONE; code_chip.tooltip_text = "클릭하면 방 코드를 복사합니다"
+	UIKit.style_button(code_chip,UIKit.TEAL,false,14); code_chip.custom_minimum_size = Vector2(190,44)
+	code_chip.pressed.connect(func(): DisplayServer.clipboard_set(String(main.network.client_session.get("code",""))); code_chip.text = "복사됨 ✓")
+	header.add_child(code_chip)
 	button(main,header,"방 나가기","LeaveSessionButton",func(): main.network.request_session_leave.rpc_id(1))
 	column.add_child(HSeparator.new())
 	var body := HBoxContainer.new(); body.size_flags_vertical = Control.SIZE_EXPAND_FILL; body.add_theme_constant_override("separation",20); column.add_child(body)
@@ -126,7 +136,7 @@ static func room(main) -> void:
 	main.session_start_button = button(main,actions,"전투 시작","SessionStartButton",func(): main.network.request_session_start.rpc_id(1),true)
 	var chat_column := VBoxContainer.new(); chat_column.custom_minimum_size.x = 360; chat_column.add_theme_constant_override("separation",10); body.add_child(chat_column)
 	chat_column.add_child(label("방 채팅",16,GOLD))
-	main.session_chat_log = RichTextLabel.new(); main.session_chat_log.name = "SessionChatLog"; main.session_chat_log.bbcode_enabled = false; main.session_chat_log.scroll_following = true; main.session_chat_log.size_flags_vertical = Control.SIZE_EXPAND_FILL; main.session_chat_log.add_theme_font_size_override("normal_font_size",14); chat_column.add_child(main.session_chat_log)
+	main.session_chat_log = RichTextLabel.new(); main.session_chat_log.name = "SessionChatLog"; main.session_chat_log.bbcode_enabled = false; main.session_chat_log.scroll_following = true; main.session_chat_log.size_flags_vertical = Control.SIZE_EXPAND_FILL; main.session_chat_log.add_theme_font_size_override("normal_font_size",14); main.session_chat_log.add_theme_stylebox_override("normal",UIKit.with_margins(UIKit.box(Color("#0b1220"),Color("#09101c"),UIKit.EDGE_SOFT,12,1.0,0.0,Color(0,0,0,0),0.0),12,10)); chat_column.add_child(main.session_chat_log)
 	var chat_row := HBoxContainer.new(); chat_row.add_theme_constant_override("separation",8); chat_column.add_child(chat_row)
 	main.session_chat_input = LineEdit.new(); main.session_chat_input.name = "SessionChatInput"; main.session_chat_input.placeholder_text = "메시지 입력"; main.session_chat_input.max_length = 160; main.session_chat_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL; main.session_chat_input.custom_minimum_size.y = 44; chat_row.add_child(main.session_chat_input)
 	main.session_chat_input.text_submitted.connect(func(_text): main._send_session_chat())
@@ -141,14 +151,31 @@ static func update_room(main, data: Dictionary) -> void:
 	for member in data.members:
 		if member.role == "player": players.append(member)
 		else: spectators.append(member.nickname)
+	var code_chip_node = main.find_child("SessionRoomCode",true,false)
+	if code_chip_node is Button: code_chip_node.text = "코드  %s  ⧉" % String(data.get("code",""))
 	for index in 2:
-		var slot := PanelContainer.new(); slot.custom_minimum_size.y = 90
-		slot.add_theme_stylebox_override("panel",UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI,UIKit.SURFACE,Color(EDGE.r,EDGE.g,EDGE.b,0.8),12,1.0,0.3,Color(0,0,0,0),0.08),16,14)); main.session_roster.add_child(slot)
-		var text := VBoxContainer.new(); slot.add_child(text)
-		if index < players.size():
+		var team := UIKit.TEAM_BLUE if index == 0 else UIKit.TEAM_RED
+		var slot := PanelContainer.new(); slot.custom_minimum_size.y = 112
+		var filled: bool = index < players.size()
+		slot.add_theme_stylebox_override("panel",UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI.lerp(team,0.10 if filled else 0.0),UIKit.SURFACE.darkened(0.1),Color(team.r,team.g,team.b,0.65 if filled else 0.25),14,1.0,0.35,Color(0,0,0,0),0.08),18,14)); main.session_roster.add_child(slot)
+		var row := HBoxContainer.new(); row.add_theme_constant_override("separation",16); slot.add_child(row)
+		var avatar := PanelContainer.new(); avatar.custom_minimum_size = Vector2(64,64); avatar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var ring := StyleBoxFlat.new(); ring.bg_color = Color(team.r,team.g,team.b,0.28 if filled else 0.08); ring.border_color = team if filled else Color(team.r,team.g,team.b,0.3); ring.set_border_width_all(2); ring.set_corner_radius_all(32); ring.anti_aliasing = true
+		avatar.add_theme_stylebox_override("panel",ring); row.add_child(avatar)
+		var initial := Label.new(); initial.text = String(players[index].nickname).left(1).to_upper() if filled else "?"; initial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		UIKit.display(initial,28,team.lightened(0.4)); avatar.add_child(initial)
+		var text := VBoxContainer.new(); text.size_flags_horizontal = Control.SIZE_EXPAND_FILL; text.alignment = BoxContainer.ALIGNMENT_CENTER; text.add_theme_constant_override("separation",6); row.add_child(text)
+		if filled:
 			var member: Dictionary = players[index]
 			text.add_child(label(String(member.nickname)+("  ·  방장" if int(member.id)==int(data.owner) else ""),20))
-			text.add_child(label("준비 완료" if member.ready else ("결과 확인 중" if not member.returned else "준비 대기"),13,Color("#8ad4bb") if member.ready else MUTED))
+			var status := label("준비 완료" if member.ready else ("결과 확인 중" if not member.returned else "준비 대기"),13,Color("#8ad4bb") if member.ready else MUTED)
+			if member.ready: status.text = "✓ " + status.text
+			text.add_child(status)
+			var deck_row := HBoxContainer.new(); deck_row.add_theme_constant_override("separation",6); row.add_child(deck_row)
+			for kind in member.deck.units:
+				var icon := TextureRect.new(); icon.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
+				icon.custom_minimum_size = Vector2(52,70); icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE; icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED; icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+				icon.tooltip_text = String(BattleModel.UNIT_NAMES.get(kind,kind)); deck_row.add_child(icon)
 		else: text.add_child(label("상대 플레이어를 기다리고 있습니다",16,MUTED))
 	main.session_spectators.text = "관전 %d명" % spectators.size() + ("  ·  " + ", ".join(spectators.slice(0,8)) if not spectators.is_empty() else "")
 	var self_member: Dictionary = main._self_session_member()
