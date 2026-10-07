@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Run test suites declared in tests/suites.json.
 
-    python tools/run_suite.py all              # every suite except 'render'
+    python tools/run_suite.py all              # every suite except the manual ones (render, production)
     python tools/run_suite.py unit network     # selected suites
-    python tools/run_suite.py render           # needs a real display (xvfb/GPU), not run by 'all'
+    python tools/run_suite.py render           # needs a real display (xvfb/GPU)
+    python tools/run_suite.py production       # talks to the live game server; its RPC set must match this build
 
 The Godot console binary comes from $GODOT_CONSOLE, then PATH, then the winget install.
 Exit code is 1 if any test failed; every failing test is listed at the end.
@@ -19,7 +20,9 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SUITES = json.loads((ROOT / "tests" / "suites.json").read_text(encoding="utf-8"))
-DEFAULT = [name for name in SUITES if name != "render"]
+# Not part of "all": these need a display or the live production server.
+MANUAL = {"render", "production"}
+DEFAULT = [name for name in SUITES if name not in MANUAL]
 
 
 def find_godot() -> str:
@@ -50,7 +53,8 @@ def run_one(godot: str, test: str, timeout: int) -> tuple:
         cmd = [godot, "--headless", "--single-threaded-scene", "--path", str(ROOT), "--script", "res://" + test]
     started = time.time()
     try:
-        proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              env={**os.environ, "PYTHONUTF8": "1"}, timeout=timeout)
         return proc.returncode, (proc.stdout + proc.stderr), time.time() - started
     except subprocess.TimeoutExpired:
         return 124, "timed out", time.time() - started

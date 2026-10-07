@@ -54,6 +54,9 @@ static func browser(main) -> void:
 	selector.item_selected.connect(func(index): main._choose_session_deck(index,false))
 	var units := label(main._active_deck_names(),14,MUTED); units.name = "LobbyDeckNames"; units.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; side.add_child(units)
 	var space := Control.new(); space.size_flags_vertical = Control.SIZE_EXPAND_FILL; side.add_child(space)
+	main.quick_button_ref = button(main,side,"⚡ 빠른 대전","QuickMatchButton",main._toggle_quick_match,true)
+	main.quick_button_ref.custom_minimum_size.y = 56
+	side.add_child(label("버튼 하나로 상대를 자동 매칭합니다.",12,MUTED))
 	side.add_child(label("잠긴 방은 비밀번호로 입장합니다.",12,MUTED))
 	main.status_label = label("서버에 연결 중...",13,MUTED); main.status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; column.add_child(main.status_label)
 	var footer := HBoxContainer.new(); footer.add_theme_constant_override("separation",10); column.add_child(footer)
@@ -62,7 +65,7 @@ static func browser(main) -> void:
 	main.lobby_previous_button = button(main,footer,"이전","PreviousRoomsButton",func(): main.network.browse_rooms(main.lobby_page-1))
 	main.lobby_page_label = label("1 / 1",14,MUTED); main.lobby_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; main.lobby_page_label.custom_minimum_size.x = 100; footer.add_child(main.lobby_page_label)
 	main.lobby_next_button = button(main,footer,"다음","NextRoomsButton",func(): main.network.browse_rooms(main.lobby_page+1))
-	main._render_room_listing(main.lobby_data); main._set_lobby_enabled(main.network.client_connection_state == "lobby")
+	main._render_room_listing(main.lobby_data); main._set_lobby_enabled(main.network.client_connection_state in ["lobby","queued"])
 	main.updater.set_safe_to_update(false)
 
 static func deck_selector(main) -> OptionButton:

@@ -34,6 +34,7 @@ var root_background: ColorRect
 var smoke_mode := false
 var smoke_elapsed := 0.0
 var connect_button_ref: Button
+var quick_button_ref: Button
 var join_button_ref: Button
 var local_ai_mode := false
 var ai_smoke_mode := false
@@ -134,6 +135,7 @@ func _ready() -> void:
 	network.room_list_received.connect(_on_room_list)
 	network.session_changed.connect(_on_session_changed)
 	network.session_error.connect(_on_session_error)
+	network.quick_match_status.connect(_on_quick_match_status)
 	network.session_chat.connect(_on_session_chat)
 	network.spectate_started.connect(_on_spectate_started)
 	network.session_closed.connect(_on_session_closed)
@@ -2023,7 +2025,27 @@ func _build_lobby_screen() -> void:
 	MultiplayerUI.browser(self)
 
 
+func _toggle_quick_match() -> void:
+	if network.client_connection_state == "queued": network.cancel_quick_match()
+	elif network.start_quick_match():
+		_refresh_quick_button(); _set_lobby_enabled(false)
+		if is_instance_valid(status_label): status_label.text = "상대를 찾는 중..."
+
+func _on_quick_match_status(state: String) -> void:
+	_refresh_quick_button()
+	if multiplayer_screen != "lobby": return
+	_set_lobby_enabled(state != "queued")
+	if is_instance_valid(status_label):
+		status_label.text = {"queued": "상대를 찾는 중... 다시 누르면 취소합니다.", "cancelled": "빠른 대전을 취소했습니다.", "timeout": "상대를 찾지 못했습니다. 다시 시도하거나 방을 만들어 보세요."}.get(state, "")
+
+func _refresh_quick_button() -> void:
+	if not is_instance_valid(quick_button_ref): return
+	var queued: bool = network.client_connection_state == "queued"
+	quick_button_ref.text = Localization.text("✕ 대기 취소") if queued else Localization.text("⚡ 빠른 대전")
+	quick_button_ref.disabled = not queued and network.client_connection_state != "lobby"
+
 func _set_lobby_enabled(enabled: bool) -> void:
+	_refresh_quick_button()
 	if is_instance_valid(connect_button_ref): connect_button_ref.disabled = not enabled
 	if is_instance_valid(lobby_rows):
 		for button in lobby_rows.find_children("JoinRoomButton","Button",true,false): button.disabled = not enabled or not bool(button.get_meta("available",true))
@@ -2113,6 +2135,7 @@ func _on_session_changed(data: Dictionary) -> void:
 	elif multiplayer_screen == "session": MultiplayerUI.update_room(self,data)
 
 func _on_session_error(text: String) -> void:
+	_refresh_quick_button()
 	if is_instance_valid(status_label): status_label.text = text
 	if multiplayer_screen == "lobby": _set_lobby_enabled(network.client_connection_state == "lobby")
 

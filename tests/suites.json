@@ -1,33 +1,59 @@
 {
   "unit": [
-    "tests/run_tests.gd", "tests/v04_test.gd", "tests/save_roundtrip_test.gd",
-    "tests/new_units_test.gd", "tests/unit_data_test.gd", "tests/simultaneous_combat_test.gd",
-    "tests/combat_polish_test.gd", "tests/v05_tactics_test.gd", "tests/battle_experience_test.gd",
-    "tests/practice_campaign_test.gd", "tests/key_bindings_test.gd", "tests/ai_battle_spotcheck.gd",
-    "tests/balance_feedback_test.gd", "tests/replay_test.gd"
+    "tests/run_tests.gd",
+    "tests/v04_test.gd",
+    "tests/save_roundtrip_test.gd",
+    "tests/new_units_test.gd",
+    "tests/unit_data_test.gd",
+    "tests/simultaneous_combat_test.gd",
+    "tests/combat_polish_test.gd",
+    "tests/v05_tactics_test.gd",
+    "tests/battle_experience_test.gd",
+    "tests/practice_campaign_test.gd",
+    "tests/key_bindings_test.gd",
+    "tests/ai_battle_spotcheck.gd",
+    "tests/balance_feedback_test.gd",
+    "tests/replay_test.gd"
   ],
   "network": [
-    "tests/network_recovery_test.gd", "tests/reconnect_admission_test.gd",
-    "tests/room_browser_test.gd", "tests/room_browser_wire_test.gd",
-    "tests/room_creation_feedback_test.gd", "tests/room_sessions_test.gd",
-    "tests/room_sessions_wire_test.gd", "tests/quick_match_test.gd"
+    "tests/network_recovery_test.gd",
+    "tests/reconnect_admission_test.gd",
+    "tests/room_browser_test.gd",
+    "tests/room_browser_wire_test.gd",
+    "tests/room_sessions_test.gd",
+    "tests/room_sessions_wire_test.gd",
+    "tests/quick_match_test.gd"
   ],
   "ui": [
-    "tests/ui_flow_test.gd", "tests/deck_layout_test.gd", "tests/new_units_ui_test.gd",
-    "tests/v05_ui_test.gd", "tests/battle_experience_ui_test.gd", "tests/room_browser_ui_test.gd",
-    "tests/room_sessions_ui_test.gd", "tests/combat_polish_ui_test.gd",
+    "tests/ui_flow_test.gd",
+    "tests/deck_layout_test.gd",
+    "tests/new_units_ui_test.gd",
+    "tests/v05_ui_test.gd",
+    "tests/battle_experience_ui_test.gd",
+    "tests/room_browser_ui_test.gd",
+    "tests/room_sessions_ui_test.gd",
+    "tests/combat_polish_ui_test.gd",
     "tests/support_ui_feedback_test.gd"
   ],
   "security": [
-    "tests/security_windows_updater.gd", "tests/security_linux_updater_test.py",
+    "tests/security_windows_updater.gd",
+    "tests/security_linux_updater_test.py",
     "tests/security_windows_batch_test.py"
   ],
-  "balance": ["tests/balance_bot_test.gd", "tests/balance_analysis_test.py"],
+  "balance": [
+    "tests/balance_bot_test.gd",
+    "tests/balance_analysis_test.py"
+  ],
   "release": [
-    "tests/release_version_policy_test.py", "tests/localization_catalog_test.py",
+    "tests/release_version_policy_test.py",
+    "tests/localization_catalog_test.py",
     "tests/suites_cover_all_tests_test.py"
   ],
   "render": [
-    "tests/battle_button_input_test.gd", "tests/settings_touch_test.gd"
+    "tests/battle_button_input_test.gd",
+    "tests/settings_touch_test.gd"
+  ],
+  "production": [
+    "tests/room_creation_feedback_test.gd"
   ]
 }

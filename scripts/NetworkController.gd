@@ -4,6 +4,7 @@ extends Node
 const Localization = preload("res://scripts/Localization.gd")
 const SessionStore = preload("res://scripts/RoomSessions.gd")
 const ServerReplays = preload("res://scripts/ServerReplays.gd")
+const QuickQueue = preload("res://scripts/QuickQueue.gd")
 
 signal connection_status(text: String)
 signal match_found(side: int)
@@ -22,6 +23,7 @@ signal room_join_failed(error: String)
 signal latency_updated(milliseconds: int)
 signal recovery_changed(data: Dictionary) # {paused, reconnect_remaining}
 signal reconnect_status(active: bool, remaining: float)
+signal quick_match_status(state: String) # "queued" | "cancelled" | "timeout"
 
 const RECONNECT_GRACE := 20.0
 var client_reconnect_token := ""
@@ -54,6 +56,7 @@ const ROOM_REQUEST_TIMEOUT := 8.0
 var registry := MatchRegistry.new()
 var models: Dictionary = {}
 var replays := ServerReplays.new()
+var quick_queue := QuickQueue.new()
 var rematch_ready: Dictionary = {}
 var server_mode := false
 var allow_test_room_codes := false
@@ -469,6 +472,9 @@ func _process(delta: float) -> void:
 	_expire_recovery()
 	for id in join_challenges.keys():
 		if Time.get_ticks_msec()>int(join_challenges[id].deadline): join_challenges.erase(id)
+	for waiting_peer in quick_queue.expire(Time.get_ticks_msec()):
+		if _peer_is_connected(int(waiting_peer)):
+			receive_quick_status.rpc_id(int(waiting_peer),"timeout"); request_room_list_for(int(waiting_peer))
 	lobby_refresh_elapsed += delta
 	if lobby_dirty and lobby_refresh_elapsed >= 0.25:
 		lobby_dirty = false
@@ -574,6 +580,7 @@ func _generate_room_code() -> String:
 func _on_peer_disconnected(peer_id: int) -> void:
 	if not server_mode:
 		return
+	quick_queue.cancel(peer_id)
 	var session_peer: bool = sessions.peer_to_room.has(peer_id)
 	if session_peer and sessions.suspend(peer_id,Time.get_ticks_msec()+int(RECONNECT_GRACE*1000)):
 		_push_session(sessions.peer_to_room[peer_id])
@@ -939,7 +946,7 @@ static func _hex_string(value: String, length: int) -> bool:
 	return true
 
 func _can_enter_session(peer_id: int) -> bool:
-	return accepting_players and peer_decks.has(peer_id) and not registry.has_match(peer_id) and not registry.peer_to_room.has(peer_id) and not sessions.peer_to_room.has(peer_id)
+	return accepting_players and peer_decks.has(peer_id) and not registry.has_match(peer_id) and not registry.peer_to_room.has(peer_id) and not sessions.peer_to_room.has(peer_id) and not quick_queue.has(peer_id)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_create_session(title: String, nickname: String, salt: String, secret: String) -> void:
@@ -1011,9 +1018,12 @@ func request_session_start() -> void:
 	if not can_process_request(sender): return
 	if not accepting_players or not sessions.can_start(sender):
 		receive_session_error.rpc_id(sender,"두 플레이어가 준비해야 시작할 수 있습니다."); return
+	_begin_session_match(sender, "session")
+
+func _begin_session_match(owner_id: int, mode: String) -> void:
 	var match_id := registry.next_match_id; registry.next_match_id += 1
-	var ids: Array = sessions.start(sender,match_id)
-	var room: Dictionary = sessions.room_for(sender)
+	var ids: Array = sessions.start(owner_id,match_id)
+	var room: Dictionary = sessions.room_for(owner_id)
 	var model := BattleModel.new()
 	registry.matches[match_id] = ids.duplicate()
 	for side in 2:
@@ -1021,12 +1031,55 @@ func request_session_start() -> void:
 		var deck: Dictionary = room.members[id].deck
 		model.configure_deck(side,deck.units,deck.structures)
 	models[match_id] = model; session_matches[match_id] = room.code
-	replays.begin(match_id, model, {"mode": "session"})
+	replays.begin(match_id, model, {"mode": mode})
 	_push_session(room.code); lobby_dirty = true
 	for side in 2: match_started.rpc_id(int(ids[side]),side)
 	for id in room.members:
 		if room.members[id].role == "spectator" and _peer_is_connected(int(id)): session_spectate.rpc_id(int(id))
 	_broadcast_snapshot(match_id)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_quick_match(nickname: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	if not _can_enter_session(sender) or not SessionStore.safe_text(nickname,SessionStore.MAX_NICKNAME):
+		receive_session_error.rpc_id(sender,"지금은 빠른 대전을 시작할 수 없습니다."); return
+	if not quick_queue.enqueue(sender,nickname.strip_edges(),Time.get_ticks_msec()):
+		receive_session_error.rpc_id(sender,"대기열에 들어갈 수 없습니다. 잠시 후 다시 시도하세요."); return
+	lobby_pages.erase(sender)
+	receive_quick_status.rpc_id(sender,"queued")
+	_pair_quick_queue()
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_cancel_quick_match() -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	if quick_queue.cancel(sender):
+		receive_quick_status.rpc_id(sender,"cancelled"); request_room_list_for(sender)
+
+func request_room_list_for(peer_id: int) -> void:
+	lobby_pages[peer_id] = 0; lobby_dirty = true
+
+## Turns every waiting pair into a started session match (both players start ready).
+func _pair_quick_queue() -> void:
+	while true:
+		var pair := quick_queue.take_pair(func(id): return accepting_players and _peer_is_connected(id) and peer_decks.has(id) and not sessions.peer_to_room.has(id) and not registry.has_match(id))
+		if pair.is_empty(): return
+		var code := _generate_room_code()
+		var first: Dictionary = pair[0]; var second: Dictionary = pair[1]
+		if code.is_empty() or not sessions.create(int(first.peer),code,"빠른 대전",String(first.nickname),"","",peer_decks[int(first.peer)]) 				or not sessions.join(int(second.peer),code,String(second.nickname),"player",peer_decks[int(second.peer)]).is_empty():
+			if sessions.rooms.has(code): _leave_session(int(first.peer))
+			for entry in pair:
+				if _peer_is_connected(int(entry.peer)): receive_session_error.rpc_id(int(entry.peer),"빠른 대전 방을 만들지 못했습니다. 다시 시도하세요.")
+			continue
+		sessions.set_ready(int(second.peer),true)
+		for entry in pair:
+			lobby_pages.erase(int(entry.peer)); _issue_reconnect(int(entry.peer))
+		print("QUICK_MATCH room=%s waited_ms=%d" % [code, Time.get_ticks_msec()-int(first.since)])
+		_push_session(code); lobby_dirty = true
+		_begin_session_match(int(first.peer), "quick")
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_session_return() -> void:
@@ -1136,6 +1189,24 @@ func create_session_room(title: String, password: String = "") -> bool:
 	client_connection_state = "room_request"; client_phase_elapsed = 0.0
 	request_create_session.rpc_id(1,title.strip_edges(),client_nickname,salt,SessionStore.verifier(password,salt))
 	return true
+
+func start_quick_match() -> bool:
+	if client_connection_state != "lobby" or not SessionStore.safe_text(client_nickname,SessionStore.MAX_NICKNAME): return false
+	client_connection_state = "queued"; client_phase_elapsed = 0.0
+	request_quick_match.rpc_id(1,client_nickname)
+	return true
+
+func cancel_quick_match() -> bool:
+	if client_connection_state != "queued": return false
+	request_cancel_quick_match.rpc_id(1)
+	return true
+
+@rpc("authority", "call_remote", "reliable")
+func receive_quick_status(state: String) -> void:
+	if state not in ["queued","cancelled","timeout"] or client_connection_state not in ["lobby","queued"]: return
+	client_connection_state = "queued" if state == "queued" else "lobby"
+	client_phase_elapsed = 0.0
+	quick_match_status.emit(state)
 
 func join_session_room(code: String, password: String = "", spectator: bool = false) -> bool:
 	if client_connection_state != "lobby" or not is_valid_room_code(code) or password.length()>32 or not SessionStore.safe_text(client_nickname,SessionStore.MAX_NICKNAME): return false
