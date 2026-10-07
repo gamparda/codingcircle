@@ -252,6 +252,7 @@ static func _battle_intro(main) -> void:
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	band.add_child(sub)
 	main.root_background.add_child(band)
+	UIKit.UISounds.play("start", -8.0)
 	band.modulate.a = 0.0
 	band.position.x = -160.0
 	var tween := band.create_tween()

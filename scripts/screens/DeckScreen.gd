@@ -202,7 +202,9 @@ static func _dress_card(card: Button, color: Color, kind: String, is_unit: bool)
 	card.resized.connect(place_badge)
 	place_badge.call()
 	badge.visible = card.button_pressed
-	card.toggled.connect(func(pressed): badge.visible = pressed)
+	card.toggled.connect(func(pressed):
+		badge.visible = pressed
+		UIKit.UISounds.play("toggle"))
 
 static func _refresh_deck_card(main, card: Button) -> void:
 	var marker := Localization.text("✓ 선택됨") if card.button_pressed else Localization.text("○ 선택 가능")

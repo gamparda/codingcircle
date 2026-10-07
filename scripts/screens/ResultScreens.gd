@@ -60,6 +60,7 @@ static func _show_result(main, winner: int) -> void:
 	screen.add_child(overlay)
 	main.root_background.add_child(screen)
 	UIKit.reveal(overlay, 0.35, 18.0)
+	UIKit.UISounds.play("victory" if won else ("click" if winner == 2 else "defeat"), -6.0)
 	dim.modulate.a = 0.0
 	dim.create_tween().tween_property(dim, "modulate:a", 1.0, 0.3)
 	var inner := Control.new()

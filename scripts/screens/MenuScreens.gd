@@ -122,11 +122,11 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	var management_row := HBoxContainer.new()
 	management_row.add_theme_constant_override("separation", 10)
 	column.add_child(management_row)
-	for entry in [[Localization.text("덱 편성"), main._build_deck_screen, "DeckButton"], [Localization.text("전적"), main._build_records_screen, "RecordsButton"], [Localization.text("설정"), main._build_settings_screen, "SettingsButton"], [Localization.text("종료"), main._quit_game, "QuitButton"]]:
+	for entry in [[Localization.text("덱 편성"), main._build_deck_screen, "DeckButton"], [Localization.text("전적"), main._build_records_screen, "RecordsButton"], [Localization.text("리플레이"), main._build_replay_list, "ReplaysButton"], [Localization.text("설정"), main._build_settings_screen, "SettingsButton"], [Localization.text("종료"), main._quit_game, "QuitButton"]]:
 		var menu_button = main._styled_button(entry[0], Color("#3ec6b0") if entry[2] != "QuitButton" else Color("#ff6b81"), false)
 		menu_button.name = entry[2]
 		menu_button.custom_minimum_size = Vector2(0, 46)
-		menu_button.add_theme_font_size_override("font_size", 15)
+		menu_button.add_theme_font_size_override("font_size", 14)
 		menu_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		menu_button.pressed.connect(entry[1])
 		management_row.add_child(menu_button)

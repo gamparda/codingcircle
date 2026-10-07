@@ -3,6 +3,8 @@ extends RefCounted
 ## interaction helpers. Everything is generated at runtime (no imported art needed) and cached.
 
 # ---------------------------------------------------------------- palette
+const UISounds = preload("res://scripts/ui/UISounds.gd")
+
 const BG_DEEP := Color("#070b13")
 const BG := Color("#0c1220")
 const SURFACE := Color("#121b2d")
@@ -152,6 +154,9 @@ static func style_button(button: Button, accent: Color, primary: bool = false, f
 	button.add_theme_color_override("font_disabled_color", TEXT_DIM)
 	button.focus_mode = Control.FOCUS_ALL
 	juice(button)
+	button.mouse_entered.connect(func():
+		if not button.disabled: UISounds.play("hover"))
+	button.pressed.connect(func(): UISounds.play("confirm" if primary else "click"))
 	return button
 
 # ---------------------------------------------------------------- interaction polish

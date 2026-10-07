@@ -13,7 +13,8 @@
     "tests/key_bindings_test.gd",
     "tests/ai_battle_spotcheck.gd",
     "tests/balance_feedback_test.gd",
-    "tests/replay_test.gd"
+    "tests/replay_test.gd",
+    "tests/ui_sounds_test.gd"
   ],
   "network": [
     "tests/network_recovery_test.gd",
@@ -34,7 +35,8 @@
     "tests/room_sessions_ui_test.gd",
     "tests/combat_polish_ui_test.gd",
     "tests/support_ui_feedback_test.gd",
-    "tests/scene_screens_test.gd"
+    "tests/scene_screens_test.gd",
+    "tests/replay_viewer_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",

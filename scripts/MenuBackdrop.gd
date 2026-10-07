@@ -22,6 +22,8 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 func _draw() -> void:
+	if size.x < 16.0 or size.y < 16.0:
+		return
 	# Gradient sky as stacked bands.
 	var bands := 36
 	for i in bands:

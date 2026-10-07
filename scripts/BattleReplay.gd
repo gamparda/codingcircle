@@ -9,7 +9,8 @@ const FORMAT := 1
 const DEFAULT_HZ := 30
 const MAX_COMMANDS := 20000
 const MAX_TICKS := 30 * 3600 * 2
-const SAVE_DIR := "user://replays"
+## Where replays live; tests point this at a scratch folder so they never touch real replays.
+static var save_dir := "user://replays"
 const MAX_SAVED := 50
 
 # --- recording ---------------------------------------------------------------
@@ -182,13 +183,13 @@ static func verify(replay: Dictionary) -> Dictionary:
 # --- storage -----------------------------------------------------------------
 
 static func save(replay: Dictionary, name_hint: String = "") -> String:
-	DirAccess.make_dir_recursive_absolute(SAVE_DIR)
+	DirAccess.make_dir_recursive_absolute(save_dir)
 	var stamp := Time.get_datetime_string_from_system(false, false).replace(":", "").replace("-", "").replace("T", "_")
 	var safe := ""
 	for ch in name_hint:
 		if (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9") or ch == "-":
 			safe += ch
-	var path := "%s/%s%s.json" % [SAVE_DIR, stamp, ("_" + safe) if safe != "" else ""]
+	var path := "%s/%s%s.json" % [save_dir, stamp, ("_" + safe) if safe != "" else ""]
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
 		return ""
@@ -206,9 +207,11 @@ static func load_file(path: String) -> Dictionary:
 
 static func list_saved() -> Array:
 	var names: Array = []
-	for file in DirAccess.get_files_at(SAVE_DIR):
+	if not DirAccess.dir_exists_absolute(save_dir):
+		return names
+	for file in DirAccess.get_files_at(save_dir):
 		if file.ends_with(".json"):
-			names.append(SAVE_DIR + "/" + file)
+			names.append(save_dir + "/" + file)
 	names.sort()
 	names.reverse()
 	return names

@@ -3,6 +3,7 @@ extends Control
 const Localization = preload("res://scripts/Localization.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
+const ReplayScreens = preload("res://scripts/screens/ReplayScreens.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
 const DeckScreen = preload("res://scripts/screens/DeckScreen.gd")
 const SettingsScreen = preload("res://scripts/screens/SettingsScreen.gd")
@@ -70,6 +71,7 @@ var local_ai: ServerAI
 var local_recorder = null # BattleReplay.Recorder for campaign battles
 var local_step_accumulator := 0.0
 var last_replay_path := ""
+var replay_viewer = null
 var current_ai_stage := 1
 var bgm_player: AudioStreamPlayer
 const CombatSounds = preload("res://scripts/CombatSounds.gd")
@@ -374,6 +376,7 @@ func _clear_screen() -> void:
 			child.queue_free()
 	battle_view = null
 	status_label = null
+	replay_viewer = null
 	lobby_rows = null
 	lobby_page_label = null
 	room_create_dialog = null
@@ -517,6 +520,12 @@ func _build_patch_notes_screen() -> void:
 
 func _build_deck_screen(preset_index: int = -1) -> void:
 	DeckScreen._build_deck_screen(self, preset_index)
+
+func _build_replay_list() -> void:
+	ReplayScreens._build_replay_list(self)
+
+func _play_replay(path: String) -> void:
+	ReplayScreens._play_replay(self, path)
 
 func _build_records_screen() -> void:
 	MenuScreens._build_records_screen(self)
