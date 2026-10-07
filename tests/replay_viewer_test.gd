@@ -55,6 +55,15 @@ func run() -> void:
 	check(cards.size() == 1, "saved replay is listed once")
 	check(main.find_child("PlayReplayButton", true, false) != null and main.find_child("DeleteReplayButton", true, false) != null, "card offers play and delete")
 
+	# Import from share text adds a second card; garbage is refused with a message.
+	var ReplayScreens = load("res://scripts/screens/ReplayScreens.gd")
+	check(ReplayScreens.import_text(main, "not a replay").contains("가져올 수 없습니다"), "garbage import is refused")
+	var message: String = ReplayScreens.import_text(main, BattleReplay.to_share_text(replay))
+	await process_frame
+	check(message.contains("가져왔"), "valid share text is imported: %s" % message)
+	# Sibling nodes with one name get auto-renamed, so count the row container's children instead.
+	check(main.find_child("ReplayRows", true, false).get_child_count() == 2, "imported replay appears in the list")
+	check(main.find_child("ShareReplayButton", true, false) != null and main.find_child("ImportReplayButton", true, false) != null, "list offers copy and import")
 	main._play_replay(saved)
 	var viewer = main.replay_viewer
 	# Checked before any frame runs: how far a frame advances depends on the machine's frame time.

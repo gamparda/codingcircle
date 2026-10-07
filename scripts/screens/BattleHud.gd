@@ -149,7 +149,7 @@ static func _build_battle_screen(main) -> void:
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 		var card_text := Localization.text("%s\n%d 자원") % [structure_names[kind], int(stats.cost)]
 		if kind == "swamp":
-			card_text = Localization.text("%s · %d\n80%% 감속 · 5초") % [structure_names[kind], int(stats.cost)]
+			card_text = "%s · %d" % [structure_names[kind], int(stats.cost)] + char(10) + BattleModel.swamp_summary()
 		main._add_structure_button(row, card_text, kind, structure_colors[kind])
 	# A raised z_index draws above the battlefield, but input follows sibling order.
 	# Add these actions after BattleView so it cannot consume their pointer events.
@@ -328,7 +328,7 @@ static func _add_spawn_button(main, row: HBoxContainer, title: String, kind: Str
 	for key in ["hp", "damage", "heal"]:
 		if stats.has(key):
 			stats[key] = float(stats[key]) * stat_scale
-	var primary := Localization.text("공속 +3% 누적") if kind == "healer" else Localization.text("공격 %d") % int(stats.damage)
+	var primary := Localization.text("공속 +%d%% 누적") % roundi(BattleModel.SUPPORT_INCREMENT * 100.0) if kind == "healer" else Localization.text("공격 %d") % int(stats.damage)
 	var button = main._styled_button(Localization.text("%s  ·  %d\n체력 %d  ·  %s") % [title, int(stats.cost), int(stats.hp), primary], color)
 	button.tooltip_text = BattleModel.unit_stat_summary(kind, growth_level)
 	button.set_meta("purchase_cost", float(stats.cost))

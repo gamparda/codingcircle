@@ -35,8 +35,9 @@ static func _start_local_ai_battle(main, stage: int = 1, reuse_deck: bool = fals
 		main.local_model.spawn_unit(0, String(preset.units[0]))
 	main.local_step_accumulator = 0.0
 	main.local_recorder = null
-	if main.campaign_mode and not main.ai_smoke_mode:
-		main.local_recorder = BattleReplay.Recorder.new(main.local_model, BattleReplay.DEFAULT_HZ, {"side": 1, "stage": main.current_ai_stage}, {"mode": "campaign", "stage": main.current_ai_stage})
+	# Campaign and plain practice battles are recorded; practice tools (speed, free resources, custom enemy deck) are not.
+	if (main.campaign_mode or not main.practice_used_tools) and not main.ai_smoke_mode:
+		main.local_recorder = BattleReplay.Recorder.new(main.local_model, BattleReplay.DEFAULT_HZ, {"side": 1, "stage": main.current_ai_stage}, {"mode": "campaign" if main.campaign_mode else "practice", "stage": main.current_ai_stage})
 	main._on_snapshot(main.local_model.snapshot())
 
 static func _on_match_found(main, side: int) -> void:

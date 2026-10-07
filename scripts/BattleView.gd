@@ -438,13 +438,13 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	if BattleModel.is_enraged(unit):
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 18.0), "광폭", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ff9a61"))
 	if cursed_units.has(unit.id):
-		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "▼30%", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c592ff"))
+		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "▼%d%%" % roundi((1.0 - BattleModel.CURSE_DAMAGE_SCALE) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c592ff"))
 	if show_battle_effects and kind != "healer":
 		var stacks := int(unit.get("support_stacks", 0))
 		if stacks > 0:
 			for dot in BattleModel.SUPPORT_MAX_STACKS:
 				draw_circle(Vector2(x - 18.0 + dot * 4.0, bar_y + 10.0), 1.3, Color("#86f7ad") if dot < stacks else Color("#293d39"))
-			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - (32.0 if cursed_units.has(unit.id) else 4.0)), "▲%d%%" % (mini(stacks, 10) * 3), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
+			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - (32.0 if cursed_units.has(unit.id) else 4.0)), "▲%d%%" % (mini(stacks, BattleModel.SUPPORT_MAX_STACKS) * roundi(BattleModel.SUPPORT_INCREMENT * 100.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
 
 func _draw_unit_bar(rect: Rect2, ratio: float, team: Color) -> void:
 	var back := StyleBoxFlat.new()

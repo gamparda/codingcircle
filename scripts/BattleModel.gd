@@ -178,6 +178,23 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 		output += "\n%d초마다 해골 소환 · 추가 자원 없음\n해골 체력 %d · 공격 %d · 사거리 %d" % [int(SUMMON_INTERVAL), int(float(skeleton.hp) * stat_scale), int(float(skeleton.damage) * stat_scale), int(skeleton.range)]
 	return output
 
+## One-line role description shown on deck cards. Numbers come from the rule constants/data.
+static func unit_role(kind: String) -> String:
+	match kind:
+		"healer": return Localization.text("공격속도 지원")
+		"archer": return Localization.text("원거리")
+		"shield": return Localization.text("방어")
+		"swordsman": return Localization.text("근접 공격")
+		"berserker": return Localization.text("체력 %d%% 이하: 광폭화") % roundi(RAGE_HP_FRACTION * 100.0)
+		"warlock": return Localization.text("공격력 -%d%% 장판") % roundi((1.0 - CURSE_DAMAGE_SCALE) * 100.0)
+		"necromancer": return Localization.text("%d초마다 해골 소환") % int(SUMMON_INTERVAL)
+	return ""
+
+## Short swamp description for battle cards, e.g. "80% 감속 · 5초".
+static func swamp_summary() -> String:
+	var swamp: Dictionary = STRUCTURE_STATS.swamp
+	return Localization.text("%d%% 감속 · %d초") % [roundi((1.0 - float(swamp.speed_scale)) * 100.0), int(swamp.lifetime)]
+
 static func battle_stat_summary() -> String:
 	var wall: Dictionary = STRUCTURE_STATS.wall
 	var swamp: Dictionary = STRUCTURE_STATS.swamp

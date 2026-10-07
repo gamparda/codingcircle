@@ -14,7 +14,8 @@
     "tests/ai_battle_spotcheck.gd",
     "tests/balance_feedback_test.gd",
     "tests/replay_test.gd",
-    "tests/ui_sounds_test.gd"
+    "tests/ui_sounds_test.gd",
+    "tests/practice_replay_test.gd"
   ],
   "network": [
     "tests/network_recovery_test.gd",

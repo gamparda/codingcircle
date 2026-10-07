@@ -248,8 +248,9 @@ func _process(delta: float) -> void:
 		_update_server_lifecycle(delta)
 		updater.set_safe_to_update(_server_can_update())
 	if local_ai_mode and battle_active and is_instance_valid(local_model) and not is_instance_valid(action_overlay):
-		if campaign_mode:
-			# Fixed 30 Hz steps keep campaign battles deterministic, so their replays reproduce exactly.
+		if campaign_mode or (local_recorder != null and practice.speed == 1.0 and not practice.unlimited):
+			# Fixed 30 Hz steps keep recorded battles deterministic, so their replays reproduce exactly.
+			if not campaign_mode and practice.paused: delta = 0.0
 			local_step_accumulator += minf(delta, 0.25)
 			var step := 1.0 / float(BattleReplay.DEFAULT_HZ)
 			while local_step_accumulator >= step and local_model.winner == -1:

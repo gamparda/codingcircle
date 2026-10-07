@@ -180,6 +180,35 @@ static func verify(replay: Dictionary) -> Dictionary:
 	var matches: bool = String(played.state_hash) == String(recorded.get("state_hash", "")) and int(played.winner) == int(recorded.get("winner", -2))
 	return {"ok": matches, "played": played, "recorded": recorded}
 
+# --- sharing -----------------------------------------------------------------
+const SHARE_PREFIX := "CATWAR-REPLAY1:"
+const MAX_SHARE_CHARS := 2_000_000
+
+## Compact single-line text (deflate + base64) that can be pasted into chat or a bug report.
+static func to_share_text(replay: Dictionary) -> String:
+	var raw := JSON.stringify(replay).to_utf8_buffer()
+	return SHARE_PREFIX + Marshalls.raw_to_base64(raw.compress(FileAccess.COMPRESSION_DEFLATE)) + ":" + str(raw.size())
+
+## Parses share text back into a validated replay, or {} when it is not a good replay.
+static func from_share_text(text: String) -> Dictionary:
+	var cleaned := text.strip_edges()
+	if cleaned.length() > MAX_SHARE_CHARS or not cleaned.begins_with(SHARE_PREFIX):
+		return {}
+	var parts := cleaned.trim_prefix(SHARE_PREFIX).split(":")
+	if parts.size() != 2 or not parts[1].is_valid_int():
+		return {}
+	var raw_size := int(parts[1])
+	if raw_size <= 0 or raw_size > 8 * 1024 * 1024:
+		return {}
+	var packed := Marshalls.base64_to_raw(parts[0])
+	if packed.is_empty():
+		return {}
+	var raw := packed.decompress(raw_size, FileAccess.COMPRESSION_DEFLATE)
+	if raw.size() != raw_size:
+		return {}
+	var parsed = JSON.parse_string(raw.get_string_from_utf8())
+	return parsed if valid(parsed) else {}
+
 # --- storage -----------------------------------------------------------------
 
 static func save(replay: Dictionary, name_hint: String = "") -> String:

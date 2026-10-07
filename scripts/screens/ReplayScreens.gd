@@ -13,11 +13,13 @@ static func describe(replay: Dictionary) -> Dictionary:
 	var title := "방 대전"
 	if mode == "campaign":
 		title = "캠페인 %d단계" % int(meta.get("stage", 1))
+	elif mode == "practice":
+		title = "연습 %d단계" % int(meta.get("stage", 1))
 	elif mode == "quick":
 		title = "빠른 대전"
 	var winner := int(result.get("winner", -1))
 	var outcome := "무승부"
-	if mode == "campaign":
+	if mode == "campaign" or mode == "practice":
 		outcome = "승리" if winner == 0 else ("패배" if winner == 1 else "무승부")
 	else:
 		outcome = "블루 승" if winner == 0 else ("레드 승" if winner == 1 else "무승부")
@@ -71,10 +73,24 @@ static func _build_replay_list(main) -> void:
 		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 		empty.add_child(hint)
+	var status := Label.new()
+	status.name = "ReplayStatus"
+	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status.add_theme_color_override("font_color", UIKit.GOLD)
+	column.add_child(status)
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 10)
+	column.add_child(footer)
 	var back = main._styled_button(Localization.text("메인 화면으로"), Color("#697386"), false)
 	back.name = "ReplayBack"
+	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	back.pressed.connect(main._build_connect_screen)
-	column.add_child(back)
+	footer.add_child(back)
+	var import_button = main._styled_button(Localization.text("클립보드에서 가져오기"), UIKit.TEAL, false)
+	import_button.name = "ImportReplayButton"
+	import_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	import_button.pressed.connect(func(): status.text = import_text(main, DisplayServer.clipboard_get()))
+	footer.add_child(import_button)
 
 static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	var info := describe(replay)
@@ -132,6 +148,14 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	play.custom_minimum_size = Vector2(100, 46)
 	play.pressed.connect(main._play_replay.bind(path))
 	row.add_child(play)
+	var share = main._styled_button("복사", UIKit.TEAL, false)
+	share.name = "ShareReplayButton"
+	share.custom_minimum_size = Vector2(80, 46)
+	share.tooltip_text = Localization.text("공유용 텍스트를 클립보드에 복사합니다")
+	share.pressed.connect(func():
+		DisplayServer.clipboard_set(BattleReplay.to_share_text(replay))
+		share.text = "복사됨 ✓")
+	row.add_child(share)
 	var delete = main._styled_button("삭제", UIKit.DANGER, false)
 	delete.name = "DeleteReplayButton"
 	delete.custom_minimum_size = Vector2(80, 46)
@@ -140,6 +164,25 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 		main._build_replay_list())
 	row.add_child(delete)
 	return card
+
+## Saves a pasted share text as a replay. Returns the message to show the player.
+static func import_text(main, text: String) -> String:
+	var replay := BattleReplay.from_share_text(text)
+	if replay.is_empty():
+		return Localization.text("가져올 수 없습니다. 복사한 리플레이 텍스트가 맞는지 확인하세요.")
+	var meta: Dictionary = replay.get("meta", {})
+	meta["imported"] = true
+	replay["meta"] = meta
+	var path := BattleReplay.save(replay, "imported")
+	if path == "":
+		return Localization.text("저장하지 못했습니다.")
+	main._build_replay_list()
+	var status = main.find_child("ReplayStatus", true, false)
+	var verdict := BattleReplay.verify(replay)
+	var message := Localization.text("리플레이를 가져왔습니다.") if bool(verdict.ok) else Localization.text("가져왔지만 현재 규칙에서는 기록과 결과가 달라질 수 있습니다.")
+	if status is Label:
+		status.text = message
+	return message
 
 static func _play_replay(main, path: String) -> void:
 	var replay := BattleReplay.load_file(path)

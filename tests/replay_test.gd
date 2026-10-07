@@ -80,6 +80,16 @@ func _init() -> void:
 	while player.step() and guard < BattleReplay.MAX_TICKS:
 		guard += 1
 	check(player.summary().state_hash == base.result.state_hash, "stepwise playback matches")
+	# Share text round trip and rejection of anything else.
+	var shared := BattleReplay.to_share_text(base)
+	check(shared.begins_with(BattleReplay.SHARE_PREFIX) and not shared.contains(" ") and shared.length() < JSON.stringify(base).length(), "share text is one compact line")
+	var restored := BattleReplay.from_share_text("  " + shared + "
+")
+	check(not restored.is_empty() and bool(BattleReplay.verify(restored).ok), "share text imports and still verifies")
+	check(BattleReplay.from_share_text("hello").is_empty() and BattleReplay.from_share_text(BattleReplay.SHARE_PREFIX + "###:5").is_empty(), "malformed share text is rejected")
+	var broken := shared.substr(0, shared.length() - 12) + ":" + str(JSON.stringify(base).length())
+	check(BattleReplay.from_share_text(broken).is_empty(), "corrupted payload is rejected")
+	check(BattleReplay.from_share_text(BattleReplay.SHARE_PREFIX + "AAAA:999999999").is_empty(), "absurd decompressed size is rejected")
 	# Save / load.
 	var path := BattleReplay.save(base, "unit-test")
 	check(path != "" and not BattleReplay.load_file(path).is_empty(), "saved replay loads back")

@@ -27,7 +27,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	var unit_names := BattleModel.UNIT_NAMES
 	for kind in BattleModel.UNIT_STATS.keys():
 		var stats: Dictionary = BattleModel.UNIT_STATS[kind]
-		var role: String = {"healer": "공격속도 지원", "archer": "원거리", "shield": "방어", "swordsman": "근접 공격", "berserker": "체력 50% 이하: 광폭화", "warlock": "공격력 -30% 장판", "necromancer": "5초마다 해골 소환"}[kind]
+		var role: String = BattleModel.unit_role(kind)
 		var card_text := Localization.text("%s\n비용 %d · HP %d · 공격 %d\nDPS %.1f · 사거리 %d\n%s") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), float(stats.damage) / float(stats.interval), int(stats.range), role]
 		if kind == "healer":
 			card_text = Localization.text("%s\n비용 %d · HP %d · 범위 %d\n공속 +%d%% 영구 · 상한 +%d%% · 쿨 %d초") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.range), roundi(BattleModel.SUPPORT_INCREMENT * 100.0), roundi(BattleModel.SUPPORT_INCREMENT * BattleModel.SUPPORT_MAX_STACKS * 100.0), int(stats.interval)]
