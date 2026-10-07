@@ -3,6 +3,7 @@ extends RefCounted
 
 const Localization = preload("res://scripts/Localization.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
+const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
 const CombatSounds = preload("res://scripts/CombatSounds.gd")
 
@@ -88,6 +89,9 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 		return
 	main.current_snapshot = data
 	main.battle_view.set_snapshot(data)
+	if float(data.get("elapsed", 0.0)) >= main.curve_next_elapsed and int(data.get("winner", -1)) == -1:
+		main.curve_next_elapsed = float(data.get("elapsed", 0.0)) + 0.5
+		main.battle_curve.append(ReplayAnalysis.momentum_from_snapshot(data))
 	if main.ai_smoke_mode:
 		var has_human: bool = data.get("units", []).any(func(unit): return int(unit.side) == 0)
 		var has_ai: bool = data.get("units", []).any(func(unit): return int(unit.side) == 1)

@@ -75,6 +75,8 @@ var local_step_accumulator := 0.0
 var last_replay_path := ""
 var replay_viewer = null
 var quick_wait_started_msec := 0
+var battle_curve: Array = []
+var curve_next_elapsed := 0.0
 var current_ai_stage := 1
 var bgm_player: AudioStreamPlayer
 const CombatSounds = preload("res://scripts/CombatSounds.gd")

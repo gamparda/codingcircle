@@ -72,6 +72,43 @@ static func _momentum(model: BattleModel) -> float:
 	var total: float = power[0] + power[1]
 	return 0.0 if total <= 0.0 else clampf((power[0] - power[1]) / total * CURVE_GAIN, -1.0, 1.0)
 
+## Same curve as `_momentum`, computed from a network/local snapshot (used live during battles).
+static func momentum_from_snapshot(data: Dictionary) -> float:
+	var power := [0.0, 0.0]
+	var bases: Array = data.get("base_hp", [0.0, 0.0])
+	for side in 2:
+		power[side] = maxf(0.0, float(bases[side])) * BASE_WEIGHT
+	for unit in data.get("units", []):
+		if float(unit.hp) > 0.0:
+			power[int(unit.side)] += float(unit.hp) * UNIT_WEIGHT
+	var total: float = power[0] + power[1]
+	return 0.0 if total <= 0.0 else clampf((power[0] - power[1]) / total * CURVE_GAIN, -1.0, 1.0)
+
+## One sentence about how the battle went for `own_side`, from its momentum curve (blue-positive).
+static func summary_line(curve: Array, winner: int, own_side: int) -> String:
+	if curve.size() < 4 or winner < 0:
+		return ""
+	var sign := 1.0 if own_side == 0 else -1.0
+	var lowest := 1.0
+	var highest := -1.0
+	for value in curve:
+		var mine: float = float(value) * sign
+		lowest = minf(lowest, mine)
+		highest = maxf(highest, mine)
+	if winner == 2:
+		return "팽팽한 무승부였습니다."
+	if winner == own_side:
+		if lowest >= -0.1:
+			return "시종일관 앞선 안정적인 승리였습니다."
+		if lowest <= -0.3:
+			return "한때 크게 밀렸지만 뒤집었습니다. 역전승!"
+		return "접전 끝에 승리했습니다."
+	if highest >= 0.3:
+		return "초반엔 앞섰지만 이후 전세를 내줬습니다."
+	if highest < 0.1:
+		return "처음부터 밀렸습니다. 초반 구성을 점검해 보세요."
+	return "접전이었지만 한 끗이 모자랐습니다."
+
 ## Keeps the list readable: never more than MAX_HIGHLIGHTS and no two within two seconds of each other.
 static func _trim(items: Array) -> Array:
 	var kept: Array = []

@@ -6,6 +6,9 @@ const UIKit = preload("res://scripts/ui/UIKit.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const ReplayViewer = preload("res://scripts/ui/ReplayViewer.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
+const DeckAnalysis = preload("res://scripts/DeckAnalysis.gd")
+const HpBar = preload("res://scripts/ui/HpBar.gd")
+const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const REPLAY_LIST_SCREEN := preload("res://scenes/ui/ReplayListScreen.tscn")
 
 static func describe(replay: Dictionary) -> Dictionary:
@@ -76,6 +79,91 @@ static func _build_replay_list(main) -> void:
 	UIKit.style_button(import_button, UIKit.TEAL, false, 16)
 	import_button.text = Localization.text("클립보드에서 가져오기")
 	import_button.pressed.connect(func(): status.text = import_text(main, DisplayServer.clipboard_get()))
+	var analysis_button := Button.new()
+	analysis_button.name = "DeckAnalysisButton"
+	analysis_button.text = Localization.text("덱 분석")
+	analysis_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UIKit.style_button(analysis_button, UIKit.GOLD_DEEP, false, 16)
+	column.get_node("Footer").add_child(analysis_button)
+	analysis_button.pressed.connect(func(): _show_deck_analysis(main))
+
+## Overlay with one row per deck I have played: record, average length, hardest stage and advice.
+static func _show_deck_analysis(main) -> void:
+	var dialog = main._action_panel("덱 분석", Rect2(150, 50, 980, 620))
+	var rows: Array = DeckAnalysis.collect(BattleReplay.list_saved())
+	var scroll := ScrollContainer.new()
+	scroll.name = "DeckAnalysisScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	dialog.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.name = "DeckAnalysisRows"
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 10)
+	scroll.add_child(list)
+	if rows.is_empty():
+		var empty := Label.new()
+		empty.name = "NoDeckAnalysis"
+		empty.text = Localization.text("분석할 전투가 없습니다. 캠페인이나 연습 전투를 치르면 덱별 기록이 쌓입니다.")
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+		list.add_child(empty)
+	for row in rows:
+		list.add_child(_analysis_row(row))
+	MultiplayerUI.button(main, dialog, "닫기", "CloseDeckAnalysis", main._dismiss_action_overlay)
+
+static func _analysis_row(row: Dictionary) -> Control:
+	var tone := UIKit.SUCCESS if float(row.win_rate) >= 0.6 else (UIKit.GOLD if float(row.win_rate) >= 0.35 else UIKit.DANGER)
+	var card := PanelContainer.new()
+	card.name = "DeckAnalysisRow"
+	card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE, Color(tone.r, tone.g, tone.b, 0.45), 12, 1.0, 0.3, Color(0, 0, 0, 0), 0.08), 16, 10))
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 16)
+	card.add_child(line)
+	var icons := HBoxContainer.new()
+	icons.add_theme_constant_override("separation", 0)
+	line.add_child(icons)
+	for kind in row.deck:
+		var icon := TextureRect.new()
+		icon.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
+		icon.custom_minimum_size = Vector2(44, 58)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		icons.add_child(icon)
+	var text := VBoxContainer.new()
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_constant_override("separation", 4)
+	line.add_child(text)
+	var headline := Label.new()
+	headline.name = "DeckAnalysisHeadline"
+	headline.text = Localization.text("%d판  %d승 %d패 %d무  ·  평균 %d:%02d") % [int(row.games), int(row.wins), int(row.losses), int(row.draws), int(row.average_seconds) / 60, int(row.average_seconds) % 60]
+	headline.add_theme_font_size_override("font_size", 15)
+	text.add_child(headline)
+	var bar := HpBar.new()
+	bar.color = tone
+	bar.pulse_below = 0.0
+	bar.show_ticks = false
+	bar.custom_minimum_size = Vector2(0, 8)
+	bar.max_value = 1.0
+	bar.value = float(row.win_rate)
+	text.add_child(bar)
+	var notes := PackedStringArray()
+	if not row.hardest_stage.is_empty():
+		notes.append(Localization.text("가장 어려운 단계: %d단계 (승률 %d%%)") % [int(row.hardest_stage.stage), roundi(float(row.hardest_stage.rate) * 100.0)])
+	if not row.tips.is_empty():
+		notes.append(String(row.tips[0]))
+	var detail := Label.new()
+	detail.text = "  ·  ".join(notes)
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.add_theme_font_size_override("font_size", 12)
+	detail.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	text.add_child(detail)
+	var rate := Label.new()
+	rate.text = "%d%%" % roundi(float(row.win_rate) * 100.0)
+	UIKit.display(rate, 30, tone.lightened(0.3))
+	line.add_child(rate)
+	return card
 
 static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	var info := describe(replay)

@@ -7,6 +7,7 @@ const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const HpBar = preload("res://scripts/ui/HpBar.gd")
+const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
 const Report = preload("res://scripts/BattleReport.gd")
 
 static func _show_result(main, winner: int) -> void:
@@ -52,7 +53,9 @@ static func _show_result(main, winner: int) -> void:
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	screen.add_child(dim)
 	# Online results get an extra strip for the opponent and the player's record.
-	var extra := 0.0 if main.local_ai_mode else 56.0
+	var strip_extra := 0.0 if main.local_ai_mode else 56.0
+	var notes_extra := 40.0 # one row for the battle summary line and unlocked achievements
+	var extra := strip_extra + notes_extra
 	var overlay := PanelContainer.new()
 	overlay.name = "ResultPanel"
 	overlay.position = Vector2(350, 155 - extra * 0.5)
@@ -143,6 +146,19 @@ static func _show_result(main, winner: int) -> void:
 		inner.add_child(growth)
 	if not main.local_ai_mode:
 		inner.add_child(_match_strip(main, winner, Vector2(28, 252), 524))
+	var notes_y := 300.0 + strip_extra
+	var summary_text := "" if main.network.client_is_spectator else ReplayAnalysis.summary_line(main.battle_curve, winner, main.own_side)
+	if not summary_text.is_empty():
+		var summary_label := Label.new()
+		summary_label.name = "MatchSummaryLine"
+		summary_label.text = "▸  " + Localization.text(summary_text)
+		summary_label.position = Vector2(28, notes_y)
+		summary_label.size = Vector2(524, 30)
+		summary_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		summary_label.add_theme_font_size_override("font_size", 14)
+		summary_label.add_theme_color_override("font_color", UIKit.GOLD)
+		summary_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		inner.add_child(summary_label)
 	var rematch_text := Localization.text("다시 도전") if main.local_ai_mode else ("대기실로" if not main.network.client_session.is_empty() else Localization.text("재경기 준비"))
 	var rematch = main._styled_button(rematch_text, Color("#5e6ad2"), true)
 	rematch.position = Vector2(25 if advances else 65, 306 + extra)
