@@ -8,6 +8,9 @@ const PeerAdmission = preload("res://scripts/PeerAdmission.gd")
 const ServerReplays = preload("res://scripts/ServerReplays.gd")
 const ServerBattle = preload("res://scripts/ServerBattle.gd")
 const QuickQueue = preload("res://scripts/QuickQueue.gd")
+const SessionFlow = preload("res://scripts/net/SessionFlow.gd")
+const ReconnectFlow = preload("res://scripts/net/ReconnectFlow.gd")
+const ClientSessionFlow = preload("res://scripts/net/ClientSessionFlow.gd")
 
 signal connection_status(text: String)
 signal match_found(side: int)
@@ -763,200 +766,73 @@ func _match_audience(match_id: int) -> Array:
 	return registry.matches.get(match_id,[])
 
 func _push_session(code: String) -> void:
-	var state := sessions.public_state(code)
-	if state.is_empty(): return
-	for member in state.members:
-		if _peer_is_connected(int(member.id)): receive_session_state.rpc_id(int(member.id),state)
+	SessionFlow._push_session(self, code)
 
 func _cleanup_session_match(match_id: int) -> void:
-	if match_id <= 0: return
-	for id in registry.matches.get(match_id,[]):
-		if registry.get_match_id(int(id)) == match_id:
-			registry.peer_to_match.erase(id); registry.peer_to_side.erase(id)
-	registry.matches.erase(match_id); models.erase(match_id); replays.drop(match_id); rematch_ready.erase(match_id); session_matches.erase(match_id)
+	SessionFlow._cleanup_session_match(self, match_id)
 
 func _leave_session(peer_id: int, disconnected: bool = false, preserve_result: bool = false) -> void:
-	var result := sessions.leave(peer_id,preserve_result)
-	if result.is_empty(): return
-	if result.interrupted or result.closed: _cleanup_session_match(int(result.match_id))
-	if preserve_result:
-		var mid := registry.get_match_id(peer_id)
-		registry.peer_to_match.erase(peer_id); registry.peer_to_side.erase(peer_id)
-		if registry.matches.has(mid): registry.matches[mid].erase(peer_id)
-	if disconnected: peer_decks.erase(peer_id)
-	if result.closed:
-		for id in result.affected:
-			if int(id) != peer_id and _peer_is_connected(int(id)):
-				receive_session_closed.rpc_id(int(id),"방이 종료되었습니다.")
-	else: _push_session(result.code)
-	lobby_dirty = true
-	if not disconnected and _peer_is_connected(peer_id): receive_session_closed.rpc_id(peer_id,"")
+	SessionFlow._leave_session(self, peer_id, disconnected, preserve_result)
 
 static func _hex_string(value: String, length: int) -> bool:
 	return Protocol._hex_string(value, length)
 
 func _can_enter_session(peer_id: int) -> bool:
-	return accepting_players and peer_decks.has(peer_id) and not registry.has_match(peer_id) and not registry.peer_to_room.has(peer_id) and not sessions.peer_to_room.has(peer_id) and not quick_queue.has(peer_id)
+	return SessionFlow._can_enter_session(self, peer_id)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_create_session(title: String, nickname: String, salt: String, secret: String) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender): return
-	if not _can_enter_session(sender) or not is_valid_room_name(title) or not SessionStore.safe_text(nickname,SessionStore.MAX_NICKNAME):
-		receive_session_error.rpc_id(sender,"지금은 방을 만들 수 없습니다."); return
-	if not ((salt.is_empty() and secret.is_empty()) or (_hex_string(salt,32) and _hex_string(secret,64))):
-		receive_session_error.rpc_id(sender,"잘못된 비밀번호 설정입니다."); return
-	var code := _generate_room_code()
-	if code.is_empty(): receive_session_error.rpc_id(sender,"방 코드를 생성하지 못했습니다. 다시 시도하세요."); return
-	if not sessions.create(sender,code,title.strip_edges(),nickname.strip_edges(),salt,secret,peer_decks[sender]):
-		receive_session_error.rpc_id(sender,"방을 만들지 못했습니다."); return
-	lobby_pages.erase(sender)
-	lobby_dirty = true; _issue_reconnect(sender); _push_session(code)
+	SessionFlow.request_create_session(self, title, nickname, salt, secret)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_session_challenge(code: String, nickname: String, role: String) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender): return
-	if not _can_enter_session(sender) or not sessions.rooms.has(code) or role not in ["player","spectator"] or not SessionStore.safe_text(nickname,SessionStore.MAX_NICKNAME):
-		receive_session_error.rpc_id(sender,"참가할 수 없는 방입니다."); return
-	var nonce := Crypto.new().generate_random_bytes(16).hex_encode()
-	join_challenges[sender] = {"code":code,"nickname":nickname.strip_edges(),"role":role,"nonce":nonce,"deadline":Time.get_ticks_msec()+10000}
-	receive_session_challenge.rpc_id(sender,code,sessions.rooms[code].salt,nonce)
+	SessionFlow.request_session_challenge(self, code, nickname, role)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_join_session(response: String) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not join_challenges.has(sender): return
-	var challenge: Dictionary = join_challenges[sender]; join_challenges.erase(sender)
-	if not _can_enter_session(sender) or Time.get_ticks_msec() > challenge.deadline or not sessions.rooms.has(challenge.code):
-		receive_session_error.rpc_id(sender,"방이 종료되었거나 참가 시간이 초과되었습니다."); return
-	var room: Dictionary = sessions.rooms[challenge.code]
-	var expected := "" if room.secret.is_empty() else SessionStore.proof(room.secret,challenge.nonce,sender,challenge.code)
-	if not SessionStore.equal_secret(expected,response):
-		receive_session_error.rpc_id(sender,"비밀번호가 맞지 않습니다."); return
-	var error: String = sessions.join(sender,challenge.code,challenge.nickname,challenge.role,peer_decks[sender])
-	if not error.is_empty(): receive_session_error.rpc_id(sender,error); return
-	lobby_pages.erase(sender)
-	lobby_dirty = true; _issue_reconnect(sender); _push_session(challenge.code)
-	if room.phase in ["playing","finished"] and challenge.role == "spectator":
-		session_spectate.rpc_id(sender)
-		if models.has(room.match_id): _broadcast_snapshot(int(room.match_id))
+	SessionFlow.request_join_session(self, response)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_session_ready(ready: bool) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender): return
-	if sessions.set_ready(sender,ready): _push_session(sessions.peer_to_room[sender])
+	SessionFlow.request_session_ready(self, ready)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_session_deck(units: Array, structures: Array) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not validate_deck_payload(units,structures): return
-	if sessions.set_deck(sender,{"units":units,"structures":structures}):
-		peer_decks[sender] = {"units":units.duplicate(),"structures":structures.duplicate()}
-		_push_session(sessions.peer_to_room[sender])
+	SessionFlow.request_session_deck(self, units, structures)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_session_start() -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender): return
-	if not accepting_players or not sessions.can_start(sender):
-		receive_session_error.rpc_id(sender,"두 플레이어가 준비해야 시작할 수 있습니다."); return
-	_begin_session_match(sender, "session")
+	SessionFlow.request_session_start(self)
 
 func _begin_session_match(owner_id: int, mode: String) -> void:
-	var match_id := registry.next_match_id; registry.next_match_id += 1
-	var ids: Array = sessions.start(owner_id,match_id)
-	var room: Dictionary = sessions.room_for(owner_id)
-	var model := BattleModel.new()
-	registry.matches[match_id] = ids.duplicate()
-	for side in 2:
-		var id: int = ids[side]; registry.peer_to_match[id] = match_id; registry.peer_to_side[id] = side
-		var deck: Dictionary = room.members[id].deck
-		model.configure_deck(side,deck.units,deck.structures)
-	models[match_id] = model; session_matches[match_id] = room.code
-	replays.begin(match_id, model, {"mode": mode})
-	_push_session(room.code); lobby_dirty = true
-	for side in 2: match_started.rpc_id(int(ids[side]),side)
-	for id in room.members:
-		if room.members[id].role == "spectator" and _peer_is_connected(int(id)): session_spectate.rpc_id(int(id))
-	_broadcast_snapshot(match_id)
+	SessionFlow._begin_session_match(self, owner_id, mode)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_quick_match(nickname: String) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender): return
-	if not _can_enter_session(sender) or not SessionStore.safe_text(nickname,SessionStore.MAX_NICKNAME):
-		receive_session_error.rpc_id(sender,"지금은 빠른 대전을 시작할 수 없습니다."); return
-	if not quick_queue.enqueue(sender,nickname.strip_edges(),Time.get_ticks_msec()):
-		receive_session_error.rpc_id(sender,"대기열에 들어갈 수 없습니다. 잠시 후 다시 시도하세요."); return
-	lobby_pages.erase(sender)
-	receive_quick_status.rpc_id(sender,"queued")
-	_pair_quick_queue()
+	SessionFlow.request_quick_match(self, nickname)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_cancel_quick_match() -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender): return
-	if quick_queue.cancel(sender):
-		receive_quick_status.rpc_id(sender,"cancelled"); request_room_list_for(sender)
+	SessionFlow.request_cancel_quick_match(self)
 
 func request_room_list_for(peer_id: int) -> void:
-	lobby_pages[peer_id] = 0; lobby_dirty = true
+	SessionFlow.request_room_list_for(self, peer_id)
 
 ## Turns every waiting pair into a started session match (both players start ready).
 func _pair_quick_queue() -> void:
-	while true:
-		var pair := quick_queue.take_pair(func(id): return accepting_players and _peer_is_connected(id) and peer_decks.has(id) and not sessions.peer_to_room.has(id) and not registry.has_match(id))
-		if pair.is_empty(): return
-		var code := _generate_room_code()
-		var first: Dictionary = pair[0]; var second: Dictionary = pair[1]
-		if code.is_empty() or not sessions.create(int(first.peer),code,"빠른 대전",String(first.nickname),"","",peer_decks[int(first.peer)]) 				or not sessions.join(int(second.peer),code,String(second.nickname),"player",peer_decks[int(second.peer)]).is_empty():
-			if sessions.rooms.has(code): _leave_session(int(first.peer))
-			for entry in pair:
-				if _peer_is_connected(int(entry.peer)): receive_session_error.rpc_id(int(entry.peer),"빠른 대전 방을 만들지 못했습니다. 다시 시도하세요.")
-			continue
-		sessions.set_ready(int(second.peer),true)
-		for entry in pair:
-			lobby_pages.erase(int(entry.peer)); _issue_reconnect(int(entry.peer))
-		print("QUICK_MATCH room=%s waited_ms=%d" % [code, Time.get_ticks_msec()-int(first.since)])
-		_push_session(code); lobby_dirty = true
-		_begin_session_match(int(first.peer), "quick")
+	SessionFlow._pair_quick_queue(self)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_session_return() -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender): return
-	if sessions.return_from_battle(sender):
-		var room: Dictionary = sessions.room_for(sender)
-		if room.phase == "waiting": _cleanup_session_match(int(room.match_id)); room.match_id = 0; lobby_dirty = true
-		_push_session(room.code)
+	SessionFlow.request_session_return(self)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_session_leave() -> void:
-	if server_mode and can_process_request(multiplayer.get_remote_sender_id()): _leave_session(multiplayer.get_remote_sender_id())
+	SessionFlow.request_session_leave(self)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_session_chat(text: String) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not sessions.peer_to_room.has(sender) or not SessionStore.safe_text(text,SessionStore.MAX_CHAT): return
-	var now := Time.get_ticks_msec()
-	if now-int(chat_times.get(sender,-1000)) < 750: return
-	chat_times[sender] = now
-	var message: Dictionary = sessions.append_chat(sender,text)
-	if message.is_empty(): return
-	for id in sessions.room_for(sender).members:
-		if _peer_is_connected(int(id)): receive_session_chat.rpc_id(int(id),message)
+	SessionFlow.request_session_chat(self, text)
 
 static func valid_session_state(data: Dictionary) -> bool:
 	return Protocol.valid_session_state(data)
@@ -966,87 +842,43 @@ static func valid_chat_message(message: Variant) -> bool:
 
 @rpc("authority", "call_remote", "reliable")
 func receive_session_state(data: Dictionary) -> void:
-	if client_connection_state == "idle" or not valid_session_state(data): return
-	var self_member: Dictionary = {}
-	for member in data.members:
-		if int(member.id) == multiplayer.get_unique_id(): self_member = member
-	if self_member.is_empty(): return
-	client_session = data.duplicate(true)
-	client_is_spectator = self_member.role == "spectator"
-	pending_room_password = ""
-	if data.phase == "waiting" or (data.phase == "finished" and self_member.returned):
-		client_in_match = false; client_connection_state = "session"
-	elif client_connection_state != "in_match": client_connection_state = "session"
-	client_phase_elapsed = 0.0
-	session_changed.emit(client_session)
+	ClientSessionFlow.receive_session_state(self, data)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_session_challenge(code: String, salt: String, nonce: String) -> void:
-	if client_connection_state != "room_request" or not is_valid_room_code(code) or not _hex_string(nonce,32) or not (salt.is_empty() or _hex_string(salt,32)): return
-	var secret: String = SessionStore.verifier(pending_room_password,salt)
-	pending_room_password = ""
-	request_join_session.rpc_id(1,"" if salt.is_empty() else SessionStore.proof(secret,nonce,multiplayer.get_unique_id(),code))
+	ClientSessionFlow.receive_session_challenge(self, code, salt, nonce)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_session_error(text: String) -> void:
-	if text.length()>100: return
-	pending_room_password = ""
-	if client_session.is_empty(): client_connection_state = "lobby"
-	else: client_connection_state = "session" if client_session.phase != "playing" else "in_match"
-	session_error.emit(text)
+	ClientSessionFlow.receive_session_error(self, text)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_session_closed(text: String) -> void:
-	if text.length()>100 or client_connection_state == "idle": return
-	client_reconnect_token = ""; client_reconnect_code = ""; client_reconnecting = false
-	client_session.clear(); client_is_spectator = false; client_in_match = false; client_connection_state = "lobby"
-	session_closed.emit(text)
-	request_room_list.rpc_id(1,0)
+	ClientSessionFlow.receive_session_closed(self, text)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_session_chat(message: Dictionary) -> void:
-	if client_session.is_empty() or not valid_chat_message(message): return
-	client_session.messages.append(message)
-	if client_session.messages.size()>SessionStore.CHAT_HISTORY: client_session.messages.pop_front()
-	session_chat.emit(message)
+	ClientSessionFlow.receive_session_chat(self, message)
 
 @rpc("authority", "call_remote", "reliable")
 func session_spectate() -> void:
-	if client_session.is_empty() or not client_is_spectator: return
-	client_in_match = true; client_connection_state = "in_match"
-	spectate_started.emit()
+	ClientSessionFlow.session_spectate(self)
 
 func create_session_room(title: String, password: String = "") -> bool:
-	if client_connection_state != "lobby" or not is_valid_room_name(title) or password.length()>32 or not SessionStore.safe_text(client_nickname,SessionStore.MAX_NICKNAME): return false
-	var salt := "" if password.is_empty() else Crypto.new().generate_random_bytes(16).hex_encode()
-	client_connection_state = "room_request"; client_phase_elapsed = 0.0
-	request_create_session.rpc_id(1,title.strip_edges(),client_nickname,salt,SessionStore.verifier(password,salt))
-	return true
+	return ClientSessionFlow.create_session_room(self, title, password)
 
 func start_quick_match() -> bool:
-	if client_connection_state != "lobby" or not SessionStore.safe_text(client_nickname,SessionStore.MAX_NICKNAME): return false
-	client_connection_state = "queued"; client_phase_elapsed = 0.0
-	request_quick_match.rpc_id(1,client_nickname)
-	return true
+	return ClientSessionFlow.start_quick_match(self)
 
 func cancel_quick_match() -> bool:
-	if client_connection_state != "queued": return false
-	request_cancel_quick_match.rpc_id(1)
-	return true
+	return ClientSessionFlow.cancel_quick_match(self)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_quick_status(state: String) -> void:
-	if state not in ["queued","cancelled","timeout"] or client_connection_state not in ["lobby","queued"]: return
-	client_connection_state = "queued" if state == "queued" else "lobby"
-	client_phase_elapsed = 0.0
-	quick_match_status.emit(state)
+	ClientSessionFlow.receive_quick_status(self, state)
 
 func join_session_room(code: String, password: String = "", spectator: bool = false) -> bool:
-	if client_connection_state != "lobby" or not is_valid_room_code(code) or password.length()>32 or not SessionStore.safe_text(client_nickname,SessionStore.MAX_NICKNAME): return false
-	pending_room_password = password
-	client_connection_state = "room_request"; client_phase_elapsed = 0.0
-	request_session_challenge.rpc_id(1,code,client_nickname,"spectator" if spectator else "player")
-	return true
+	return ClientSessionFlow.join_session_room(self, code, password, spectator)
 
 func _match_paused(match_id: int) -> bool:
 	return session_matches.has(match_id) and sessions.paused(String(session_matches[match_id]))
@@ -1088,8 +920,7 @@ func request_surrender() -> void:
 	_finish_match(mid,1-side)
 
 func _issue_reconnect(peer_id: int) -> void:
-	var token: String = sessions.issue_reconnect_token(peer_id)
-	if not token.is_empty(): receive_reconnect_credentials.rpc_id(peer_id,String(sessions.peer_to_room[peer_id]),token)
+	ReconnectFlow._issue_reconnect(self, peer_id)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_reconnect_credentials(code: String, token: String) -> void:
@@ -1098,36 +929,7 @@ func receive_reconnect_credentials(code: String, token: String) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_reconnect(code: String, token: String) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not peer_decks.has(sender): return
-	if not is_valid_room_code(code) or not _hex_string(token,64) or registry.has_match(sender) or registry.peer_to_room.has(sender):
-		receive_reconnect_result.rpc_id(sender,false); return
-	# Never rebind a live member. Identity comes exclusively from the random token.
-	var old_peer: int = sessions.resume(code,token,sender,Time.get_ticks_msec())
-	if old_peer == 0:
-		receive_reconnect_result.rpc_id(sender,false); return
-	var mid := registry.get_match_id(old_peer)
-	var side := registry.get_side(old_peer)
-	if mid > 0:
-		registry.peer_to_match.erase(old_peer); registry.peer_to_side.erase(old_peer)
-		registry.peer_to_match[sender] = mid; registry.peer_to_side[sender] = side
-		var ids: Array = registry.matches.get(mid,[])
-		var index := ids.find(old_peer)
-		if index >= 0: ids[index] = sender
-		if rematch_ready.has(mid) and rematch_ready[mid].has(old_peer):
-			rematch_ready[mid].erase(old_peer); rematch_ready[mid][sender] = true
-	peer_decks.erase(old_peer)
-	var room: Dictionary = sessions.room_for(sender)
-	peer_decks[sender] = room.members[sender].deck.duplicate(true)
-	lobby_pages.erase(sender); _issue_reconnect(sender)
-	receive_reconnect_result.rpc_id(sender,true)
-	_push_session(code)
-	if room.phase in ["playing","finished"] and not room.members[sender].returned:
-		if room.members[sender].role == "spectator": session_spectate.rpc_id(sender)
-		elif is_valid_match_side(side): match_started.rpc_id(sender,side)
-		_broadcast_snapshot(int(room.match_id))
-	lobby_dirty = true
+	ReconnectFlow.request_reconnect(self, code, token)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_reconnect_result(success: bool) -> void:
@@ -1159,28 +961,7 @@ func _end_reconnect() -> void:
 	opponent_disconnected.emit()
 
 func _expire_recovery() -> void:
-	var now := Time.get_ticks_msec()
-	for code in sessions.rooms.keys():
-		if not sessions.rooms.has(code): continue
-		var room: Dictionary = sessions.rooms[code]
-		for id in room.members.keys():
-			if not sessions.peer_to_room.has(id): continue
-			var member: Dictionary = room.members[id]
-			if member.connected or int(member.reconnect_deadline)>now: continue
-			var mid := registry.get_match_id(int(id))
-			if member.role == "player" and room.phase == "playing":
-				var winner := 1-registry.get_side(int(id))
-				for other in sessions.players(room):
-					if int(other) != int(id) and not room.members[other].connected: winner = 2
-				_finish_match(mid,winner)
-			_leave_session(int(id),true,room.phase == "finished")
-			peer_decks.erase(id); request_windows.erase(id)
-			if sessions.rooms.has(code) and room.phase == "finished":
-				var remaining_players: Array = sessions.players(room)
-				if remaining_players.all(func(peer): return room.members[peer].returned):
-					sessions.return_from_battle(int(remaining_players[0]))
-					_cleanup_session_match(int(room.match_id)); room.match_id = 0
-					_push_session(String(code)); lobby_dirty = true
+	ReconnectFlow._expire_recovery(self)
 
 func _advance_ping(delta: float) -> void:
 	if client_connection_state in ["idle","connecting","recovering"] or client_reconnecting: return
