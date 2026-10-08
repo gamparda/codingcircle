@@ -16,7 +16,8 @@
     "tests/replay_test.gd",
     "tests/ui_sounds_test.gd",
     "tests/practice_replay_test.gd",
-    "tests/deck_simulator_test.gd"
+    "tests/deck_simulator_test.gd",
+    "tests/replay_shelf_test.gd"
   ],
   "network": [
     "tests/network_recovery_test.gd",
@@ -49,7 +50,13 @@
     "tests/ghost_battle_test.gd",
     "tests/daily_challenge_test.gd",
     "tests/replay_clip_test.gd",
-    "tests/community_stats_test.gd"
+    "tests/community_stats_test.gd",
+    "tests/replay_notes_test.gd",
+    "tests/replay_code_ui_test.gd",
+    "tests/weekly_challenge_test.gd",
+    "tests/draft_mode_test.gd",
+    "tests/new_features_test.gd",
+    "tests/battle_finale_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",

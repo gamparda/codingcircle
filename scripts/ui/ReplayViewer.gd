@@ -4,6 +4,7 @@ extends Control
 
 signal closed
 signal branch_requested(tick: int)
+signal notes_changed(replay: Dictionary)
 
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
@@ -40,6 +41,7 @@ var graph: MomentumGraph
 var moment_toast: ToastLabel
 var last_announced_tick := 0
 var clip_finished := false
+var note_input: LineEdit
 
 func open(replay_data: Dictionary, title: String = "") -> void:
 	replay = replay_data
@@ -152,6 +154,7 @@ func _build_bottom_bar() -> void:
 	graph.position = Vector2(40, 6)
 	graph.size = Vector2(1200, 42)
 	graph.setup(analysis)
+	graph.set_notes(BattleReplay.notes_of(replay))
 	graph.seek_requested.connect(func(tick): seek(tick))
 	bar.add_child(graph)
 	progress = HSlider.new()
@@ -169,39 +172,49 @@ func _build_bottom_bar() -> void:
 	row.add_theme_constant_override("separation", 10)
 	bar.add_child(row)
 	var previous := _control_button(row, "ReplayPreviousMoment", "◀ 이전 순간", UIKit.ACCENT, false)
-	previous.custom_minimum_size.x = 130
+	previous.custom_minimum_size.x = 110
 	previous.pressed.connect(jump_previous_moment)
 	play_button = _control_button(row, "ReplayPlayPause", "일시정지", UIKit.ACCENT, true)
-	play_button.custom_minimum_size.x = 120
+	play_button.custom_minimum_size.x = 100
 	play_button.pressed.connect(toggle_pause)
 	var next := _control_button(row, "ReplayNextMoment", "다음 순간 ▶", UIKit.ACCENT, false)
-	next.custom_minimum_size.x = 130
+	next.custom_minimum_size.x = 110
 	next.pressed.connect(jump_next_moment)
 	var restart := _control_button(row, "ReplayRestart", "처음부터", UIKit.TEAL, false)
-	restart.custom_minimum_size.x = 110
+	restart.custom_minimum_size.x = 90
 	restart.pressed.connect(_restart)
 	speed_button = _control_button(row, "ReplaySpeed", "1배속", UIKit.GOLD_DEEP, false)
-	speed_button.custom_minimum_size.x = 100
+	speed_button.custom_minimum_size.x = 80
 	speed_button.pressed.connect(cycle_speed)
-	var info := Label.new()
-	info.name = "ReplayInfo"
-	info.text = title_text
-	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	info.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
-	row.add_child(info)
+	note_input = LineEdit.new()
+	note_input.name = "ReplayNoteInput"
+	note_input.placeholder_text = "이 장면에 메모..."
+	note_input.max_length = BattleReplay.MAX_NOTE_LENGTH
+	note_input.tooltip_text = title_text
+	note_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	note_input.custom_minimum_size.x = 120
+	note_input.text_submitted.connect(func(_text): add_note())
+	row.add_child(note_input)
+	var note_button := _control_button(row, "ReplayNoteButton", "메모", UIKit.TEAL, false)
+	note_button.custom_minimum_size.x = 64
+	note_button.tooltip_text = "지금 장면에 메모를 남깁니다 (리플레이와 함께 저장·공유됩니다)"
+	note_button.pressed.connect(add_note)
+	var note_delete := _control_button(row, "ReplayNoteDeleteButton", "삭제", UIKit.DANGER, false)
+	note_delete.custom_minimum_size.x = 64
+	note_delete.tooltip_text = "재생 위치에서 가장 가까운 메모를 지웁니다"
+	note_delete.pressed.connect(delete_note)
 	var clip_button := _control_button(row, "ReplayClipButton", "클립 복사", UIKit.GOLD_DEEP, false)
-	clip_button.custom_minimum_size.x = 120
+	clip_button.custom_minimum_size.x = 96
 	clip_button.tooltip_text = "지금 장면 전후 10초를 공유용 텍스트로 복사합니다"
 	clip_button.pressed.connect(copy_clip)
 	var branch := _control_button(row, "ReplayBranchButton", "여기서 해보기", UIKit.TEAL, false)
-	branch.custom_minimum_size.x = 150
+	branch.custom_minimum_size.x = 130
 	branch.tooltip_text = "지금 장면에서 이어서 직접 조작해 보는 되감기 실험입니다"
 	branch.pressed.connect(func():
 		if player != null and not player.is_finished():
 			branch_requested.emit(player.ticks))
 	var close := _control_button(row, "ReplayClose", "나가기", UIKit.DANGER, false)
-	close.custom_minimum_size.x = 110
+	close.custom_minimum_size.x = 90
 	close.pressed.connect(func(): closed.emit())
 
 func _control_button(parent: Control, node_name: String, text: String, color: Color, primary: bool) -> Button:
@@ -288,6 +301,9 @@ func _process(delta: float) -> void:
 
 ## Shows a toast for every highlight the playhead just passed.
 func _announce_between(from_tick: int, to_tick: int) -> void:
+	for note in BattleReplay.notes_of(replay):
+		if int(note.t) > from_tick and int(note.t) <= to_tick:
+			_toast("메모 ▸ %s" % String(note.text))
 	for item in analysis.get("highlights", []):
 		if int(item.tick) > from_tick and int(item.tick) <= to_tick:
 			moment_toast.text = String(item.text)
@@ -295,6 +311,39 @@ func _announce_between(from_tick: int, to_tick: int) -> void:
 				if is_instance_valid(moment_toast) and moment_toast.text == String(item.text):
 					moment_toast.text = "")
 	last_announced_tick = to_tick
+
+func _toast(text: String) -> void:
+	moment_toast.text = text
+	get_tree().create_timer(3.0).timeout.connect(func():
+		if is_instance_valid(moment_toast) and moment_toast.text == text:
+			moment_toast.text = "")
+
+## Pins the text in the input box to the current moment. Returns whether a note was added.
+func add_note() -> bool:
+	var text := note_input.text.strip_edges()
+	if text.is_empty() or player == null:
+		return false
+	var updated := BattleReplay.with_note(replay, player.ticks, text)
+	if updated == replay:
+		_toast("메모를 더 남길 수 없습니다")
+		return false
+	replay = updated
+	note_input.text = ""
+	graph.set_notes(BattleReplay.notes_of(replay))
+	_toast("메모를 남겼습니다 ▸ %s" % text)
+	notes_changed.emit(replay)
+	return true
+
+## Removes the note nearest to the playhead. Returns whether one was removed.
+func delete_note() -> bool:
+	var note := BattleReplay.nearest_note(replay, player.ticks if player != null else 0)
+	if note.is_empty():
+		return false
+	replay = BattleReplay.without_note(replay, int(note.t))
+	graph.set_notes(BattleReplay.notes_of(replay))
+	_toast("메모를 지웠습니다")
+	notes_changed.emit(replay)
+	return true
 
 ## Copies a shareable clip around the highlight nearest to the playhead (or the playhead itself).
 func copy_clip() -> String:

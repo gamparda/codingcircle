@@ -62,6 +62,17 @@ static func deck_record(units: Array) -> Dictionary:
 				row = entry
 	return {} if row == null else {"games": int(row.games), "wins": int(row.wins), "draws": int(row.draws)}
 
+## "선택 34% · 승률 52%" for one unit or structure kind, or "" while the sample is too small to mean anything.
+## `group` is "units" or "structures".
+static func kind_text(group: String, kind: String) -> String:
+	var data := current()
+	if data.is_empty() or int(data.online.matches) <= 0:
+		return ""
+	var entry = data.online[group].get(kind)
+	if entry == null or int(entry.games) < ServerStats.MIN_SAMPLES:
+		return ""
+	return "선택 %d%% · 승률 %d%%" % [roundi(100.0 * float(entry.games) / float(data.online.matches)), roundi(100.0 * float(entry.wins) / float(entry.games))]
+
 static func record_text(record: Dictionary) -> String:
 	if record.is_empty():
 		return "전체 플레이어 기록 없음"
@@ -95,14 +106,17 @@ static func queue_report(save: Dictionary, units: Array, structures: Array, resu
 	save["pending_reports"] = pending
 	return true
 
-## Keeps only the best unsent daily score.
+## Keeps the best unsent score for each board (a few at most: today, this week).
 static func queue_daily(save: Dictionary, date: String, score: int, seconds: float) -> bool:
 	if not sharing(save):
 		return false
-	var current_entry: Dictionary = save.get("pending_daily", {})
-	if current_entry.get("date") == date and int(current_entry.get("score", 0)) >= score:
+	var pending: Dictionary = save.get("pending_daily", {})
+	if int(pending.get(date, {}).get("score", 0)) >= score:
 		return false
-	save["pending_daily"] = {"date": date, "score": score, "seconds": seconds}
+	pending[date] = {"score": score, "seconds": seconds}
+	while pending.size() > 4:
+		pending.erase(pending.keys()[0])
+	save["pending_daily"] = pending
 	return true
 
 ## Sends everything queued over an open connection and clears it. `network` is the NetworkController.
@@ -112,9 +126,9 @@ static func flush(save: Dictionary, network) -> void:
 	if sharing(save):
 		for report in save.get("pending_reports", []):
 			network.send_result_report(report.units, report.structures, int(report.result), String(report.mode))
-		var daily: Dictionary = save.get("pending_daily", {})
-		if not daily.is_empty():
-			network.send_daily_score(String(daily.date), install_id(save), String(save.get("nickname", "")), int(daily.score), float(daily.seconds))
+		var pending: Dictionary = save.get("pending_daily", {})
+		for date in pending:
+			network.send_daily_score(String(date), install_id(save), String(save.get("nickname", "")), int(pending[date].score), float(pending[date].seconds))
 	save["pending_reports"] = []
 	save["pending_daily"] = {}
 

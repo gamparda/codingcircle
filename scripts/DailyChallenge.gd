@@ -1,6 +1,7 @@
 extends RefCounted
-## One shared challenge per UTC day: fixed decks, a campaign-AI stage and one rule twist, all derived from
-## the date so every player faces exactly the same thing. Results are scored and kept per day.
+## One shared challenge per UTC day (and a harder one per UTC week): fixed decks, a campaign-AI stage and
+## rule twists, all derived from the date so every player faces exactly the same thing. Results are scored
+## and kept per day / week.
 
 const MODIFIERS := [
 	{"id": "empty_hands", "name": "빈손 출발", "desc": "시작 자원이 20으로 줄어듭니다."},
@@ -11,6 +12,8 @@ const MODIFIERS := [
 ]
 const MIN_STAGE := 2
 const MAX_BASE_STAGE := 6
+const WEEKLY_MIN_STAGE := 4
+const WEEKLY_MAX_STAGE := 6
 
 ## "YYYYMMDD" in UTC. `unix < 0` means now.
 static func date_key(unix: int = -1) -> String:
@@ -18,9 +21,32 @@ static func date_key(unix: int = -1) -> String:
 	var date := Time.get_date_dict_from_unix_time(stamp)
 	return "%04d%02d%02d" % [int(date.year), int(date.month), int(date.day)]
 
+## The Monday (UTC) that starts the week containing `unix`, as "YYYYMMDD".
+static func week_key(unix: int = -1) -> String:
+	var stamp := int(Time.get_unix_time_from_system()) if unix < 0 else unix
+	var days := int(floor(float(stamp) / 86400.0))
+	return date_key((days - (days + 3) % 7) * 86400)
+
 static func for_date(key: String) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash("catwar-daily-" + key)
+	var decks := _random_decks(rng)
+	var modifier: Dictionary = MODIFIERS[rng.randi_range(0, MODIFIERS.size() - 1)]
+	var stage := rng.randi_range(MIN_STAGE, MAX_BASE_STAGE)
+	return {"key": key, "stage": stage, "units": decks.units, "structures": decks.structures, "modifier": String(modifier.id)}
+
+## Weekly challenge: a tougher stage with two twists at once.
+static func for_week(monday_key: String) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash("catwar-weekly-" + monday_key)
+	var decks := _random_decks(rng)
+	var first := rng.randi_range(0, MODIFIERS.size() - 1)
+	var second := (first + rng.randi_range(1, MODIFIERS.size() - 1)) % MODIFIERS.size()
+	var stage := rng.randi_range(WEEKLY_MIN_STAGE, WEEKLY_MAX_STAGE)
+	return {"key": monday_key, "period": "weekly", "stage": stage, "units": decks.units, "structures": decks.structures,
+		"modifier": String(MODIFIERS[first].id), "modifiers": [String(MODIFIERS[first].id), String(MODIFIERS[second].id)]}
+
+static func _random_decks(rng: RandomNumberGenerator) -> Dictionary:
 	var units := BattleModel.UNIT_STATS.keys()
 	var structures := BattleModel.STRUCTURE_STATS.keys()
 	var unit_deck: Array = []
@@ -33,9 +59,11 @@ static func for_date(key: String) -> Dictionary:
 		var structure_pick: String = String(structures[rng.randi_range(0, structures.size() - 1)])
 		if not structure_deck.has(structure_pick):
 			structure_deck.append(structure_pick)
-	var modifier: Dictionary = MODIFIERS[rng.randi_range(0, MODIFIERS.size() - 1)]
-	var stage := rng.randi_range(MIN_STAGE, MAX_BASE_STAGE)
-	return {"key": key, "stage": stage, "units": unit_deck, "structures": structure_deck, "modifier": String(modifier.id)}
+	return {"units": unit_deck, "structures": structure_deck}
+
+## The challenge that is running right now for "daily" or "weekly".
+static func current(period: String = "daily") -> Dictionary:
+	return for_week(week_key()) if period == "weekly" else for_date(date_key())
 
 static func modifier_info(id: String) -> Dictionary:
 	for entry in MODIFIERS:
@@ -43,8 +71,22 @@ static func modifier_info(id: String) -> Dictionary:
 			return entry
 	return {}
 
+static func modifier_ids(challenge: Dictionary) -> Array:
+	return challenge.get("modifiers", [challenge.modifier])
+
+static func is_weekly(challenge: Dictionary) -> bool:
+	return String(challenge.get("period", "daily")) == "weekly"
+
+## Which save_data dictionary keeps this challenge's results.
+static func store_name(challenge: Dictionary) -> String:
+	return "weekly" if is_weekly(challenge) else "daily"
+
+## The key the leaderboard knows the challenge by (weeks are prefixed with "w").
+static func board_key(challenge: Dictionary) -> String:
+	return ("w" + String(challenge.key)) if is_weekly(challenge) else String(challenge.key)
+
 static func effective_stage(challenge: Dictionary) -> int:
-	return mini(ServerAI.MAX_STAGE, int(challenge.stage) + (2 if String(challenge.modifier) == "elite_foe" else 0))
+	return mini(ServerAI.MAX_STAGE, int(challenge.stage) + (2 if modifier_ids(challenge).has("elite_foe") else 0))
 
 ## Builds the battle: {"model": BattleModel, "ai": ServerAI, "stage": int}.
 static func build(challenge: Dictionary) -> Dictionary:
@@ -55,11 +97,12 @@ static func build(challenge: Dictionary) -> Dictionary:
 	model.configure_deck(1, ServerAI.stage_unit_deck(stage), ServerAI.stage_structure_deck(stage))
 	model.resources[1] = minf(BattleModel.MAX_RESOURCE, 35.0 + float(stage) * 10.0)
 	model.configure_base_health(1, 300.0 + float(stage) * 20.0)
-	match String(challenge.modifier):
-		"empty_hands": model.resources[0] = 20.0
-		"iron_fortress": model.configure_base_health(1, BattleModel.BASE_MAX_HP)
-		"rich_enemy": model.resources[1] = BattleModel.MAX_RESOURCE
-		"fragile_base": model.configure_base_health(0, 300.0)
+	for id in modifier_ids(challenge):
+		match String(id):
+			"empty_hands": model.resources[0] = 20.0
+			"iron_fortress": model.configure_base_health(1, BattleModel.BASE_MAX_HP)
+			"rich_enemy": model.resources[1] = BattleModel.MAX_RESOURCE
+			"fragile_base": model.configure_base_health(0, 300.0)
 	return {"model": model, "ai": ServerAI.new(1, stage), "stage": stage}
 
 ## Winners score 100..3000: remaining base health and speed both pay.
@@ -68,19 +111,21 @@ static func score(won: bool, own_base: float, seconds: float) -> int:
 		return 0
 	return clampi(roundi(1000.0 + own_base * 2.0 - seconds * 2.0), 100, 3000)
 
-## Stores the result (best score per day). Returns {"score", "best", "new_best"}.
+## Stores the result (best score per day or week). Returns {"score", "best", "new_best"}.
 static func record(save: Dictionary, challenge: Dictionary, won: bool, own_base: float, seconds: float) -> Dictionary:
-	if not save.has("daily"):
-		save["daily"] = {}
+	var store := store_name(challenge)
+	if not save.has(store):
+		save[store] = {}
 	var key := String(challenge.key)
 	var points := score(won, own_base, seconds)
-	var previous: Dictionary = save.daily.get(key, {})
+	var previous: Dictionary = save[store].get(key, {})
 	var best := int(previous.get("score", 0))
 	var new_best := points > best
 	if won and not bool(previous.get("won", false)):
-		save.stats.daily_completed = int(save.stats.get("daily_completed", 0)) + 1
+		var counter := "weekly_completed" if is_weekly(challenge) else "daily_completed"
+		save.stats[counter] = int(save.stats.get(counter, 0)) + 1
 	if new_best or previous.is_empty():
-		save.daily[key] = {"won": won or bool(previous.get("won", false)), "score": maxi(points, best), "seconds": seconds if new_best or previous.is_empty() else float(previous.get("seconds", seconds))}
+		save[store][key] = {"won": won or bool(previous.get("won", false)), "score": maxi(points, best), "seconds": seconds if new_best or previous.is_empty() else float(previous.get("seconds", seconds))}
 	return {"score": points, "best": maxi(points, best), "new_best": new_best and won}
 
 ## Consecutive days (ending today or yesterday) with a win.
@@ -101,7 +146,8 @@ static func _to_unix(key: String) -> int:
 	return int(Time.get_unix_time_from_datetime_dict({"year": int(key.substr(0, 4)), "month": int(key.substr(4, 2)), "day": int(key.substr(6, 2)), "hour": 12, "minute": 0, "second": 0}))
 
 static func result_note(challenge: Dictionary, save: Dictionary, won: bool) -> String:
-	var entry: Dictionary = save.get("daily", {}).get(String(challenge.key), {})
+	var entry: Dictionary = save.get(store_name(challenge), {}).get(String(challenge.key), {})
+	var weekly := is_weekly(challenge)
 	if not won:
-		return "일일 도전에 실패했습니다. 오늘 안에 다시 도전할 수 있습니다."
-	return "일일 도전 성공! 오늘의 최고 점수 %d점" % int(entry.get("score", 0))
+		return "%s 도전에 실패했습니다. %s 안에 다시 도전할 수 있습니다." % ["주간" if weekly else "일일", "이번 주" if weekly else "오늘"]
+	return "%s 도전 성공! %s 최고 점수 %d점" % ["주간" if weekly else "일일", "이번 주" if weekly else "오늘의", int(entry.get("score", 0))]

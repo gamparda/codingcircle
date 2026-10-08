@@ -118,6 +118,8 @@ static func valid(replay: Variant) -> bool:
 			return false
 		if int(clip.start) < 0 or int(clip.end) <= int(clip.start) or int(clip.end) > MAX_TICKS or String(clip.get("title", "")).length() > 80:
 			return false
+	if replay.has("notes") and not _valid_notes(replay.notes, replay.result):
+		return false
 	return replay.result is Dictionary
 
 # --- playback ----------------------------------------------------------------
@@ -197,6 +199,67 @@ static func make_clip(replay: Dictionary, center_tick: int, title: String, befor
 	clip["clip"] = {"start": start, "end": end, "title": title.left(80)}
 	return clip
 
+# --- notes -------------------------------------------------------------------
+## Short remarks pinned to a moment ("여기서 방벽을 깔았어야 함"). Pure metadata: the simulation never reads them,
+## so they do not affect verification, and they travel with the replay file and its share text.
+const MAX_NOTES := 20
+const MAX_NOTE_LENGTH := 40
+
+static func _valid_notes(notes: Variant, result: Variant) -> bool:
+	if not notes is Array or notes.size() > MAX_NOTES:
+		return false
+	var limit := MAX_TICKS
+	if result is Dictionary and _is_number(result.get("ticks")):
+		limit = mini(limit, int(result.ticks))
+	var seen := {}
+	for note in notes:
+		if not note is Dictionary or not _is_number(note.get("t")) or not note.get("text") is String:
+			return false
+		var text: String = note.text
+		if int(note.t) < 0 or int(note.t) > limit or seen.has(int(note.t)) or text.strip_edges().is_empty() or text.length() > MAX_NOTE_LENGTH:
+			return false
+		for index in text.length():
+			if text.unicode_at(index) < 32 or text.unicode_at(index) == 127:
+				return false
+		seen[int(note.t)] = true
+	return true
+
+static func notes_of(replay: Dictionary) -> Array:
+	return replay.get("notes", []) if replay.get("notes") is Array else []
+
+## Returns a copy with the note added (replacing one on the same tick). A full list or bad text returns the original.
+static func with_note(replay: Dictionary, tick: int, text: String) -> Dictionary:
+	var clean := text.strip_edges().left(MAX_NOTE_LENGTH)
+	var notes: Array = notes_of(replay).duplicate(true)
+	notes = notes.filter(func(note): return int(note.t) != tick)
+	notes.append({"t": tick, "text": clean})
+	notes.sort_custom(func(a, b): return int(a.t) < int(b.t))
+	if clean.is_empty() or not _valid_notes(notes, replay.get("result", {})):
+		return replay
+	var copy: Dictionary = replay.duplicate(true)
+	copy["notes"] = notes
+	return copy
+
+static func without_note(replay: Dictionary, tick: int) -> Dictionary:
+	var copy: Dictionary = replay.duplicate(true)
+	var notes: Array = notes_of(copy).filter(func(note): return int(note.t) != tick)
+	if notes.is_empty():
+		copy.erase("notes")
+	else:
+		copy["notes"] = notes
+	return copy
+
+## The note closest to `tick` within `tolerance` ticks, or {}.
+static func nearest_note(replay: Dictionary, tick: int, tolerance: int = 90) -> Dictionary:
+	var best := {}
+	var best_distance := tolerance + 1
+	for note in notes_of(replay):
+		var distance := absi(int(note.t) - tick)
+		if distance < best_distance:
+			best_distance = distance
+			best = note
+	return best
+
 static func clip_of(replay: Dictionary) -> Dictionary:
 	return replay.get("clip", {}) if replay.get("clip") is Dictionary else {}
 
@@ -246,6 +309,17 @@ static func save(replay: Dictionary, name_hint: String = "") -> String:
 	file.close()
 	_prune()
 	return path
+
+## Rewrites an existing replay file (used when notes change).
+static func write_file(path: String, replay: Dictionary) -> bool:
+	if not valid(replay):
+		return false
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return false
+	file.store_string(JSON.stringify(replay))
+	file.close()
+	return true
 
 static func load_file(path: String) -> Dictionary:
 	var file := FileAccess.open(path, FileAccess.READ)

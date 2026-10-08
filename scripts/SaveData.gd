@@ -46,10 +46,12 @@ static func default_data() -> Dictionary:
 		"stats": {
 			"ai_matches": 0, "ai_wins": 0, "ai_losses": 0, "highest_campaign": 0, "total_stars": 0,
 			"online_completed": 0, "online_wins": 0, "online_losses": 0, "online_draws": 0, "online_interrupted": 0,
-			"win_streak": 0, "best_streak": 0, "daily_completed": 0,
+			"win_streak": 0, "best_streak": 0, "daily_completed": 0, "weekly_completed": 0,
 		},
 		"achievements": {},
 		"daily": {},
+		"weekly": {},
+		"seen_features": [],
 		"install_id": "",
 		"pending_reports": [],
 		"pending_daily": {},
@@ -97,6 +99,7 @@ static func apply_graphics_profile(settings: Dictionary, quality: String, mobile
 	settings.graphics_quality = quality
 
 const DAILY_HISTORY := 60
+const WEEKLY_HISTORY := 16
 
 static func sanitize(raw: Variant) -> Dictionary:
 	var clean := default_data()
@@ -157,14 +160,19 @@ static func sanitize(raw: Variant) -> Dictionary:
 		for id in preload("res://scripts/Achievements.gd").ids():
 			if _is_integer(raw.achievements.get(id)):
 				clean.achievements[id] = max(0, int(raw.achievements[id]))
-	if raw.get("daily") is Dictionary:
-		var days: Array = raw.daily.keys()
-		days.sort()
-		for key in days.slice(maxi(0, days.size() - DAILY_HISTORY)):
-			var entry = raw.daily[key]
-			if String(key).length() == 8 and String(key).is_valid_int() and entry is Dictionary and _is_integer(entry.get("score")):
-				clean.daily[String(key)] = {"won": bool(entry.get("won", false)), "score": clampi(int(entry.score), 0, 100000),
-					"seconds": clampf(float(entry.get("seconds", 0.0)), 0.0, 100000.0)}
+	for store in [["daily", DAILY_HISTORY], ["weekly", WEEKLY_HISTORY]]:
+		if raw.get(store[0]) is Dictionary:
+			var days: Array = raw[store[0]].keys()
+			days.sort()
+			for key in days.slice(maxi(0, days.size() - int(store[1]))):
+				var entry = raw[store[0]][key]
+				if String(key).length() == 8 and String(key).is_valid_int() and entry is Dictionary and _is_integer(entry.get("score")):
+					clean[store[0]][String(key)] = {"won": bool(entry.get("won", false)), "score": clampi(int(entry.score), 0, 100000),
+						"seconds": clampf(float(entry.get("seconds", 0.0)), 0.0, 100000.0)}
+	if raw.get("seen_features") is Array:
+		for id in raw.seen_features.slice(0, 60):
+			if id is String and not id.is_empty() and id.length() <= 40 and not clean.seen_features.has(id):
+				clean.seen_features.append(id)
 	if raw.get("install_id") is String and preload("res://scripts/ServerDailyBoard.gd").valid_id(String(raw.install_id)):
 		clean.install_id = String(raw.install_id)
 	if raw.get("pending_reports") is Array:
@@ -172,8 +180,11 @@ static func sanitize(raw: Variant) -> Dictionary:
 			if report is Dictionary and report.get("units") is Array and report.get("structures") is Array and _is_integer(report.get("result")) and preload("res://scripts/MetaStats.gd").REPORT_MODES.has(String(report.get("mode", ""))) 					and preload("res://scripts/NetworkProtocol.gd").validate_deck_payload(report.units, report.structures) and int(report.result) >= 0 and int(report.result) <= 2:
 				clean.pending_reports.append({"units": report.units.duplicate(), "structures": report.structures.duplicate(), "result": int(report.result), "mode": String(report.mode)})
 	var pending = raw.get("pending_daily")
-	if pending is Dictionary and String(pending.get("date", "")).length() == 8 and _is_integer(pending.get("score")):
-		clean.pending_daily = {"date": String(pending.date), "score": clampi(int(pending.score), 0, 100000), "seconds": clampf(float(pending.get("seconds", 0.0)), 0.0, 100000.0)}
+	if pending is Dictionary:
+		for date in pending.keys().slice(0, 4):
+			var queued = pending[date]
+			if preload("res://scripts/ServerDailyBoard.gd").valid_date(String(date)) and queued is Dictionary and _is_integer(queued.get("score")):
+				clean.pending_daily[String(date)] = {"score": clampi(int(queued.score), 0, 100000), "seconds": clampf(float(queued.get("seconds", 0.0)), 0.0, 100000.0)}
 	clean.stats.highest_campaign = mini(8, int(clean.stats.highest_campaign))
 	clean.stats.total_stars = 0
 	for record in clean.campaign_records:

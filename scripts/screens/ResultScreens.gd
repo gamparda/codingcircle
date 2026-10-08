@@ -39,7 +39,7 @@ static func _show_result(main, winner: int) -> void:
 				DailyChallenge.record(main.save_data, main.daily_challenge, winner == main.own_side, float(snap.get("base_hp", [0.0, 0.0])[main.own_side]), float(snap.get("elapsed", 0.0)))
 			if main.campaign_mode:
 				awarded_stars = SaveData.record_campaign(main.save_data, main.current_ai_stage, winner == main.own_side, float(main.current_snapshot.elapsed), float(main.current_snapshot.base_hp[main.own_side]), winner == 2)
-			elif main.daily_challenge.is_empty() and not main.practice_used_tools:
+			elif main.daily_challenge.is_empty() and main.draft_context.is_empty() and not main.practice_used_tools:
 				main.save_data.stats.ai_matches += 1
 				main.save_data.stats.ai_wins += 1 if winner == main.own_side else 0
 				main.save_data.stats.ai_losses += 1 if winner != main.own_side and winner != 2 else 0
@@ -128,6 +128,8 @@ static func _show_result(main, winner: int) -> void:
 			note.text = Localization.text("이 결과는 전적에 기록되지 않는 실험입니다.") if branch else (Localization.text("고스트를 이겼습니다! 전적에는 기록되지 않습니다.") if winner == main.own_side else Localization.text("고스트에게 졌습니다. 다시 도전해 보세요."))
 		elif not main.daily_challenge.is_empty():
 			note.text = DailyChallenge.result_note(main.daily_challenge, main.save_data, winner == main.own_side)
+		elif not main.draft_context.is_empty():
+			note.text = Localization.text("드래프트 승리! 전적에는 기록되지 않습니다.") if winner == main.own_side else Localization.text("드래프트에서 졌습니다. 다시 뽑아 도전해 보세요.")
 	else:
 		note.text = "같은 방에서 덱을 바꾸고 다시 대전할 수 있습니다." if not main.network.client_session.is_empty() else Localization.text("두 플레이어가 모두 준비하면 다시 시작합니다.")
 	note.position = Vector2(0, 160)
@@ -193,8 +195,10 @@ static func _show_result(main, winner: int) -> void:
 		rematch.disabled = true
 		if main.local_ai_mode and not main.ghost_context.is_empty():
 			main._restart_context()
+		elif main.local_ai_mode and not main.draft_context.is_empty():
+			main._build_draft_screen(int(main.draft_context.stage))
 		elif main.local_ai_mode and not main.daily_challenge.is_empty():
-			main._start_daily_challenge()
+			main._start_daily_challenge(String(main.daily_challenge.get("period", "daily")))
 		elif main.local_ai_mode:
 			main._start_local_ai_battle(main.current_ai_stage, true)
 		elif not main.network.client_session.is_empty():
@@ -219,7 +223,7 @@ static func _show_result(main, winner: int) -> void:
 	back.size = Vector2(165 if advances else 215, 58)
 	if main.local_ai_mode and not main.ghost_context.is_empty():
 		back.pressed.connect(main._build_replay_list)
-	elif main.local_ai_mode and not main.daily_challenge.is_empty():
+	elif main.local_ai_mode and (not main.daily_challenge.is_empty() or not main.draft_context.is_empty()):
 		back.pressed.connect(main._build_connect_screen)
 	elif main.local_ai_mode:
 		back.pressed.connect(main._build_ai_stage_screen.bind(main.campaign_mode))
@@ -335,7 +339,7 @@ static func _match_strip(main, winner: int, at: Vector2, width: float) -> Contro
 ## Queues the finished solo battle for the community statistics (only when the player opted in) and sends
 ## it right away when a server connection happens to be open.
 static func _share_result(main, winner: int) -> void:
-	if not main.local_ai_mode or not main.ghost_context.is_empty() or not is_instance_valid(main.local_model) or not MetaStats.sharing(main.save_data):
+	if not main.local_ai_mode or not main.ghost_context.is_empty() or not main.draft_context.is_empty() or not is_instance_valid(main.local_model) or not MetaStats.sharing(main.save_data):
 		return
 	var mode := "daily" if not main.daily_challenge.is_empty() else ("campaign" if main.campaign_mode else ("practice" if not main.practice_used_tools else ""))
 	if mode == "":
@@ -344,8 +348,8 @@ static func _share_result(main, winner: int) -> void:
 	var result := 0 if winner == side else (2 if winner == 2 else 1)
 	MetaStats.queue_report(main.save_data, main.local_model.unit_decks[side], main.local_model.structure_decks[side], result, mode)
 	if mode == "daily" and result == 0:
-		var entry: Dictionary = main.save_data.daily.get(String(main.daily_challenge.key), {})
-		MetaStats.queue_daily(main.save_data, String(main.daily_challenge.key), int(entry.get("score", 0)), float(entry.get("seconds", 0.0)))
+		var entry: Dictionary = main.save_data.get(DailyChallenge.store_name(main.daily_challenge), {}).get(String(main.daily_challenge.key), {})
+		MetaStats.queue_daily(main.save_data, DailyChallenge.board_key(main.daily_challenge), int(entry.get("score", 0)), float(entry.get("seconds", 0.0)))
 	MetaStats.flush(main.save_data, main.network)
 
 static func _judge_achievements(main, winner: int) -> Array:
@@ -356,6 +360,8 @@ static func _judge_achievements(main, winner: int) -> Array:
 		mode = "ghost" if String(main.ghost_context.mode) == "ghost" else ""
 	elif not main.daily_challenge.is_empty():
 		mode = "daily"
+	elif not main.draft_context.is_empty():
+		mode = "draft"
 	elif main.campaign_mode:
 		mode = "campaign"
 	elif not main.practice_used_tools:
@@ -363,7 +369,7 @@ static func _judge_achievements(main, winner: int) -> Array:
 	if mode == "":
 		return []
 	var won: bool = winner == main.own_side
-	if mode != "ghost":
+	if mode != "ghost" and mode != "draft":
 		Achievements.record_outcome(main.save_data, won, not won and winner != 2)
 	var snapshot: Dictionary = main.current_snapshot
 	var reports: Array = snapshot.get("battle_report", [{}, {}])
@@ -373,7 +379,7 @@ static func _judge_achievements(main, winner: int) -> Array:
 		"own_base": float(snapshot.get("base_hp", [0.0, 0.0])[main.own_side]),
 		"own_base_max": float(snapshot.get("base_max_hp", [500.0, 500.0])[main.own_side]),
 		"structures_built": int(own.get("structures_built", 0)), "kills": int(own.get("kills", 0)),
-		"curve": main.battle_curve, "own_side": main.own_side})
+		"curve": main.battle_curve, "own_side": main.own_side, "period": String(main.daily_challenge.get("period", "daily"))})
 
 static func _show_battle_report(main) -> void:
 	if not Report.valid(main.current_snapshot.get("battle_report",[])): return

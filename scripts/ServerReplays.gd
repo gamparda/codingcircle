@@ -9,6 +9,7 @@ var enabled := true
 var recorders: Dictionary = {}
 var saved_paths: Array = []
 var stats = null
+var shelf = null
 
 func begin(match_id: int, model: BattleModel, meta: Dictionary = {}) -> void:
 	if enabled:
@@ -34,7 +35,10 @@ func settle(match_id: int, model: BattleModel) -> void:
 	recorders.erase(match_id)
 	if stats != null:
 		stats.record_model(model)
-	var path := BattleReplay.save(recorder.finish(model), "match%d" % match_id)
+	var finished: Dictionary = recorder.finish(model)
+	if shelf != null:
+		shelf.add(BattleReplay.to_share_text(finished), true)
+	var path := BattleReplay.save(finished, "match%d" % match_id)
 	if path != "":
 		saved_paths.append(path)
 		print("REPLAY_SAVED match=%d path=%s" % [match_id, path])

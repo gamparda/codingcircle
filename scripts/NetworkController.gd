@@ -11,6 +11,8 @@ const ServerStats = preload("res://scripts/ServerStats.gd")
 const ServerDailyBoard = preload("res://scripts/ServerDailyBoard.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
+const ServerReplayShelf = preload("res://scripts/ServerReplayShelf.gd")
+const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const QuickQueue = preload("res://scripts/QuickQueue.gd")
 const SessionFlow = preload("res://scripts/net/SessionFlow.gd")
 const ReconnectFlow = preload("res://scripts/net/ReconnectFlow.gd")
@@ -20,6 +22,9 @@ signal connection_status(text: String)
 signal server_ready
 signal meta_stats_received(data: Dictionary)
 signal daily_board_received(data: Dictionary)
+signal replay_code_received(code: String)
+signal shared_replay_received(code: String, text: String)
+signal recent_replays_received(list: Array)
 signal match_found(side: int)
 signal snapshot_received(data: Dictionary)
 signal combat_events_received(events: Array)
@@ -76,6 +81,9 @@ var quick_queue := QuickQueue.new()
 var stats := ServerStats.new()
 var daily_board := ServerDailyBoard.new()
 var report_counts: Dictionary = {}
+var shelf := ServerReplayShelf.new()
+var upload_counts: Dictionary = {}
+const MAX_UPLOADS_PER_CONNECTION := 10
 const MAX_REPORTS_PER_CONNECTION := 40
 var rematch_ready: Dictionary:
 	get: return battle.rematch_ready
@@ -116,6 +124,7 @@ var client_phase_elapsed := 0.0
 
 func _ready() -> void:
 	replays.stats = stats
+	replays.shelf = shelf
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(_on_connected_to_server)
@@ -470,6 +479,7 @@ func _on_peer_disconnected(peer_id: int) -> void:
 		return
 	quick_queue.cancel(peer_id)
 	report_counts.erase(peer_id)
+	upload_counts.erase(peer_id)
 	var session_peer: bool = sessions.peer_to_room.has(peer_id)
 	if session_peer and sessions.suspend(peer_id,Time.get_ticks_msec()+int(RECONNECT_GRACE*1000)):
 		_push_session(sessions.peer_to_room[peer_id])
@@ -1024,6 +1034,7 @@ func receive_completed_snapshot(data: Dictionary) -> void:
 func configure_stats(directory: String) -> void:
 	stats.configure(directory)
 	daily_board.configure(directory)
+	shelf.configure(directory)
 	replays.stats = stats
 
 func client_is_online() -> bool:
@@ -1094,3 +1105,62 @@ func receive_daily_board(data: Dictionary) -> void:
 	if not MetaStats.valid_board(data): return
 	MetaStats.boards[String(data.date)] = data
 	daily_board_received.emit(data)
+
+# ---------- Replay codes and recent online battles ----------
+
+func send_replay_upload(text: String) -> void:
+	if client_is_online():
+		upload_replay.rpc_id(1, text)
+
+func send_replay_fetch(code: String) -> void:
+	if client_is_online():
+		fetch_replay.rpc_id(1, code)
+
+func send_recent_request() -> void:
+	if client_is_online():
+		request_recent_replays.rpc_id(1)
+
+## Shares a replay by code. Answers with the code, or "" when the text was refused.
+@rpc("any_peer", "call_remote", "reliable")
+func upload_replay(text: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	var code := ""
+	if text.length() <= ServerReplayShelf.MAX_TEXT and int(upload_counts.get(sender, 0)) < MAX_UPLOADS_PER_CONNECTION:
+		upload_counts[sender] = int(upload_counts.get(sender, 0)) + 1
+		code = shelf.add(text, false)
+	receive_replay_code.rpc_id(sender, code)
+
+@rpc("any_peer", "call_remote", "reliable")
+func fetch_replay(code: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	var normalized := code.strip_edges().to_upper()
+	receive_shared_replay.rpc_id(sender, normalized, shelf.text_for(normalized) if is_valid_room_code(normalized) else "")
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_recent_replays() -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	receive_recent_replays.rpc_id(sender, shelf.recent())
+
+@rpc("authority", "call_remote", "reliable")
+func receive_replay_code(code: String) -> void:
+	if code.is_empty() or is_valid_room_code(code):
+		replay_code_received.emit(code)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_shared_replay(code: String, text: String) -> void:
+	if is_valid_room_code(code) and text.length() <= BattleReplay.MAX_SHARE_CHARS:
+		shared_replay_received.emit(code, text)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_recent_replays(list: Array) -> void:
+	var clean: Array = []
+	for entry in list.slice(0, ServerReplayShelf.RECENT_LIMIT):
+		if entry is Dictionary and entry.get("code") is String and is_valid_room_code(entry.code) and entry.get("units") is Array and entry.units.size() == 2:
+			clean.append(entry)
+	recent_replays_received.emit(clean)

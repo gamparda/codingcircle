@@ -6,6 +6,7 @@ const UIKit = preload("res://scripts/ui/UIKit.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
 const DeckSimulatorPanel = preload("res://scripts/ui/DeckSimulatorPanel.gd")
+const MetaStats = preload("res://scripts/MetaStats.gd")
 const DECK_SCREEN := preload("res://scenes/ui/DeckScreen.tscn")
 
 static func _build_deck_screen(main, preset_index: int = -1) -> void:
@@ -42,6 +43,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_dress_card(card, UIKit.UNIT_COLORS[kind], kind, true)
+		_add_community_chip(card, "units", kind)
 		unit_buttons[kind] = card
 		unit_row.add_child(card)
 	var structure_grid: GridContainer = choices.get_node("DeckStructureGrid")
@@ -64,8 +66,15 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_dress_card(card, Color("#3ec6b0"), kind, false)
+		_add_community_chip(card, "structures", kind)
 		structure_buttons[kind] = card
 		structure_grid.add_child(card)
+	main.network.send_stats_request([])
+	var refresh_chips := func(_data):
+		for chip in choices.find_children("CommunityChip", "Label", true, false):
+			chip.text = Localization.text(MetaStats.kind_text(String(chip.get_meta("group")), String(chip.get_meta("kind"))))
+	main.network.meta_stats_received.connect(refresh_chips)
+	choices.tree_exited.connect(func(): if main.network.meta_stats_received.is_connected(refresh_chips): main.network.meta_stats_received.disconnect(refresh_chips))
 	choices.resized.connect(func():
 		var row_gap := float(unit_row.get_theme_constant("v_separation"))
 		var group_gap := float(choices.get_theme_constant("separation"))
@@ -119,6 +128,24 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	UIKit.style_button(back, Color("#697386"), false, 16)
 	back.text = Localization.text("취소")
 	back.pressed.connect(main._build_connect_screen)
+
+## Small caption in the card corner: how often online players pick this kind and how often they win with it.
+static func _add_community_chip(card: Button, group: String, kind: String) -> void:
+	var chip := Label.new()
+	chip.name = "CommunityChip"
+	chip.set_meta("group", group)
+	chip.set_meta("kind", kind)
+	chip.text = Localization.text(MetaStats.kind_text(group, kind))
+	chip.add_theme_font_size_override("font_size", 11)
+	chip.add_theme_color_override("font_color", UIKit.TEAL)
+	chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(chip)
+	var place := func():
+		chip.size = Vector2(card.size.x - 100.0, 16.0)
+		chip.position = Vector2(92.0, card.size.y - 20.0)
+	card.resized.connect(place)
+	place.call()
 
 static func _configure_deck_card(main, card: Button, base_text: String, color: Color, selected: bool) -> void:
 	card.toggle_mode = true

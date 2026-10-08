@@ -93,11 +93,11 @@ func run() -> void:
 		MetaStats.queue_report(save, deck_a, structures, 1, "practice")
 	check(save.pending_reports.size() == MetaStats.MAX_PENDING, "the queue is bounded")
 	MetaStats.queue_daily(save, today, 900, 80.0)
-	check(not MetaStats.queue_daily(save, today, 800, 60.0) and MetaStats.queue_daily(save, today, 1000, 90.0) and save.pending_daily.score == 1000, "only the best unsent daily score is kept")
+	check(not MetaStats.queue_daily(save, today, 800, 60.0) and MetaStats.queue_daily(save, today, 1000, 90.0) and save.pending_daily[today].score == 1000, "only the best unsent daily score is kept")
 	var id := MetaStats.install_id(save)
 	check(ServerDailyBoard.valid_id(id) and MetaStats.install_id(save) == id, "the install id is stable and well-formed")
 	var stored := SaveData.sanitize(JSON.parse_string(JSON.stringify(save)))
-	check(stored.install_id == id and stored.pending_reports.size() == MetaStats.MAX_PENDING and stored.pending_daily.score == 1000 and stored.settings.share_results, "queue and opt-in survive saving")
+	check(stored.install_id == id and stored.pending_reports.size() == MetaStats.MAX_PENDING and stored.pending_daily[today].score == 1000 and stored.settings.share_results, "queue and opt-in survive saving")
 	var junk := SaveData.sanitize({"install_id": "nope", "pending_reports": [{"units": ["a"], "structures": [], "result": 0, "mode": "campaign"}, 5], "pending_daily": {"date": "x"}})
 	check(junk.install_id == "" and junk.pending_reports.is_empty() and junk.pending_daily.is_empty() and not junk.settings.share_results, "junk is dropped and sharing defaults to off")
 
@@ -143,6 +143,18 @@ func run() -> void:
 	check(main.find_child("GlobalDeckStats", true, false) != null and main.find_child("ShareResultsToggle", true, false) != null, "deck analysis shows the community card and the switch")
 	main.network.meta_stats_received.emit(MetaStats.current())
 	await process_frame
+	# Unit and structure statistics on the deck screen.
+	var kind_snapshot := stats.snapshot()
+	kind_snapshot.ruleset = ServerStats.ruleset_id()
+	MetaStats.snapshot = {}
+	MetaStats.store(kind_snapshot)
+	var any_kind := "berserker"
+	check(MetaStats.kind_text("units", any_kind).begins_with("선택 ") and MetaStats.kind_text("units", "nope") == "", "kind text shows pick and win rate, empty for unknown kinds")
+	main._build_deck_screen()
+	await process_frame
+	var chips: Array = main.find_children("CommunityChip", "Label", true, false)
+	check(chips.size() == BattleModel.UNIT_STATS.size() + BattleModel.STRUCTURE_STATS.size(), "every deck card has a community chip")
+	check(chips.any(func(chip): return chip.text.begins_with("선택 ")), "chips show the statistics that were received")
 	BattleReplay.save_dir = "user://replays"
 	DirAccess.remove_absolute("user://community_stats_test_replays")
 	for name in DirAccess.get_files_at(dir):

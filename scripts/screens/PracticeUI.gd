@@ -8,18 +8,24 @@ const Localization = preload("res://scripts/Localization.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 const MetaStatsUI = preload("res://scripts/screens/MetaStatsUI.gd")
 
-## Today's challenge: decks, rule twist, best score and day streak, then "도전 시작".
-static func _show_daily_brief(main) -> void:
-	var key := DailyChallenge.date_key()
-	var challenge := DailyChallenge.for_date(key)
-	var modifier := DailyChallenge.modifier_info(String(challenge.modifier))
-	var column = main._action_panel("일일 도전  ·  %s-%s-%s" % [key.substr(0, 4), key.substr(4, 2), key.substr(6, 2)], Rect2(200, 30, 880, 660))
-	var twist := MultiplayerUI.label("%s  ·  %s" % [Localization.text(String(modifier.name)), Localization.text(String(modifier.desc))], 19, MultiplayerUI.GOLD)
+## Today's (or this week's) challenge: decks, rule twists, best score, the leaderboard, then "도전 시작".
+static func _show_daily_brief(main, period: String = "daily") -> void:
+	var challenge := DailyChallenge.current(period)
+	var key := String(challenge.key)
+	var weekly := DailyChallenge.is_weekly(challenge)
+	var board_key := DailyChallenge.board_key(challenge)
+	var stamp := "%s-%s-%s" % [key.substr(0, 4), key.substr(4, 2), key.substr(6, 2)]
+	var column = main._action_panel(("주간 도전  ·  %s 주" if weekly else "일일 도전  ·  %s") % stamp, Rect2(200, 30, 880, 660))
+	var twist_lines := PackedStringArray()
+	for id in DailyChallenge.modifier_ids(challenge):
+		var info := DailyChallenge.modifier_info(String(id))
+		twist_lines.append("%s  ·  %s" % [Localization.text(String(info.name)), Localization.text(String(info.desc))])
+	var twist := MultiplayerUI.label("\n".join(twist_lines), 19, MultiplayerUI.GOLD)
 	twist.name = "DailyModifier"
 	twist.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(twist)
 	column.add_child(MultiplayerUI.label(Localization.text("상대: %02d단계 %s AI") % [DailyChallenge.effective_stage(challenge), ServerAI.stage_name(DailyChallenge.effective_stage(challenge))], 15))
-	column.add_child(MultiplayerUI.label("오늘의 고정 덱", 14, MultiplayerUI.GOLD))
+	column.add_child(MultiplayerUI.label("이번 주의 고정 덱" if weekly else "오늘의 고정 덱", 14, MultiplayerUI.GOLD))
 	var icons := HBoxContainer.new()
 	icons.name = "DailyDeck"
 	icons.add_theme_constant_override("separation", 12)
@@ -41,8 +47,10 @@ static func _show_daily_brief(main) -> void:
 	for kind in challenge.structures:
 		structure_names.append({"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}.get(kind, kind))
 	column.add_child(MultiplayerUI.label(Localization.text("구조물: %s") % " · ".join(structure_names), 14, MultiplayerUI.MUTED))
-	var entry: Dictionary = main.save_data.get("daily", {}).get(key, {})
-	var best := MultiplayerUI.label(Localization.text("오늘의 최고 점수 %d점%s  ·  연속 %d일") % [int(entry.get("score", 0)), " ✓" if bool(entry.get("won", false)) else "", DailyChallenge.streak(main.save_data, key)], 15, MultiplayerUI.GOLD)
+	var entry: Dictionary = main.save_data.get(DailyChallenge.store_name(challenge), {}).get(key, {})
+	var mark := " ✓" if bool(entry.get("won", false)) else ""
+	var best_text := Localization.text("이번 주 최고 점수 %d점%s") % [int(entry.get("score", 0)), mark] if weekly else Localization.text("오늘의 최고 점수 %d점%s  ·  연속 %d일") % [int(entry.get("score", 0)), mark, DailyChallenge.streak(main.save_data, key)]
+	var best := MultiplayerUI.label(best_text, 15, MultiplayerUI.GOLD)
 	best.name = "DailyBest"
 	column.add_child(best)
 	column.add_child(MultiplayerUI.label("승리하면 점수를 받습니다. 남은 기지 체력이 많고 빠를수록 높습니다. 전투는 리플레이로 저장되어 공유할 수 있습니다.", 12, MultiplayerUI.MUTED))
@@ -50,15 +58,15 @@ static func _show_daily_brief(main) -> void:
 	board_box.name = "DailyBoardRows"
 	board_box.add_theme_constant_override("separation", 3)
 	column.add_child(board_box)
-	MetaStatsUI.fill_board(board_box, key)
+	MetaStatsUI.fill_board(board_box, board_key)
 	var refresh := func(data: Dictionary):
-		if is_instance_valid(board_box) and String(data.date) == key:
-			MetaStatsUI.fill_board(board_box, key)
+		if is_instance_valid(board_box) and String(data.date) == board_key:
+			MetaStatsUI.fill_board(board_box, board_key)
 	main.network.daily_board_received.connect(refresh)
 	board_box.tree_exited.connect(func(): if main.network.daily_board_received.is_connected(refresh): main.network.daily_board_received.disconnect(refresh))
-	main.network.send_daily_board_request(key, MetaStats.install_id(main.save_data) if MetaStats.sharing(main.save_data) else "")
+	main.network.send_daily_board_request(board_key, MetaStats.install_id(main.save_data) if MetaStats.sharing(main.save_data) else "")
 	column.add_child(MetaStatsUI.share_toggle(main))
-	MultiplayerUI.button(main, column, "도전 시작", "StartDailyChallenge", func(): main._dismiss_action_overlay(); main._start_daily_challenge(), true)
+	MultiplayerUI.button(main, column, "도전 시작", "StartDailyChallenge", func(): main._dismiss_action_overlay(); main._start_daily_challenge(period), true)
 	MultiplayerUI.button(main, column, "돌아가기", "CloseDailyBrief", main._dismiss_action_overlay)
 
 static func _show_stage_brief(main, stage: int) -> void:

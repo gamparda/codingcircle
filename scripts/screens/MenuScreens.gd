@@ -7,6 +7,7 @@ const PracticeTools = preload("res://scripts/PracticeTools.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const Achievements = preload("res://scripts/Achievements.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
+const NewFeatures = preload("res://scripts/NewFeatures.gd")
 const HeroShowcase = preload("res://scripts/ui/HeroShowcase.gd")
 const SUBMENU_FRAME := preload("res://scenes/ui/SubMenuFrame.tscn")
 const PATCH_NOTES_SCREEN := preload("res://scenes/ui/PatchNotesScreen.tscn")
@@ -129,6 +130,20 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	daily_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	daily_button.pressed.connect(main._show_daily_brief)
 	ai_row.add_child(daily_button)
+	var week := DailyChallenge.week_key()
+	var done_week: bool = bool(main.save_data.get("weekly", {}).get(week, {}).get("won", false))
+	var weekly_button = main._styled_button(Localization.text("주간 도전") + ("  ✓" if done_week else ""), UIKit.GOLD_DEEP, false)
+	weekly_button.name = "WeeklyButton"
+	weekly_button.custom_minimum_size.y = 56
+	weekly_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	weekly_button.pressed.connect(func(): main._show_daily_brief("weekly"))
+	ai_row.add_child(weekly_button)
+	var draft_button = main._styled_button(Localization.text("드래프트"), Color("#8f7bd6"), false)
+	draft_button.name = "DraftButton"
+	draft_button.custom_minimum_size.y = 56
+	draft_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	draft_button.pressed.connect(func(): main._build_draft_screen())
+	ai_row.add_child(draft_button)
 	var management_row := HBoxContainer.new()
 	management_row.add_theme_constant_override("separation", 10)
 	column.add_child(management_row)
@@ -159,6 +174,8 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	patch_notes.add_theme_font_size_override("font_size", 14)
 	patch_notes.pressed.connect(main._build_patch_notes_screen)
 	main.root_background.add_child(patch_notes)
+	NewFeatures.decorate(main, column)
+	NewFeatures.add_chip(main)
 	main.updater.set_safe_to_update(true)
 	main.updater.check_for_update()
 

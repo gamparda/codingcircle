@@ -24,12 +24,14 @@ static func describe(replay: Dictionary) -> Dictionary:
 	elif mode == "practice":
 		title = "연습 %d단계" % int(meta.get("stage", 1))
 	elif mode == "daily":
-		title = "일일 도전 %s" % String(meta.get("date", ""))
+		title = ("주간 도전 %s" if String(meta.get("period", "daily")) == "weekly" else "일일 도전 %s") % String(meta.get("date", ""))
+	elif mode == "draft":
+		title = "드래프트 %d단계" % int(meta.get("stage", 1))
 	elif mode == "quick":
 		title = "빠른 대전"
 	var winner := int(result.get("winner", -1))
 	var outcome := "무승부"
-	if mode == "campaign" or mode == "practice" or mode == "daily":
+	if mode == "campaign" or mode == "practice" or mode == "daily" or mode == "draft":
 		outcome = "승리" if winner == 0 else ("패배" if winner == 1 else "무승부")
 	else:
 		outcome = "블루 승" if winner == 0 else ("레드 승" if winner == 1 else "무승부")
@@ -37,7 +39,7 @@ static func describe(replay: Dictionary) -> Dictionary:
 	if not clip.is_empty():
 		title = "클립 ▸ %s" % String(clip.get("title", title))
 	var seconds := int(float(result.get("elapsed", 0.0)))
-	return {"title": title, "outcome": outcome, "winner": winner, "duration": "%02d:%02d" % [seconds / 60, seconds % 60]}
+	return {"title": title, "outcome": outcome, "winner": winner, "duration": "%02d:%02d" % [seconds / 60, seconds % 60], "notes": BattleReplay.notes_of(replay).size()}
 
 static func _stamp(path: String) -> String:
 	var file := path.get_file()
@@ -94,6 +96,20 @@ static func _build_replay_list(main) -> void:
 	UIKit.style_button(analysis_button, UIKit.GOLD_DEEP, false, 16)
 	column.get_node("Footer").add_child(analysis_button)
 	analysis_button.pressed.connect(func(): _show_deck_analysis(main))
+	var code_button := Button.new()
+	code_button.name = "OpenByCodeButton"
+	code_button.text = Localization.text("코드로 열기")
+	code_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UIKit.style_button(code_button, UIKit.TEAL, false, 16)
+	column.get_node("Footer").add_child(code_button)
+	code_button.pressed.connect(func(): _show_code_dialog(main))
+	var recent_button := Button.new()
+	recent_button.name = "RecentBattlesButton"
+	recent_button.text = Localization.text("최근 온라인 전투")
+	recent_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UIKit.style_button(recent_button, UIKit.ACCENT, false, 16)
+	column.get_node("Footer").add_child(recent_button)
+	recent_button.pressed.connect(func(): _show_recent_battles(main))
 
 ## Overlay with one row per deck I have played: record, average length, hardest stage and advice.
 static func _show_deck_analysis(main) -> void:
@@ -222,6 +238,8 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	row.add_child(text)
 	var title := Label.new()
 	title.text = "%s  ·  %s" % [Localization.text(String(info.title)), info.duration]
+	if int(info.notes) > 0:
+		title.text += Localization.text("  ·  메모 %d개") % int(info.notes)
 	title.add_theme_font_size_override("font_size", 18)
 	text.add_child(title)
 	var stamp := Label.new()
@@ -259,6 +277,21 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 		ghost.tooltip_text = Localization.text("이 리플레이의 상대 플레이어를 고스트로 두고 직접 싸워 봅니다")
 		ghost.pressed.connect(main._start_ghost_battle.bind(replay))
 		row.add_child(ghost)
+	var code_share = main._styled_button("코드", UIKit.ACCENT, false)
+	code_share.name = "ShareCodeButton"
+	code_share.custom_minimum_size = Vector2(80, 46)
+	code_share.tooltip_text = Localization.text("서버에 올리고 6자리 코드로 공유합니다 (서버에 접속해 있어야 합니다)")
+	code_share.pressed.connect(func():
+		if not main.network.client_is_online():
+			code_share.text = "접속 필요"
+			return
+		code_share.text = "..."
+		main.network.replay_code_received.connect(func(code):
+			code_share.text = code if not code.is_empty() else "실패"
+			if not code.is_empty():
+				DisplayServer.clipboard_set(code), CONNECT_ONE_SHOT)
+		main.network.send_replay_upload(BattleReplay.to_share_text(replay)))
+	row.add_child(code_share)
 	var share = main._styled_button("복사", UIKit.TEAL, false)
 	share.name = "ShareReplayButton"
 	share.custom_minimum_size = Vector2(80, 46)
@@ -274,6 +307,109 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 		DirAccess.remove_absolute(path)
 		main._build_replay_list())
 	row.add_child(delete)
+	return card
+
+## Asks for a six-letter code and plays the replay it names.
+static func _show_code_dialog(main) -> void:
+	var dialog = main._action_panel("코드로 열기", Rect2(340, 190, 600, 320))
+	dialog.add_child(MultiplayerUI.label("공유받은 6자리 코드를 입력하세요. 서버에 접속해 있어야 합니다.", 14, MultiplayerUI.MUTED))
+	var input := LineEdit.new()
+	input.name = "ReplayCodeInput"
+	input.max_length = 6
+	input.placeholder_text = "ABC234"
+	input.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	input.add_theme_font_size_override("font_size", 28)
+	input.text_changed.connect(func(text): input.text = text.to_upper(); input.caret_column = input.text.length())
+	dialog.add_child(input)
+	var status := MultiplayerUI.label("", 14, MultiplayerUI.GOLD)
+	status.name = "ReplayCodeStatus"
+	dialog.add_child(status)
+	var open_code := func():
+		if not main.network.client_is_online():
+			status.text = Localization.text("서버에 접속한 상태에서만 열 수 있습니다.")
+			return
+		status.text = Localization.text("불러오는 중...")
+		main.network.send_replay_fetch(input.text)
+	input.text_submitted.connect(func(_text): open_code.call())
+	var on_result := func(code: String, text: String):
+		if not is_instance_valid(status):
+			return
+		var replay := BattleReplay.from_share_text(text)
+		if replay.is_empty():
+			status.text = Localization.text("%s 코드의 리플레이를 찾을 수 없습니다.") % code
+			return
+		main._dismiss_action_overlay()
+		_play_replay_data(main, replay)
+	main.network.shared_replay_received.connect(on_result)
+	dialog.tree_exited.connect(func(): if main.network.shared_replay_received.is_connected(on_result): main.network.shared_replay_received.disconnect(on_result))
+	MultiplayerUI.button(main, dialog, "열기", "OpenReplayCode", open_code, true)
+	MultiplayerUI.button(main, dialog, "닫기", "CloseReplayCode", main._dismiss_action_overlay)
+
+## Lists the most recent online matches the server has shelved; each can be watched directly.
+static func _show_recent_battles(main) -> void:
+	var dialog = main._action_panel("최근 온라인 전투", Rect2(190, 60, 900, 600))
+	var status := MultiplayerUI.label("", 14, MultiplayerUI.GOLD)
+	status.name = "RecentBattlesStatus"
+	dialog.add_child(status)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	dialog.add_child(scroll)
+	var rows := VBoxContainer.new()
+	rows.name = "RecentBattleRows"
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rows.add_theme_constant_override("separation", 8)
+	scroll.add_child(rows)
+	var show_list := func(list: Array):
+		if not is_instance_valid(rows):
+			return
+		for child in rows.get_children():
+			child.queue_free()
+		status.text = "" if not list.is_empty() else Localization.text("아직 기록된 온라인 전투가 없습니다.")
+		for entry in list:
+			rows.add_child(_recent_row(main, entry))
+	if main.network.client_is_online():
+		status.text = Localization.text("불러오는 중...")
+		main.network.recent_replays_received.connect(show_list, CONNECT_ONE_SHOT)
+		main.network.send_recent_request()
+	else:
+		status.text = Localization.text("서버에 접속한 상태에서만 볼 수 있습니다.")
+	MultiplayerUI.button(main, dialog, "닫기", "CloseRecentBattles", main._dismiss_action_overlay)
+
+static func _recent_row(main, entry: Dictionary) -> Control:
+	var card := PanelContainer.new()
+	card.name = "RecentBattleRow"
+	card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE, UIKit.EDGE_SOFT, 12, 1.0, 0.3, Color(0, 0, 0, 0), 0.08), 14, 8))
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 12)
+	card.add_child(line)
+	var winner := int(entry.get("winner", -1))
+	var seconds := int(entry.get("ticks", 0)) / BattleReplay.DEFAULT_HZ
+	var text := Label.new()
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.text = "%s  ·  %02d:%02d  ·  %s vs %s" % [Localization.text("블루 승" if winner == 0 else ("레드 승" if winner == 1 else "무승부")), seconds / 60, seconds % 60,
+		" ".join(PackedStringArray(entry.units[0].map(func(kind): return String(BattleModel.UNIT_NAMES.get(kind, kind))))),
+		" ".join(PackedStringArray(entry.units[1].map(func(kind): return String(BattleModel.UNIT_NAMES.get(kind, kind)))))]
+	text.add_theme_font_size_override("font_size", 14)
+	line.add_child(text)
+	var code := Label.new()
+	code.text = String(entry.code)
+	code.add_theme_color_override("font_color", UIKit.GOLD)
+	line.add_child(code)
+	var watch = main._styled_button("보기", UIKit.ACCENT, true)
+	watch.name = "WatchRecentBattle"
+	watch.custom_minimum_size = Vector2(90, 40)
+	watch.pressed.connect(func():
+		watch.text = "..."
+		main.network.shared_replay_received.connect(func(_code, replay_text):
+			var replay := BattleReplay.from_share_text(replay_text)
+			if replay.is_empty():
+				watch.text = "실패"
+				return
+			main._dismiss_action_overlay()
+			_play_replay_data(main, replay), CONNECT_ONE_SHOT)
+		main.network.send_replay_fetch(String(entry.code)))
+	line.add_child(watch)
 	return card
 
 ## Saves a pasted share text as a replay. Returns the message to show the player.
@@ -295,11 +431,18 @@ static func import_text(main, text: String) -> String:
 		status.text = message
 	return message
 
+## Plays replay data that has no file behind it (fetched by code); notes made there are not stored.
+static func _play_replay_data(main, replay: Dictionary) -> void:
+	_open_viewer(main, replay, "")
+
 static func _play_replay(main, path: String) -> void:
 	var replay := BattleReplay.load_file(path)
 	if replay.is_empty():
 		main._build_replay_list()
 		return
+	_open_viewer(main, replay, path)
+
+static func _open_viewer(main, replay: Dictionary, path: String) -> void:
 	main.battle_active = false
 	main._clear_screen()
 	main.root_background = main._make_background()
@@ -308,5 +451,7 @@ static func _play_replay(main, path: String) -> void:
 	viewer.open(replay, "%s  ·  %s" % [Localization.text(String(info.title)), info.duration])
 	viewer.closed.connect(func(): main._build_replay_list())
 	viewer.branch_requested.connect(func(tick): main._start_branch_battle(replay, tick))
+	if path != "":
+		viewer.notes_changed.connect(func(updated): BattleReplay.write_file(path, updated))
 	main.root_background.add_child(viewer)
 	main.replay_viewer = viewer

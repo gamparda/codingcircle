@@ -28,7 +28,12 @@ func configure(directory: String) -> void:
 	dirty = false
 
 static func _valid_date(date: String) -> bool:
-	return date.length() == 8 and date.is_valid_int()
+	return valid_date(date)
+
+## "YYYYMMDD" for a daily board, "wYYYYMMDD" (the Monday) for a weekly one.
+static func valid_date(date: String) -> bool:
+	var digits := date.trim_prefix("w")
+	return digits.length() == 8 and digits.is_valid_int() and date.length() <= 9
 
 static func valid_id(value: String) -> bool:
 	if value.length() != 32:
@@ -42,8 +47,10 @@ static func valid_id(value: String) -> bool:
 static func accepts_date(date: String, today: String) -> bool:
 	if not _valid_date(date) or not _valid_date(today):
 		return false
-	var yesterday := DailyChallenge.date_key(DailyChallenge._to_unix(today) - 86400)
-	return date == today or date == yesterday
+	var now := DailyChallenge._to_unix(today)
+	if date.begins_with("w"):
+		return date == "w" + DailyChallenge.week_key(now) or date == "w" + DailyChallenge.week_key(now - 7 * 86400)
+	return date == today or date == DailyChallenge.date_key(now - 86400)
 
 func submit(date: String, id: String, nickname: String, score: int, seconds: float, today: String = "") -> bool:
 	var now_key := today if not today.is_empty() else DailyChallenge.date_key()
@@ -72,7 +79,7 @@ func submit(date: String, id: String, nickname: String, score: int, seconds: flo
 func _prune(today: String) -> void:
 	var cutoff := DailyChallenge.date_key(DailyChallenge._to_unix(today) - KEEP_DAYS * 86400)
 	for date in days.keys():
-		if String(date) < cutoff:
+		if String(date).trim_prefix("w") < cutoff:
 			days.erase(date)
 
 ## {"date", "total", "entries": [{nick, score, seconds}], "rank": 0 when not on the board, "mine": score}

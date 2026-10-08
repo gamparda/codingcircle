@@ -14,6 +14,8 @@ const DEFS := [
 	{"id": "veteran", "icon": "☗", "name": "온라인 단골", "desc": "온라인 전투 10판 완료하기"},
 	{"id": "star_collector", "icon": "✦", "name": "만점 지휘관", "desc": "캠페인 모든 단계에서 별 3개 받기"},
 	{"id": "daily_clear", "icon": "☀", "name": "오늘의 도전자", "desc": "일일 도전 승리하기"},
+	{"id": "weekly_clear", "icon": "☾", "name": "주간 도전자", "desc": "주간 도전 승리하기"},
+	{"id": "draft_win", "icon": "♟", "name": "드래프트 승자", "desc": "드래프트 대전에서 승리하기"},
 	{"id": "ghost_buster", "icon": "👻", "name": "고스트 격파", "desc": "고스트 대전에서 승리하기"},
 ]
 
@@ -65,7 +67,9 @@ static func evaluate(save: Dictionary, ctx: Dictionary, now: int = -1) -> Array:
 		"veteran": int(save.stats.get("online_completed", 0)) >= 10,
 		"star_collector": save.get("campaign_records", []).size() >= 8 and save.campaign_records.all(func(record): return int(record.best_stars) >= 3),
 		"daily_clear": won and mode == "daily",
+		"weekly_clear": won and mode == "daily" and String(ctx.get("period", "daily")) == "weekly",
 		"ghost_buster": won and mode == "ghost",
+		"draft_win": won and mode == "draft",
 	}
 	for id in checks:
 		if bool(checks[id]) and not save.achievements.has(id):

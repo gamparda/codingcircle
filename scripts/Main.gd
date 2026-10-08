@@ -7,6 +7,7 @@ const BattleFlow = preload("res://scripts/screens/BattleFlow.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const ReplayScreens = preload("res://scripts/screens/ReplayScreens.gd")
 const AchievementsScreen = preload("res://scripts/screens/AchievementsScreen.gd")
+const DraftScreen = preload("res://scripts/screens/DraftScreen.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
 const DeckScreen = preload("res://scripts/screens/DeckScreen.gd")
 const SettingsScreen = preload("res://scripts/screens/SettingsScreen.gd")
@@ -79,6 +80,9 @@ var replay_viewer = null
 var quick_wait_started_msec := 0
 var battle_curve: Array = []
 var ghost_context: Dictionary = {}   # {"mode": "ghost" | "branch", "replay": Dictionary, "tick": int}
+var finale_seconds := 1.4 # real seconds of base-collapse slow motion before the result; 0 disables it
+var finale_active := false
+var draft_context: Dictionary = {} # stage and decks while a drafted battle is running
 var daily_challenge: Dictionary = {} # today's challenge while a daily battle is running
 var curve_next_elapsed := 0.0
 var current_ai_stage := 1
@@ -144,6 +148,8 @@ var settings_touch_dragged := false
 var settings_touch_start := Vector2.ZERO
 
 func _ready() -> void:
+	if DisplayServer.get_name() == "headless":
+		finale_seconds = 0.0
 	theme = UIKit.build_theme()
 	if UIKit.is_touch():
 		get_tree().node_added.connect(_enlarge_for_touch)
@@ -351,7 +357,9 @@ func _on_server_ready() -> void:
 	SaveData.save_data(save_data)
 	network.send_stats_request([network.client_unit_deck])
 	var identity := MetaStats.install_id(save_data) if MetaStats.sharing(save_data) else ""
-	network.send_daily_board_request(preload("res://scripts/DailyChallenge.gd").date_key(), identity)
+	var daily := preload("res://scripts/DailyChallenge.gd")
+	network.send_daily_board_request(daily.date_key(), identity)
+	network.send_daily_board_request("w" + daily.week_key(), identity)
 
 func _update_server_lifecycle(delta: float) -> void:
 	if server_state_dir.is_empty():
@@ -551,14 +559,20 @@ func _enlarge_for_touch(node: Node) -> void:
 	elif node is Slider and is_ancestor_of(node):
 		(node as Slider).custom_minimum_size.y = maxf((node as Slider).custom_minimum_size.y, 44.0)
 
+func _build_draft_screen(stage: int = 3) -> void:
+	DraftScreen._build_draft_screen(self, stage)
+
+func _start_draft_battle(my_units: Array, enemy_units: Array, stage: int) -> void:
+	BattleFlow._start_draft_battle(self, my_units, enemy_units, stage)
+
 func _build_achievements_screen() -> void:
 	AchievementsScreen._build_achievements_screen(self)
 
-func _start_daily_challenge() -> void:
-	BattleFlow._start_daily_challenge(self)
+func _start_daily_challenge(period: String = "daily") -> void:
+	BattleFlow._start_daily_challenge(self, period)
 
-func _show_daily_brief() -> void:
-	PracticeUI._show_daily_brief(self)
+func _show_daily_brief(period: String = "daily") -> void:
+	PracticeUI._show_daily_brief(self, period)
 
 func _start_ghost_battle(replay: Dictionary) -> void:
 	BattleFlow._start_ghost_battle(self, replay)

@@ -10,6 +10,7 @@ const MARKER_COLORS := {"clash": Color("#ffd36a"), "structure": Color("#b9c2d6")
 
 var samples: Array = []
 var highlights: Array = []
+var notes: Array = []
 var total_ticks := 1
 var playhead := 0
 var _dragging := false
@@ -19,6 +20,10 @@ func setup(analysis: Dictionary) -> void:
 	highlights = analysis.get("highlights", [])
 	total_ticks = maxi(1, int(analysis.get("ticks", 1)))
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	queue_redraw()
+
+func set_notes(list: Array) -> void:
+	notes = list
 	queue_redraw()
 
 func set_playhead(tick: int) -> void:
@@ -66,6 +71,9 @@ func _draw() -> void:
 		draw_line(Vector2(hx, 2), Vector2(hx, size.y - 2), Color(color.r, color.g, color.b, 0.35), 1.0)
 		var diamond := PackedVector2Array([Vector2(hx, 3), Vector2(hx + 5, 8), Vector2(hx, 13), Vector2(hx - 5, 8)])
 		draw_colored_polygon(diamond, color)
+	for note in notes:
+		var nx := _x_for(int(note.t))
+		draw_colored_polygon(PackedVector2Array([Vector2(nx - 4, size.y - 2), Vector2(nx + 4, size.y - 2), Vector2(nx, size.y - 9)]), UIKit.TEAL)
 	var px := _x_for(playhead)
 	draw_line(Vector2(px, 0), Vector2(px, size.y), UIKit.GOLD, 2.0)
 	draw_circle(Vector2(px, mid), 4.0, UIKit.GOLD)
@@ -73,6 +81,12 @@ func _draw() -> void:
 func _fill(points: PackedVector2Array, color: Color) -> void:
 	if points.size() >= 3 and not Geometry2D.triangulate_polygon(points).is_empty():
 		draw_colored_polygon(points, color)
+
+func _note_at(x: float, tolerance: float = 7.0) -> Dictionary:
+	for note in notes:
+		if absf(_x_for(int(note.t)) - x) <= tolerance:
+			return note
+	return {}
 
 func nearest_highlight(x: float, tolerance: float = 9.0) -> Dictionary:
 	var best := {}
@@ -94,5 +108,7 @@ func _gui_input(event: InputEvent) -> void:
 		if _dragging:
 			seek_requested.emit(_tick_for(event.position.x))
 		var hovered := nearest_highlight(event.position.x)
-		highlight_hovered.emit(String(hovered.get("text", "")))
-		tooltip_text = String(hovered.get("text", ""))
+		var remark := _note_at(event.position.x)
+		var hover_text := String(hovered.get("text", "")) if not hovered.is_empty() else ("메모 ▸ " + String(remark.text) if not remark.is_empty() else "")
+		highlight_hovered.emit(hover_text)
+		tooltip_text = hover_text

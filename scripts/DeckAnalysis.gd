@@ -4,7 +4,7 @@ extends RefCounted
 
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const DeckSimulator = preload("res://scripts/DeckSimulator.gd")
-const OWN_MODES := ["campaign", "practice", "daily"]
+const OWN_MODES := ["campaign", "practice", "daily", "draft"]
 
 ## Rows sorted by games played (then win rate). Each row: deck, games, wins, losses, draws, win_rate,
 ## average_seconds, hardest_stage {stage, rate, games} or {}, tips.

@@ -93,6 +93,40 @@ func run() -> void:
 	check(server.daily_board.board(today, id).mine == 1100, "invalid submissions change nothing")
 	client.send_daily_board_request(today, id)
 	check(await wait_until(func(): return boards.size() >= 2), "the board can be requested")
+	# Replay codes and recent online battles.
+	var BattleReplay = load("res://scripts/BattleReplay.gd")
+	var model := BattleModel.new()
+	model.configure_deck(0, deck, structures)
+	model.configure_deck(1, ["berserker", "warlock", "necromancer"], structures)
+	server.replays.begin(77, model, {"mode": "room"})
+	for tick in 90:
+		if tick % 30 == 0 and model.spawn_unit(0, "swordsman"):
+			server.replays.on_spawn(77, 0, "swordsman")
+		model.tick(1.0 / 30.0)
+		server.replays.on_tick(77)
+	model.winner = 1
+	server.replays.settle(77, model)
+	for path in server.replays.saved_paths:
+		DirAccess.remove_absolute(path)
+	check(server.shelf.recent().size() == 1, "a finished online match is shelved automatically")
+	var recents := []
+	client.recent_replays_received.connect(func(list): recents.append(list))
+	client.send_recent_request()
+	check(await wait_until(func(): return not recents.is_empty()) and recents[0].size() == 1 and int(recents[0][0].winner) == 1, "the recent list reaches the client")
+	var fetched := []
+	client.shared_replay_received.connect(func(code, text): fetched.append([code, text]))
+	client.send_replay_fetch(String(recents[0][0].code).to_lower())
+	check(await wait_until(func(): return not fetched.is_empty()) and not BattleReplay.from_share_text(fetched[0][1]).is_empty(), "the replay can be fetched by code, in any letter case")
+	var codes := []
+	client.replay_code_received.connect(func(code): codes.append(code))
+	var mine: String = BattleReplay.to_share_text(BattleReplay.make_clip(BattleReplay.from_share_text(fetched[0][1]), 45, "내 클립"))
+	client.send_replay_upload(mine)
+	check(await wait_until(func(): return not codes.is_empty()) and codes[0].length() == 6, "an upload answers with a code")
+	check(server.shelf.recent().size() == 1, "uploads stay private")
+	client.send_replay_upload("garbage")
+	check(await wait_until(func(): return codes.size() == 2) and codes[1] == "", "bad uploads are refused")
+	client.send_replay_fetch("ZZZZZZ")
+	check(await wait_until(func(): return fetched.size() == 2) and fetched[1][1] == "", "unknown codes answer with nothing")
 	DirAccess.remove_absolute("user://community_wire_cache.json")
 	await finish(1 if failures > 0 else 0)
 

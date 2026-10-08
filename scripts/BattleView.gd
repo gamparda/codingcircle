@@ -88,10 +88,21 @@ var rage_states: Dictionary = {}
 var rage_flashes: Dictionary = {}
 var walk_times: Dictionary = {}
 var touch_preview_active := false
+var finale_world_side := -1
+var finale_age := 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_process(true)
+
+## The base of `world_loser` has fallen: it collapses with a burst of debris while the rest keeps playing.
+func start_finale(world_loser: int) -> void:
+	finale_world_side = world_loser
+	finale_age = 0.0
+	queue_redraw()
+
+func finale_active() -> bool:
+	return finale_world_side >= 0
 
 func set_snapshot(data: Dictionary) -> void:
 	if float(data.get("elapsed", 0.0)) < float(snapshot.get("elapsed", 0.0)):
@@ -177,6 +188,9 @@ func placement_error(kind: String, world_x: float) -> String:
 func _process(delta: float) -> void:
 	animation_time += delta
 	snapshot_age += delta
+	if finale_world_side >= 0:
+		finale_age += delta / maxf(0.05, Engine.time_scale) # real seconds, even in slow motion
+		queue_redraw()
 	motion.advance(delta)
 	for unit in snapshot.get("units", []):
 		if moving_units.get(unit.id, false):
@@ -243,6 +257,8 @@ func _draw() -> void:
 	if show_battle_effects or show_damage_numbers:
 		_draw_combat_events(scale_x, lane_y)
 
+	if finale_world_side >= 0:
+		_draw_finale(lane_y)
 	if not selected_structure.is_empty():
 		_draw_build_preview(lane_y)
 
@@ -341,6 +357,13 @@ func _draw_base(x: float, lane_y: float, side: int) -> void:
 	var color := BLUE if side == 0 else RED
 	var light := BLUE_LIGHT if side == 0 else RED_LIGHT
 	var facing := 1.0 if side == 0 else -1.0
+	var collapsing := finale_world_side >= 0 and side == display_side(finale_world_side)
+	if collapsing:
+		var progress := minf(finale_age / 1.2, 1.0)
+		var pivot := Vector2(x, lane_y)
+		var tilt := 0.22 * progress * -facing
+		var shake := Vector2(sin(finale_age * 70.0) * 4.0 * maxf(0.0, 1.0 - finale_age), 0.0)
+		draw_set_transform(pivot - Transform2D(tilt, Vector2.ZERO).basis_xform(pivot) + Vector2(0.0, 36.0 * progress) + shake, tilt, Vector2.ONE)
 	# Soft territory glow.
 	for i in 6:
 		draw_circle(Vector2(x, lane_y - 56.0), 100.0 - float(i) * 12.0, Color(color.r, color.g, color.b, 0.025 + float(i) * 0.012))
@@ -374,6 +397,24 @@ func _draw_base(x: float, lane_y: float, side: int) -> void:
 		Vector2(x + 46.0 * facing, lane_y - 132.0),
 		Vector2(x + 72.0 * facing, lane_y - 140.0 + wave)
 	]), color)
+	if collapsing:
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+## Debris, a shock ring and a white flash over the fallen base.
+func _draw_finale(lane_y: float) -> void:
+	var x := world_to_screen_x(BattleModel.FIELD_LEFT if finale_world_side == 0 else BattleModel.FIELD_RIGHT)
+	var centre := Vector2(x, lane_y - 52.0)
+	var fade := clampf(1.0 - finale_age / 1.3, 0.0, 1.0)
+	for i in 28:
+		var angle := float(i) * 0.7 + float(i % 3) * 0.4
+		var speed := 80.0 + float((i * 37) % 90)
+		var position := centre + Vector2(cos(angle) * speed * finale_age, sin(angle) * speed * finale_age + 150.0 * finale_age * finale_age)
+		var tone := Color("#ffd36a") if i % 3 == 0 else (Color("#ff8a4c") if i % 3 == 1 else Color("#d8deee"))
+		draw_rect(Rect2(position - Vector2(2.0 + float(i % 4), 2.0 + float(i % 4)), Vector2(4.0 + float(i % 4) * 2.0, 4.0 + float(i % 4) * 2.0)), Color(tone.r, tone.g, tone.b, fade))
+	draw_arc(centre, 24.0 + finale_age * 260.0, 0.0, TAU, 48, Color(1.0, 0.95, 0.8, 0.8 * fade), maxf(1.0, 8.0 * fade))
+	var flash := maxf(0.0, 0.5 - finale_age * 1.8)
+	if flash > 0.0:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(1, 1, 1, flash))
 
 func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	var x := world_to_screen_x(motion.position(int(unit.id), float(unit.x)))

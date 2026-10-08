@@ -6,12 +6,14 @@ const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
 const GhostOpponent = preload("res://scripts/GhostOpponent.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
+const DraftMatch = preload("res://scripts/DraftMatch.gd")
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
 const CombatSounds = preload("res://scripts/CombatSounds.gd")
 
 static func _start_local_ai_battle(main, stage: int = 1, reuse_deck: bool = false) -> void:
 	main.ghost_context = {}
 	main.daily_challenge = {}
+	main.draft_context = {}
 	main.local_ai_mode = true
 	main.practice.reset_battle_state()
 	main.practice_used_tools = not main.campaign_mode and (main.practice.unlimited or not main.practice.enemy_units.is_empty() or main.practice.speed!=1.0)
@@ -50,6 +52,7 @@ static func _start_local_ai_battle(main, stage: int = 1, reuse_deck: bool = fals
 static func _begin_scripted_battle(main, model: BattleModel, opponent, preset: Dictionary, context: Dictionary) -> void:
 	main.ghost_context = context
 	main.daily_challenge = {}
+	main.draft_context = {}
 	main.campaign_mode = false
 	main.local_ai_mode = true
 	main.practice.reset_battle_state()
@@ -96,10 +99,11 @@ static func _start_branch_battle(main, replay: Dictionary, tick: int) -> void:
 	_begin_scripted_battle(main, player.model, opponent, preset, {"mode": "branch", "replay": replay, "tick": player.ticks})
 
 ## Today's daily challenge: fixed decks and rule twist, recorded as a replay (mode "daily") and scored.
-static func _start_daily_challenge(main) -> void:
-	var challenge := DailyChallenge.for_date(DailyChallenge.date_key())
+static func _start_daily_challenge(main, period: String = "daily") -> void:
+	var challenge := DailyChallenge.current(period)
 	var setup := DailyChallenge.build(challenge)
 	main.ghost_context = {}
+	main.draft_context = {}
 	main.daily_challenge = challenge
 	main.campaign_mode = false
 	main.local_ai_mode = true
@@ -110,10 +114,33 @@ static func _start_daily_challenge(main) -> void:
 	main.own_side = 0
 	main.local_model = setup.model
 	main.local_ai = setup.ai
-	main.battle_preset = {"name": Localization.text("일일 도전"), "units": challenge.units.duplicate(), "structures": challenge.structures.duplicate()}
+	main.battle_preset = {"name": Localization.text("주간 도전" if DailyChallenge.is_weekly(challenge) else "일일 도전"), "units": challenge.units.duplicate(), "structures": challenge.structures.duplicate()}
 	main._build_battle_screen()
 	main.local_step_accumulator = 0.0
-	main.local_recorder = BattleReplay.Recorder.new(main.local_model, BattleReplay.DEFAULT_HZ, {"side": 1, "stage": int(setup.stage)}, {"mode": "daily", "stage": int(setup.stage), "date": String(challenge.key), "modifier": String(challenge.modifier)})
+	main.local_recorder = BattleReplay.Recorder.new(main.local_model, BattleReplay.DEFAULT_HZ, {"side": 1, "stage": int(setup.stage)}, {"mode": "daily", "stage": int(setup.stage), "date": String(challenge.key), "modifier": String(challenge.modifier), "period": String(challenge.get("period", "daily"))})
+	main._on_snapshot(main.local_model.snapshot())
+
+## A drafted battle: the player's drafted units and active structures against the AI's picks. Recorded as a
+## replay (mode "draft"), never counted in the statistics.
+static func _start_draft_battle(main, my_units: Array, enemy_units: Array, stage: int) -> void:
+	var structures: Array = main._active_preset().structures.duplicate()
+	var setup := DraftMatch.build(my_units, structures, enemy_units, ServerAI.stage_structure_deck(stage), stage)
+	main.ghost_context = {}
+	main.daily_challenge = {}
+	main.draft_context = {"stage": int(setup.stage), "units": my_units.duplicate(), "enemy_units": enemy_units.duplicate()}
+	main.campaign_mode = false
+	main.local_ai_mode = true
+	main.practice.reset_battle_state()
+	main.practice_used_tools = false
+	main.result_recorded = false
+	main.current_ai_stage = int(setup.stage)
+	main.own_side = 0
+	main.local_model = setup.model
+	main.local_ai = setup.ai
+	main.battle_preset = {"name": Localization.text("드래프트"), "units": my_units.duplicate(), "structures": structures}
+	main._build_battle_screen()
+	main.local_step_accumulator = 0.0
+	main.local_recorder = BattleReplay.Recorder.new(main.local_model, BattleReplay.DEFAULT_HZ, {"side": 1, "stage": int(setup.stage)}, {"mode": "draft", "stage": int(setup.stage)})
 	main._on_snapshot(main.local_model.snapshot())
 
 static func _restart_context(main) -> void:
@@ -211,11 +238,33 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 	main._update_base_warning(data)
 	var winner: int = int(data.get("winner", -1))
 	if winner != -1 and not main.result_shown:
-		main._show_result(winner)
+		if not _begin_finale(main, data, winner):
+			main._show_result(winner)
 	elif winner == -1 and main.result_shown:
 		main._dismiss_result_overlay()
 		main.result_recorded = false
 		main.updater.set_safe_to_update(false)
+
+const FINALE_TIME_SCALE := 0.35
+
+## When a base has actually been destroyed, let it collapse in slow motion before the result appears.
+## Returns true while the finale is still running (the caller must not show the result yet).
+static func _begin_finale(main, data: Dictionary, winner: int) -> bool:
+	if main.finale_active:
+		return true
+	if main.finale_seconds <= 0.0 or winner < 0 or winner > 1 or not is_instance_valid(main.battle_view):
+		return false
+	if float(data.get("base_hp", [1.0, 1.0])[1 - winner]) > 0.0:
+		return false # surrender or disconnect: nothing was destroyed
+	main.finale_active = true
+	main.battle_view.start_finale(1 - winner)
+	Engine.time_scale = FINALE_TIME_SCALE
+	main.get_tree().create_timer(main.finale_seconds, true, false, true).timeout.connect(func():
+		Engine.time_scale = 1.0
+		main.finale_active = false
+		if main.battle_active and not main.result_shown and is_instance_valid(main.battle_view):
+			main._show_result(int(main.current_snapshot.get("winner", winner))))
+	return true
 
 static func _on_rage_started(main, _unit_id: int) -> void:
 	if DisplayServer.get_name() == "headless" or bool(main.save_data.settings.muted): return

@@ -60,7 +60,7 @@ static func fill_board(box: VBoxContainer, date: String) -> void:
 	if board.is_empty():
 		box.add_child(_label(Localization.text("서버에 연결하면 오늘의 순위표를 볼 수 있습니다."), 13, UIKit.TEXT_MUTED))
 		return
-	box.add_child(_label(Localization.text("오늘의 순위표  ·  참가 %d명") % int(board.total), 13, UIKit.GOLD))
+	box.add_child(_label(Localization.text("이번 주 순위표  ·  참가 %d명" if date.begins_with("w") else "오늘의 순위표  ·  참가 %d명") % int(board.total), 13, UIKit.GOLD))
 	var rank := 0
 	for entry in board.entries.slice(0, 5):
 		rank += 1

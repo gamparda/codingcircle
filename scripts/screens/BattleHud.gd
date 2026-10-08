@@ -50,7 +50,7 @@ static func _build_battle_screen(main) -> void:
 	UIKit.display(main.timer_label, 30, UIKit.TEXT)
 	timer_inner.add_child(main.timer_label)
 	var mode_label := Label.new()
-	mode_label.text = Localization.text("고스트 대전") if main.local_ai_mode and String(main.ghost_context.get("mode", "")) == "ghost" else (Localization.text("되감기 실험") if main.local_ai_mode and String(main.ghost_context.get("mode", "")) == "branch" else "AI 단계 %02d" % main.current_ai_stage) if main.local_ai_mode else ("관전 중" if main.network.client_is_spectator else "온라인 대전")
+	mode_label.text = Localization.text("드래프트 대전") if main.local_ai_mode and not main.draft_context.is_empty() else Localization.text("고스트 대전") if main.local_ai_mode and String(main.ghost_context.get("mode", "")) == "ghost" else (Localization.text("되감기 실험") if main.local_ai_mode and String(main.ghost_context.get("mode", "")) == "branch" else "AI 단계 %02d" % main.current_ai_stage) if main.local_ai_mode else ("관전 중" if main.network.client_is_spectator else "온라인 대전")
 	mode_label.position = Vector2(0, 39)
 	mode_label.size = Vector2(220, 18)
 	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
