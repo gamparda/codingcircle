@@ -5,6 +5,7 @@ const Localization = preload("res://scripts/Localization.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
+const DataReset = preload("res://scripts/DataReset.gd")
 
 static func _build_settings_screen(main, mobile_layout_override: bool = false) -> void:
 	var outer = main._submenu(Localization.text("설정"), "변경 시 자동 저장")
@@ -117,6 +118,12 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 		effects.button_pressed = bool(profile.battle_effects)
 		intensity.value = float(profile.effect_intensity)
 	)
+	_add_settings_section(main, column, Localization.text("데이터"))
+	var reset_button = main._styled_button(Localization.text("데이터 전체 초기화"), Color("#8f3a4a"), false)
+	reset_button.name = "DataResetButton"
+	reset_button.tooltip_text = Localization.text("이 기기에 저장된 전적·덱·설정·리플레이를 모두 지웁니다")
+	reset_button.pressed.connect(func(): DataReset.show_confirm(main))
+	column.add_child(reset_button)
 	var save_button = main._styled_button(Localization.text("설정 저장"), Color("#5e6ad2"), true)
 	save_button.name = "SettingsSaveButton"
 	save_button.pressed.connect(func():

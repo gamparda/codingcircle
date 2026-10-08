@@ -43,6 +43,10 @@ Godot 4로 만든 1대1 자동 전투 + 전장 개조 게임입니다. 온라인
 - 메인 메뉴의 **일일 도전**은 매일 모두에게 같은 덱·AI 단계·규칙 변형을 주고 점수와 연속 클리어를 기록합니다.
 - 기록 화면의 **업적**에서 달성한 배지를 볼 수 있고, 덱 편성의 **덱 시뮬레이션**은 AI와 자동 전투를 돌려 승률과 약점을 알려 줍니다.
 
+**데이터 초기화**
+
+- 설정 화면 맨 아래의 **데이터 전체 초기화**는 이 기기에 저장된 전적·진행도·업적·덱·설정·리플레이·통계 캐시를 모두 지우고 처음 상태로 돌립니다. 지워지는 항목을 확인한 뒤 잠시 기다려야 삭제할 수 있고, 서버에 이미 올라간 기록은 지워지지 않습니다.
+
 **시작 목표와 라이브 전투 목록**
 
 - 메인 메뉴의 **시작 목표** 칩이 처음 해 볼 만한 일(첫 승리, 덱 만들기, 일일 도전, 드래프트, 리플레이 보기, 온라인 대전)을 체크리스트로 보여 주고 바로 이동하게 해 줍니다. 결과 화면에도 방금 달성한 목표와 다음 추천이 나옵니다.
@@ -121,7 +125,7 @@ Android 부트스트랩은 실행 직후 같은 메타데이터를 확인합니�
 버전은 **`release.json` 한 곳에서만** 고칩니다.
 
 ```json
-{ "content_version": "0.13.3", "windows_version": "0.13.3", "android_binary_version": "0.4.18", "update_url": "..." }
+{ "content_version": "0.14.0", "windows_version": "0.14.0", "android_binary_version": "0.4.18", "update_url": "..." }
 ```
 
 ```powershell
@@ -277,6 +281,7 @@ scripts/GhostOpponent.gd      리플레이 행동을 재현하는 고스트 상�
 scripts/DailyChallenge.gd     일일·주간 도전 생성·점수
 scripts/DraftMatch.gd         드래프트 규칙·AI 선택·전투 구성
 scripts/NewFeatures.gd        새 기능 안내와 NEW 표시
+scripts/DataReset.gd          데이터 전체 초기화
 scripts/Goals.gd              시작 목표 체크리스트
 scripts/ServerReplayShelf.gd  서버 리플레이 코드 보관함
 scripts/screens/DraftScreen.gd 드래프트 화면

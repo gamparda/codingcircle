@@ -62,7 +62,8 @@
     "tests/battle_finale_test.gd",
     "tests/live_room_ui_test.gd",
     "tests/goals_test.gd",
-    "tests/replay_viewer_plus_test.gd"
+    "tests/replay_viewer_plus_test.gd",
+    "tests/data_reset_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",
