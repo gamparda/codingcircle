@@ -125,6 +125,7 @@ static func _start_daily_challenge(main, period: String = "daily") -> void:
 static func _start_draft_battle(main, my_units: Array, enemy_units: Array, stage: int) -> void:
 	var structures: Array = main._active_preset().structures.duplicate()
 	var setup := DraftMatch.build(my_units, structures, enemy_units, ServerAI.stage_structure_deck(stage), stage)
+	preload("res://scripts/Goals.gd").mark(main.save_data, "draft")
 	main.ghost_context = {}
 	main.daily_challenge = {}
 	main.draft_context = {"stage": int(setup.stage), "units": my_units.duplicate(), "enemy_units": enemy_units.duplicate()}

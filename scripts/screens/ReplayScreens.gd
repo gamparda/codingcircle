@@ -443,6 +443,9 @@ static func _play_replay(main, path: String) -> void:
 	_open_viewer(main, replay, path)
 
 static func _open_viewer(main, replay: Dictionary, path: String) -> void:
+	if not main.save_data.is_empty():
+		preload("res://scripts/Goals.gd").mark(main.save_data, "watch_replay")
+		SaveData.save_data(main.save_data)
 	main.battle_active = false
 	main._clear_screen()
 	main.root_background = main._make_background()

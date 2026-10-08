@@ -89,6 +89,15 @@ var rage_flashes: Dictionary = {}
 var walk_times: Dictionary = {}
 var touch_preview_active := false
 var finale_world_side := -1
+## Replay-viewer extras, all inert unless `inspect_mode` is set: clicking a unit, wheel zoom, middle-drag pan.
+var inspect_mode := false
+var view_zoom := 1.0
+var view_offset := Vector2.ZERO
+var panning := false
+const ZOOM_MIN := 1.0
+const ZOOM_MAX := 3.0
+signal unit_clicked(unit: Dictionary)
+signal zoom_changed(zoom: float)
 var finale_age := 0.0
 
 func _ready() -> void:
@@ -100,6 +109,77 @@ func start_finale(world_loser: int) -> void:
 	finale_world_side = world_loser
 	finale_age = 0.0
 	queue_redraw()
+
+func _view_transform() -> Transform2D:
+	return Transform2D(0.0, Vector2(view_zoom, view_zoom), 0.0, view_offset)
+
+## Screen position inside this control -> position in the unzoomed drawing space.
+func to_view(position: Vector2) -> Vector2:
+	return (position - view_offset) / view_zoom
+
+func _clamp_offset() -> void:
+	view_offset = Vector2(clampf(view_offset.x, size.x * (1.0 - view_zoom), 0.0), clampf(view_offset.y, size.y * (1.0 - view_zoom), 0.0))
+
+## Zooms around `anchor` (a position in this control), keeping the point under it fixed.
+func zoom_at(anchor: Vector2, target: float) -> void:
+	var next := clampf(target, ZOOM_MIN, ZOOM_MAX)
+	if is_equal_approx(next, view_zoom):
+		return
+	view_offset = anchor - (anchor - view_offset) * (next / view_zoom)
+	view_zoom = next
+	_clamp_offset()
+	zoom_changed.emit(view_zoom)
+	queue_redraw()
+
+func reset_view() -> void:
+	var changed := view_zoom != 1.0
+	view_zoom = 1.0
+	view_offset = Vector2.ZERO
+	panning = false
+	if changed:
+		zoom_changed.emit(view_zoom)
+	queue_redraw()
+
+## Nearest unit within `radius` pixels of a click, or {}. Works at any zoom.
+func unit_at(position: Vector2, radius: float = 38.0) -> Dictionary:
+	var local := to_view(position)
+	var lane_y := size.y * 0.72
+	var best := {}
+	var best_distance := radius
+	for unit in snapshot.get("units", []):
+		var centre := Vector2(world_to_screen_x(motion.position(int(unit.id), float(unit.x))), lane_y - 40.0)
+		var distance := local.distance_to(centre)
+		if distance <= best_distance:
+			best_distance = distance
+			best = unit
+	return best
+
+func _inspect_input(event: InputEvent) -> bool:
+	if event is InputEventMouseButton:
+		match event.button_index:
+			MOUSE_BUTTON_WHEEL_UP:
+				if event.pressed:
+					zoom_at(event.position, view_zoom * 1.15)
+				return true
+			MOUSE_BUTTON_WHEEL_DOWN:
+				if event.pressed:
+					zoom_at(event.position, view_zoom / 1.15)
+				return true
+			MOUSE_BUTTON_MIDDLE:
+				panning = event.pressed
+				return true
+			MOUSE_BUTTON_LEFT:
+				if event.double_click:
+					reset_view()
+				elif not event.pressed:
+					unit_clicked.emit(unit_at(event.position))
+				return true
+	elif event is InputEventMouseMotion and panning:
+		view_offset += event.relative
+		_clamp_offset()
+		queue_redraw()
+		return true
+	return false
 
 func finale_active() -> bool:
 	return finale_world_side >= 0
@@ -210,6 +290,9 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
+	if inspect_mode and _inspect_input(event):
+		if is_inside_tree(): accept_event()
+		return
 	if event is InputEventMouseMotion:
 		touch_preview_active = false
 		mouse_position = event.position
@@ -241,6 +324,8 @@ func display_side(world_side: int) -> int:
 	return 0 if world_side == own_side else 1
 
 func _draw() -> void:
+	if view_zoom != 1.0 or view_offset != Vector2.ZERO:
+		draw_set_transform_matrix(_view_transform())
 	var scale_x := size.x / BattleModel.WORLD_WIDTH
 	var lane_y := size.y * 0.72
 	_draw_sky(lane_y)
@@ -363,7 +448,9 @@ func _draw_base(x: float, lane_y: float, side: int) -> void:
 		var pivot := Vector2(x, lane_y)
 		var tilt := 0.22 * progress * -facing
 		var shake := Vector2(sin(finale_age * 70.0) * 4.0 * maxf(0.0, 1.0 - finale_age), 0.0)
-		draw_set_transform(pivot - Transform2D(tilt, Vector2.ZERO).basis_xform(pivot) + Vector2(0.0, 36.0 * progress) + shake, tilt, Vector2.ONE)
+		var local := Transform2D(tilt, Vector2.ZERO)
+		local.origin = pivot - local.basis_xform(pivot) + Vector2(0.0, 36.0 * progress) + shake
+		draw_set_transform_matrix(_view_transform() * local)
 	# Soft territory glow.
 	for i in 6:
 		draw_circle(Vector2(x, lane_y - 56.0), 100.0 - float(i) * 12.0, Color(color.r, color.g, color.b, 0.025 + float(i) * 0.012))
@@ -398,7 +485,7 @@ func _draw_base(x: float, lane_y: float, side: int) -> void:
 		Vector2(x + 72.0 * facing, lane_y - 140.0 + wave)
 	]), color)
 	if collapsing:
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		draw_set_transform_matrix(_view_transform())
 
 ## Debris, a shock ring and a white flash over the fallen base.
 func _draw_finale(lane_y: float) -> void:
@@ -414,7 +501,7 @@ func _draw_finale(lane_y: float) -> void:
 	draw_arc(centre, 24.0 + finale_age * 260.0, 0.0, TAU, 48, Color(1.0, 0.95, 0.8, 0.8 * fade), maxf(1.0, 8.0 * fade))
 	var flash := maxf(0.0, 0.5 - finale_age * 1.8)
 	if flash > 0.0:
-		draw_rect(Rect2(Vector2.ZERO, size), Color(1, 1, 1, flash))
+		draw_rect(Rect2(-view_offset / view_zoom, size / view_zoom), Color(1, 1, 1, flash))
 
 func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	var x := world_to_screen_x(motion.position(int(unit.id), float(unit.x)))
@@ -452,14 +539,14 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	# Team halo and contact shadow stay independent from the supplied artwork.
 	draw_circle(Vector2(x, lane_y - 38.0), 43.0, Color(color.r, color.g, color.b, 0.08))
 	draw_ellipse(Vector2(x, lane_y - 2.0), sprite_width * 0.37, 6.0, Color(0.0, 0.0, 0.0, 0.38))
-	draw_set_transform(Vector2(x, lane_y), 0.0, Vector2(facing, 1.0))
+	draw_set_transform_matrix(_view_transform() * Transform2D(0.0, Vector2(facing, 1.0), 0.0, Vector2(x, lane_y)))
 	var tint := Color.WHITE.lerp(Color("#ffb37a"), 0.25) if BattleModel.is_enraged(unit) else Color.WHITE
 	if texture != walk_texture and action_blend < 1.0:
 		var walk_height := 86.0 * float(walk_texture.get_height()) / float(UNIT_TEXTURES[kind].get_height())
 		var walk_width := walk_height * float(walk_texture.get_width()) / float(walk_texture.get_height())
 		draw_texture_rect(walk_texture, Rect2(-walk_width * 0.5, -walk_height, walk_width, walk_height), false, Color(tint.r, tint.g, tint.b, 1.0-action_blend))
 	draw_texture_rect(texture, Rect2(-sprite_width * 0.5, -sprite_height, sprite_width, sprite_height), false, Color(tint.r, tint.g, tint.b, action_blend if texture != walk_texture else 1.0))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	draw_set_transform_matrix(_view_transform())
 	# Small faction pip remains visible when both teams use the same character art.
 	draw_circle(Vector2(x - 25.0, lane_y - 74.0), 5.0, color)
 	draw_circle(Vector2(x - 25.0, lane_y - 74.0), 2.0, Color("#f5f7fb"))

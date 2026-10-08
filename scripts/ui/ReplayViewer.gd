@@ -42,6 +42,18 @@ var moment_toast: ToastLabel
 var last_announced_tick := 0
 var clip_finished := false
 var note_input: LineEdit
+var loop_start := -1
+var loop_end := -1
+var loop_enabled := false
+var loop_button: Button
+var zoom_reset_button: Button
+var unit_panel: PanelContainer
+var inspected_id := -1
+var panel_name: Label
+var panel_side: Label
+var panel_bar: HpBar
+var panel_hp: Label
+var panel_stats: Label
 
 func open(replay_data: Dictionary, title: String = "") -> void:
 	replay = replay_data
@@ -67,9 +79,21 @@ func _build() -> void:
 	view.size = Vector2(1280, 492)
 	view.own_side = 0
 	view.interpolate_positions = false
+	view.inspect_mode = true
+	view.clip_contents = true
+	view.unit_clicked.connect(_on_unit_clicked)
+	view.zoom_changed.connect(func(zoom): zoom_reset_button.visible = zoom > 1.001)
 	add_child(view)
 	_build_top_bar()
 	_build_bottom_bar()
+	_build_unit_panel()
+	zoom_reset_button = _control_button(self, "ReplayZoomReset", "확대 해제", UIKit.GOLD_DEEP, false)
+	zoom_reset_button.position = Vector2(1110, 96)
+	zoom_reset_button.size = Vector2(124, 34)
+	zoom_reset_button.custom_minimum_size = Vector2(124, 34)
+	zoom_reset_button.visible = false
+	zoom_reset_button.tooltip_text = "휠로 확대한 화면을 원래대로 돌립니다 (더블클릭도 같습니다)"
+	zoom_reset_button.pressed.connect(view.reset_view)
 	moment_toast = ToastLabel.new()
 	moment_toast.name = "MomentToast"
 	moment_toast.tone = UIKit.GOLD
@@ -152,11 +176,33 @@ func _build_bottom_bar() -> void:
 	graph = MomentumGraph.new()
 	graph.name = "MomentumGraph"
 	graph.position = Vector2(40, 6)
-	graph.size = Vector2(1200, 42)
+	graph.size = Vector2(950, 42)
 	graph.setup(analysis)
 	graph.set_notes(BattleReplay.notes_of(replay))
 	graph.seek_requested.connect(func(tick): seek(tick))
 	bar.add_child(graph)
+	var loop_row := HBoxContainer.new()
+	loop_row.name = "ReplayLoopRow"
+	loop_row.position = Vector2(1000, 8)
+	loop_row.size = Vector2(240, 34)
+	loop_row.add_theme_constant_override("separation", 6)
+	bar.add_child(loop_row)
+	var mark_start := _control_button(loop_row, "ReplayLoopStart", "시작 [", UIKit.TEAL, false)
+	mark_start.custom_minimum_size = Vector2(74, 34)
+	mark_start.add_theme_font_size_override("font_size", 13)
+	mark_start.tooltip_text = "지금 위치를 반복 구간의 시작으로 정합니다 ( [ 키 )"
+	mark_start.pressed.connect(set_loop_start)
+	var mark_end := _control_button(loop_row, "ReplayLoopEnd", "끝 ]", UIKit.TEAL, false)
+	mark_end.custom_minimum_size = Vector2(74, 34)
+	mark_end.add_theme_font_size_override("font_size", 13)
+	mark_end.tooltip_text = "지금 위치를 반복 구간의 끝으로 정합니다 ( ] 키 )"
+	mark_end.pressed.connect(set_loop_end)
+	loop_button = _control_button(loop_row, "ReplayLoopToggle", "반복 L", UIKit.GOLD_DEEP, false)
+	loop_button.custom_minimum_size = Vector2(74, 34)
+	loop_button.add_theme_font_size_override("font_size", 13)
+	loop_button.toggle_mode = true
+	loop_button.tooltip_text = "정한 구간을 계속 반복합니다 ( L 키 )"
+	loop_button.pressed.connect(toggle_loop)
 	progress = HSlider.new()
 	progress.name = "ReplayProgress"
 	progress.position = Vector2(40, 50)
@@ -245,6 +291,116 @@ func _restart() -> void:
 	if not clip.is_empty() and int(clip.start) > 0:
 		seek(int(clip.start))
 
+## The loop only runs between two marks with start before end.
+func loop_ready() -> bool:
+	return loop_start >= 0 and loop_end > loop_start
+
+func _refresh_loop() -> void:
+	graph.set_loop(loop_start, loop_end, loop_enabled and loop_ready())
+	if is_instance_valid(loop_button):
+		loop_button.set_pressed_no_signal(loop_enabled and loop_ready())
+
+## Marks the current moment as the start of the repeat segment (an end that is no longer after it is dropped).
+func set_loop_start() -> void:
+	if player == null:
+		return
+	loop_start = player.ticks
+	if loop_end <= loop_start:
+		loop_end = -1
+		loop_enabled = false
+	_refresh_loop()
+
+## Marks the current moment as the end of the segment; refused unless it lies after the start.
+func set_loop_end() -> bool:
+	if player == null or loop_start < 0 or player.ticks <= loop_start:
+		_toast("끝 지점은 시작 지점보다 뒤여야 합니다")
+		return false
+	loop_end = player.ticks
+	_refresh_loop()
+	return true
+
+## Turns repeating on or off; it only turns on once both marks exist.
+func toggle_loop() -> bool:
+	if loop_enabled:
+		loop_enabled = false
+	elif loop_ready():
+		loop_enabled = true
+		if player != null and (player.ticks < loop_start or player.ticks >= loop_end):
+			seek(loop_start)
+	else:
+		_toast("반복하려면 시작과 끝 지점을 먼저 정하세요")
+	_refresh_loop()
+	return loop_enabled
+
+func _build_unit_panel() -> void:
+	unit_panel = PanelContainer.new()
+	unit_panel.name = "ReplayUnitPanel"
+	unit_panel.visible = false
+	unit_panel.custom_minimum_size = Vector2(250, 0)
+	unit_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	unit_panel.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE.darkened(0.15), UIKit.EDGE, 12, 1.0, 0.5, Color(0, 0, 0, 0), 0.1), 12, 10))
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 4)
+	unit_panel.add_child(column)
+	panel_name = Label.new()
+	panel_name.add_theme_font_size_override("font_size", 17)
+	column.add_child(panel_name)
+	panel_side = Label.new()
+	panel_side.add_theme_font_size_override("font_size", 12)
+	column.add_child(panel_side)
+	panel_bar = HpBar.new()
+	panel_bar.show_ticks = false
+	panel_bar.pulse_below = 0.0
+	panel_bar.custom_minimum_size = Vector2(0, 10)
+	column.add_child(panel_bar)
+	panel_hp = Label.new()
+	panel_hp.add_theme_font_size_override("font_size", 12)
+	column.add_child(panel_hp)
+	panel_stats = Label.new()
+	panel_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	panel_stats.custom_minimum_size.x = 226
+	panel_stats.add_theme_font_size_override("font_size", 12)
+	panel_stats.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	column.add_child(panel_stats)
+	add_child(unit_panel)
+
+func _on_unit_clicked(unit: Dictionary) -> void:
+	inspected_id = int(unit.get("id", -1)) if not unit.is_empty() else -1
+	_refresh_inspector()
+
+func close_inspector() -> void:
+	inspected_id = -1
+	_refresh_inspector()
+
+## Keeps the panel in step with the playhead: it follows its unit and closes when the unit is gone.
+func _refresh_inspector() -> void:
+	if not is_instance_valid(unit_panel):
+		return
+	var found := {}
+	if inspected_id >= 0:
+		for unit in view.snapshot.get("units", []):
+			if int(unit.id) == inspected_id:
+				found = unit
+				break
+	if found.is_empty():
+		inspected_id = -1
+		unit_panel.visible = false
+		return
+	var kind := String(found.kind)
+	var own: bool = int(found.side) == 0
+	panel_name.text = String(BattleModel.UNIT_NAMES.get(kind, kind))
+	panel_side.text = "블루 진영" if own else "레드 진영"
+	panel_side.add_theme_color_override("font_color", (UIKit.TEAM_BLUE if own else UIKit.TEAM_RED).lightened(0.25))
+	panel_bar.color = UIKit.TEAM_BLUE if own else UIKit.TEAM_RED
+	panel_bar.max_value = maxf(1.0, float(found.get("max_hp", found.hp)))
+	panel_bar.value = float(found.hp)
+	panel_hp.text = "체력 %d / %d" % [int(found.hp), int(maxf(1.0, float(found.get("max_hp", found.hp))))]
+	panel_stats.text = BattleModel.unit_stat_summary(kind)
+	unit_panel.visible = true
+	var lane_y := view.size.y * 0.72
+	var anchor: Vector2 = view.position + view._view_transform() * Vector2(view.world_to_screen_x(float(found.x)), lane_y - 110.0)
+	unit_panel.position = Vector2(clampf(anchor.x - 125.0, 8.0, 1272.0 - 250.0), clampf(anchor.y - unit_panel.size.y, 96.0, 560.0 - unit_panel.size.y))
+
 func toggle_pause() -> void:
 	paused = not paused
 	play_button.text = "재생" if paused else "일시정지"
@@ -291,6 +447,10 @@ func _process(delta: float) -> void:
 		events.append_array(player.model.drain_combat_events())
 		accumulator -= player.dt
 		steps += 1
+		if loop_enabled and loop_ready() and player.ticks >= loop_end:
+			seek(loop_start)
+			accumulator = 0.0
+			return
 	if steps > 0:
 		_announce_between(last_announced_tick, player.ticks)
 		view.set_snapshot(player.model.snapshot())
@@ -381,6 +541,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_RIGHT: seek(mini(int(replay.get("result", {}).get("ticks", 0)), player.ticks + 150))
 		KEY_LEFT: seek(maxi(0, player.ticks - 150))
 		KEY_N: jump_next_moment()
+		KEY_BRACKETLEFT: set_loop_start()
+		KEY_BRACKETRIGHT: set_loop_end()
+		KEY_L: toggle_loop()
+		KEY_ESCAPE: close_inspector()
 		KEY_P: jump_previous_moment()
 
 func _play_sounds(events: Array) -> void:
@@ -409,6 +573,7 @@ func _refresh_hud() -> void:
 	blue_label.text = "%d / %d" % [int(model.base_hp[0]), int(model.base_max_hp[0])]
 	red_label.text = "%d / %d" % [int(model.base_hp[1]), int(model.base_max_hp[1])]
 	progress.set_value_no_signal(float(player.ticks))
+	_refresh_inspector()
 	graph.set_playhead(player.ticks)
 
 func _show_end() -> void:

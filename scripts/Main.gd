@@ -119,6 +119,7 @@ var multiplayer_screen := ""
 var lobby_rows: VBoxContainer
 var lobby_page_label: Label
 var lobby_page := 0
+var lobby_filter := "all"
 var lobby_total := 0
 var lobby_data := {"rooms":[],"page":0,"total":0}
 var lobby_previous_button: Button
@@ -353,6 +354,7 @@ func _active_match_count() -> int:
 
 ## Once a server is reachable: send what was queued while offline and refresh the community statistics.
 func _on_server_ready() -> void:
+	lobby_filter = "all" # a new connection starts with the unfiltered list
 	MetaStats.flush(save_data, network)
 	SaveData.save_data(save_data)
 	network.send_stats_request([network.client_unit_deck])

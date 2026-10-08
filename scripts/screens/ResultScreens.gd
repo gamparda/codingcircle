@@ -13,6 +13,7 @@ const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
 const Report = preload("res://scripts/BattleReport.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
+const Goals = preload("res://scripts/Goals.gd")
 
 static func _show_result(main, winner: int) -> void:
 	main._dismiss_result_overlay()
@@ -25,6 +26,7 @@ static func _show_result(main, winner: int) -> void:
 	main.result_shown = true
 	main.updater.set_safe_to_update(true)
 	main.updater.check_for_update()
+	var goals_before := Goals.done_ids(main.save_data)
 	var awarded_stars := 0
 	var growth_before := SaveData.campaign_growth_level(main.save_data)
 	var unlocked: Array = []
@@ -74,6 +76,20 @@ static func _show_result(main, winner: int) -> void:
 	var result_color := UIKit.GOLD if won else (UIKit.TEXT_MUTED if winner == 2 else UIKit.DANGER.lightened(0.15))
 	overlay.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI.lerp(result_color, 0.08), UIKit.SURFACE.darkened(0.2), Color(result_color.r, result_color.g, result_color.b, 0.7), 18, 1.5, 1.0, Color(result_color.r, result_color.g, result_color.b, 0.35) if won else Color(0, 0, 0, 0), 0.12, 16))
 	screen.add_child(overlay)
+	if not main.network.client_is_spectator:
+		var hint_box := VBoxContainer.new()
+		hint_box.name = "GoalHints"
+		hint_box.position = Vector2(350, overlay.position.y + overlay.size.y + 10.0)
+		hint_box.size = Vector2(580, 60)
+		hint_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		for line in Goals.result_lines(main.save_data, goals_before):
+			var hint := Label.new()
+			hint.text = String(line.text)
+			hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			hint.add_theme_font_size_override("font_size", 15)
+			hint.add_theme_color_override("font_color", UIKit.GOLD if String(line.tone) == "gold" else UIKit.TEXT_MUTED)
+			hint_box.add_child(hint)
+		screen.add_child(hint_box)
 	main.root_background.add_child(screen)
 	UIKit.reveal(overlay, 0.35, 18.0)
 	UIKit.UISounds.play("victory" if won else ("click" if winner == 2 else "defeat"), -6.0)

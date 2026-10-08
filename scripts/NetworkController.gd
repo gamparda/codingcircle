@@ -109,6 +109,9 @@ var client_room_mode := "create"
 var client_room_code := ""
 var client_room_name := ""
 var lobby_pages: Dictionary = {}
+var lobby_filters: Dictionary = {}
+var live_refresh_elapsed := 0.0
+const ROOM_FILTERS := ["all", "waiting", "live"]
 var lobby_dirty := false
 var lobby_refresh_elapsed := 0.0
 var sessions = SessionStore.new()
@@ -381,6 +384,11 @@ func _process(delta: float) -> void:
 	for waiting_peer in quick_queue.expire(Time.get_ticks_msec()):
 		if _peer_is_connected(int(waiting_peer)):
 			receive_quick_status.rpc_id(int(waiting_peer),"timeout"); request_room_list_for(int(waiting_peer))
+	live_refresh_elapsed += delta
+	if live_refresh_elapsed >= 5.0:
+		live_refresh_elapsed = 0.0
+		if not models.is_empty() and not lobby_pages.is_empty():
+			lobby_dirty = true # running battles show their elapsed time
 	lobby_refresh_elapsed += delta
 	if lobby_dirty and lobby_refresh_elapsed >= 0.25:
 		lobby_dirty = false
@@ -483,7 +491,7 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	var session_peer: bool = sessions.peer_to_room.has(peer_id)
 	if session_peer and sessions.suspend(peer_id,Time.get_ticks_msec()+int(RECONNECT_GRACE*1000)):
 		_push_session(sessions.peer_to_room[peer_id])
-		lobby_pages.erase(peer_id); join_challenges.erase(peer_id); chat_times.erase(peer_id)
+		lobby_pages.erase(peer_id); lobby_filters.erase(peer_id); join_challenges.erase(peer_id); chat_times.erase(peer_id)
 		request_windows.erase(peer_id); release_peer_address(peer_id)
 		lobby_dirty = true
 		return
@@ -723,6 +731,7 @@ static func is_valid_room_name(title: String) -> bool:
 	return Protocol.is_valid_room_name(title)
 
 func _send_room_listing(peer_id: int, page: int, listing: Array) -> void:
+	listing = filtered_listing(listing, String(lobby_filters.get(peer_id, "all")))
 	var last_page := maxi(0, (listing.size()-1) / ROOM_LIST_PAGE_SIZE)
 	page = clampi(page,0,last_page)
 	lobby_pages[peer_id] = page
@@ -756,6 +765,19 @@ func receive_room_list(data: Dictionary) -> void:
 		client_phase_elapsed = 0.0
 	room_list_received.emit(data)
 
+## Picks which rooms the lobby list shows ("all", "waiting" or "live"); the server answers with page one.
+func set_room_filter(filter: String) -> void:
+	if client_connection_state == "lobby" and filter in ROOM_FILTERS:
+		request_room_filter.rpc_id(1, filter)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_room_filter(filter: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not peer_decks.has(sender) or registry.has_match(sender) or not filter in ROOM_FILTERS: return
+	lobby_filters[sender] = filter
+	_send_room_listing(sender, 0, _all_room_listings())
+
 func browse_rooms(page: int = 0) -> void:
 	if client_connection_state == "lobby": request_room_list.rpc_id(1,page)
 
@@ -781,7 +803,38 @@ func leave_lobby_room() -> void:
 	request_leave_room.rpc_id(1)
 
 func _all_room_listings() -> Array:
-	return sessions.listing() + registry.room_listing()
+	var rooms := sessions.listing()
+	for entry in rooms:
+		if entry.state == "playing" and not entry.locked:
+			var live := _live_info(String(entry.code))
+			if not live.is_empty():
+				entry["live"] = live
+	return rooms + registry.room_listing()
+
+## Names, decks and elapsed time of a running battle; private (locked) rooms never get this.
+func _live_info(code: String) -> Dictionary:
+	var room: Dictionary = sessions.rooms.get(code, {})
+	var match_id := int(room.get("match_id", 0))
+	var ids: Array = registry.matches.get(match_id, [])
+	if room.is_empty() or not models.has(match_id) or ids.size() != 2:
+		return {}
+	var names: Array = []
+	for id in ids:
+		if not room.members.has(id):
+			return {}
+		names.append(String(room.members[id].nickname))
+	var model: BattleModel = models[match_id]
+	return {"names": names, "elapsed": snappedf(model.elapsed, 0.1), "units": [model.unit_decks[0].duplicate(), model.unit_decks[1].duplicate()]}
+
+## "all", "waiting" (open to join) or "live" (battle in progress, most watched first).
+static func filtered_listing(listing: Array, filter: String) -> Array:
+	if filter == "waiting":
+		return listing.filter(func(entry): return String(entry.get("state", "waiting")) == "waiting")
+	if filter == "live":
+		var live: Array = listing.filter(func(entry): return String(entry.get("state", "")) == "playing")
+		live.sort_custom(func(a, b): return int(a.get("spectators", 0)) > int(b.get("spectators", 0)))
+		return live
+	return listing
 
 func _match_audience(match_id: int) -> Array:
 	if session_matches.has(match_id):

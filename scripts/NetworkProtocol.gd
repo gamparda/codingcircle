@@ -161,14 +161,28 @@ static func is_valid_room_listing(data: Dictionary) -> bool:
 	if int(data.page)>last_page or data.rooms.size()!=mini(ROOM_LIST_PAGE_SIZE,maxi(0,int(data.total)-int(data.page)*ROOM_LIST_PAGE_SIZE)): return false
 	var codes: Dictionary = {}
 	for item in data.rooms:
-		if not item is Dictionary or not _has_required_optional_keys(item,["code","name","players"],["locked","state","spectators"]): return false
+		if not item is Dictionary or not _has_required_optional_keys(item,["code","name","players"],["locked","state","spectators","live"]): return false
 		if not item.code is String or not is_valid_room_code(item.code) or codes.has(item.code): return false
 		if not item.name is String or not is_valid_room_name(item.name) or not _number_in_range(item.players,1,2) or float(item.players)!=floor(float(item.players)): return false
 		if not item.has("state") and int(item.players)!=1: return false
 		if item.has("locked") and not item.locked is bool: return false
 		if item.has("state") and item.state not in ["waiting","playing","finished"]: return false
 		if item.has("spectators") and (not _number_in_range(item.spectators,0,TRANSPORT_MAX_PEERS) or float(item.spectators)!=floor(float(item.spectators))): return false
+		if item.has("live") and (item.get("state") != "playing" or not valid_live_info(item.live)): return false
 		codes[item.code] = true
+	return true
+
+## Public details of a running, unlocked battle shown in the room list.
+static func valid_live_info(live: Variant) -> bool:
+	if not live is Dictionary or not _has_exact_keys(live,["names","elapsed","units"]): return false
+	if not live.names is Array or live.names.size()!=2 or not live.units is Array or live.units.size()!=2: return false
+	for name in live.names:
+		if not name is String or not SessionStore.safe_text(name,SessionStore.MAX_NICKNAME): return false
+	if not _number_in_range(live.elapsed,0,1000000): return false
+	for deck in live.units:
+		if not deck is Array or deck.size()!=3: return false
+		for kind in deck:
+			if not kind is String or not BattleModel.UNIT_STATS.has(kind): return false
 	return true
 
 static func _hex_string(value: String, length: int) -> bool:

@@ -43,6 +43,15 @@ static func browser(main) -> void:
 	var body := HBoxContainer.new(); body.size_flags_vertical = Control.SIZE_EXPAND_FILL; body.add_theme_constant_override("separation",20); column.add_child(body)
 	var list_column := VBoxContainer.new(); list_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL; list_column.add_theme_constant_override("separation",10); body.add_child(list_column)
 	list_column.add_child(label("공개 방 목록",16,GOLD))
+	var filters := HBoxContainer.new(); filters.name = "RoomFilters"; filters.add_theme_constant_override("separation",8); list_column.add_child(filters)
+	var filter_group := ButtonGroup.new()
+	for entry in [["all","전체"],["waiting","대기 중"],["live","라이브 전투"]]:
+		var chip: Button = main._styled_button(String(entry[1]),UIKit.ACCENT,false)
+		chip.name = "RoomFilter_" + String(entry[0]); chip.toggle_mode = true; chip.button_group = filter_group; chip.custom_minimum_size = Vector2(120,36)
+		chip.set_pressed_no_signal(main.lobby_filter == String(entry[0]))
+		var filter_id := String(entry[0])
+		chip.pressed.connect(func(): main.lobby_filter = filter_id; main.network.set_room_filter(filter_id))
+		filters.add_child(chip)
 	var scroll := ScrollContainer.new(); scroll.name = "RoomListScroll"; scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL; scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED; list_column.add_child(scroll)
 	main.lobby_rows = VBoxContainer.new(); main.lobby_rows.name = "RoomRows"; main.lobby_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL; main.lobby_rows.add_theme_constant_override("separation",10); scroll.add_child(main.lobby_rows)
 	var side := VBoxContainer.new(); side.custom_minimum_size.x = 238; side.add_theme_constant_override("separation",12); body.add_child(side)
@@ -101,6 +110,18 @@ static func listing(main, data: Dictionary) -> void:
 		chip.add_child(label("●  "+phase_text,12,phase_tone.lightened(0.35)))
 		var pips := label("●".repeat(int(room.players))+"○".repeat(maxi(0,2-int(room.players))),12,UIKit.TEXT_MUTED); meta_row.add_child(pips)
 		meta_row.add_child(label("%s  ·  %d / 2  ·  관전 %d" % [phase_text,int(room.players),int(room.get("spectators",0))],12,MUTED))
+		if room.has("live"):
+			card.custom_minimum_size.y = 108
+			var live: Dictionary = room.live
+			var seconds := int(float(live.elapsed))
+			var live_row := HBoxContainer.new(); live_row.name = "RoomLiveInfo"; live_row.add_theme_constant_override("separation",4); details.add_child(live_row)
+			live_row.add_child(label("%s  vs  %s  ·  %02d:%02d  " % [String(live.names[0]),String(live.names[1]),seconds/60,seconds%60],13,UIKit.TEXT))
+			for side in 2:
+				for kind in live.units[side]:
+					var icon := TextureRect.new(); icon.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
+					icon.custom_minimum_size = Vector2(22,30); icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE; icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED; icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+					live_row.add_child(icon)
+				if side == 0: live_row.add_child(label(" VS ",11,UIKit.TEXT_DIM))
 		var join := button(main,row,"참가","JoinRoomButton",func(): main._prompt_room_entry(room,false),true); join.set_meta("room_code",room.code)
 		join.set_meta("available",phase=="waiting" and int(room.players)<2)
 		join.disabled = main.network.client_connection_state != "lobby" or not bool(join.get_meta("available"))

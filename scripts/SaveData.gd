@@ -52,6 +52,7 @@ static func default_data() -> Dictionary:
 		"daily": {},
 		"weekly": {},
 		"seen_features": [],
+		"goals": {},
 		"install_id": "",
 		"pending_reports": [],
 		"pending_daily": {},
@@ -169,6 +170,10 @@ static func sanitize(raw: Variant) -> Dictionary:
 				if String(key).length() == 8 and String(key).is_valid_int() and entry is Dictionary and _is_integer(entry.get("score")):
 					clean[store[0]][String(key)] = {"won": bool(entry.get("won", false)), "score": clampi(int(entry.score), 0, 100000),
 						"seconds": clampf(float(entry.get("seconds", 0.0)), 0.0, 100000.0)}
+	if raw.get("goals") is Dictionary:
+		for id in preload("res://scripts/Goals.gd").ids():
+			if raw.goals.get(id) is bool and raw.goals[id]:
+				clean.goals[id] = true
 	if raw.get("seen_features") is Array:
 		for id in raw.seen_features.slice(0, 60):
 			if id is String and not id.is_empty() and id.length() <= 40 and not clean.seen_features.has(id):

@@ -97,6 +97,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 			return
 		main.save_data.deck_presets[index] = {"name": name_edit.text.strip_edges().left(20) if not name_edit.text.strip_edges().is_empty() else Localization.text("덱 %d") % (index + 1), "units": selected_units, "structures": selected_structures}
 		main.save_data.last_deck = index
+		preload("res://scripts/Goals.gd").mark(main.save_data, "edit_deck")
 		SaveData.save_data(main.save_data)
 		main._build_connect_screen(Localization.text("덱을 저장했습니다."))
 	)

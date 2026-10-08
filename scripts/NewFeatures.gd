@@ -13,6 +13,8 @@ const FEATURES := [
 	{"id": "weekly", "button": "WeeklyButton", "title": "주간 도전", "desc": "한 주 동안 모두에게 같은 덱과 두 가지 규칙 변형이 주어지는 더 어려운 도전입니다."},
 	{"id": "draft", "button": "DraftButton", "title": "드래프트", "desc": "AI와 번갈아 병력을 뽑아 덱을 만들고 싸웁니다. 먼저 뽑으면 상대가 못 씁니다."},
 	{"id": "replay_share", "button": "ReplaysButton", "title": "리플레이 공유와 메모", "desc": "6자리 코드로 공유하고, 최근 온라인 전투를 보고, 장면마다 메모를 남길 수 있습니다."},
+	{"id": "live_rooms", "button": "MultiplayerButton", "title": "라이브 전투 목록", "desc": "멀티플레이 방 목록에서 진행 중인 전투의 닉네임과 덱을 보고 바로 관전할 수 있습니다."},
+	{"id": "viewer_tools", "button": "ReplaysButton", "title": "리플레이 뷰어 강화", "desc": "구간 반복, 유닛 정보 패널, 휠 확대와 이동을 쓸 수 있습니다."},
 	{"id": "deck_stats", "button": "DeckButton", "title": "전체 승률 표시", "desc": "덱 편성 카드에 온라인 전체 선택률과 승률이 표시됩니다."},
 ]
 

@@ -11,6 +11,9 @@ const MARKER_COLORS := {"clash": Color("#ffd36a"), "structure": Color("#b9c2d6")
 var samples: Array = []
 var highlights: Array = []
 var notes: Array = []
+var loop_start := -1
+var loop_end := -1
+var loop_on := false
 var total_ticks := 1
 var playhead := 0
 var _dragging := false
@@ -20,6 +23,12 @@ func setup(analysis: Dictionary) -> void:
 	highlights = analysis.get("highlights", [])
 	total_ticks = maxi(1, int(analysis.get("ticks", 1)))
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	queue_redraw()
+
+func set_loop(start_tick: int, end_tick: int, enabled: bool) -> void:
+	loop_start = start_tick
+	loop_end = end_tick
+	loop_on = enabled
 	queue_redraw()
 
 func set_notes(list: Array) -> void:
@@ -71,6 +80,13 @@ func _draw() -> void:
 		draw_line(Vector2(hx, 2), Vector2(hx, size.y - 2), Color(color.r, color.g, color.b, 0.35), 1.0)
 		var diamond := PackedVector2Array([Vector2(hx, 3), Vector2(hx + 5, 8), Vector2(hx, 13), Vector2(hx - 5, 8)])
 		draw_colored_polygon(diamond, color)
+	if loop_start >= 0:
+		var band_end := _x_for(loop_end) if loop_end > loop_start else _x_for(loop_start) + 3.0
+		var band_color := Color(UIKit.TEAL.r, UIKit.TEAL.g, UIKit.TEAL.b, 0.28 if loop_on else 0.14)
+		draw_rect(Rect2(Vector2(_x_for(loop_start), 1.0), Vector2(maxf(band_end - _x_for(loop_start), 3.0), size.y - 2.0)), band_color)
+		draw_line(Vector2(_x_for(loop_start), 1.0), Vector2(_x_for(loop_start), size.y - 1.0), UIKit.TEAL, 2.0)
+		if loop_end > loop_start:
+			draw_line(Vector2(_x_for(loop_end), 1.0), Vector2(_x_for(loop_end), size.y - 1.0), UIKit.TEAL, 2.0)
 	for note in notes:
 		var nx := _x_for(int(note.t))
 		draw_colored_polygon(PackedVector2Array([Vector2(nx - 4, size.y - 2), Vector2(nx + 4, size.y - 2), Vector2(nx, size.y - 9)]), UIKit.TEAL)
