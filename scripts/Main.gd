@@ -70,7 +70,7 @@ var binding_capture_index := -1
 var binding_hint: Label
 var binding_capture_overlay: Control
 var local_model: BattleModel
-var local_ai: ServerAI
+var local_ai # ServerAI or GhostOpponent (anything with update(model, delta))
 var local_recorder = null # BattleReplay.Recorder for campaign battles
 var local_step_accumulator := 0.0
 var last_replay_path := ""
@@ -253,7 +253,7 @@ func _process(delta: float) -> void:
 		_update_server_lifecycle(delta)
 		updater.set_safe_to_update(_server_can_update())
 	if local_ai_mode and battle_active and is_instance_valid(local_model) and not is_instance_valid(action_overlay):
-		if campaign_mode or (local_recorder != null and practice.speed == 1.0 and not practice.unlimited):
+		if campaign_mode or not ghost_context.is_empty() or not daily_challenge.is_empty() or (local_recorder != null and practice.speed == 1.0 and not practice.unlimited):
 			# Fixed 30 Hz steps keep recorded battles deterministic, so their replays reproduce exactly.
 			if not campaign_mode and practice.paused: delta = 0.0
 			local_step_accumulator += minf(delta, 0.25)
@@ -542,6 +542,21 @@ func _enlarge_for_touch(node: Node) -> void:
 
 func _build_achievements_screen() -> void:
 	AchievementsScreen._build_achievements_screen(self)
+
+func _start_daily_challenge() -> void:
+	BattleFlow._start_daily_challenge(self)
+
+func _show_daily_brief() -> void:
+	PracticeUI._show_daily_brief(self)
+
+func _start_ghost_battle(replay: Dictionary) -> void:
+	BattleFlow._start_ghost_battle(self, replay)
+
+func _start_branch_battle(replay: Dictionary, tick: int) -> void:
+	BattleFlow._start_branch_battle(self, replay, tick)
+
+func _restart_context() -> void:
+	BattleFlow._restart_context(self)
 
 func _build_replay_list() -> void:
 	ReplayScreens._build_replay_list(self)

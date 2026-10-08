@@ -4,10 +4,14 @@ extends RefCounted
 const Localization = preload("res://scripts/Localization.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
+const GhostOpponent = preload("res://scripts/GhostOpponent.gd")
+const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
 const CombatSounds = preload("res://scripts/CombatSounds.gd")
 
 static func _start_local_ai_battle(main, stage: int = 1, reuse_deck: bool = false) -> void:
+	main.ghost_context = {}
+	main.daily_challenge = {}
 	main.local_ai_mode = true
 	main.practice.reset_battle_state()
 	main.practice_used_tools = not main.campaign_mode and (main.practice.unlimited or not main.practice.enemy_units.is_empty() or main.practice.speed!=1.0)
@@ -40,6 +44,86 @@ static func _start_local_ai_battle(main, stage: int = 1, reuse_deck: bool = fals
 	if (main.campaign_mode or not main.practice_used_tools) and not main.ai_smoke_mode:
 		main.local_recorder = BattleReplay.Recorder.new(main.local_model, BattleReplay.DEFAULT_HZ, {"side": 1, "stage": main.current_ai_stage}, {"mode": "campaign" if main.campaign_mode else "practice", "stage": main.current_ai_stage})
 	main._on_snapshot(main.local_model.snapshot())
+
+## Shared start for scripted experiments (ghost battle, what-if branch): a local battle that is never
+## recorded, never counted in the player's statistics and always runs at fixed 30 Hz.
+static func _begin_scripted_battle(main, model: BattleModel, opponent, preset: Dictionary, context: Dictionary) -> void:
+	main.ghost_context = context
+	main.daily_challenge = {}
+	main.campaign_mode = false
+	main.local_ai_mode = true
+	main.practice.reset_battle_state()
+	main.practice_used_tools = true
+	main.result_recorded = false
+	main.current_ai_stage = 1
+	main.own_side = 0
+	main.local_model = model
+	main.local_ai = opponent
+	main.battle_preset = preset
+	main._build_battle_screen()
+	main.local_step_accumulator = 0.0
+	main.local_recorder = null
+	main._on_snapshot(model.snapshot())
+
+## Play against the busiest player of a saved replay: their purchases and builds replay on schedule.
+static func _start_ghost_battle(main, replay: Dictionary) -> void:
+	var ghost_side := GhostOpponent.pick_side(replay)
+	var mine := 1 - ghost_side
+	var setup: Dictionary = replay.setup
+	var model := BattleModel.new()
+	model.configure_deck(0, setup.unit_decks[mine], setup.structure_decks[mine])
+	model.configure_deck(1, setup.unit_decks[ghost_side], setup.structure_decks[ghost_side])
+	for index in 2:
+		var source := mine if index == 0 else ghost_side
+		model.campaign_levels[index] = int(setup.campaign_levels[source])
+		model.base_max_hp[index] = float(setup.base_max_hp[source])
+		model.base_hp[index] = float(setup.base_hp[source])
+		model.resources[index] = float(setup.resources[source])
+	var preset := {"name": Localization.text("고스트 대전"), "units": setup.unit_decks[mine].duplicate(), "structures": setup.structure_decks[mine].duplicate()}
+	_begin_scripted_battle(main, model, GhostOpponent.new(replay, ghost_side, ghost_side == 0), preset, {"mode": "ghost", "replay": replay, "tick": 0})
+
+## "What if": continue a replay from `tick` with the human on blue; red keeps its recorded script (or its AI).
+static func _start_branch_battle(main, replay: Dictionary, tick: int) -> void:
+	var player := BattleReplay.Player.new(replay)
+	while player.ticks < tick and player.step():
+		pass
+	if player.is_finished():
+		return
+	var opponent = player.ai if player.ai != null else GhostOpponent.new(replay, 1, false, player.ticks)
+	var setup: Dictionary = replay.setup
+	var preset := {"name": Localization.text("되감기 실험"), "units": setup.unit_decks[0].duplicate(), "structures": setup.structure_decks[0].duplicate()}
+	player.model.drain_combat_events()
+	_begin_scripted_battle(main, player.model, opponent, preset, {"mode": "branch", "replay": replay, "tick": player.ticks})
+
+## Today's daily challenge: fixed decks and rule twist, recorded as a replay (mode "daily") and scored.
+static func _start_daily_challenge(main) -> void:
+	var challenge := DailyChallenge.for_date(DailyChallenge.date_key())
+	var setup := DailyChallenge.build(challenge)
+	main.ghost_context = {}
+	main.daily_challenge = challenge
+	main.campaign_mode = false
+	main.local_ai_mode = true
+	main.practice.reset_battle_state()
+	main.practice_used_tools = false
+	main.result_recorded = false
+	main.current_ai_stage = int(setup.stage)
+	main.own_side = 0
+	main.local_model = setup.model
+	main.local_ai = setup.ai
+	main.battle_preset = {"name": Localization.text("일일 도전"), "units": challenge.units.duplicate(), "structures": challenge.structures.duplicate()}
+	main._build_battle_screen()
+	main.local_step_accumulator = 0.0
+	main.local_recorder = BattleReplay.Recorder.new(main.local_model, BattleReplay.DEFAULT_HZ, {"side": 1, "stage": int(setup.stage)}, {"mode": "daily", "stage": int(setup.stage), "date": String(challenge.key), "modifier": String(challenge.modifier)})
+	main._on_snapshot(main.local_model.snapshot())
+
+static func _restart_context(main) -> void:
+	var context: Dictionary = main.ghost_context
+	if context.is_empty():
+		return
+	if String(context.mode) == "branch":
+		_start_branch_battle(main, context.replay, int(context.tick))
+	else:
+		_start_ghost_battle(main, context.replay)
 
 static func _on_match_found(main, side: int) -> void:
 	if not main.resuming_battle_ui: main.result_recorded = false

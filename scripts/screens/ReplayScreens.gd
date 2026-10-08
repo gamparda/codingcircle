@@ -7,6 +7,7 @@ const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const ReplayViewer = preload("res://scripts/ui/ReplayViewer.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
 const DeckAnalysis = preload("res://scripts/DeckAnalysis.gd")
+const GhostOpponent = preload("res://scripts/GhostOpponent.gd")
 const HpBar = preload("res://scripts/ui/HpBar.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const REPLAY_LIST_SCREEN := preload("res://scenes/ui/ReplayListScreen.tscn")
@@ -20,11 +21,13 @@ static func describe(replay: Dictionary) -> Dictionary:
 		title = "캠페인 %d단계" % int(meta.get("stage", 1))
 	elif mode == "practice":
 		title = "연습 %d단계" % int(meta.get("stage", 1))
+	elif mode == "daily":
+		title = "일일 도전 %s" % String(meta.get("date", ""))
 	elif mode == "quick":
 		title = "빠른 대전"
 	var winner := int(result.get("winner", -1))
 	var outcome := "무승부"
-	if mode == "campaign" or mode == "practice":
+	if mode == "campaign" or mode == "practice" or mode == "daily":
 		outcome = "승리" if winner == 0 else ("패배" if winner == 1 else "무승부")
 	else:
 		outcome = "블루 승" if winner == 0 else ("레드 승" if winner == 1 else "무승부")
@@ -221,6 +224,13 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	play.custom_minimum_size = Vector2(100, 46)
 	play.pressed.connect(main._play_replay.bind(path))
 	row.add_child(play)
+	if GhostOpponent.playable(replay):
+		var ghost = main._styled_button("고스트 도전", UIKit.ACCENT, false)
+		ghost.name = "GhostReplayButton"
+		ghost.custom_minimum_size = Vector2(120, 46)
+		ghost.tooltip_text = Localization.text("이 리플레이의 상대 플레이어를 고스트로 두고 직접 싸워 봅니다")
+		ghost.pressed.connect(main._start_ghost_battle.bind(replay))
+		row.add_child(ghost)
 	var share = main._styled_button("복사", UIKit.TEAL, false)
 	share.name = "ShareReplayButton"
 	share.custom_minimum_size = Vector2(80, 46)
@@ -269,5 +279,6 @@ static func _play_replay(main, path: String) -> void:
 	var viewer := ReplayViewer.new()
 	viewer.open(replay, "%s  ·  %s" % [Localization.text(String(info.title)), info.duration])
 	viewer.closed.connect(func(): main._build_replay_list())
+	viewer.branch_requested.connect(func(tick): main._start_branch_battle(replay, tick))
 	main.root_background.add_child(viewer)
 	main.replay_viewer = viewer

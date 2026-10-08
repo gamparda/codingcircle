@@ -6,6 +6,7 @@ const PatchNotes = preload("res://scripts/PatchNotes.gd")
 const PracticeTools = preload("res://scripts/PracticeTools.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const Achievements = preload("res://scripts/Achievements.gd")
+const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const HeroShowcase = preload("res://scripts/ui/HeroShowcase.gd")
 const SUBMENU_FRAME := preload("res://scenes/ui/SubMenuFrame.tscn")
 const PATCH_NOTES_SCREEN := preload("res://scenes/ui/PatchNotesScreen.tscn")
@@ -120,6 +121,14 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	practice_button.pressed.connect(main._build_ai_stage_screen.bind(false))
 	ai_row.add_child(practice_button)
 
+	var today := DailyChallenge.date_key()
+	var done_today: bool = bool(main.save_data.get("daily", {}).get(today, {}).get("won", false))
+	var daily_button = main._styled_button(Localization.text("일일 도전") + ("  ✓" if done_today else ""), UIKit.GOLD_DEEP, false)
+	daily_button.name = "DailyButton"
+	daily_button.custom_minimum_size.y = 56
+	daily_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	daily_button.pressed.connect(main._show_daily_brief)
+	ai_row.add_child(daily_button)
 	var management_row := HBoxContainer.new()
 	management_row.add_theme_constant_override("separation", 10)
 	column.add_child(management_row)

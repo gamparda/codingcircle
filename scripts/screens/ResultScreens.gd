@@ -9,6 +9,7 @@ const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const HpBar = preload("res://scripts/ui/HpBar.gd")
 const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
 const Achievements = preload("res://scripts/Achievements.gd")
+const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
 const Report = preload("res://scripts/BattleReport.gd")
 
@@ -32,9 +33,12 @@ static func _show_result(main, winner: int) -> void:
 			if main.local_recorder != null and is_instance_valid(main.local_model):
 				if main.local_recorder.ticks > 0: main.last_replay_path = BattleReplay.save(main.local_recorder.finish(main.local_model), "stage%d" % main.current_ai_stage)
 				main.local_recorder = null
+			if not main.daily_challenge.is_empty():
+				var snap: Dictionary = main.current_snapshot
+				DailyChallenge.record(main.save_data, main.daily_challenge, winner == main.own_side, float(snap.get("base_hp", [0.0, 0.0])[main.own_side]), float(snap.get("elapsed", 0.0)))
 			if main.campaign_mode:
 				awarded_stars = SaveData.record_campaign(main.save_data, main.current_ai_stage, winner == main.own_side, float(main.current_snapshot.elapsed), float(main.current_snapshot.base_hp[main.own_side]), winner == 2)
-			elif not main.practice_used_tools:
+			elif main.daily_challenge.is_empty() and not main.practice_used_tools:
 				main.save_data.stats.ai_matches += 1
 				main.save_data.stats.ai_wins += 1 if winner == main.own_side else 0
 				main.save_data.stats.ai_losses += 1 if winner != main.own_side and winner != 2 else 0
@@ -117,6 +121,11 @@ static func _show_result(main, winner: int) -> void:
 	if main.local_ai_mode:
 		note.text = Localization.text("%02d단계 승리 · 최고 ★ %d · 다음 단계 해금") % [main.current_ai_stage, awarded_stars] if main.campaign_mode and winner == main.own_side else Localization.text("%02d단계 결과가 개인 전적에 저장되었습니다.") % main.current_ai_stage
 		if not main.campaign_mode and main.practice_used_tools: note.text = "실험 설정 결과는 전적에 기록하지 않습니다."
+		if not main.ghost_context.is_empty():
+			var branch: bool = String(main.ghost_context.mode) == "branch"
+			note.text = Localization.text("이 결과는 전적에 기록되지 않는 실험입니다.") if branch else (Localization.text("고스트를 이겼습니다! 전적에는 기록되지 않습니다.") if winner == main.own_side else Localization.text("고스트에게 졌습니다. 다시 도전해 보세요."))
+		elif not main.daily_challenge.is_empty():
+			note.text = DailyChallenge.result_note(main.daily_challenge, main.save_data, winner == main.own_side)
 	else:
 		note.text = "같은 방에서 덱을 바꾸고 다시 대전할 수 있습니다." if not main.network.client_session.is_empty() else Localization.text("두 플레이어가 모두 준비하면 다시 시작합니다.")
 	note.position = Vector2(0, 160)
@@ -180,7 +189,11 @@ static func _show_result(main, winner: int) -> void:
 	rematch.size = Vector2(165 if advances else 215, 58)
 	rematch.pressed.connect(func():
 		rematch.disabled = true
-		if main.local_ai_mode:
+		if main.local_ai_mode and not main.ghost_context.is_empty():
+			main._restart_context()
+		elif main.local_ai_mode and not main.daily_challenge.is_empty():
+			main._start_daily_challenge()
+		elif main.local_ai_mode:
 			main._start_local_ai_battle(main.current_ai_stage, true)
 		elif not main.network.client_session.is_empty():
 			main.network.request_session_return.rpc_id(1)
@@ -202,7 +215,11 @@ static func _show_result(main, winner: int) -> void:
 	back.name = "BackToMenuButton"
 	back.position = Vector2(389 if advances else 300, 306 + extra)
 	back.size = Vector2(165 if advances else 215, 58)
-	if main.local_ai_mode:
+	if main.local_ai_mode and not main.ghost_context.is_empty():
+		back.pressed.connect(main._build_replay_list)
+	elif main.local_ai_mode and not main.daily_challenge.is_empty():
+		back.pressed.connect(main._build_connect_screen)
+	elif main.local_ai_mode:
 		back.pressed.connect(main._build_ai_stage_screen.bind(main.campaign_mode))
 	else:
 		back.pressed.connect(main._exit_battle_to_menu)
@@ -318,7 +335,7 @@ static func _judge_achievements(main, winner: int) -> Array:
 	if not main.local_ai_mode:
 		mode = "online"
 	elif not main.ghost_context.is_empty():
-		mode = "ghost"
+		mode = "ghost" if String(main.ghost_context.mode) == "ghost" else ""
 	elif not main.daily_challenge.is_empty():
 		mode = "daily"
 	elif main.campaign_mode:

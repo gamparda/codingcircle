@@ -3,6 +3,49 @@ extends RefCounted
 
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
+const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
+const Localization = preload("res://scripts/Localization.gd")
+
+## Today's challenge: decks, rule twist, best score and day streak, then "도전 시작".
+static func _show_daily_brief(main) -> void:
+	var key := DailyChallenge.date_key()
+	var challenge := DailyChallenge.for_date(key)
+	var modifier := DailyChallenge.modifier_info(String(challenge.modifier))
+	var column = main._action_panel("일일 도전  ·  %s-%s-%s" % [key.substr(0, 4), key.substr(4, 2), key.substr(6, 2)], Rect2(200, 100, 880, 520))
+	var twist := MultiplayerUI.label("%s  ·  %s" % [Localization.text(String(modifier.name)), Localization.text(String(modifier.desc))], 19, MultiplayerUI.GOLD)
+	twist.name = "DailyModifier"
+	twist.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(twist)
+	column.add_child(MultiplayerUI.label(Localization.text("상대: %02d단계 %s AI") % [DailyChallenge.effective_stage(challenge), ServerAI.stage_name(DailyChallenge.effective_stage(challenge))], 15))
+	column.add_child(MultiplayerUI.label("오늘의 고정 덱", 14, MultiplayerUI.GOLD))
+	var icons := HBoxContainer.new()
+	icons.name = "DailyDeck"
+	icons.add_theme_constant_override("separation", 12)
+	column.add_child(icons)
+	for kind in challenge.units:
+		var holder := VBoxContainer.new()
+		icons.add_child(holder)
+		var icon := TextureRect.new()
+		icon.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
+		icon.custom_minimum_size = Vector2(70, 92)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		holder.add_child(icon)
+		var caption := MultiplayerUI.label(String(BattleModel.UNIT_NAMES[kind]), 12, MultiplayerUI.MUTED)
+		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		holder.add_child(caption)
+	var structure_names := PackedStringArray()
+	for kind in challenge.structures:
+		structure_names.append({"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}.get(kind, kind))
+	column.add_child(MultiplayerUI.label(Localization.text("구조물: %s") % " · ".join(structure_names), 14, MultiplayerUI.MUTED))
+	var entry: Dictionary = main.save_data.get("daily", {}).get(key, {})
+	var best := MultiplayerUI.label(Localization.text("오늘의 최고 점수 %d점%s  ·  연속 %d일") % [int(entry.get("score", 0)), " ✓" if bool(entry.get("won", false)) else "", DailyChallenge.streak(main.save_data, key)], 15, MultiplayerUI.GOLD)
+	best.name = "DailyBest"
+	column.add_child(best)
+	column.add_child(MultiplayerUI.label("승리하면 점수를 받습니다. 남은 기지 체력이 많고 빠를수록 높습니다. 전투는 리플레이로 저장되어 공유할 수 있습니다.", 12, MultiplayerUI.MUTED))
+	MultiplayerUI.button(main, column, "도전 시작", "StartDailyChallenge", func(): main._dismiss_action_overlay(); main._start_daily_challenge(), true)
+	MultiplayerUI.button(main, column, "돌아가기", "CloseDailyBrief", main._dismiss_action_overlay)
 
 static func _show_stage_brief(main, stage: int) -> void:
 	if not main.campaign_mode or stage>int(main.save_data.campaign_unlocked): return

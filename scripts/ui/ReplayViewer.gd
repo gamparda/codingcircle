@@ -3,6 +3,7 @@ extends Control
 ## the regular BattleView. Controls: play/pause, speed, restart, a scrub bar and exit.
 
 signal closed
+signal branch_requested(tick: int)
 
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
@@ -185,6 +186,12 @@ func _build_bottom_bar() -> void:
 	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	info.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	row.add_child(info)
+	var branch := _control_button(row, "ReplayBranchButton", "여기서 해보기", UIKit.TEAL, false)
+	branch.custom_minimum_size.x = 150
+	branch.tooltip_text = "지금 장면에서 이어서 직접 조작해 보는 되감기 실험입니다"
+	branch.pressed.connect(func():
+		if player != null and not player.is_finished():
+			branch_requested.emit(player.ticks))
 	var close := _control_button(row, "ReplayClose", "나가기", UIKit.DANGER, false)
 	close.custom_minimum_size.x = 110
 	close.pressed.connect(func(): closed.emit())

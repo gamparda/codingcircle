@@ -44,7 +44,9 @@
     "tests/replay_analysis_test.gd",
     "tests/deck_simulator_ui_test.gd",
     "tests/deck_analysis_test.gd",
-    "tests/achievements_test.gd"
+    "tests/achievements_test.gd",
+    "tests/ghost_battle_test.gd",
+    "tests/daily_challenge_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",
