@@ -118,6 +118,36 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 		effects.button_pressed = bool(profile.battle_effects)
 		intensity.value = float(profile.effect_intensity)
 	)
+	_add_settings_section(main, column, Localization.text("계산 돕기"))
+	var helper_toggle := CheckButton.new()
+	helper_toggle.name = "HelperToggle"
+	helper_toggle.text = Localization.text("남는 CPU로 서버의 계산 돕기 (전투 중에는 쉽니다)")
+	helper_toggle.button_pressed = bool(settings.get("helper_enabled", false))
+	column.add_child(helper_toggle)
+	var helper_token := LineEdit.new()
+	helper_token.name = "HelperToken"
+	helper_token.secret = true
+	helper_token.placeholder_text = Localization.text("계산 돕기 토큰 (서버 운영자에게 받은 값)")
+	helper_token.text = String(settings.get("helper_token", ""))
+	helper_token.custom_minimum_size.y = 40
+	column.add_child(helper_token)
+	var helper_row := HBoxContainer.new()
+	column.add_child(helper_row)
+	var helper_label := Label.new()
+	helper_label.name = "HelperCoresLabel"
+	helper_label.custom_minimum_size.x = 220
+	helper_row.add_child(helper_label)
+	var helper_cores := HSlider.new()
+	helper_cores.name = "HelperCores"
+	helper_cores.min_value = 1
+	helper_cores.max_value = maxi(1, OS.get_processor_count() / 2)
+	helper_cores.step = 1
+	helper_cores.value = clampi(int(settings.get("helper_cores", 1)), 1, int(helper_cores.max_value))
+	helper_cores.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	helper_row.add_child(helper_cores)
+	var update_helper_label := func(): helper_label.text = Localization.text("사용할 CPU 코어  %d / %d") % [int(helper_cores.value), int(helper_cores.max_value)]
+	helper_cores.value_changed.connect(func(_value): update_helper_label.call())
+	update_helper_label.call()
 	_add_settings_section(main, column, Localization.text("데이터"))
 	var reset_button = main._styled_button(Localization.text("데이터 전체 초기화"), Color("#8f3a4a"), false)
 	reset_button.name = "DataResetButton"
@@ -139,8 +169,11 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 					settings.graphics_quality = "custom"
 					break
 		settings.language = "ko"
+		settings.helper_enabled = helper_toggle.button_pressed
+		settings.helper_token = helper_token.text.strip_edges().left(64)
+		settings.helper_cores = int(helper_cores.value)
 		settings.battle_keys = main.binding_draft.duplicate()
-		SaveData.save_data(main.save_data); Localization.install(String(settings.language)); main._apply_settings()
+		SaveData.save_data(main.save_data); Localization.install(String(settings.language)); main._apply_settings(); main._apply_helper_settings()
 		main._build_connect_screen(Localization.text("설정을 저장했습니다."))
 	)
 	outer.add_child(save_button)

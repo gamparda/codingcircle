@@ -18,7 +18,8 @@
     "tests/practice_replay_test.gd",
     "tests/deck_simulator_test.gd",
     "tests/replay_shelf_test.gd",
-    "tests/ime_fix_test.gd"
+    "tests/ime_fix_test.gd",
+    "tests/job_queue_test.gd"
   ],
   "network": [
     "tests/network_recovery_test.gd",
@@ -30,7 +31,9 @@
     "tests/quick_match_test.gd",
     "tests/community_stats_wire_test.gd",
     "tests/live_room_list_test.gd",
-    "tests/server_link_test.gd"
+    "tests/server_link_test.gd",
+    "tests/assist_wire_test.gd",
+    "tests/helper_service_test.gd"
   ],
   "ui": [
     "tests/ui_flow_test.gd",
@@ -63,7 +66,9 @@
     "tests/live_room_ui_test.gd",
     "tests/goals_test.gd",
     "tests/replay_viewer_plus_test.gd",
-    "tests/data_reset_test.gd"
+    "tests/data_reset_test.gd",
+    "tests/assist_app_test.gd",
+    "tests/helper_settings_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",

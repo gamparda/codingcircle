@@ -10,6 +10,13 @@ Run from PowerShell after exporting the project:
 
 On an installed copy, launch **Cat War Dedicated Server** from the Start menu or run `StartServer.cmd`. The server listens on UDP. Open the selected UDP port in the host firewall and cloud security group/router as required.
 
+## Assist servers and helper PCs
+
+Set `CATWAR_ASSIST_TOKEN` (for example in `/etc/catwar/server.env`) to let assist servers and helper PCs connect and
+take over batch work such as balance experiments; without it none of that is accepted. The main server still does the
+work itself at low priority when nobody helps. Finished job results are written to `<state dir>/jobs/`. See
+`docs/ASSIST_DESIGN.md`.
+
 ## Production Linux server
 
 The official Linux service runs Godot headlessly under `catwar-server.service`. Install

@@ -45,12 +45,14 @@ Name: "desktopicon"; Description: "바탕 화면 바로가기 만들기"; GroupD
 [Files]
 Source: "..\builds\CatWar.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\server\StartServer.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\server\StartAssist.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\ASSET_SOURCES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Cat War"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{group}\Cat War Dedicated Server"; Filename: "{app}\StartServer.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{group}\Keepfall Assist Server"; Filename: "{app}\StartAssist.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\사용 설명서"; Filename: "{app}\README.md"
 Name: "{group}\Cat War 제거"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Cat War"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; WorkingDir: "{app}"

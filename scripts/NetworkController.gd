@@ -13,6 +13,8 @@ const MetaStats = preload("res://scripts/MetaStats.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const ServerReplayShelf = preload("res://scripts/ServerReplayShelf.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
+const AssistHub = preload("res://scripts/jobs/AssistHub.gd")
+const JobRunner = preload("res://scripts/jobs/JobRunner.gd")
 const QuickQueue = preload("res://scripts/QuickQueue.gd")
 const SessionFlow = preload("res://scripts/net/SessionFlow.gd")
 const ReconnectFlow = preload("res://scripts/net/ReconnectFlow.gd")
@@ -22,6 +24,13 @@ signal connection_status(text: String)
 signal server_ready
 signal meta_stats_received(data: Dictionary)
 signal daily_board_received(data: Dictionary)
+signal assist_welcomed(ok: bool, message: String)
+signal assist_assigned(job_id: int, chunk_index: int, type: String, params: Dictionary, lease: float)
+signal assist_idle_received
+signal assist_wrap_up_received
+signal assist_overview_received(data: Dictionary)
+signal assist_submit_answered(ok: bool, job_id: int, error: String)
+signal assist_job_result_received(job_id: int, result: Dictionary)
 signal replay_code_received(code: String)
 signal shared_replay_received(code: String, text: String)
 signal recent_replays_received(list: Array)
@@ -82,6 +91,8 @@ var stats := ServerStats.new()
 var daily_board := ServerDailyBoard.new()
 var report_counts: Dictionary = {}
 var shelf := ServerReplayShelf.new()
+var assist := AssistHub.new()
+var client_assist_mode := false # a helper program connects without joining the lobby
 var upload_counts: Dictionary = {}
 const MAX_UPLOADS_PER_CONNECTION := 10
 const MAX_REPORTS_PER_CONNECTION := 40
@@ -145,6 +156,12 @@ static func connection_candidates(primary_address: String, fallback_address: Str
 	return candidates
 
 func _on_connected_to_server() -> void:
+	if client_assist_mode:
+		client_connection_state = "assist"
+		client_phase_elapsed = 0.0
+		connection_status.emit(Localization.text("서버에 연결됨"))
+		server_ready.emit()
+		return
 	client_connection_state = "connected"
 	client_phase_elapsed = 0.0
 	connection_status.emit(Localization.text("서버에 연결됨 · 덱 검증 중..."))
@@ -399,6 +416,7 @@ func _process(delta: float) -> void:
 				lobby_pages.erase(peer_id)
 			elif _peer_is_connected(int(peer_id)):
 				_send_room_listing(int(peer_id), int(lobby_pages[peer_id]), listing)
+	_advance_assist(delta)
 	var step := battle.advance(delta, _match_paused)
 	for tick in step.ticks:
 		var match_id: int = tick.match_id
@@ -486,6 +504,8 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	if not server_mode:
 		return
 	quick_queue.cancel(peer_id)
+	if assist.is_registered(peer_id):
+		assist.peer_gone(peer_id, _assist_now())
 	report_counts.erase(peer_id)
 	upload_counts.erase(peer_id)
 	var session_peer: bool = sessions.peer_to_room.has(peer_id)
@@ -1217,3 +1237,153 @@ func receive_recent_replays(list: Array) -> void:
 		if entry is Dictionary and entry.get("code") is String and is_valid_room_code(entry.code) and entry.get("units") is Array and entry.units.size() == 2:
 			clean.append(entry)
 	recent_replays_received.emit(clean)
+
+# ---------- Helper programs: assist servers and helper PCs ----------
+## They connect to the main server, introduce themselves with a shared token, and ask for work one chunk at a time.
+## Without CATWAR_ASSIST_TOKEN on the server none of this is accepted.
+
+const ASSIST_BUSY_MATCHES := 40 # the main server stops doing jobs itself while this many matches are running
+
+func configure_assist(directory: String, secret: String) -> void:
+	assist.configure(directory, secret, _assist_now())
+
+func _assist_now() -> float:
+	return float(Time.get_ticks_msec()) / 1000.0
+
+func _advance_assist(delta: float) -> void:
+	if not assist.enabled():
+		return
+	assist.tick(_assist_now(), delta, models.size() >= ASSIST_BUSY_MATCHES)
+	for event in assist.drain_events():
+		_report_assist_event(event)
+
+func _report_assist_event(event: Dictionary) -> void:
+	match String(event.type):
+		"joined": print("ASSIST_JOINED name=%s role=%s capabilities=%s" % [event.name, event.role, event.capabilities])
+		"left": print("ASSIST_LEFT name=%s released_chunks=%d" % [event.name, int(event.released)])
+		"reclaimed": print("ASSIST_RECLAIMED chunks=%d" % int(event.chunks))
+		"submitted": print("JOB_SUBMITTED id=%d by=%s title=%s" % [int(event.job), event.name, event.title])
+		"job_done":
+			print("JOB_DONE id=%d title=%s" % [int(event.job), event.title])
+			var submitter := int(String(event.submitter))
+			if submitter > 0 and _peer_is_connected(submitter):
+				assist_job_result.rpc_id(submitter, int(event.job), assist.result_for(int(event.job)))
+
+## Asks one helper to finish what it is doing and leave (used when the main server wants to restart it).
+func ask_assist_wrap_up(peer: int) -> bool:
+	if assist.request_wrap_up(peer) and _peer_is_connected(peer):
+		assist_wrap_up.rpc_id(peer)
+		return true
+	return false
+
+@rpc("any_peer", "call_remote", "reliable")
+func assist_hello(secret: String, name: String, version: int, capabilities: Array, cores: int, role: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	var answer := assist.hello(sender, secret, name, version, capabilities, cores, role, _assist_now())
+	assist_welcome.rpc_id(sender, bool(answer.ok), String(answer.message))
+	if not bool(answer.ok):
+		print("ASSIST_REJECTED peer=%d reason=%s" % [sender, answer.message])
+		_disconnect_peer.call_deferred(sender)
+
+@rpc("any_peer", "call_remote", "reliable")
+func assist_claim() -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not assist.is_registered(sender): return
+	var assignment := assist.claim(sender, _assist_now())
+	if assignment.is_empty():
+		assist_idle.rpc_id(sender)
+	else:
+		assist_assign.rpc_id(sender, int(assignment.job), int(assignment.chunk), String(assignment.type), assignment.params, float(assignment.lease))
+
+@rpc("any_peer", "call_remote", "reliable")
+func assist_heartbeat() -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not assist.is_registered(sender): return
+	assist.heartbeat(sender, _assist_now())
+	assist_overview.rpc_id(sender, assist.overview())
+
+@rpc("any_peer", "call_remote", "reliable")
+func assist_chunk_done(job_id: int, chunk_index: int, result: Dictionary) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not assist.is_registered(sender): return
+	assist.chunk_done(sender, job_id, chunk_index, result, _assist_now())
+
+@rpc("any_peer", "call_remote", "reliable")
+func assist_goodbye() -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if assist.is_registered(sender):
+		assist.goodbye(sender, _assist_now())
+
+@rpc("any_peer", "call_remote", "reliable")
+func assist_submit(type: String, params: Dictionary, title: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not assist.is_registered(sender): return
+	var outcome := assist.submit(sender, type, params, title.left(60), _assist_now())
+	assist_submitted.rpc_id(sender, bool(outcome.ok), int(outcome.id), String(outcome.error))
+
+@rpc("any_peer", "call_remote", "reliable")
+func assist_fetch_result(job_id: int) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not assist.is_registered(sender): return
+	assist_job_result.rpc_id(sender, job_id, assist.result_for(job_id))
+
+# client side
+func assist_send_hello(secret: String, name: String, capabilities: Array, cores: int, role: String = "assist") -> void:
+	if client_is_online():
+		assist_hello.rpc_id(1, secret, name, AssistHub.PROTOCOL, capabilities, cores, role)
+
+func assist_send_claim() -> void:
+	if client_is_online(): assist_claim.rpc_id(1)
+
+func assist_send_heartbeat() -> void:
+	if client_is_online(): assist_heartbeat.rpc_id(1)
+
+func assist_send_chunk(job_id: int, chunk_index: int, result: Dictionary) -> void:
+	if client_is_online(): assist_chunk_done.rpc_id(1, job_id, chunk_index, result)
+
+func assist_send_goodbye() -> void:
+	if client_is_online(): assist_goodbye.rpc_id(1)
+
+func assist_send_submit(type: String, params: Dictionary, title: String) -> void:
+	if client_is_online(): assist_submit.rpc_id(1, type, params, title)
+
+func assist_send_fetch(job_id: int) -> void:
+	if client_is_online(): assist_fetch_result.rpc_id(1, job_id)
+
+@rpc("authority", "call_remote", "reliable")
+func assist_welcome(ok: bool, message: String) -> void:
+	if message.length() <= 200:
+		assist_welcomed.emit(ok, message)
+
+@rpc("authority", "call_remote", "reliable")
+func assist_assign(job_id: int, chunk_index: int, type: String, params: Dictionary, lease: float) -> void:
+	if JobRunner.known(type) and is_finite(lease):
+		assist_assigned.emit(job_id, chunk_index, type, params, lease)
+
+@rpc("authority", "call_remote", "reliable")
+func assist_idle() -> void:
+	assist_idle_received.emit()
+
+@rpc("authority", "call_remote", "reliable")
+func assist_wrap_up() -> void:
+	assist_wrap_up_received.emit()
+
+@rpc("authority", "call_remote", "reliable")
+func assist_overview(data: Dictionary) -> void:
+	assist_overview_received.emit(data)
+
+@rpc("authority", "call_remote", "reliable")
+func assist_submitted(ok: bool, job_id: int, error: String) -> void:
+	assist_submit_answered.emit(ok, job_id, error.left(200))
+
+@rpc("authority", "call_remote", "reliable")
+func assist_job_result(job_id: int, result: Dictionary) -> void:
+	assist_job_result_received.emit(job_id, result)

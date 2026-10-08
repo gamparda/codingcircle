@@ -16,12 +16,14 @@ class Run extends RefCounted:
 	var structure_deck: Array
 	var stage := 1
 	var total := 0
+	var first_index := 0 # matches are seeded by index; a chunk of a bigger experiment starts at its own offset
 	var results: Array = []
 	var _model: BattleModel = null
 	var _player = null
 	var _opponent: ServerAI = null
 
-	func _init(units: Array, structures: Array, target_stage: int, matches: int) -> void:
+	func _init(units: Array, structures: Array, target_stage: int, matches: int, offset: int = 0) -> void:
+		first_index = maxi(0, offset)
 		unit_deck = units.duplicate()
 		structure_deck = structures.duplicate()
 		stage = clampi(target_stage, ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
@@ -41,7 +43,7 @@ class Run extends RefCounted:
 		var started := Time.get_ticks_msec()
 		while not is_done():
 			if _model == null:
-				_begin(results.size())
+				_begin(first_index + results.size())
 			while _model.winner == -1 and _model.elapsed < TIMEOUT:
 				_player.update(_model, DT)
 				_opponent.update(_model, DT)
