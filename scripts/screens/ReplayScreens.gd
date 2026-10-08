@@ -31,6 +31,9 @@ static func describe(replay: Dictionary) -> Dictionary:
 		outcome = "승리" if winner == 0 else ("패배" if winner == 1 else "무승부")
 	else:
 		outcome = "블루 승" if winner == 0 else ("레드 승" if winner == 1 else "무승부")
+	var clip := BattleReplay.clip_of(replay)
+	if not clip.is_empty():
+		title = "클립 ▸ %s" % String(clip.get("title", title))
 	var seconds := int(float(result.get("elapsed", 0.0)))
 	return {"title": title, "outcome": outcome, "winner": winner, "duration": "%02d:%02d" % [seconds / 60, seconds % 60]}
 

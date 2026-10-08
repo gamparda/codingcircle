@@ -39,6 +39,7 @@ var analysis: Dictionary = {}
 var graph: MomentumGraph
 var moment_toast: ToastLabel
 var last_announced_tick := 0
+var clip_finished := false
 
 func open(replay_data: Dictionary, title: String = "") -> void:
 	replay = replay_data
@@ -49,6 +50,9 @@ func open(replay_data: Dictionary, title: String = "") -> void:
 	size = Vector2(1280, 720)
 	_build()
 	_restart()
+	var clip := BattleReplay.clip_of(replay)
+	if not clip.is_empty():
+		moment_toast.text = "클립 ▸ %s" % String(clip.get("title", ""))
 
 func _build() -> void:
 	var background := ColorRect.new()
@@ -186,6 +190,10 @@ func _build_bottom_bar() -> void:
 	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	info.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	row.add_child(info)
+	var clip_button := _control_button(row, "ReplayClipButton", "클립 복사", UIKit.GOLD_DEEP, false)
+	clip_button.custom_minimum_size.x = 120
+	clip_button.tooltip_text = "지금 장면 전후 10초를 공유용 텍스트로 복사합니다"
+	clip_button.pressed.connect(copy_clip)
 	var branch := _control_button(row, "ReplayBranchButton", "여기서 해보기", UIKit.TEAL, false)
 	branch.custom_minimum_size.x = 150
 	branch.tooltip_text = "지금 장면에서 이어서 직접 조작해 보는 되감기 실험입니다"
@@ -207,6 +215,7 @@ func _control_button(parent: Control, node_name: String, text: String, color: Co
 
 # ---------------------------------------------------------------- playback
 func _restart() -> void:
+	clip_finished = false
 	player = BattleReplay.Player.new(replay)
 	accumulator = 0.0
 	finished_shown = false
@@ -219,6 +228,9 @@ func _restart() -> void:
 	_refresh_hud()
 	if play_button:
 		play_button.text = "일시정지"
+	var clip := BattleReplay.clip_of(replay)
+	if not clip.is_empty() and int(clip.start) > 0:
+		seek(int(clip.start))
 
 func toggle_pause() -> void:
 	paused = not paused
@@ -251,6 +263,13 @@ func _process(delta: float) -> void:
 	if player.is_finished():
 		_show_end()
 		return
+	var clip := BattleReplay.clip_of(replay)
+	if not clip.is_empty() and not clip_finished and player.ticks >= int(clip.end):
+		clip_finished = true
+		paused = true
+		play_button.text = "재생"
+		moment_toast.text = "클립 끝 ▸ 재생을 누르면 이어서 봅니다"
+		return
 	accumulator += minf(delta, 0.25) * float(SPEEDS[speed_index])
 	var steps := 0
 	var events: Array = []
@@ -276,6 +295,25 @@ func _announce_between(from_tick: int, to_tick: int) -> void:
 				if is_instance_valid(moment_toast) and moment_toast.text == String(item.text):
 					moment_toast.text = "")
 	last_announced_tick = to_tick
+
+## Copies a shareable clip around the highlight nearest to the playhead (or the playhead itself).
+func copy_clip() -> String:
+	var center: int = player.ticks
+	var title := "%d:%02d 부근" % [int(player.model.elapsed) / 60, int(player.model.elapsed) % 60]
+	var best := 600
+	for item in analysis.get("highlights", []):
+		var distance := absi(int(item.tick) - player.ticks)
+		if distance < best:
+			best = distance
+			center = int(item.tick)
+			title = String(item.text)
+	var text := BattleReplay.to_share_text(BattleReplay.make_clip(replay, center, title))
+	DisplayServer.clipboard_set(text)
+	moment_toast.text = "클립을 복사했습니다 ▸ %s" % title
+	get_tree().create_timer(3.0).timeout.connect(func():
+		if is_instance_valid(moment_toast) and moment_toast.text.begins_with("클립을 복사했습니다"):
+			moment_toast.text = "")
+	return text
 
 func jump_next_moment() -> void:
 	var item := ReplayAnalysis.next_after(analysis.get("highlights", []), player.ticks + JUMP_LEAD_TICKS)

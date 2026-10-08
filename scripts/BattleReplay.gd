@@ -112,6 +112,12 @@ static func valid(replay: Variant) -> bool:
 	var forced = replay.get("forced_end", {})
 	if not forced is Dictionary or (not forced.is_empty() and (not _is_number(forced.get("t")) or not _is_number(forced.get("winner")) or int(forced.winner) < -1 or int(forced.winner) > 2)):
 		return false
+	if replay.has("clip"):
+		var clip = replay.clip
+		if not clip is Dictionary or not _is_number(clip.get("start")) or not _is_number(clip.get("end")):
+			return false
+		if int(clip.start) < 0 or int(clip.end) <= int(clip.start) or int(clip.end) > MAX_TICKS or String(clip.get("title", "")).length() > 80:
+			return false
 	return replay.result is Dictionary
 
 # --- playback ----------------------------------------------------------------
@@ -179,6 +185,20 @@ static func verify(replay: Dictionary) -> Dictionary:
 	var recorded: Dictionary = replay.result
 	var matches: bool = String(played.state_hash) == String(recorded.get("state_hash", "")) and int(played.winner) == int(recorded.get("winner", -2))
 	return {"ok": matches, "played": played, "recorded": recorded}
+
+# --- clips -------------------------------------------------------------------
+## A clip is the whole replay plus a window. The viewer starts at `start` and pauses at `end`, so sharing
+## a 20-second moment costs no more than sharing the replay (and still verifies like any other).
+static func make_clip(replay: Dictionary, center_tick: int, title: String, before: int = 300, after: int = 300) -> Dictionary:
+	var total := int(replay.get("result", {}).get("ticks", 0))
+	var clip: Dictionary = replay.duplicate(true)
+	var start := clampi(center_tick - before, 0, maxi(0, total - 1))
+	var end := clampi(center_tick + after, start + 1, maxi(start + 1, total))
+	clip["clip"] = {"start": start, "end": end, "title": title.left(80)}
+	return clip
+
+static func clip_of(replay: Dictionary) -> Dictionary:
+	return replay.get("clip", {}) if replay.get("clip") is Dictionary else {}
 
 # --- sharing -----------------------------------------------------------------
 const SHARE_PREFIX := "CATWAR-REPLAY1:"
