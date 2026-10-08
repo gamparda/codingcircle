@@ -10,6 +10,8 @@ const DeckAnalysis = preload("res://scripts/DeckAnalysis.gd")
 const GhostOpponent = preload("res://scripts/GhostOpponent.gd")
 const HpBar = preload("res://scripts/ui/HpBar.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
+const MetaStats = preload("res://scripts/MetaStats.gd")
+const MetaStatsUI = preload("res://scripts/screens/MetaStatsUI.gd")
 const REPLAY_LIST_SCREEN := preload("res://scenes/ui/ReplayListScreen.tscn")
 
 static func describe(replay: Dictionary) -> Dictionary:
@@ -97,6 +99,14 @@ static func _build_replay_list(main) -> void:
 static func _show_deck_analysis(main) -> void:
 	var dialog = main._action_panel("덱 분석", Rect2(150, 50, 980, 620))
 	var rows: Array = DeckAnalysis.collect(BattleReplay.list_saved())
+	var global_box := VBoxContainer.new()
+	global_box.name = "GlobalDeckStats"
+	global_box.add_theme_constant_override("separation", 3)
+	dialog.add_child(global_box)
+	MetaStatsUI.fill_global_card(global_box)
+	dialog.add_child(MetaStatsUI.share_toggle(main))
+	var decks: Array = rows.map(func(row): return row.deck)
+	main.network.send_stats_request(decks)
 	var scroll := ScrollContainer.new()
 	scroll.name = "DeckAnalysisScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -116,6 +126,14 @@ static func _show_deck_analysis(main) -> void:
 		list.add_child(empty)
 	for row in rows:
 		list.add_child(_analysis_row(row))
+	var refresh := func(_data):
+		if not is_instance_valid(global_box):
+			return
+		MetaStatsUI.fill_global_card(global_box)
+		for label in list.find_children("DeckGlobalLine", "Label", true, false):
+			label.text = Localization.text(MetaStats.record_text(MetaStats.deck_record(label.get_meta("deck"))))
+	main.network.meta_stats_received.connect(refresh)
+	global_box.tree_exited.connect(func(): if main.network.meta_stats_received.is_connected(refresh): main.network.meta_stats_received.disconnect(refresh))
 	MultiplayerUI.button(main, dialog, "닫기", "CloseDeckAnalysis", main._dismiss_action_overlay)
 
 static func _analysis_row(row: Dictionary) -> Control:
@@ -165,6 +183,13 @@ static func _analysis_row(row: Dictionary) -> Control:
 	detail.add_theme_font_size_override("font_size", 12)
 	detail.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	text.add_child(detail)
+	var global_line := Label.new()
+	global_line.name = "DeckGlobalLine"
+	global_line.set_meta("deck", row.deck)
+	global_line.text = Localization.text(MetaStats.record_text(MetaStats.deck_record(row.deck)))
+	global_line.add_theme_font_size_override("font_size", 12)
+	global_line.add_theme_color_override("font_color", UIKit.TEAL)
+	text.add_child(global_line)
 	var rate := Label.new()
 	rate.text = "%d%%" % roundi(float(row.win_rate) * 100.0)
 	UIKit.display(rate, 30, tone.lightened(0.3))

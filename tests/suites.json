@@ -25,7 +25,8 @@
     "tests/room_browser_wire_test.gd",
     "tests/room_sessions_test.gd",
     "tests/room_sessions_wire_test.gd",
-    "tests/quick_match_test.gd"
+    "tests/quick_match_test.gd",
+    "tests/community_stats_wire_test.gd"
   ],
   "ui": [
     "tests/ui_flow_test.gd",
@@ -47,7 +48,8 @@
     "tests/achievements_test.gd",
     "tests/ghost_battle_test.gd",
     "tests/daily_challenge_test.gd",
-    "tests/replay_clip_test.gd"
+    "tests/replay_clip_test.gd",
+    "tests/community_stats_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",

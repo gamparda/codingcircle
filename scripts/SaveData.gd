@@ -41,7 +41,7 @@ static func default_data() -> Dictionary:
 			"master_volume": 0.8, "bgm_volume": 0.7, "sfx_volume": 0.8, "muted": false,
 			"window_size": "1920x1080", "fullscreen": true, "vsync": true, "fps_limit": 60,
 			"graphics_quality": "high", "damage_numbers": true, "screen_shake": true, "battle_effects": true, "effect_intensity": 1.0,
-			"language": "ko", "battle_keys": preload("res://scripts/BattleBindings.gd").DEFAULTS.duplicate(),
+			"language": "ko", "share_results": false, "battle_keys": preload("res://scripts/BattleBindings.gd").DEFAULTS.duplicate(),
 		},
 		"stats": {
 			"ai_matches": 0, "ai_wins": 0, "ai_losses": 0, "highest_campaign": 0, "total_stars": 0,
@@ -50,6 +50,9 @@ static func default_data() -> Dictionary:
 		},
 		"achievements": {},
 		"daily": {},
+		"install_id": "",
+		"pending_reports": [],
+		"pending_daily": {},
 	}
 
 static func _migrate_removed_structures(structures: Array, fallback: Array) -> Array:
@@ -143,7 +146,7 @@ static func sanitize(raw: Variant) -> Dictionary:
 			clean.settings.fps_limit = int(raw.settings.fps_limit)
 		if raw.settings.get("language") is String:
 			clean.settings.language = "ko"
-		for key in ["muted", "fullscreen", "vsync", "damage_numbers", "screen_shake", "battle_effects"]:
+		for key in ["muted", "fullscreen", "vsync", "damage_numbers", "screen_shake", "battle_effects", "share_results"]:
 			if raw.settings.get(key) is bool:
 				clean.settings[key] = raw.settings[key]
 	if raw.get("stats") is Dictionary:
@@ -162,6 +165,15 @@ static func sanitize(raw: Variant) -> Dictionary:
 			if String(key).length() == 8 and String(key).is_valid_int() and entry is Dictionary and _is_integer(entry.get("score")):
 				clean.daily[String(key)] = {"won": bool(entry.get("won", false)), "score": clampi(int(entry.score), 0, 100000),
 					"seconds": clampf(float(entry.get("seconds", 0.0)), 0.0, 100000.0)}
+	if raw.get("install_id") is String and preload("res://scripts/ServerDailyBoard.gd").valid_id(String(raw.install_id)):
+		clean.install_id = String(raw.install_id)
+	if raw.get("pending_reports") is Array:
+		for report in raw.pending_reports.slice(0, 20):
+			if report is Dictionary and report.get("units") is Array and report.get("structures") is Array and _is_integer(report.get("result")) and preload("res://scripts/MetaStats.gd").REPORT_MODES.has(String(report.get("mode", ""))) 					and preload("res://scripts/NetworkProtocol.gd").validate_deck_payload(report.units, report.structures) and int(report.result) >= 0 and int(report.result) <= 2:
+				clean.pending_reports.append({"units": report.units.duplicate(), "structures": report.structures.duplicate(), "result": int(report.result), "mode": String(report.mode)})
+	var pending = raw.get("pending_daily")
+	if pending is Dictionary and String(pending.get("date", "")).length() == 8 and _is_integer(pending.get("score")):
+		clean.pending_daily = {"date": String(pending.date), "score": clampi(int(pending.score), 0, 100000), "seconds": clampf(float(pending.get("seconds", 0.0)), 0.0, 100000.0)}
 	clean.stats.highest_campaign = mini(8, int(clean.stats.highest_campaign))
 	clean.stats.total_stars = 0
 	for record in clean.campaign_records:

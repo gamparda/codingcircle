@@ -5,13 +5,15 @@ const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const Localization = preload("res://scripts/Localization.gd")
+const MetaStats = preload("res://scripts/MetaStats.gd")
+const MetaStatsUI = preload("res://scripts/screens/MetaStatsUI.gd")
 
 ## Today's challenge: decks, rule twist, best score and day streak, then "도전 시작".
 static func _show_daily_brief(main) -> void:
 	var key := DailyChallenge.date_key()
 	var challenge := DailyChallenge.for_date(key)
 	var modifier := DailyChallenge.modifier_info(String(challenge.modifier))
-	var column = main._action_panel("일일 도전  ·  %s-%s-%s" % [key.substr(0, 4), key.substr(4, 2), key.substr(6, 2)], Rect2(200, 100, 880, 520))
+	var column = main._action_panel("일일 도전  ·  %s-%s-%s" % [key.substr(0, 4), key.substr(4, 2), key.substr(6, 2)], Rect2(200, 30, 880, 660))
 	var twist := MultiplayerUI.label("%s  ·  %s" % [Localization.text(String(modifier.name)), Localization.text(String(modifier.desc))], 19, MultiplayerUI.GOLD)
 	twist.name = "DailyModifier"
 	twist.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -44,6 +46,18 @@ static func _show_daily_brief(main) -> void:
 	best.name = "DailyBest"
 	column.add_child(best)
 	column.add_child(MultiplayerUI.label("승리하면 점수를 받습니다. 남은 기지 체력이 많고 빠를수록 높습니다. 전투는 리플레이로 저장되어 공유할 수 있습니다.", 12, MultiplayerUI.MUTED))
+	var board_box := VBoxContainer.new()
+	board_box.name = "DailyBoardRows"
+	board_box.add_theme_constant_override("separation", 3)
+	column.add_child(board_box)
+	MetaStatsUI.fill_board(board_box, key)
+	var refresh := func(data: Dictionary):
+		if is_instance_valid(board_box) and String(data.date) == key:
+			MetaStatsUI.fill_board(board_box, key)
+	main.network.daily_board_received.connect(refresh)
+	board_box.tree_exited.connect(func(): if main.network.daily_board_received.is_connected(refresh): main.network.daily_board_received.disconnect(refresh))
+	main.network.send_daily_board_request(key, MetaStats.install_id(main.save_data) if MetaStats.sharing(main.save_data) else "")
+	column.add_child(MetaStatsUI.share_toggle(main))
 	MultiplayerUI.button(main, column, "도전 시작", "StartDailyChallenge", func(): main._dismiss_action_overlay(); main._start_daily_challenge(), true)
 	MultiplayerUI.button(main, column, "돌아가기", "CloseDailyBrief", main._dismiss_action_overlay)
 

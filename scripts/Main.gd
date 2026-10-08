@@ -16,6 +16,7 @@ const UpdateOverlay = preload("res://scripts/screens/UpdateOverlay.gd")
 const Tutorial = preload("res://scripts/screens/Tutorial.gd")
 const PracticeUI = preload("res://scripts/screens/PracticeUI.gd")
 const PatchNotes = preload("res://scripts/PatchNotes.gd")
+const MetaStats = preload("res://scripts/MetaStats.gd")
 
 const OFFICIAL_SERVER_ADDRESS := "ruellyya.kr"
 const OFFICIAL_SERVER_FALLBACK_ADDRESS := "211.176.222.145"
@@ -157,6 +158,7 @@ func _ready() -> void:
 	network.room_list_received.connect(_on_room_list)
 	network.session_changed.connect(_on_session_changed)
 	network.session_error.connect(_on_session_error)
+	network.server_ready.connect(_on_server_ready)
 	network.quick_match_status.connect(_on_quick_match_status)
 	network.session_chat.connect(_on_session_chat)
 	network.spectate_started.connect(_on_spectate_started)
@@ -188,6 +190,7 @@ func _ready() -> void:
 		server_state_dir = OS.get_environment("CATWAR_STATE_DIR").strip_edges()
 		if not server_state_dir.is_empty():
 			DirAccess.make_dir_recursive_absolute(server_state_dir)
+		network.configure_stats(server_state_dir)
 		_update_server_lifecycle(1.0)
 		updater.set_safe_to_update(true)
 		updater.check_for_update()
@@ -341,6 +344,14 @@ func _active_match_count() -> int:
 		if model.winner == -1:
 			count += 1
 	return count
+
+## Once a server is reachable: send what was queued while offline and refresh the community statistics.
+func _on_server_ready() -> void:
+	MetaStats.flush(save_data, network)
+	SaveData.save_data(save_data)
+	network.send_stats_request([network.client_unit_deck])
+	var identity := MetaStats.install_id(save_data) if MetaStats.sharing(save_data) else ""
+	network.send_daily_board_request(preload("res://scripts/DailyChallenge.gd").date_key(), identity)
 
 func _update_server_lifecycle(delta: float) -> void:
 	if server_state_dir.is_empty():

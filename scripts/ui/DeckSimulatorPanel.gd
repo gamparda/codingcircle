@@ -5,6 +5,7 @@ const DeckSimulator = preload("res://scripts/DeckSimulator.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const HpBar = preload("res://scripts/ui/HpBar.gd")
 const Localization = preload("res://scripts/Localization.gd")
+const MetaStats = preload("res://scripts/MetaStats.gd")
 const MATCH_COUNTS := [6, 12, 24]
 const SLICE_MSEC := 12
 
@@ -145,6 +146,13 @@ func _show_result() -> void:
 		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		line.add_theme_color_override("font_color", UIKit.TEXT)
 		tips_box.add_child(line)
+	var community := MetaStats.deck_record(units)
+	if not community.is_empty():
+		var note := Label.new()
+		note.name = "CommunityRecord"
+		note.text = "▸ " + Localization.text(MetaStats.record_text(community)) + Localization.text(" · 사람과의 실전 기준")
+		note.add_theme_color_override("font_color", UIKit.TEAL)
+		tips_box.add_child(note)
 
 func _chip(caption: String, value: String, tone: Color) -> Control:
 	var panel := PanelContainer.new()

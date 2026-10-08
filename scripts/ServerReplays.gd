@@ -8,6 +8,7 @@ const BattleReplay = preload("res://scripts/BattleReplay.gd")
 var enabled := true
 var recorders: Dictionary = {}
 var saved_paths: Array = []
+var stats = null
 
 func begin(match_id: int, model: BattleModel, meta: Dictionary = {}) -> void:
 	if enabled:
@@ -31,6 +32,8 @@ func settle(match_id: int, model: BattleModel) -> void:
 		return
 	var recorder = recorders[match_id]
 	recorders.erase(match_id)
+	if stats != null:
+		stats.record_model(model)
 	var path := BattleReplay.save(recorder.finish(model), "match%d" % match_id)
 	if path != "":
 		saved_paths.append(path)

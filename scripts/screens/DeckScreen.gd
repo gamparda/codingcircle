@@ -109,6 +109,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 			status.text = Localization.text("유닛과 구조물을 각각 정확히 3종 선택해야 합니다.")
 			return
 		status.text = ""
+		main.network.send_stats_request([picked_units])
 		var dialog = main._action_panel("덱 시뮬레이션", Rect2(190, 70, 900, 580))
 		var panel := DeckSimulatorPanel.new()
 		dialog.add_child(panel)

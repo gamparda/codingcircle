@@ -12,6 +12,7 @@ const Achievements = preload("res://scripts/Achievements.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
 const Report = preload("res://scripts/BattleReport.gd")
+const MetaStats = preload("res://scripts/MetaStats.gd")
 
 static func _show_result(main, winner: int) -> void:
 	main._dismiss_result_overlay()
@@ -48,6 +49,7 @@ static func _show_result(main, winner: int) -> void:
 			main.save_data.stats.online_losses += 1 if winner != main.own_side and winner != 2 else 0
 			main.save_data.stats.online_draws += 1 if winner == 2 else 0
 		unlocked = _judge_achievements(main, winner)
+		_share_result(main, winner)
 		SaveData.save_data(main.save_data)
 	var screen := Control.new()
 	screen.name = "ResultOverlay"
@@ -330,6 +332,22 @@ static func _match_strip(main, winner: int, at: Vector2, width: float) -> Contro
 	return strip
 
 ## Updates streaks and unlocks achievements for a finished, countable battle. Experiments return [].
+## Queues the finished solo battle for the community statistics (only when the player opted in) and sends
+## it right away when a server connection happens to be open.
+static func _share_result(main, winner: int) -> void:
+	if not main.local_ai_mode or not main.ghost_context.is_empty() or not is_instance_valid(main.local_model) or not MetaStats.sharing(main.save_data):
+		return
+	var mode := "daily" if not main.daily_challenge.is_empty() else ("campaign" if main.campaign_mode else ("practice" if not main.practice_used_tools else ""))
+	if mode == "":
+		return
+	var side: int = main.own_side
+	var result := 0 if winner == side else (2 if winner == 2 else 1)
+	MetaStats.queue_report(main.save_data, main.local_model.unit_decks[side], main.local_model.structure_decks[side], result, mode)
+	if mode == "daily" and result == 0:
+		var entry: Dictionary = main.save_data.daily.get(String(main.daily_challenge.key), {})
+		MetaStats.queue_daily(main.save_data, String(main.daily_challenge.key), int(entry.get("score", 0)), float(entry.get("seconds", 0.0)))
+	MetaStats.flush(main.save_data, main.network)
+
 static func _judge_achievements(main, winner: int) -> Array:
 	var mode := ""
 	if not main.local_ai_mode:

@@ -7,12 +7,19 @@ const Protocol = preload("res://scripts/NetworkProtocol.gd")
 const PeerAdmission = preload("res://scripts/PeerAdmission.gd")
 const ServerReplays = preload("res://scripts/ServerReplays.gd")
 const ServerBattle = preload("res://scripts/ServerBattle.gd")
+const ServerStats = preload("res://scripts/ServerStats.gd")
+const ServerDailyBoard = preload("res://scripts/ServerDailyBoard.gd")
+const MetaStats = preload("res://scripts/MetaStats.gd")
+const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const QuickQueue = preload("res://scripts/QuickQueue.gd")
 const SessionFlow = preload("res://scripts/net/SessionFlow.gd")
 const ReconnectFlow = preload("res://scripts/net/ReconnectFlow.gd")
 const ClientSessionFlow = preload("res://scripts/net/ClientSessionFlow.gd")
 
 signal connection_status(text: String)
+signal server_ready
+signal meta_stats_received(data: Dictionary)
+signal daily_board_received(data: Dictionary)
 signal match_found(side: int)
 signal snapshot_received(data: Dictionary)
 signal combat_events_received(events: Array)
@@ -66,6 +73,10 @@ var models: Dictionary:
 var replays: ServerReplays:
 	get: return battle.replays
 var quick_queue := QuickQueue.new()
+var stats := ServerStats.new()
+var daily_board := ServerDailyBoard.new()
+var report_counts: Dictionary = {}
+const MAX_REPORTS_PER_CONNECTION := 40
 var rematch_ready: Dictionary:
 	get: return battle.rematch_ready
 var server_mode := false
@@ -104,6 +115,7 @@ var client_connection_generation := 0
 var client_phase_elapsed := 0.0
 
 func _ready() -> void:
+	replays.stats = stats
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(_on_connected_to_server)
@@ -125,6 +137,7 @@ func _on_connected_to_server() -> void:
 	client_phase_elapsed = 0.0
 	connection_status.emit(Localization.text("서버에 연결됨 · 덱 검증 중..."))
 	request_submit_deck.rpc_id(1, client_unit_deck, client_structure_deck)
+	server_ready.emit()
 
 static func validate_deck_payload(unit_deck: Array, structure_deck: Array) -> bool:
 	return Protocol.validate_deck_payload(unit_deck, structure_deck)
@@ -456,6 +469,7 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	if not server_mode:
 		return
 	quick_queue.cancel(peer_id)
+	report_counts.erase(peer_id)
 	var session_peer: bool = sessions.peer_to_room.has(peer_id)
 	if session_peer and sessions.suspend(peer_id,Time.get_ticks_msec()+int(RECONNECT_GRACE*1000)):
 		_push_session(sessions.peer_to_room[peer_id])
@@ -1004,3 +1018,79 @@ func receive_completed_snapshot(data: Dictionary) -> void:
 	# Final per-kind reports exceed a single datagram; ENet reliable fragmentation
 	# avoids sending the only result/report over an oversized unreliable packet.
 	receive_snapshot(data)
+
+# ---------- Community statistics and the daily board ----------
+
+func configure_stats(directory: String) -> void:
+	stats.configure(directory)
+	daily_board.configure(directory)
+	replays.stats = stats
+
+func client_is_online() -> bool:
+	return not (client_connection_state in ["idle", "connecting", "recovering"]) and not client_reconnecting
+
+func send_stats_request(decks: Array) -> void:
+	if client_is_online():
+		request_meta_stats.rpc_id(1, decks.slice(0, ServerStats.MAX_LOOKUP))
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_meta_stats(decks: Array) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	var clean: Array = []
+	for deck in decks.slice(0, ServerStats.MAX_LOOKUP):
+		if deck is Array and deck.size() == 3 and deck.all(func(kind): return kind is String and BattleModel.UNIT_STATS.has(kind)):
+			clean.append(deck)
+	receive_meta_stats.rpc_id(sender, stats.snapshot(clean))
+
+@rpc("authority", "call_remote", "reliable")
+func receive_meta_stats(data: Dictionary) -> void:
+	if not MetaStats.valid_snapshot(data): return
+	MetaStats.store(data)
+	meta_stats_received.emit(MetaStats.current())
+
+func send_result_report(units: Array, structures: Array, result: int, mode: String) -> void:
+	if client_is_online():
+		report_result.rpc_id(1, units, structures, result, mode)
+
+## Results the client reports about its own solo battles. Trusted as sent for now; they are counted
+## in a separate "reported" bucket so they can be audited or discarded later.
+@rpc("any_peer", "call_remote", "reliable")
+func report_result(units: Array, structures: Array, result: int, mode: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not MetaStats.REPORT_MODES.has(mode): return
+	if int(report_counts.get(sender, 0)) >= MAX_REPORTS_PER_CONNECTION: return
+	if stats.record("reported", units, structures, result):
+		report_counts[sender] = int(report_counts.get(sender, 0)) + 1
+		stats.flush()
+
+func send_daily_score(date: String, install_id: String, nickname: String, score: int, seconds: float) -> void:
+	if client_is_online():
+		submit_daily_score.rpc_id(1, date, install_id, nickname, score, seconds)
+
+func send_daily_board_request(date: String, install_id: String) -> void:
+	if client_is_online():
+		request_daily_board.rpc_id(1, date, install_id)
+
+@rpc("any_peer", "call_remote", "reliable")
+func submit_daily_score(date: String, install_id: String, nickname: String, score: int, seconds: float) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender): return
+	if daily_board.submit(date, install_id, nickname, score, seconds):
+		receive_daily_board.rpc_id(sender, daily_board.board(date, install_id))
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_daily_board(date: String, install_id: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not ServerDailyBoard.accepts_date(date, DailyChallenge.date_key()): return
+	receive_daily_board.rpc_id(sender, daily_board.board(date, install_id))
+
+@rpc("authority", "call_remote", "reliable")
+func receive_daily_board(data: Dictionary) -> void:
+	if not MetaStats.valid_board(data): return
+	MetaStats.boards[String(data.date)] = data
+	daily_board_received.emit(data)
