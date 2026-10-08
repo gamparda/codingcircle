@@ -54,6 +54,8 @@ var quitting := false
 
 func setup(network) -> void:
 	name = "AssistApp"
+	if is_inside_tree() and get_window() != null and DisplayServer.get_name() != "headless":
+		get_window().title = "Keepfall 보조 서버" # the window property wins over DisplayServer.window_set_title
 	position = Vector2.ZERO
 	size = Vector2(1280, 720)
 	worker = AssistWorker.new()
@@ -393,6 +395,9 @@ func _connect_pressed() -> void:
 	if cap_boxes.values().all(func(box): return not box.button_pressed):
 		worker.journal.add("warn", "받을 작업을 하나 이상 선택해 주세요.")
 		return
+	# The official address is tried the way the game does it: public IP, the LAN address when on the same network, then the domain.
+	if String(worker.config.candidates[0]) == DEFAULT_ADDRESS:
+		worker.config.candidates = load("res://scripts/Main.gd").official_connection_candidates(IP.get_local_addresses())
 	worker.start()
 
 func _order_job() -> void:
