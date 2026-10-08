@@ -17,7 +17,8 @@
     "tests/ui_sounds_test.gd",
     "tests/practice_replay_test.gd",
     "tests/deck_simulator_test.gd",
-    "tests/replay_shelf_test.gd"
+    "tests/replay_shelf_test.gd",
+    "tests/ime_fix_test.gd"
   ],
   "network": [
     "tests/network_recovery_test.gd",

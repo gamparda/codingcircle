@@ -151,6 +151,8 @@ var settings_touch_start := Vector2.ZERO
 func _ready() -> void:
 	if DisplayServer.get_name() == "headless":
 		finale_seconds = 0.0
+	elif OS.get_name() == "Windows":
+		add_child(preload("res://scripts/ImeFix.gd").new()) # Korean typing: see ImeFix.gd
 	theme = UIKit.build_theme()
 	if UIKit.is_touch():
 		get_tree().node_added.connect(_enlarge_for_touch)

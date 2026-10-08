@@ -208,7 +208,7 @@ jobs:
             "published=false" | Out-File $env:GITHUB_OUTPUT -Append
             Write-Host "Release $tag already exists and is left untouched. Bump release.json for a new release."
           } else {
-            gh release create $tag @assets --target $env:GITHUB_SHA --title "Cat War $env:CONTENT_VERSION" --notes-file CHANGELOG.md --latest --repo $env:GITHUB_REPOSITORY
+            gh release create $tag @assets --target $env:GITHUB_SHA --title "Keepfall $env:CONTENT_VERSION" --notes-file CHANGELOG.md --latest --repo $env:GITHUB_REPOSITORY
             if ($LASTEXITCODE -ne 0) { throw "Failed to publish GitHub Release" }
             "published=true" | Out-File $env:GITHUB_OUTPUT -Append
           }
