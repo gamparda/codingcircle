@@ -7,6 +7,7 @@ const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const Localization = preload("res://scripts/Localization.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 const MetaStatsUI = preload("res://scripts/screens/MetaStatsUI.gd")
+const ServerLink = preload("res://scripts/ServerLink.gd")
 
 ## Today's (or this week's) challenge: decks, rule twists, best score, the leaderboard, then "도전 시작".
 static func _show_daily_brief(main, period: String = "daily") -> void:
@@ -64,7 +65,8 @@ static func _show_daily_brief(main, period: String = "daily") -> void:
 			MetaStatsUI.fill_board(board_box, board_key)
 	main.network.daily_board_received.connect(refresh)
 	board_box.tree_exited.connect(func(): if main.network.daily_board_received.is_connected(refresh): main.network.daily_board_received.disconnect(refresh))
-	main.network.send_daily_board_request(board_key, MetaStats.install_id(main.save_data) if MetaStats.sharing(main.save_data) else "")
+	var identity: String = MetaStats.install_id(main.save_data) if MetaStats.sharing(main.save_data) else ""
+	ServerLink.run(main, func(): main.network.send_daily_board_request(board_key, identity), Callable(), false)
 	column.add_child(MetaStatsUI.share_toggle(main))
 	MultiplayerUI.button(main, column, "도전 시작", "StartDailyChallenge", func(): main._dismiss_action_overlay(); main._start_daily_challenge(period), true)
 	MultiplayerUI.button(main, column, "돌아가기", "CloseDailyBrief", main._dismiss_action_overlay)

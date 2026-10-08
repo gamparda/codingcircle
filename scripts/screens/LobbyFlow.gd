@@ -7,6 +7,8 @@ const UIKit = preload("res://scripts/ui/UIKit.gd")
 const OFFICIAL_SERVER_PORT := 7777
 
 static func _on_connection_status(main, text: String) -> void:
+	if main.quiet_connection:
+		return
 	if not main.local_ai_mode and main.network.client_connection_state == "idle" and main.multiplayer_screen == "session":
 		main.lobby_data = {"rooms":[],"page":0,"total":0}; main._build_lobby_screen()
 	if main.smoke_mode:
@@ -67,6 +69,7 @@ static func _on_opponent_left(main) -> void:
 	main.status_label.text = "서버 연결이 끊겼습니다. 새로고침으로 다시 연결하세요."
 
 static func _open_multiplayer(main) -> void:
+	main.quiet_connection = false
 	main._build_lobby_screen()
 	main.network.set_room_request("session")
 	var preset = main._active_preset()

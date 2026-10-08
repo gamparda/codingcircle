@@ -120,6 +120,12 @@ var lobby_rows: VBoxContainer
 var lobby_page_label: Label
 var lobby_page := 0
 var lobby_filter := "all"
+## Features that need the server connect by themselves (ServerLink). Off in headless runs so tests never dial out.
+var link_enabled := true
+var link_port := 0 # 0 = the official server's port
+var link_timeout := 8.0
+var server_link_failed_at := -1000000
+var quiet_connection := false # while connecting for such a feature, connection messages stay off the current screen
 var lobby_total := 0
 var lobby_data := {"rooms":[],"page":0,"total":0}
 var lobby_previous_button: Button
@@ -151,6 +157,7 @@ var settings_touch_start := Vector2.ZERO
 func _ready() -> void:
 	if DisplayServer.get_name() == "headless":
 		finale_seconds = 0.0
+		link_enabled = false
 	elif OS.get_name() == "Windows":
 		add_child(preload("res://scripts/ImeFix.gd").new()) # Korean typing: see ImeFix.gd
 	theme = UIKit.build_theme()

@@ -7,6 +7,7 @@ const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
 const DeckSimulatorPanel = preload("res://scripts/ui/DeckSimulatorPanel.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
+const ServerLink = preload("res://scripts/ServerLink.gd")
 const DECK_SCREEN := preload("res://scenes/ui/DeckScreen.tscn")
 
 static func _build_deck_screen(main, preset_index: int = -1) -> void:
@@ -69,7 +70,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		_add_community_chip(card, "structures", kind)
 		structure_buttons[kind] = card
 		structure_grid.add_child(card)
-	main.network.send_stats_request([])
+	ServerLink.run(main, func(): main.network.send_stats_request([]), Callable(), false)
 	var refresh_chips := func(_data):
 		for chip in choices.find_children("CommunityChip", "Label", true, false):
 			chip.text = Localization.text(MetaStats.kind_text(String(chip.get_meta("group")), String(chip.get_meta("kind"))))
@@ -119,7 +120,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 			status.text = Localization.text("유닛과 구조물을 각각 정확히 3종 선택해야 합니다.")
 			return
 		status.text = ""
-		main.network.send_stats_request([picked_units])
+		ServerLink.run(main, func(): main.network.send_stats_request([picked_units]), Callable(), false)
 		var dialog = main._action_panel("덱 시뮬레이션", Rect2(190, 70, 900, 580))
 		var panel := DeckSimulatorPanel.new()
 		dialog.add_child(panel)

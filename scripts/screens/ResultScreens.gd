@@ -14,6 +14,7 @@ const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
 const Report = preload("res://scripts/BattleReport.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 const Goals = preload("res://scripts/Goals.gd")
+const ServerLink = preload("res://scripts/ServerLink.gd")
 
 static func _show_result(main, winner: int) -> void:
 	main._dismiss_result_overlay()
@@ -366,7 +367,7 @@ static func _share_result(main, winner: int) -> void:
 	if mode == "daily" and result == 0:
 		var entry: Dictionary = main.save_data.get(DailyChallenge.store_name(main.daily_challenge), {}).get(String(main.daily_challenge.key), {})
 		MetaStats.queue_daily(main.save_data, DailyChallenge.board_key(main.daily_challenge), int(entry.get("score", 0)), float(entry.get("seconds", 0.0)))
-	MetaStats.flush(main.save_data, main.network)
+	ServerLink.run(main, func(): MetaStats.flush(main.save_data, main.network), Callable(), false)
 
 static func _judge_achievements(main, winner: int) -> Array:
 	var mode := ""
