@@ -210,7 +210,7 @@ func _ready() -> void:
 		if not server_state_dir.is_empty():
 			DirAccess.make_dir_recursive_absolute(server_state_dir)
 		network.configure_stats(server_state_dir)
-		network.configure_assist(server_state_dir, OS.get_environment("CATWAR_ASSIST_TOKEN"))
+		network.configure_assist(server_state_dir, OS.get_environment("CATWAR_ASSIST").strip_edges().to_lower() != "off")
 		_update_server_lifecycle(1.0)
 		updater.set_safe_to_update(true)
 		updater.check_for_update()
@@ -492,8 +492,7 @@ func _active_preset() -> Dictionary:
 ## Starts, restarts or stops the "계산 돕기" service to match the saved settings.
 func _apply_helper_settings() -> void:
 	var settings: Dictionary = save_data.settings
-	var wanted: bool = bool(settings.get("helper_enabled", false)) and not String(settings.get("helper_token", "")).is_empty() \
-			and DisplayServer.get_name() != "headless" and not running_as_assist and not running_as_server
+	var wanted: bool = bool(settings.get("helper_enabled", false)) and DisplayServer.get_name() != "headless" and not running_as_assist and not running_as_server
 	if not wanted:
 		if helper_service != null:
 			helper_service.stop()
@@ -506,7 +505,7 @@ func _apply_helper_settings() -> void:
 		add_child(helper_service)
 		helper_service.pause_check = func(): return battle_active
 	var port: int = link_port if link_port > 0 else LobbyFlow.OFFICIAL_SERVER_PORT
-	helper_service.start({"candidates": official_connection_candidates(IP.get_local_addresses()), "port": port, "token": String(settings.helper_token),
+	helper_service.start({"candidates": official_connection_candidates(IP.get_local_addresses()), "port": port,
 		"name": "%s (PC)" % String(save_data.get("nickname", "플레이어")), "cores": int(settings.get("helper_cores", 1))})
 
 func _apply_settings() -> void:

@@ -42,13 +42,13 @@ func run() -> void:
 	server = make_server(port)
 	if server == null:
 		await finish(); return
-	server.configure_assist("", "geheim")
+	server.configure_assist("")
 	var service := HelperService.new()
 	get_root().add_child(service)
 	var in_battle := {"value": false}
 	service.pause_check = func(): return in_battle.value
 	check(not service.is_running(), "nothing runs before start")
-	service.start({"candidates": ["127.0.0.1"], "port": port, "token": "geheim", "name": "시험 PC", "cores": 1, "capabilities": ["selftest"]})
+	service.start({"candidates": ["127.0.0.1"], "port": port, "name": "시험 PC", "cores": 1, "capabilities": ["selftest"]})
 	check(service.is_running(), "start brings the service up")
 	check(await wait_until(func(): return service.worker.state == "idle"), "the PC joins through its own connection (%s)" % service.worker.state)
 	check(server.assist.peers.size() == 1 and server.assist.peers.values()[0].role == "helper" and server.assist.peers.values()[0].name == "시험 PC", "the server sees a helper, not an assist server")

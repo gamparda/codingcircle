@@ -84,7 +84,7 @@ class ChunkTask extends RefCounted:
 
 var network
 var journal := LogBuffer.new()
-var config := {"candidates": ["127.0.0.1"], "port": 7777, "token": "", "name": "보조 서버", "role": "assist",
+var config := {"candidates": ["127.0.0.1"], "port": 7777, "name": "보조 서버", "role": "assist",
 	"capabilities": ["balance", "replay", "selftest"], "cores": 2, "auto_reconnect": true}
 var state := "offline" # offline | connecting | joining | idle | working | paused | wrapping | stopped
 var tasks: Array = []
@@ -161,7 +161,7 @@ func _on_server_ready() -> void:
 	if state != "connecting":
 		return
 	_set_state("joining")
-	network.assist_send_hello(String(config.token), String(config.name), capabilities(), cores(), String(config.role))
+	network.assist_send_hello(String(config.name), capabilities(), cores(), String(config.role))
 
 func _on_welcomed(ok: bool, message: String) -> void:
 	if not ok:

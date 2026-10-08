@@ -41,7 +41,7 @@ static func default_data() -> Dictionary:
 			"master_volume": 0.8, "bgm_volume": 0.7, "sfx_volume": 0.8, "muted": false,
 			"window_size": "1920x1080", "fullscreen": true, "vsync": true, "fps_limit": 60,
 			"graphics_quality": "high", "damage_numbers": true, "screen_shake": true, "battle_effects": true, "effect_intensity": 1.0,
-			"language": "ko", "share_results": false, "helper_enabled": false, "helper_token": "", "helper_cores": 1, "battle_keys": preload("res://scripts/BattleBindings.gd").DEFAULTS.duplicate(),
+			"language": "ko", "share_results": false, "helper_enabled": false, "helper_cores": 1, "battle_keys": preload("res://scripts/BattleBindings.gd").DEFAULTS.duplicate(),
 		},
 		"stats": {
 			"ai_matches": 0, "ai_wins": 0, "ai_losses": 0, "highest_campaign": 0, "total_stars": 0,
@@ -148,8 +148,6 @@ static func sanitize(raw: Variant) -> Dictionary:
 			clean.settings.window_size = String(raw.settings.window_size)
 		if _is_integer(raw.settings.get("fps_limit")) and FPS_LIMITS.has(int(raw.settings.fps_limit)):
 			clean.settings.fps_limit = int(raw.settings.fps_limit)
-		if raw.settings.get("helper_token") is String:
-			clean.settings.helper_token = String(raw.settings.helper_token).strip_edges().left(64)
 		if _is_integer(raw.settings.get("helper_cores")):
 			clean.settings.helper_cores = clampi(int(raw.settings.helper_cores), 1, 64)
 		if raw.settings.get("language") is String:

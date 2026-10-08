@@ -10,6 +10,7 @@ const LogBuffer = preload("res://scripts/assist/LogBuffer.gd")
 const Localization = preload("res://scripts/Localization.gd")
 
 const CONFIG_PATH := "user://assist.json"
+const DEFAULT_ADDRESS := "ruellyya.kr"
 const REFRESH_SECONDS := 0.5
 const LEVEL_COLORS := {"info": "#c9d3ea", "warn": "#ffd36a", "error": "#ff7b8d"}
 ## What the window offers. `ready` false = listed so the plan is visible, but not available yet.
@@ -24,8 +25,9 @@ const CAPABILITY_ROWS := [
 
 var worker
 var config_path := CONFIG_PATH
+var use_defaults := true # pre-fill the official server address on a fresh install
+var auto_start := true # connect right away when the window opens (if auto connect is on)
 var address_input: LineEdit
-var token_input: LineEdit
 var name_input: LineEdit
 var connect_button: Button
 var status_label: Label
@@ -66,24 +68,24 @@ func setup(network) -> void:
 	worker.state_changed.connect(func(_state): _refresh())
 	worker.job_result.connect(_on_job_result)
 	worker.stopped.connect(_on_stopped)
-	worker.journal.add("info", "보조 서버를 시작했습니다. 주소와 토큰을 확인하고 연결을 눌러 주세요.")
+	worker.journal.add("info", "보조 서버를 시작했습니다. 주소를 확인하고 연결을 눌러 주세요. 자동 연결을 켜 두면 열 때마다 알아서 연결합니다.")
 	_refresh()
-	if bool(worker.config.auto_reconnect) and not String(worker.config.token).is_empty() and bool(auto_box.button_pressed):
+	if auto_start and bool(worker.config.auto_reconnect) and bool(auto_box.button_pressed) and not String(worker.config.candidates[0]).is_empty():
 		_connect_pressed()
 
 # ---------- config ----------
 
 func _load_config() -> void:
+	worker.config.cores = clampi(OS.get_processor_count() / 2, 1, 64)
+	if use_defaults:
+		worker.config.candidates = [DEFAULT_ADDRESS]
 	if not FileAccess.file_exists(config_path):
-		worker.config.cores = clampi(OS.get_processor_count() / 2, 1, 64)
 		return
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string(config_path))
 	if not parsed is Dictionary:
 		return
-	if parsed.get("address") is String:
+	if parsed.get("address") is String and (not String(parsed.address).strip_edges().is_empty() or not use_defaults):
 		worker.config.candidates = [String(parsed.address)]
-	if parsed.get("token") is String:
-		worker.config.token = parsed.token
 	if parsed.get("name") is String and not String(parsed.name).is_empty():
 		worker.config.name = String(parsed.name).left(24)
 	if parsed.get("capabilities") is Array:
@@ -95,13 +97,12 @@ func _save_config() -> void:
 	var file := FileAccess.open(config_path, FileAccess.WRITE)
 	if file == null:
 		return
-	file.store_string(JSON.stringify({"address": String(worker.config.candidates[0]) if not worker.config.candidates.is_empty() else "", "token": worker.config.token,
+	file.store_string(JSON.stringify({"address": String(worker.config.candidates[0]) if not worker.config.candidates.is_empty() else "",
 		"name": worker.config.name, "capabilities": worker.config.capabilities, "cores": worker.config.cores, "auto_connect": worker.config.auto_reconnect}))
 	file.close()
 
 func _apply_config_to_widgets() -> void:
 	address_input.text = String(worker.config.candidates[0]) if not worker.config.candidates.is_empty() else ""
-	token_input.text = String(worker.config.token)
 	name_input.text = String(worker.config.name)
 	for id in cap_boxes:
 		cap_boxes[id].button_pressed = worker.config.capabilities.has(id)
@@ -118,7 +119,6 @@ func _read_widgets() -> void:
 		host = host.rsplit(":", true, 1)[0]
 	worker.config.candidates = [host]
 	worker.config.port = port
-	worker.config.token = token_input.text.strip_edges()
 	worker.config.name = name_input.text.strip_edges() if not name_input.text.strip_edges().is_empty() else "보조 서버"
 	worker.config.cores = int(core_slider.value)
 	worker.config.auto_reconnect = auto_box.button_pressed
@@ -192,15 +192,8 @@ func _left_panel() -> Control:
 	column.add_theme_constant_override("separation", 8)
 	var connection := _card("메인 서버 연결")
 	address_input = _line(connection, "AssistAddress", "주소 (예: 192.168.0.5 또는 주소:7777)")
-	var pair := HBoxContainer.new()
-	pair.add_theme_constant_override("separation", 6)
-	connection.add_child(pair)
-	token_input = _line(pair, "AssistToken", "토큰")
-	token_input.secret = true
-	token_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_input = _line(pair, "AssistName", "컴퓨터 이름")
+	name_input = _line(connection, "AssistName", "컴퓨터 이름")
 	name_input.max_length = 24
-	name_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var connect_row := HBoxContainer.new()
 	connect_row.add_theme_constant_override("separation", 6)
 	connection.add_child(connect_row)
@@ -394,8 +387,8 @@ func _connect_pressed() -> void:
 		return
 	_read_widgets()
 	_save_config()
-	if String(worker.config.token).is_empty():
-		worker.journal.add("warn", "토큰을 입력해 주세요. 메인 서버의 CATWAR_ASSIST_TOKEN과 같아야 합니다.")
+	if String(worker.config.candidates[0]).is_empty():
+		worker.journal.add("warn", "메인 서버 주소를 입력해 주세요.")
 		return
 	if cap_boxes.values().all(func(box): return not box.button_pressed):
 		worker.journal.add("warn", "받을 작업을 하나 이상 선택해 주세요.")

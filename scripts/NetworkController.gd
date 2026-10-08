@@ -1239,13 +1239,13 @@ func receive_recent_replays(list: Array) -> void:
 	recent_replays_received.emit(clean)
 
 # ---------- Helper programs: assist servers and helper PCs ----------
-## They connect to the main server, introduce themselves with a shared token, and ask for work one chunk at a time.
-## Without CATWAR_ASSIST_TOKEN on the server none of this is accepted.
+## They connect to the main server, introduce themselves and ask for work one chunk at a time. There is no password
+## (the programs only run on the operator's computers); CATWAR_ASSIST=off on the server switches it all off.
 
 const ASSIST_BUSY_MATCHES := 40 # the main server stops doing jobs itself while this many matches are running
 
-func configure_assist(directory: String, secret: String) -> void:
-	assist.configure(directory, secret, _assist_now())
+func configure_assist(directory: String, allow: bool = true) -> void:
+	assist.configure(directory, allow, _assist_now())
 
 func _assist_now() -> float:
 	return float(Time.get_ticks_msec()) / 1000.0
@@ -1277,11 +1277,11 @@ func ask_assist_wrap_up(peer: int) -> bool:
 	return false
 
 @rpc("any_peer", "call_remote", "reliable")
-func assist_hello(secret: String, name: String, version: int, capabilities: Array, cores: int, role: String) -> void:
+func assist_hello(name: String, version: int, capabilities: Array, cores: int, role: String) -> void:
 	if not server_mode: return
 	var sender := multiplayer.get_remote_sender_id()
 	if not can_process_request(sender): return
-	var answer := assist.hello(sender, secret, name, version, capabilities, cores, role, _assist_now())
+	var answer := assist.hello(sender, name, version, capabilities, cores, role, _assist_now())
 	assist_welcome.rpc_id(sender, bool(answer.ok), String(answer.message))
 	if not bool(answer.ok):
 		print("ASSIST_REJECTED peer=%d reason=%s" % [sender, answer.message])
@@ -1336,9 +1336,9 @@ func assist_fetch_result(job_id: int) -> void:
 	assist_job_result.rpc_id(sender, job_id, assist.result_for(job_id))
 
 # client side
-func assist_send_hello(secret: String, name: String, capabilities: Array, cores: int, role: String = "assist") -> void:
+func assist_send_hello(name: String, capabilities: Array, cores: int, role: String = "assist") -> void:
 	if client_is_online():
-		assist_hello.rpc_id(1, secret, name, AssistHub.PROTOCOL, capabilities, cores, role)
+		assist_hello.rpc_id(1, name, AssistHub.PROTOCOL, capabilities, cores, role)
 
 func assist_send_claim() -> void:
 	if client_is_online(): assist_claim.rpc_id(1)

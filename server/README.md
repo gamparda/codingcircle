@@ -12,8 +12,8 @@ On an installed copy, launch **Cat War Dedicated Server** from the Start menu or
 
 ## Assist servers and helper PCs
 
-Set `CATWAR_ASSIST_TOKEN` (for example in `/etc/catwar/server.env`) to let assist servers and helper PCs connect and
-take over batch work such as balance experiments; without it none of that is accepted. The main server still does the
+Assist servers and helper PCs may connect and take over batch work such as balance experiments. There is no token;
+only light limits apply. Set `CATWAR_ASSIST=off` (for example in `/etc/catwar/server.env`) to refuse them. The main server still does the
 work itself at low priority when nobody helps. Finished job results are written to `<state dir>/jobs/`. See
 `docs/ASSIST_DESIGN.md`.
 

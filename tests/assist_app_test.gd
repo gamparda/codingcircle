@@ -47,7 +47,7 @@ func run() -> void:
 	server = make_controller("AssistAppMain")
 	if not server.start_dedicated_server(port):
 		await finish(); return
-	server.configure_assist("", "geheim")
+	server.configure_assist("")
 	var client = make_controller("보조창")
 	var app = AssistApp.new()
 	app.config_path = "user://assist_app_test.json"
@@ -56,17 +56,18 @@ func run() -> void:
 	await process_frame
 
 	# The window is complete.
-	for node_name in ["AssistAddress", "AssistToken", "AssistName", "AssistConnectButton", "AssistStatus", "CoreSlider", "AutoConnect", "RunningRows", "QueueRows", "ResultRows", "AssistLog", "LogFilter", "PauseButton", "WrapUpButton", "StopNowButton", "NewJobType", "NewJobButton", "Cap_balance", "Cap_replay", "Cap_selftest"]:
+	for node_name in ["AssistAddress", "AssistName", "AssistConnectButton", "AssistStatus", "CoreSlider", "AutoConnect", "RunningRows", "QueueRows", "ResultRows", "AssistLog", "LogFilter", "PauseButton", "WrapUpButton", "StopNowButton", "NewJobType", "NewJobButton", "Cap_balance", "Cap_replay", "Cap_selftest"]:
 		check(app.find_child(node_name, true, false) != null, "the window has %s" % node_name)
 	check(app.find_child("Cap_stats", true, false).disabled and app.find_child("Cap_backup", true, false).disabled and app.find_child("Cap_archive", true, false).disabled, "work that is not available yet is listed but cannot be ticked")
-	check(app.token_input.secret, "the token is hidden")
+	check(app.address_input.text == AssistApp.DEFAULT_ADDRESS, "a fresh install already points at the main server")
 	check(app.wrap_button.disabled and app.stop_button.disabled and app.job_button.disabled, "nothing to stop or order while offline")
 	check(app.status_label.text.contains("연결 안 됨"), "the status says offline")
 
-	# Connecting without a token or without any work selected explains itself.
+	# Connecting without an address or without any work selected explains itself.
+	app.address_input.text = ""
 	app.find_child("AssistConnectButton", true, false).pressed.emit()
-	check(app.worker.journal.lines.any(func(entry): return entry.level == "warn" and String(entry.text).contains("토큰")), "a missing token is explained in the log")
-	app.token_input.text = "geheim"
+	check(app.worker.journal.lines.any(func(entry): return entry.level == "warn" and String(entry.text).contains("주소")), "a missing address is explained in the log")
+	app.address_input.text = "127.0.0.1:%d" % port
 	for id in app.cap_boxes:
 		app.cap_boxes[id].button_pressed = false
 	app.find_child("AssistConnectButton", true, false).pressed.emit()
@@ -81,7 +82,7 @@ func run() -> void:
 	app._save_config()
 	check(app.worker.config.capabilities == ["selftest"] and app.worker.config.cores == 1 and app.worker.config.port == port and app.worker.config.candidates == ["127.0.0.1"] and app.worker.config.name == "시험 보조", "the widgets feed the worker's settings")
 	var saved = JSON.parse_string(FileAccess.get_file_as_string("user://assist_app_test.json"))
-	check(saved is Dictionary and saved.token == "geheim" and saved.cores == 1 and saved.capabilities == ["selftest"], "the settings are saved to disk")
+	check(saved is Dictionary and not saved.has("token") and saved.cores == 1 and saved.capabilities == ["selftest"], "the settings are saved to disk")
 
 	# The real connection.
 	app.find_child("AssistConnectButton", true, false).pressed.emit()

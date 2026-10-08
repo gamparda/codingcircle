@@ -8,7 +8,11 @@ const JobQueue = preload("res://scripts/jobs/JobQueue.gd")
 const RoomSessions = preload("res://scripts/RoomSessions.gd")
 const ServerStats = preload("res://scripts/ServerStats.gd")
 
-const PROTOCOL := 1
+const PROTOCOL := 2
+## There is no password: anyone who can reach the server may help. These limits keep a stranger from flooding it.
+const MAX_HELPERS := 32
+const MAX_OPEN_JOBS_PER_PEER := 3
+const MAX_QUEUED_CHUNKS := 6000
 const PATIENCE_SECONDS := 20.0 # how long a chunk waits for a helper before the main server does it itself
 const PEER_TIMEOUT := 30.0 # a helper silent for this long is dropped (its chunks come back through the lease)
 const LOCAL_SHARE := 0.25 # share of one core the main server may spend on jobs
@@ -17,7 +21,7 @@ const MAX_CREDIT_MSEC := 100.0
 const SAVE_INTERVAL := 5.0
 
 var queue := JobQueue.new()
-var token := ""
+var accepting := true
 var dir := ""
 var peers: Dictionary = {} # peer id -> {name, capabilities, cores, role, seen, wrapping}
 var events: Array = []
@@ -29,9 +33,9 @@ var results: Dictionary = {}
 var dirty := false
 var last_save := -1000.0
 
-## Enabled only with a configured token: without one the server accepts no helpers at all.
-func configure(directory: String, secret: String, now: float = 0.0) -> void:
-	token = secret.strip_edges()
+## `allow` false (environment CATWAR_ASSIST=off) switches the whole helper system off.
+func configure(directory: String, allow: bool = true, now: float = 0.0) -> void:
+	accepting = allow
 	dir = "" if directory.is_empty() else directory.path_join("jobs")
 	if not dir.is_empty():
 		DirAccess.make_dir_recursive_absolute(dir)
@@ -39,14 +43,14 @@ func configure(directory: String, secret: String, now: float = 0.0) -> void:
 	dirty = false
 
 func enabled() -> bool:
-	return not token.is_empty()
+	return accepting
 
 ## {"ok", "message"}. `role` is "assist" (a server program) or "helper" (a player's game client).
-func hello(peer: int, secret: String, name: String, version: int, capabilities: Array, cores: int, role: String, now: float) -> Dictionary:
+func hello(peer: int, name: String, version: int, capabilities: Array, cores: int, role: String, now: float) -> Dictionary:
 	if not enabled():
 		return {"ok": false, "message": "이 서버는 보조 프로그램을 받지 않습니다."}
-	if secret != token:
-		return {"ok": false, "message": "토큰이 맞지 않습니다."}
+	if peers.size() >= MAX_HELPERS and not peers.has(peer):
+		return {"ok": false, "message": "연결된 도우미가 너무 많습니다."}
 	if version != PROTOCOL:
 		return {"ok": false, "message": "프로그램 버전이 맞지 않습니다. 같은 버전으로 업데이트해 주세요."}
 	if not RoomSessions.safe_text(name, 24) or not role in ["assist", "helper"]:
@@ -121,6 +125,18 @@ func request_wrap_up(peer: int) -> bool:
 func submit(peer: int, type: String, params: Dictionary, title: String, now: float) -> Dictionary:
 	if not peers.has(peer):
 		return {"ok": false, "id": 0, "error": "먼저 연결해 주세요."}
+	if String(peers[peer].role) != "assist":
+		return {"ok": false, "id": 0, "error": "이 연결은 작업을 요청할 수 없습니다."}
+	var open_jobs := 0
+	for id in queue.order:
+		if str(queue.jobs[id].submitter) == str(peer) and not bool(queue.jobs[id].done):
+			open_jobs += 1
+	if open_jobs >= MAX_OPEN_JOBS_PER_PEER:
+		return {"ok": false, "id": 0, "error": "진행 중인 작업이 너무 많습니다. 끝난 뒤에 요청해 주세요."}
+	var planned := JobRunner.plan(type, params)
+	var totals := queue.totals()
+	if bool(planned.ok) and int(totals.pending) + int(totals.leased) + planned.chunks.size() > MAX_QUEUED_CHUNKS:
+		return {"ok": false, "id": 0, "error": "대기 중인 작업이 너무 많습니다. 잠시 뒤에 다시 요청해 주세요."}
 	var outcome := queue.submit(type, params, title, str(peer), now)
 	if bool(outcome.ok):
 		dirty = true

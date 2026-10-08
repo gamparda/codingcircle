@@ -27,14 +27,13 @@ func make_controller(label: String):
 	clients.append(controller)
 	return controller
 
-func make_worker(label: String, port: int, token: String, cores: int):
+func make_worker(label: String, port: int, cores: int):
 	var controller = make_controller(label)
 	var worker := AssistWorker.new()
 	get_root().add_child(worker)
 	worker.setup(controller)
 	worker.config.candidates = ["127.0.0.1"]
 	worker.config.port = port
-	worker.config.token = token
 	worker.config.name = label
 	worker.config.cores = cores
 	worker.config.capabilities = ["selftest"]
@@ -61,17 +60,11 @@ func run() -> void:
 	server = make_controller("AssistMain")
 	if not server.start_dedicated_server(port):
 		await finish(1); return
-	server.configure_assist("", "geheim")
+	server.configure_assist("")
 
-	# A wrong token is turned away and does not retry forever.
-	var intruder = make_worker("침입자", port, "wrong", 1)
-	intruder.start()
-	check(await wait_until(func(): return intruder.last_error != ""), "a wrong token is answered")
-	check(intruder.state == "offline" and not intruder.want_online and server.assist.peers.is_empty(), "the intruder is not registered and gives up")
-	check(intruder.last_error.contains("토큰"), "and is told why: %s" % intruder.last_error)
 
 	# A proper helper joins, orders a job and does it itself.
-	var worker = make_worker("보조1", port, "geheim", 2)
+	var worker = make_worker("보조1", port, 2)
 	var results := []
 	worker.job_result.connect(func(id, result): results.append([id, result]))
 	worker.start()

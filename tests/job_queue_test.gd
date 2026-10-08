@@ -95,17 +95,31 @@ func run() -> void:
 
 	# The hub: tokens, versions, capabilities and hand-over rules.
 	var hub := AssistHub.new()
-	check(not hub.enabled() and not bool(hub.hello(1, "", "x", AssistHub.PROTOCOL, [], 4, "assist", 0.0).ok), "without a token nothing is accepted")
-	hub.configure("", "secret", 0.0)
-	check(hub.enabled() and not bool(hub.hello(1, "wrong", "보조1", AssistHub.PROTOCOL, ["selftest"], 4, "assist", 0.0).ok), "a wrong token is refused")
-	check(not bool(hub.hello(1, "secret", "보조1", 99, ["selftest"], 4, "assist", 0.0).ok), "a different protocol version is refused")
-	check(not bool(hub.hello(1, "secret", "", AssistHub.PROTOCOL, ["selftest"], 4, "assist", 0.0).ok) and not bool(hub.hello(1, "secret", "x", AssistHub.PROTOCOL, ["selftest"], 4, "boss", 0.0).ok), "bad names and roles are refused")
-	check(bool(hub.hello(1, "secret", "보조1", AssistHub.PROTOCOL, ["selftest", "nonsense"], 4, "assist", 0.0).ok) and hub.peers[1].capabilities == ["selftest"], "an accepted helper keeps only known capabilities")
+	hub.configure("", false, 0.0)
+	check(not hub.enabled() and not bool(hub.hello(1, "x", AssistHub.PROTOCOL, [], 4, "assist", 0.0).ok), "switched off nothing is accepted")
+	hub.configure("", true, 0.0)
+	check(hub.enabled(), "there is no password: it is on by default")
+	check(not bool(hub.hello(1, "보조1", 99, ["selftest"], 4, "assist", 0.0).ok), "a different protocol version is refused")
+	check(not bool(hub.hello(1, "", AssistHub.PROTOCOL, ["selftest"], 4, "assist", 0.0).ok) and not bool(hub.hello(1, "x", AssistHub.PROTOCOL, ["selftest"], 4, "boss", 0.0).ok), "bad names and roles are refused")
+	check(bool(hub.hello(1, "보조1", AssistHub.PROTOCOL, ["selftest", "nonsense"], 4, "assist", 0.0).ok) and hub.peers[1].capabilities == ["selftest"], "an accepted helper keeps only known capabilities")
 	check(not bool(hub.submit(5, "selftest", {"chunks": 2}, "", 0.0).ok), "strangers cannot submit jobs")
 	var job := hub.submit(1, "selftest", {"chunks": 3}, "점검", 1.0)
 	check(bool(job.ok), "a connected helper can submit a job")
+	var limits := AssistHub.new()
+	limits.configure("", true, 0.0)
+	# Light limits against a flood: helper PCs cannot order work, one peer has a few open jobs, the queue has a cap.
+	limits.hello(1, "보조", AssistHub.PROTOCOL, ["selftest"], 2, "assist", 0.0)
+	limits.hello(2, "도우미", AssistHub.PROTOCOL, ["selftest"], 2, "helper", 0.0)
+	check(not bool(limits.submit(2, "selftest", {"chunks": 2}, "", 1.0).ok), "a helper PC cannot submit jobs")
+	check(bool(limits.submit(1, "selftest", {"chunks": 1}, "", 1.0).ok) and bool(limits.submit(1, "selftest", {"chunks": 1}, "", 1.0).ok) and bool(limits.submit(1, "selftest", {"chunks": 1}, "", 1.0).ok), "up to three jobs may be open")
+	check(not bool(limits.submit(1, "selftest", {"chunks": 1}, "", 1.0).ok), "a fourth open job is refused")
+	var crowded := AssistHub.new()
+	crowded.configure("", true, 0.0)
+	for peer in AssistHub.MAX_HELPERS:
+		crowded.hello(100 + peer, "pc%d" % peer, AssistHub.PROTOCOL, ["selftest"], 1, "helper", 0.0)
+	check(not bool(crowded.hello(999, "late", AssistHub.PROTOCOL, ["selftest"], 1, "helper", 0.0).ok) and bool(crowded.hello(100, "pc0", AssistHub.PROTOCOL, ["selftest"], 1, "helper", 0.0).ok), "too many helpers are turned away but a known one may say hello again")
 	var main_busy := AssistHub.new()
-	main_busy.configure("", "secret", 0.0)
+	main_busy.configure("", true, 0.0)
 	# While a capable helper is connected the main server leaves the chunks to it for a while...
 	var claimed := hub.claim(1, 2.0)
 	check(claimed.chunk == 0 and hub.workers_for("selftest") == 1, "the helper gets the first chunk")
@@ -124,7 +138,7 @@ func run() -> void:
 
 	# Nobody connected at all: the main server does everything alone, but not while it is busy.
 	var alone := AssistHub.new()
-	alone.configure("", "secret", 0.0)
+	alone.configure("", true, 0.0)
 	alone.queue.submit("selftest", {"chunks": 5}, "", "x", 0.0)
 	for step in 10:
 		alone.tick(float(step) * 0.5, 0.5, true)
@@ -135,16 +149,16 @@ func run() -> void:
 
 	# Leaving: goodbye releases the chunks, a dropped connection does too, and the wrap-up request blocks new work.
 	var leaving := AssistHub.new()
-	leaving.configure("", "secret", 0.0)
-	leaving.hello(7, "secret", "보조", AssistHub.PROTOCOL, ["selftest"], 2, "assist", 0.0)
-	leaving.hello(8, "secret", "도우미", AssistHub.PROTOCOL, ["selftest"], 2, "helper", 0.0)
+	leaving.configure("", true, 0.0)
+	leaving.hello(7, "보조", AssistHub.PROTOCOL, ["selftest"], 2, "assist", 0.0)
+	leaving.hello(8, "도우미", AssistHub.PROTOCOL, ["selftest"], 2, "helper", 0.0)
 	leaving.queue.submit("selftest", {"chunks": 4}, "", "x", 0.0)
 	leaving.claim(7, 1.0)
 	leaving.claim(8, 1.0)
 	check(leaving.request_wrap_up(8) and leaving.claim(8, 2.0).is_empty(), "a helper asked to wrap up gets no new chunk")
 	check(leaving.goodbye(7, 3.0) == 1 and leaving.queue.pending_count() == 3 and not leaving.is_registered(7), "goodbye hands the unfinished chunk back")
 	check(leaving.peer_gone(8, 4.0) == 1 and leaving.queue.pending_count() == 4, "a dropped connection does the same")
-	leaving.hello(9, "secret", "조용한", AssistHub.PROTOCOL, ["selftest"], 2, "assist", 100.0)
+	leaving.hello(9, "조용한", AssistHub.PROTOCOL, ["selftest"], 2, "assist", 100.0)
 	leaving.claim(9, 100.0)
 	leaving.tick(100.0 + AssistHub.PEER_TIMEOUT + 1.0, 0.0, true)
 	check(not leaving.is_registered(9) and leaving.queue.pending_count() == 4, "a helper that goes silent is dropped and its chunk comes back")
@@ -153,12 +167,12 @@ func run() -> void:
 	var dir := "user://job_queue_test"
 	DirAccess.make_dir_recursive_absolute(dir)
 	var saver := AssistHub.new()
-	saver.configure(dir, "secret", 0.0)
+	saver.configure(dir, true, 0.0)
 	saver.queue.submit("selftest", {"chunks": 3}, "저장", "x", 0.0)
 	saver.dirty = true
 	saver.save(5.0)
 	var loaded := AssistHub.new()
-	loaded.configure(dir, "secret", 100.0)
+	loaded.configure(dir, true, 100.0)
 	check(loaded.queue.jobs.has(1) and loaded.queue.pending_count() == 3, "the queue is read back after a restart")
 	for file in DirAccess.get_files_at(dir + "/jobs"):
 		DirAccess.remove_absolute(dir + "/jobs/" + file)

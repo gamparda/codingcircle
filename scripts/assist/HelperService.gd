@@ -12,7 +12,7 @@ var pause_check := Callable()
 func is_running() -> bool:
 	return worker != null
 
-## `settings`: {candidates, port, token, name, cores, capabilities?}.
+## `settings`: {candidates, port, name, cores, capabilities?}.
 func start(settings: Dictionary) -> void:
 	stop()
 	holder = Node.new()
@@ -34,7 +34,6 @@ func start(settings: Dictionary) -> void:
 	worker.setup(network)
 	worker.config.candidates = settings.get("candidates", ["127.0.0.1"])
 	worker.config.port = int(settings.get("port", NetworkController.DEFAULT_PORT))
-	worker.config.token = String(settings.get("token", ""))
 	worker.config.name = String(settings.get("name", "PC")).left(24)
 	worker.config.cores = clampi(int(settings.get("cores", 1)), 1, 64)
 	worker.config.role = "helper"

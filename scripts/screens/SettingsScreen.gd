@@ -124,13 +124,6 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	helper_toggle.text = Localization.text("남는 CPU로 서버의 계산 돕기 (전투 중에는 쉽니다)")
 	helper_toggle.button_pressed = bool(settings.get("helper_enabled", false))
 	column.add_child(helper_toggle)
-	var helper_token := LineEdit.new()
-	helper_token.name = "HelperToken"
-	helper_token.secret = true
-	helper_token.placeholder_text = Localization.text("계산 돕기 토큰 (서버 운영자에게 받은 값)")
-	helper_token.text = String(settings.get("helper_token", ""))
-	helper_token.custom_minimum_size.y = 40
-	column.add_child(helper_token)
 	var helper_row := HBoxContainer.new()
 	column.add_child(helper_row)
 	var helper_label := Label.new()
@@ -170,7 +163,6 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 					break
 		settings.language = "ko"
 		settings.helper_enabled = helper_toggle.button_pressed
-		settings.helper_token = helper_token.text.strip_edges().left(64)
 		settings.helper_cores = int(helper_cores.value)
 		settings.battle_keys = main.binding_draft.duplicate()
 		SaveData.save_data(main.save_data); Localization.install(String(settings.language)); main._apply_settings(); main._apply_helper_settings()
