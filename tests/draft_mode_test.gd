@@ -65,6 +65,8 @@ func run() -> void:
 	await process_frame
 	var cards: Array = main.find_children("DraftCard_*", "Button", true, false)
 	check(cards.size() == pool.size(), "one card per unit")
+	var portrait: TextureRect = main.find_child("DraftCard_shield", true, false).get_child(0)
+	check(portrait.size.x <= 60.0 and portrait.size.y <= 84.0, "card portraits keep their small size (%s)" % [portrait.size])
 	var start: Button = main.find_child("DraftStart", true, false)
 	check(start.disabled, "the battle cannot start before the draft is done")
 	for round in 3:

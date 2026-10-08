@@ -31,6 +31,9 @@ var offline_button: Button
 var apk_button: Button
 
 func _ready() -> void:
+	# The project name (which also names the save folder) stays as it was; only the window title changes.
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.window_set_title("Keepfall")
 	Localization.install(preferred_locale(_read_json(SAVE_PATH), OS.get_locale()))
 	_build_interface()
 	var build_info := _read_json(BUILD_INFO_PATH)
@@ -78,7 +81,7 @@ func _build_interface() -> void:
 	panel.add_theme_constant_override("separation", 18)
 	background.add_child(panel)
 	var title := Label.new()
-	title.text = "CAT WAR"
+	title.text = "KEEPFALL"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 34)
 	title.add_theme_color_override("font_color", Color("#7ee8ff"))

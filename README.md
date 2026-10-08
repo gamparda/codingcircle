@@ -1,4 +1,6 @@
-# Cat War
+# Keepfall
+
+> 게임 이름은 Cat War에서 Keepfall로 바뀌었습니다. 실행 파일(`CatWar.exe`), 설치 프로그램, 서버 서비스, 저장 파일 이름은 기존 설치와 자동 업데이트가 끊기지 않도록 당분간 이전 이름을 그대로 씁니다.
 
 밸런스 자동 대전과 데이터 수집 방법: [반복 가능한 밸런스 실험](docs/BALANCE_BENCHMARK.md).
 
@@ -119,7 +121,7 @@ Android 부트스트랩은 실행 직후 같은 메타데이터를 확인합니�
 버전은 **`release.json` 한 곳에서만** 고칩니다.
 
 ```json
-{ "content_version": "0.12.0", "windows_version": "0.12.0", "android_binary_version": "0.4.18", "update_url": "..." }
+{ "content_version": "0.13.0", "windows_version": "0.13.0", "android_binary_version": "0.4.18", "update_url": "..." }
 ```
 
 ```powershell

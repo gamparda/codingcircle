@@ -145,7 +145,7 @@ def deck_name(deck):
 
 
 def write_report(result, sources, output, label, comparison=None):
-    lines = [f"# Cat War 밸런스 실험 — {label}", "", f"완료된 자동 전투 **{result['total_matches']:,}경기**. 실제 Godot BattleModel과 ServerAI를 실행한 데이터입니다.", "",
+    lines = [f"# Keepfall 밸런스 실험 — {label}", "", f"완료된 자동 전투 **{result['total_matches']:,}경기**. 실제 Godot BattleModel과 ServerAI를 실행한 데이터입니다.", "",
              "## 실험 조건과 해석", "", "- 합법적인 3유닛 덱 35개. cycle(순환), adaptive(전술 점수), weighted(시드별 선호 가중치) 구매 정책.",
              "- 대전은 같은 시드·구매 순서를 유지하고 두 진영을 교환한 짝으로 비교. PvP 구매 봇은 AI 추가 수입·병력 강화를 받지 않습니다.",
              "- 구조물 3장 조합은 시드로 배정하며 진영 교환 시 그대로 유지합니다. 구조물 조합 전체를 완전 탐색한 실험은 아닙니다.",

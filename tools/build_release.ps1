@@ -54,7 +54,7 @@ if ($Version -ne [string]$ReleaseJson.windows_version -or $ContentVersion -ne [s
 & $Python (Join-Path $PSScriptRoot "release_meta.py") sync $Commit
 if ($LASTEXITCODE -ne 0) { throw "release_meta.py sync failed" }
 
-Write-Host "Building Cat War $Version ($Commit)" -ForegroundColor Green
+Write-Host "Building Keepfall $Version ($Commit)" -ForegroundColor Green
 
 Write-Host "[0/4] Initializing Godot project metadata..." -ForegroundColor Cyan
 & $Godot --headless --path $Root --editor --quit

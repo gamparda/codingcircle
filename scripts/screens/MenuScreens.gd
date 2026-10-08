@@ -82,7 +82,7 @@ static func _build_connect_screen(main, message: String = "") -> void:
 
 	var title := Label.new()
 	title.name = "GameTitle"
-	title.text = "CAT WAR"
+	title.text = "KEEPFALL"
 	UIKit.display(title, 96, UIKit.GOLD)
 	title.add_theme_color_override("font_outline_color", Color("#3a2a0c"))
 	title.add_theme_constant_override("outline_size", 14)

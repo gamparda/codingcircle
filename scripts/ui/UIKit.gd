@@ -1,5 +1,5 @@
 extends RefCounted
-## Cat War look & feel: palette, gradient rounded boxes, the project-wide Theme and small
+## Keepfall look & feel: palette, gradient rounded boxes, the project-wide Theme and small
 ## interaction helpers. Everything is generated at runtime (no imported art needed) and cached.
 
 # ---------------------------------------------------------------- palette

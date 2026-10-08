@@ -96,10 +96,12 @@ static func _card(kind: String) -> Button:
 	UIKit.style_button(card, UIKit.UNIT_COLORS.get(kind, UIKit.ACCENT), false, 13)
 	var icon := TextureRect.new()
 	icon.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
-	icon.position = Vector2(8, 6)
-	icon.size = Vector2(56, 80)
+	# Expand mode first: with the default mode the texture's own size is the minimum and `size` snaps back to it.
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.custom_minimum_size = Vector2(56, 80)
+	icon.position = Vector2(8, 6)
+	icon.size = Vector2(56, 80)
 	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(icon)
