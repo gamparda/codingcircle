@@ -203,7 +203,7 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 	main.battle_view.set_snapshot(data)
 	if float(data.get("elapsed", 0.0)) >= main.curve_next_elapsed and int(data.get("winner", -1)) == -1:
 		main.curve_next_elapsed = float(data.get("elapsed", 0.0)) + 0.5
-		main.battle_curve.append(ReplayAnalysis.momentum_from_snapshot(data))
+		main.battle_curve.append(ReplayAnalysis.momentum_from_snapshot(data) if main.battle_contested else 0.0)
 	if main.ai_smoke_mode:
 		var has_human: bool = data.get("units", []).any(func(unit): return int(unit.side) == 0)
 		var has_ai: bool = data.get("units", []).any(func(unit): return int(unit.side) == 1)
@@ -282,6 +282,8 @@ static func _on_rage_started(main, _unit_id: int) -> void:
 	main.rage_sfx_player.play()
 
 static func _on_combat_events(main, events: Array) -> void:
+	if not main.battle_contested and events.any(func(event): return ReplayAnalysis.CONTACT_EVENTS.has(String(event.get("type", "")))):
+		main.battle_contested = true
 	if main.battle_active: main._play_combat_events(events)
 	if is_instance_valid(main.battle_view) and not events.is_empty():
 		main.battle_view.push_combat_events(events)

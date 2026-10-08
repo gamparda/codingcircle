@@ -31,11 +31,14 @@ func run() -> void:
 	for id in ["flawless", "speed_win", "architect", "slayer"]:
 		check(got.has(id), "%s unlocks" % id)
 	var comeback := base.duplicate()
-	comeback.curve = [0.1, -0.2, -0.5, -0.4, 0.3, 0.6]
+	comeback.curve = [0.1, -0.2, -0.5, -0.4, -0.5, -0.4, -0.5, -0.4, 0.3, 0.6]
 	check(_ids(Achievements.evaluate(save, comeback, 4000)).has("comeback"), "comeback after being far behind")
+	var brief := base.duplicate()
+	brief.curve = [0.1, -0.5, -0.5, 0.3, 0.6, 0.7]
+	check(not _ids(Achievements.evaluate(SaveData.default_data(), brief, 1)).has("comeback"), "a short dip is not a comeback")
 	var mirrored := base.duplicate()
 	mirrored.own_side = 1
-	mirrored.curve = [0.4, 0.5, 0.6, 0.5] # blue ahead means red (me) was behind
+	mirrored.curve = [0.4, 0.5, 0.6, 0.5, 0.4, 0.5, 0.6] # blue ahead means red (me) was behind
 	var other := SaveData.default_data()
 	check(_ids(Achievements.evaluate(other, mirrored, 1)).has("comeback"), "comeback is judged from the player's side")
 	var marathon := base.duplicate()

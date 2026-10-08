@@ -2,6 +2,8 @@ extends RefCounted
 ## Achievements are judged from facts about one finished battle plus the save file's running totals.
 ## Unlocked ids are stored in save_data.achievements as {id: unix time}.
 
+const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
+
 const DEFS := [
 	{"id": "first_win", "icon": "★", "name": "첫 승리", "desc": "어떤 전투에서든 처음으로 이기기"},
 	{"id": "flawless", "icon": "🛡", "name": "무피해 승리", "desc": "내 기지 체력을 하나도 잃지 않고 승리하기"},
@@ -58,7 +60,7 @@ static func evaluate(save: Dictionary, ctx: Dictionary, now: int = -1) -> Array:
 	var checks := {
 		"first_win": won and mode != "ghost",
 		"flawless": won and float(ctx.get("own_base", 0.0)) >= float(ctx.get("own_base_max", 1.0)) - 0.5,
-		"comeback": won and _lowest_own(ctx) <= -0.3,
+		"comeback": won and ReplayAnalysis.sustained_deficit(ctx.get("curve", []), int(ctx.get("own_side", 0))),
 		"speed_win": won and seconds > 0.0 and seconds <= 60.0,
 		"marathon": won and seconds >= 300.0,
 		"architect": int(ctx.get("structures_built", 0)) >= 3 and mode != "ghost",
@@ -76,13 +78,3 @@ static func evaluate(save: Dictionary, ctx: Dictionary, now: int = -1) -> Array:
 			save.achievements[id] = stamp
 			earned.append(definition(id))
 	return earned
-
-static func _lowest_own(ctx: Dictionary) -> float:
-	var curve: Array = ctx.get("curve", [])
-	if curve.size() < 4:
-		return 0.0
-	var sign := 1.0 if int(ctx.get("own_side", 0)) == 0 else -1.0
-	var lowest := 1.0
-	for value in curve:
-		lowest = minf(lowest, float(value) * sign)
-	return lowest

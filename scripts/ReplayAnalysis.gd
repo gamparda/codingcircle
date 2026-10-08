@@ -7,7 +7,9 @@ const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const SAMPLE_TICKS := 15            # one sample every half second at 30 Hz
 const MAX_HIGHLIGHTS := 12
 const BASE_MILESTONES := [0.75, 0.5, 0.25]
-const MIN_LEAD_SWING := 0.18        # a lead change only counts when it is clearly decisive
+const MIN_LEAD_SWING := 0.3         # a lead change only counts when it is clearly decisive
+const SUSTAIN_SAMPLES := 6          # ... and a deficit or lead only counts after it lasted three seconds
+const CONTACT_EVENTS := ["ATTACK", "DAMAGE", "BASE_HIT", "DEATH", "STRUCTURE_DESTROYED"]
 const BASE_WEIGHT := 0.35
 const UNIT_WEIGHT := 1.6
 const CURVE_GAIN := 1.6
@@ -26,10 +28,13 @@ static func analyze(replay: Dictionary) -> Dictionary:
 	var last_sign := 0
 	var last_sign_tick := 0
 	var strongest_swing := 0.0
+	var contested := false # nobody has fought yet: whoever deployed first only looks ahead, so no lead counts
 	while player.step():
 		var model: BattleModel = player.model
 		for event in model.drain_combat_events():
 			var kind := String(event.get("type", ""))
+			if CONTACT_EVENTS.has(kind):
+				contested = true
 			if kind == "DEATH" and not first_death:
 				first_death = true
 				highlights.append({"tick": player.ticks, "kind": "clash", "text": "첫 교전: 첫 번째 병력이 쓰러졌습니다"})
@@ -44,7 +49,7 @@ static func analyze(replay: Dictionary) -> Dictionary:
 					var name := "블루" if side == 0 else "레드"
 					highlights.append({"tick": player.ticks, "kind": "base", "text": "%s 기지 체력 %d%% 이하" % [name, roundi(milestone * 100.0)]})
 		if player.ticks % SAMPLE_TICKS == 0:
-			var momentum := _momentum(model)
+			var momentum := _momentum(model) if contested else 0.0
 			out.samples.append({"t": player.ticks, "momentum": momentum})
 			var sign_now := 0 if absf(momentum) < MIN_LEAD_SWING else (1 if momentum > 0.0 else -1)
 			if sign_now != 0 and last_sign != 0 and sign_now != last_sign and player.ticks - last_sign_tick > SAMPLE_TICKS * 4:
@@ -100,14 +105,33 @@ static func summary_line(curve: Array, winner: int, own_side: int) -> String:
 	if winner == own_side:
 		if lowest >= -0.1:
 			return "시종일관 앞선 안정적인 승리였습니다."
-		if lowest <= -0.3:
+		if sustained_deficit(curve, own_side):
 			return "한때 크게 밀렸지만 뒤집었습니다. 역전승!"
 		return "접전 끝에 승리했습니다."
-	if highest >= 0.3:
+	if sustained_lead(curve, own_side):
 		return "초반엔 앞섰지만 이후 전세를 내줬습니다."
 	if highest < 0.1:
 		return "처음부터 밀렸습니다. 초반 구성을 점검해 보세요."
 	return "접전이었지만 한 끗이 모자랐습니다."
+
+## True when `own_side` was clearly behind (curve is blue-positive) for SUSTAIN_SAMPLES samples in a row.
+static func sustained_deficit(curve: Array, own_side: int) -> bool:
+	return _sustained(curve, 1.0 if own_side == 0 else -1.0, -MIN_LEAD_SWING, false)
+
+static func sustained_lead(curve: Array, own_side: int) -> bool:
+	return _sustained(curve, 1.0 if own_side == 0 else -1.0, MIN_LEAD_SWING, true)
+
+static func _sustained(curve: Array, sign: float, threshold: float, above: bool) -> bool:
+	var run := 0
+	for value in curve:
+		var mine: float = float(value) * sign
+		if (mine >= threshold) if above else (mine <= threshold):
+			run += 1
+			if run >= SUSTAIN_SAMPLES:
+				return true
+		else:
+			run = 0
+	return false
 
 ## Keeps the list readable: never more than MAX_HIGHLIGHTS and no two within two seconds of each other.
 static func _trim(items: Array) -> Array:

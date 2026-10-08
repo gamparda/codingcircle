@@ -13,6 +13,7 @@ static func _build_battle_screen(main) -> void:
 	main.base_warning_fired = false; main.client_purchase_gates.clear(); main.sound_gate.clear()
 	main.battle_active = true
 	main.battle_curve = []
+	main.battle_contested = false
 	main.curve_next_elapsed = 0.0
 	main.result_shown = false
 	main.updater.set_safe_to_update(false)

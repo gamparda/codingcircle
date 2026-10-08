@@ -38,13 +38,33 @@ func run() -> void:
 	# Summary line wording for each story.
 	var line := ReplayAnalysis.summary_line
 	check(line.call([0.1, 0.2, 0.3, 0.4, 0.5], 0, 0).contains("안정적"), "wire-to-wire win")
-	check(line.call([0.1, -0.4, -0.5, 0.2, 0.6], 0, 0).contains("역전승"), "comeback win")
+	check(line.call([0.1, -0.4, -0.5, -0.4, -0.5, -0.4, -0.5, 0.2, 0.6], 0, 0).contains("역전승"), "comeback win")
+	check(not line.call([0.1, -0.4, -0.5, 0.2, 0.6, 0.5], 0, 0).contains("역전승"), "a dip shorter than three seconds is not a comeback")
 	check(line.call([0.0, -0.2, 0.1, 0.0, 0.2], 0, 0).contains("접전"), "narrow win")
-	check(line.call([0.5, 0.4, -0.2, -0.6], 1, 0).contains("전세를 내줬"), "blown lead")
+	check(line.call([0.5, 0.4, 0.5, 0.4, 0.5, 0.4, -0.2, -0.6], 1, 0).contains("전세를 내줬"), "blown lead")
+	check(not line.call([0.5, 0.4, -0.2, -0.6], 1, 0).contains("전세를 내줬"), "a brief early lead is not a blown lead")
 	check(line.call([-0.1, -0.3, -0.4, -0.5], 1, 0).contains("처음부터 밀렸"), "dominated")
 	check(line.call([-0.3, -0.5, -0.4, -0.7], 1, 1).contains("안정적") and line.call([0.2, 0.4, 0.5, 0.6], 0, 1).contains("처음부터"), "perspective flips for the red side")
 	check(line.call([0.0, 0.0, 0.0, 0.0], 2, 0).contains("무승부"), "draw")
 	check(line.call([0.1], 0, 0) == "" and line.call([0.1, 0.2, 0.3, 0.4], -1, 0) == "", "too little data gives no sentence")
+	# Before anyone has fought, deploying first must not look like a lead (or a "reversal" when the other side follows).
+	var quiet_model := BattleModel.new()
+	quiet_model.resources = [200.0, 200.0]
+	quiet_model.configure_deck(0, ["shield", "swordsman", "archer"], ["wall", "swamp", "turret"])
+	quiet_model.configure_deck(1, ["shield", "swordsman", "archer"], ["wall", "swamp", "turret"])
+	var quiet := BattleReplay.Recorder.new(quiet_model, BattleReplay.DEFAULT_HZ, {}, {"mode": "quick"})
+	for tick in 140:
+		if tick == 0 and quiet_model.spawn_unit(1, "swordsman"):
+			quiet.on_spawn(1, "swordsman")
+		if tick == 60 and quiet_model.spawn_unit(0, "swordsman"):
+			quiet.on_spawn(0, "swordsman")
+		if tick == 61 and quiet_model.spawn_unit(0, "archer"):
+			quiet.on_spawn(0, "archer")
+		quiet_model.tick(1.0 / 30.0)
+		quiet.on_tick()
+	var quiet_analysis := ReplayAnalysis.analyze(quiet.finish(quiet_model))
+	check(quiet_analysis.samples.slice(0, 20).all(func(sample): return float(sample.momentum) == 0.0) and not quiet_analysis.highlights.any(func(item): return item.kind == "swing"), "no lead and no reversal before the first fight")
+	check(quiet_analysis.samples.any(func(sample): return float(sample.momentum) > 0.3), "the curve moves once the armies meet")
 	var snapshot := {"base_hp": [500.0, 100.0], "units": [{"side": 0, "hp": 50.0}, {"side": 1, "hp": 10.0}]}
 	check(ReplayAnalysis.momentum_from_snapshot(snapshot) > 0.5, "snapshot momentum favours the stronger side")
 	check(ReplayAnalysis.momentum_from_snapshot({"base_hp": [0.0, 0.0], "units": []}) == 0.0, "empty snapshot is neutral")
