@@ -29,8 +29,9 @@ func run() -> void:
 	await process_frame
 	var records = main.find_child("RecordsScreen", true, false)
 	check(records != null and records.size == Vector2(1060, 650), "records screen is the scene with its declared 1060x650 frame")
-	check(main.find_child("Summary", true, false).text.contains("AI") and main.find_child("Summary", true, false).text.contains("온라인"), "records summary is filled from save data")
-	check(main.find_child("CampaignRecords", true, false).text.split("\n").size() == ServerAI.MAX_STAGE, "one record line per campaign stage")
+	check(main.find_child("RecordsCard_AI", true, false) != null and main.find_child("RecordsCard_온라인", true, false) != null, "records show a card for AI and for online play")
+	var table := main.find_child("CampaignTable", true, false) as GridContainer
+	check(table != null and table.get_child_count() == table.columns * (ServerAI.MAX_STAGE + 1), "the campaign table has a header row and one row per stage")
 	check(records.get_node("Column/Title").text == "개인 전적", "title comes through the shared frame")
 	check(records.get_node("Column").get_child(records.get_node("Column").get_child_count() - 1) is Button, "back button follows the content")
 

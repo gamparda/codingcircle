@@ -78,19 +78,36 @@ static func _show_result(main, winner: int) -> void:
 	overlay.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI.lerp(result_color, 0.08), UIKit.SURFACE.darkened(0.2), Color(result_color.r, result_color.g, result_color.b, 0.7), 18, 1.5, 1.0, Color(result_color.r, result_color.g, result_color.b, 0.35) if won else Color(0, 0, 0, 0), 0.12, 16))
 	screen.add_child(overlay)
 	if not main.network.client_is_spectator:
-		var hint_box := VBoxContainer.new()
-		hint_box.name = "GoalHints"
-		hint_box.position = Vector2(350, overlay.position.y + overlay.size.y + 10.0)
-		hint_box.size = Vector2(580, 60)
-		hint_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		for line in Goals.result_lines(main.save_data, goals_before):
-			var hint := Label.new()
-			hint.text = String(line.text)
-			hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			hint.add_theme_font_size_override("font_size", 15)
-			hint.add_theme_color_override("font_color", UIKit.GOLD if String(line.tone) == "gold" else UIKit.TEXT_MUTED)
-			hint_box.add_child(hint)
-		screen.add_child(hint_box)
+		var goal_lines: Array = Goals.result_lines(main.save_data, goals_before)
+		if not goal_lines.is_empty():
+			# A dark pill keeps the goal lines readable over whatever the battle screen shows below the dialog.
+			var pill := PanelContainer.new()
+			pill.name = "GoalHintsPill"
+			pill.position = Vector2(350, overlay.position.y + overlay.size.y + 12.0)
+			pill.size = Vector2(580, 20.0 + 26.0 * goal_lines.size())
+			pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var pill_style := StyleBoxFlat.new()
+			pill_style.bg_color = Color(0.05, 0.07, 0.12, 0.94)
+			pill_style.border_color = Color(UIKit.GOLD.r, UIKit.GOLD.g, UIKit.GOLD.b, 0.35)
+			pill_style.set_border_width_all(1)
+			pill_style.set_corner_radius_all(12)
+			pill_style.content_margin_left = 14
+			pill_style.content_margin_right = 14
+			pill_style.content_margin_top = 8
+			pill_style.content_margin_bottom = 8
+			pill.add_theme_stylebox_override("panel", pill_style)
+			var hint_box := VBoxContainer.new()
+			hint_box.name = "GoalHints"
+			hint_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			for line in goal_lines:
+				var hint := Label.new()
+				hint.text = String(line.text)
+				hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				hint.add_theme_font_size_override("font_size", 15)
+				hint.add_theme_color_override("font_color", UIKit.GOLD if String(line.tone) == "gold" else UIKit.TEXT_MUTED)
+				hint_box.add_child(hint)
+			pill.add_child(hint_box)
+			screen.add_child(pill)
 	main.root_background.add_child(screen)
 	UIKit.reveal(overlay, 0.35, 18.0)
 	UIKit.UISounds.play("victory" if won else ("click" if winner == 2 else "defeat"), -6.0)
