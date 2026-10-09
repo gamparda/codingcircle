@@ -7,6 +7,7 @@ const JobRunner = preload("res://scripts/jobs/JobRunner.gd")
 const JobQueue = preload("res://scripts/jobs/JobQueue.gd")
 const RoomSessions = preload("res://scripts/RoomSessions.gd")
 const ServerStats = preload("res://scripts/ServerStats.gd")
+const ServerAI = preload("res://scripts/ServerAI.gd")
 
 const PROTOCOL := 2
 ## There is no password: anyone who can reach the server may help. These limits keep a stranger from flooding it.
@@ -19,6 +20,13 @@ const LOCAL_SHARE := 0.25 # share of one core the main server may spend on jobs
 const LOCAL_WORKER := "main"
 const MAX_CREDIT_MSEC := 100.0
 const SAVE_INTERVAL := 5.0
+## Work the main server hands out on its own: every shared replay is re-checked, and while a helper is online a balance
+## survey runs once a day (one stage per day, cycling through the campaign stages).
+const AUDIT_BACKLOG := 20
+const AUDIT_KEEP := 500
+const SURVEY_INTERVAL := 86400.0
+const SURVEY_MATCHES := 40
+const SURVEY_SUBMITTER := "main"
 
 var queue := JobQueue.new()
 var accepting := true
@@ -32,6 +40,8 @@ var local_done_chunks := 0
 var results: Dictionary = {}
 var dirty := false
 var last_save := -1000.0
+var auto := {"last_survey": 0.0, "next_stage": 3, "survey_job": 0, "audit": {}, "audit_jobs": {}}
+var auto_dirty := false
 
 ## `allow` false (environment CATWAR_ASSIST=off) switches the whole helper system off.
 func configure(directory: String, allow: bool = true, now: float = 0.0) -> void:
@@ -40,6 +50,7 @@ func configure(directory: String, allow: bool = true, now: float = 0.0) -> void:
 	if not dir.is_empty():
 		DirAccess.make_dir_recursive_absolute(dir)
 		queue.load_dict(ServerStats.read_json(dir.path_join("queue.json")), now)
+		_load_auto(ServerStats.read_json(dir.path_join("auto.json")))
 	dirty = false
 
 func enabled() -> bool:
@@ -144,7 +155,7 @@ func submit(peer: int, type: String, params: Dictionary, title: String, now: flo
 	return outcome
 
 ## Called every server frame. `busy` pauses the main server's own work while many matches run.
-func tick(now: float, delta: float, busy: bool) -> void:
+func tick(now: float, delta: float, busy: bool, unix: float = -1.0) -> void:
 	var reclaimed := queue.expire(now)
 	if reclaimed > 0:
 		events.append({"type": "reclaimed", "chunks": reclaimed})
@@ -153,9 +164,73 @@ func tick(now: float, delta: float, busy: bool) -> void:
 		if now - float(peers[peer].seen) > PEER_TIMEOUT:
 			goodbye(int(peer), now)
 	if not busy:
+		_plan_survey(now, Time.get_unix_time_from_system() if unix < 0.0 else unix)
 		_work_locally(now, delta)
 	if dirty and now - last_save >= SAVE_INTERVAL:
 		save(now)
+
+## The main server's own errand: have a shared replay re-played. Mismatches are listed in `auto.audit` (and auto.json).
+func audit_replay(code: String, text: String, now: float) -> bool:
+	if not enabled() or code.is_empty() or auto.audit.has(code):
+		return false
+	if auto.audit_jobs.size() >= AUDIT_BACKLOG:
+		return false
+	var outcome := queue.submit("replay", {"texts": [text]}, "리플레이 검증 " + code, SURVEY_SUBMITTER, now)
+	if not bool(outcome.ok):
+		return false
+	auto.audit[code] = "pending"
+	auto.audit_jobs[str(int(outcome.id))] = code
+	while auto.audit.size() > AUDIT_KEEP:
+		auto.audit.erase(auto.audit.keys()[0])
+	dirty = true
+	auto_dirty = true
+	return true
+
+func audit_counts() -> Dictionary:
+	var counts := {"ok": 0, "failed": 0, "pending": 0}
+	for code in auto.audit:
+		counts[String(auto.audit[code])] = int(counts.get(String(auto.audit[code]), 0)) + 1
+	return counts
+
+## Once a day, while a helper that can run balance work is connected and nothing else of the kind is open.
+func _plan_survey(now: float, unix: float) -> void:
+	if unix - float(auto.last_survey) < SURVEY_INTERVAL or workers_for("balance") == 0:
+		return
+	var open: int = int(auto.survey_job)
+	if open > 0 and queue.jobs.has(open) and not bool(queue.jobs[open].done):
+		return
+	var stage := clampi(int(auto.next_stage), ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
+	var planned := JobRunner.plan("balance", {"stage": stage, "matches": SURVEY_MATCHES})
+	var totals := queue.totals()
+	if not bool(planned.ok) or int(totals.pending) + int(totals.leased) + planned.chunks.size() > MAX_QUEUED_CHUNKS:
+		return
+	var outcome := queue.submit("balance", {"stage": stage, "matches": SURVEY_MATCHES}, "정기 밸런스 조사 · %d단계" % stage, SURVEY_SUBMITTER, now)
+	if not bool(outcome.ok):
+		return
+	auto.survey_job = int(outcome.id)
+	auto.last_survey = unix
+	auto.next_stage = stage + 1 if stage < ServerAI.MAX_STAGE else ServerAI.MIN_STAGE
+	events.append({"type": "survey", "stage": stage, "job": int(outcome.id)})
+	dirty = true
+	auto_dirty = true
+
+func _load_auto(raw: Variant) -> void:
+	if not raw is Dictionary:
+		return
+	auto.last_survey = float(raw.get("last_survey", 0.0))
+	auto.next_stage = clampi(int(raw.get("next_stage", 3)), ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
+	auto.survey_job = int(raw.get("survey_job", 0))
+	if raw.get("audit") is Dictionary:
+		for code in raw.audit:
+			if String(raw.audit[code]) in ["ok", "failed", "pending"]:
+				auto.audit[String(code)] = String(raw.audit[code])
+	if raw.get("audit_jobs") is Dictionary:
+		for id in raw.audit_jobs:
+			if queue.jobs.has(int(id)) and not bool(queue.jobs[int(id)].done):
+				auto.audit_jobs[str(int(id))] = String(raw.audit_jobs[id])
+	for code in auto.audit.keys():
+		if String(auto.audit[code]) == "pending" and not auto.audit_jobs.values().has(code):
+			auto.audit.erase(code) # its job was lost: it is checked again next time it is shared
 
 func _min_age(type: String) -> float:
 	return 0.0 if workers_for(type) == 0 else PATIENCE_SECONDS
@@ -192,6 +267,13 @@ func _collect_finished(_now: float) -> void:
 		var answer := queue.result_of(id)
 		results[id] = answer
 		events.append({"type": "job_done", "job": id, "title": queue.jobs[id].title, "submitter": queue.jobs[id].submitter})
+		if auto.audit_jobs.has(str(id)):
+			var code := String(auto.audit_jobs[str(id)])
+			auto.audit_jobs.erase(str(id))
+			var verified := int(answer.get("checked", 0)) == 1 and int(answer.get("ok", 0)) == 1
+			auto.audit[code] = "ok" if verified else "failed"
+			auto_dirty = true
+			events.append({"type": "audit", "code": code, "ok": verified})
 		if not dir.is_empty():
 			ServerStats.write_json(dir.path_join("result_%d.json" % id), {"id": id, "type": queue.jobs[id].type, "title": queue.jobs[id].title, "result": answer})
 
@@ -209,6 +291,8 @@ func save(now: float) -> void:
 	last_save = now
 	if dir.is_empty() or not dirty:
 		return
+	if auto_dirty and ServerStats.write_json(dir.path_join("auto.json"), auto):
+		auto_dirty = false
 	if ServerStats.write_json(dir.path_join("queue.json"), queue.to_dict()):
 		dirty = false
 
@@ -218,5 +302,5 @@ func overview() -> Dictionary:
 	for peer in peers:
 		assists.append({"name": peers[peer].name, "role": peers[peer].role, "cores": peers[peer].cores, "capabilities": peers[peer].capabilities,
 			"holding": queue.held_by(worker_id(int(peer))), "wrapping": bool(peers[peer].wrapping)})
-	return {"totals": queue.totals(), "jobs": queue.overview(8), "assists": assists,
+	return {"totals": queue.totals(), "jobs": queue.overview(8), "assists": assists, "audit": audit_counts(),
 		"main": {"working": local_run != null, "done_chunks": local_done_chunks}}

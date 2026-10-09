@@ -1203,6 +1203,8 @@ func upload_replay(text: String) -> void:
 	if text.length() <= ServerReplayShelf.MAX_TEXT and int(upload_counts.get(sender, 0)) < MAX_UPLOADS_PER_CONNECTION:
 		upload_counts[sender] = int(upload_counts.get(sender, 0)) + 1
 		code = shelf.add(text, false)
+		if not code.is_empty():
+			assist.audit_replay(code, text, _assist_now())
 	receive_replay_code.rpc_id(sender, code)
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -1262,6 +1264,10 @@ func _report_assist_event(event: Dictionary) -> void:
 		"joined": print("ASSIST_JOINED name=%s role=%s capabilities=%s" % [event.name, event.role, event.capabilities])
 		"left": print("ASSIST_LEFT name=%s released_chunks=%d" % [event.name, int(event.released)])
 		"reclaimed": print("ASSIST_RECLAIMED chunks=%d" % int(event.chunks))
+		"survey": print("SURVEY_STARTED stage=%d job=%d" % [int(event.stage), int(event.job)])
+		"audit":
+			if not bool(event.ok):
+				print("REPLAY_AUDIT_FAILED code=%s" % event.code)
 		"submitted": print("JOB_SUBMITTED id=%d by=%s title=%s" % [int(event.job), event.name, event.title])
 		"job_done":
 			print("JOB_DONE id=%d title=%s" % [int(event.job), event.title])
