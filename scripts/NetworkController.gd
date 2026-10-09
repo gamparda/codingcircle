@@ -1264,7 +1264,6 @@ func _report_assist_event(event: Dictionary) -> void:
 		"joined": print("ASSIST_JOINED name=%s role=%s capabilities=%s" % [event.name, event.role, event.capabilities])
 		"left": print("ASSIST_LEFT name=%s released_chunks=%d" % [event.name, int(event.released)])
 		"reclaimed": print("ASSIST_RECLAIMED chunks=%d" % int(event.chunks))
-		"survey": print("SURVEY_STARTED stage=%d job=%d" % [int(event.stage), int(event.job)])
 		"audit":
 			if not bool(event.ok):
 				print("REPLAY_AUDIT_FAILED code=%s" % event.code)

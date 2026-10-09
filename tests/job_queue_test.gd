@@ -163,7 +163,7 @@ func run() -> void:
 	leaving.tick(100.0 + AssistHub.PEER_TIMEOUT + 1.0, 0.0, true)
 	check(not leaving.is_registered(9) and leaving.queue.pending_count() == 4, "a helper that goes silent is dropped and its chunk comes back")
 
-	# The main server hands out its own errands: every shared replay is re-checked, and a daily balance survey runs while a helper is online.
+	# The main server hands out its own errands: every shared replay is re-checked, (balance work is only done when an operator asks for it).
 	var auto_dir := "user://job_auto_test"
 	DirAccess.make_dir_recursive_absolute(auto_dir)
 	var errand := AssistHub.new()
@@ -172,32 +172,17 @@ func run() -> void:
 	check(errand.queue.pending_count() == 1 and errand.queue.jobs[1].title.contains("ABC123") and errand.audit_counts().pending == 1, "it waits as a job in the queue")
 	var clock := 1.0
 	for step in 300:
-		errand.tick(clock, 0.1, false, 1000.0)
+		errand.tick(clock, 0.1, false)
 		clock += 0.1
 		if errand.audit_counts().pending == 0:
 			break
 	check(errand.audit_counts().failed == 1 and errand.auto.audit.ABC123 == "failed", "the main server checked it itself and the broken replay is flagged")
 	check(errand.drain_events().any(func(event): return String(event.type) == "audit" and not bool(event.ok)), "the failure is reported")
-	check(errand.queue.jobs.size() == 1, "without a helper no survey is started")
-	var surveyor := AssistHub.new()
-	surveyor.configure(auto_dir + "/s", true, 0.0)
-	surveyor.hello(1, "보조", AssistHub.PROTOCOL, ["balance"], 4, "assist", 0.0)
-	surveyor.tick(1.0, 0.0, true, 1000000.0)
-	check(surveyor.queue.jobs.is_empty(), "no survey while the main server is busy with matches")
-	surveyor.tick(1.0, 0.0, false, 1000000.0)
-	check(surveyor.queue.jobs.size() == 1 and surveyor.queue.jobs[1].type == "balance" and surveyor.queue.jobs[1].title.contains("3단계") and int(surveyor.auto.next_stage) == 4, "a survey starts once a helper is online")
-	surveyor.tick(1.0, 0.0, false, 1000000.0 + AssistHub.SURVEY_INTERVAL * 2.0)
-	check(surveyor.queue.jobs.size() == 1, "and a new one waits until the last has finished")
-	surveyor.dirty = true
-	surveyor.save(10.0)
-	var restarted := AssistHub.new()
-	restarted.configure(auto_dir + "/s", true, 0.0)
-	check(is_equal_approx(float(restarted.auto.last_survey), 1000000.0) and int(restarted.auto.next_stage) == 4, "the schedule survives a restart")
-	for folder in [auto_dir + "/s/jobs", auto_dir + "/jobs"]:
+	check(errand.queue.jobs.size() == 1, "no balance survey is ever started on its own")
+	for folder in [auto_dir + "/jobs"]:
 		for file in DirAccess.get_files_at(folder):
 			DirAccess.remove_absolute(folder + "/" + file)
 		DirAccess.remove_absolute(folder)
-	DirAccess.remove_absolute(auto_dir + "/s")
 	DirAccess.remove_absolute(auto_dir)
 
 	# Saved queue survives a restart of the main server.

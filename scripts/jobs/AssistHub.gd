@@ -7,7 +7,6 @@ const JobRunner = preload("res://scripts/jobs/JobRunner.gd")
 const JobQueue = preload("res://scripts/jobs/JobQueue.gd")
 const RoomSessions = preload("res://scripts/RoomSessions.gd")
 const ServerStats = preload("res://scripts/ServerStats.gd")
-const ServerAI = preload("res://scripts/ServerAI.gd")
 
 const PROTOCOL := 2
 ## There is no password: anyone who can reach the server may help. These limits keep a stranger from flooding it.
@@ -20,13 +19,10 @@ const LOCAL_SHARE := 0.25 # share of one core the main server may spend on jobs
 const LOCAL_WORKER := "main"
 const MAX_CREDIT_MSEC := 100.0
 const SAVE_INTERVAL := 5.0
-## Work the main server hands out on its own: every shared replay is re-checked, and while a helper is online a balance
-## survey runs once a day (one stage per day, cycling through the campaign stages).
+## Work the main server hands out on its own: every shared replay is re-checked.
 const AUDIT_BACKLOG := 20
 const AUDIT_KEEP := 500
-const SURVEY_INTERVAL := 86400.0
-const SURVEY_MATCHES := 40
-const SURVEY_SUBMITTER := "main"
+const MAIN_SUBMITTER := "main"
 
 var queue := JobQueue.new()
 var accepting := true
@@ -40,7 +36,7 @@ var local_done_chunks := 0
 var results: Dictionary = {}
 var dirty := false
 var last_save := -1000.0
-var auto := {"last_survey": 0.0, "next_stage": 3, "survey_job": 0, "audit": {}, "audit_jobs": {}}
+var auto := {"audit": {}, "audit_jobs": {}}
 var auto_dirty := false
 
 ## `allow` false (environment CATWAR_ASSIST=off) switches the whole helper system off.
@@ -155,7 +151,7 @@ func submit(peer: int, type: String, params: Dictionary, title: String, now: flo
 	return outcome
 
 ## Called every server frame. `busy` pauses the main server's own work while many matches run.
-func tick(now: float, delta: float, busy: bool, unix: float = -1.0) -> void:
+func tick(now: float, delta: float, busy: bool) -> void:
 	var reclaimed := queue.expire(now)
 	if reclaimed > 0:
 		events.append({"type": "reclaimed", "chunks": reclaimed})
@@ -164,7 +160,6 @@ func tick(now: float, delta: float, busy: bool, unix: float = -1.0) -> void:
 		if now - float(peers[peer].seen) > PEER_TIMEOUT:
 			goodbye(int(peer), now)
 	if not busy:
-		_plan_survey(now, Time.get_unix_time_from_system() if unix < 0.0 else unix)
 		_work_locally(now, delta)
 	if dirty and now - last_save >= SAVE_INTERVAL:
 		save(now)
@@ -175,7 +170,7 @@ func audit_replay(code: String, text: String, now: float) -> bool:
 		return false
 	if auto.audit_jobs.size() >= AUDIT_BACKLOG:
 		return false
-	var outcome := queue.submit("replay", {"texts": [text]}, "리플레이 검증 " + code, SURVEY_SUBMITTER, now)
+	var outcome := queue.submit("replay", {"texts": [text]}, "리플레이 검증 " + code, MAIN_SUBMITTER, now)
 	if not bool(outcome.ok):
 		return false
 	auto.audit[code] = "pending"
@@ -192,34 +187,9 @@ func audit_counts() -> Dictionary:
 		counts[String(auto.audit[code])] = int(counts.get(String(auto.audit[code]), 0)) + 1
 	return counts
 
-## Once a day, while a helper that can run balance work is connected and nothing else of the kind is open.
-func _plan_survey(now: float, unix: float) -> void:
-	if unix - float(auto.last_survey) < SURVEY_INTERVAL or workers_for("balance") == 0:
-		return
-	var open: int = int(auto.survey_job)
-	if open > 0 and queue.jobs.has(open) and not bool(queue.jobs[open].done):
-		return
-	var stage := clampi(int(auto.next_stage), ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
-	var planned := JobRunner.plan("balance", {"stage": stage, "matches": SURVEY_MATCHES})
-	var totals := queue.totals()
-	if not bool(planned.ok) or int(totals.pending) + int(totals.leased) + planned.chunks.size() > MAX_QUEUED_CHUNKS:
-		return
-	var outcome := queue.submit("balance", {"stage": stage, "matches": SURVEY_MATCHES}, "정기 밸런스 조사 · %d단계" % stage, SURVEY_SUBMITTER, now)
-	if not bool(outcome.ok):
-		return
-	auto.survey_job = int(outcome.id)
-	auto.last_survey = unix
-	auto.next_stage = stage + 1 if stage < ServerAI.MAX_STAGE else ServerAI.MIN_STAGE
-	events.append({"type": "survey", "stage": stage, "job": int(outcome.id)})
-	dirty = true
-	auto_dirty = true
-
 func _load_auto(raw: Variant) -> void:
 	if not raw is Dictionary:
 		return
-	auto.last_survey = float(raw.get("last_survey", 0.0))
-	auto.next_stage = clampi(int(raw.get("next_stage", 3)), ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
-	auto.survey_job = int(raw.get("survey_job", 0))
 	if raw.get("audit") is Dictionary:
 		for code in raw.audit:
 			if String(raw.audit[code]) in ["ok", "failed", "pending"]:
