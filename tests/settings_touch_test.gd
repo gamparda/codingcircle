@@ -13,6 +13,13 @@ func run() -> void:
 		printerr("FAIL: settings scroll or fullscreen toggle missing")
 		quit(1)
 		return
+	# Show the display page and make it taller than the panel, as it is on a small phone, so a swipe has room to scroll.
+	main.find_child("SettingsTab_display", true, false).pressed.emit()
+	var filler := Control.new()
+	filler.custom_minimum_size.y = 1400
+	main.find_child("SettingsPage_display", true, false).add_child(filler)
+	await process_frame
+	await process_frame
 	var initial_state := option.button_pressed
 	var start := option.get_global_rect().get_center()
 	var touch := InputEventScreenTouch.new()

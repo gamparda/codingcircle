@@ -68,19 +68,27 @@ func run() -> void:
 	var settings_scroll := main.find_child("SettingsScroll", true, false) as ScrollContainer
 	var quality_selector := main.find_child("GraphicsQualitySelector", true, false) as OptionButton
 	expect_true(quality_selector != null and quality_selector.item_count >= 4, "graphics selector exposes auto, high, medium and low")
-	expect_true(quality_selector != null and quality_selector.get_global_rect().end.y <= settings_scroll.get_global_rect().position.y, "graphics popup is outside the scrolling content")
+	expect_true(main.find_child("SettingsRail", true, false) != null and main.find_child("SettingsTab_display", true, false) != null, "settings are split into categories")
+	main.find_child("SettingsTab_display", true, false).pressed.emit()
+	await process_frame
+	expect_true(quality_selector != null and quality_selector.is_visible_in_tree() and not main.find_child("SettingsPage_audio", true, false).visible, "choosing a category shows only that page")
 	expect_true(main.find_child("ResolutionSelector", true, false) != null and main.find_child("FPSSelector", true, false) != null, "desktop retains manual resolution and FPS controls")
 	var settings_save := find_button(main, "설정 저장")
 	var settings_cancel := find_button(main, "취소")
 	var viewport_bounds := Rect2(Vector2.ZERO, Vector2(1280, 720))
-	expect_true(settings_scroll != null and settings_scroll.size.y > 0 and settings_scroll.get_child(0).size.y > settings_scroll.size.y, "settings overflowing the panel are scrollable")
+	for page_id in ["audio", "display", "battle", "keys", "helper", "data"]:
+		main.find_child("SettingsTab_" + page_id, true, false).pressed.emit()
+		await process_frame
+		await process_frame
+		var page := main.find_child("SettingsPage_" + page_id, true, false) as Control
+		expect_true(page != null and page.visible and page.size.y <= settings_scroll.size.y + 1.0, "settings page %s fits without hiding anything below the fold" % page_id)
+	main.find_child("SettingsTab_battle", true, false).pressed.emit()
+	await process_frame
 	expect_true(settings_save != null and viewport_bounds.encloses(settings_save.get_global_rect()), "settings save action stays fully visible")
 	expect_true(settings_cancel != null and viewport_bounds.encloses(settings_cancel.get_global_rect()), "settings cancel action stays fully visible")
-	settings_scroll.scroll_vertical = int(settings_scroll.get_v_scroll_bar().max_value)
-	await process_frame
-	expect_true(settings_scroll.scroll_vertical > 0 and viewport_bounds.encloses(settings_save.get_global_rect()), "scrolling does not move the settings footer offscreen")
+	expect_true(viewport_bounds.encloses(settings_save.get_global_rect()) and viewport_bounds.encloses(settings_cancel.get_global_rect()), "the settings footer stays on screen on every page")
 	var intensity := main.find_child("EffectIntensitySlider", true, false) as HSlider
-	expect_true(intensity != null and settings_scroll.get_global_rect().encloses(intensity.get_global_rect()), "last settings slider is reachable by scrolling")
+	expect_true(intensity != null and intensity.is_visible_in_tree() and settings_scroll.get_global_rect().encloses(intensity.get_global_rect()), "the effects slider is reachable on its page")
 	expect_true(main.find_child("LanguageSelector", true, false) == null, "Korean-only settings have no language selector")
 	var bgm_slider := main.find_child("BGMVolumeSlider", true, false) as HSlider
 	expect_true(bgm_slider != null, "settings expose a named BGM volume slider")
