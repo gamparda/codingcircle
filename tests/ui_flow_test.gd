@@ -76,10 +76,15 @@ func run() -> void:
 	var settings_save := find_button(main, "설정 저장")
 	var settings_cancel := find_button(main, "취소")
 	var viewport_bounds := Rect2(Vector2.ZERO, Vector2(1280, 720))
+	var frame_width := -1.0
 	for page_id in ["audio", "display", "battle", "keys", "helper", "data"]:
 		main.find_child("SettingsTab_" + page_id, true, false).pressed.emit()
 		await process_frame
 		await process_frame
+		var frame := main.find_child("SubMenuFrame", true, false) as Control
+		if frame_width < 0.0:
+			frame_width = frame.size.x
+		expect_true(is_equal_approx(frame.size.x, frame_width) and settings_scroll.get_child(0).size.x <= settings_scroll.size.x + 0.5, "settings page %s does not stretch the window" % page_id)
 		var page := main.find_child("SettingsPage_" + page_id, true, false) as Control
 		expect_true(page != null and page.visible and page.size.y <= settings_scroll.size.y + 1.0, "settings page %s fits without hiding anything below the fold" % page_id)
 	main.find_child("SettingsTab_battle", true, false).pressed.emit()

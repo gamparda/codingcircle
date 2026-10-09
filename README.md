@@ -132,7 +132,7 @@ Android 부트스트랩은 실행 직후 같은 메타데이터를 확인합니�
 버전은 **`release.json` 한 곳에서만** 고칩니다.
 
 ```json
-{ "content_version": "0.16.2", "windows_version": "0.16.0", "android_binary_version": "0.4.18", "update_url": "..." }
+{ "content_version": "0.16.3", "windows_version": "0.16.0", "android_binary_version": "0.4.18", "update_url": "..." }
 ```
 
 ```powershell

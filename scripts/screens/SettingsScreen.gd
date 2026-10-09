@@ -310,7 +310,7 @@ static func _add_binding_settings(main, column: VBoxContainer) -> void:
 	main._add_settings_section(column,"전투 단축키")
 	var grid := GridContainer.new(); grid.name="BattleKeyBindings"; grid.columns=3; grid.add_theme_constant_override("h_separation",12); grid.add_theme_constant_override("v_separation",8); column.add_child(grid)
 	for index in 6:
-		var button = main._styled_button("",Color("#3d647d")); button.name="BindingSlot%d"%index; button.custom_minimum_size=Vector2(250,44); button.add_theme_font_size_override("font_size",14); button.pressed.connect(main._begin_binding_capture.bind(index)); grid.add_child(button); main.binding_buttons.append(button)
+		var button = main._styled_button("",Color("#3d647d")); button.name="BindingSlot%d"%index; button.custom_minimum_size=Vector2(0,44); button.size_flags_horizontal=Control.SIZE_EXPAND_FILL; button.add_theme_font_size_override("font_size",14); button.pressed.connect(main._begin_binding_capture.bind(index)); grid.add_child(button); main.binding_buttons.append(button)
 	main.binding_hint = Label.new(); main.binding_hint.name="BindingHint"; main.binding_hint.text="변경할 항목을 누르고 새 키를 입력하세요."; main.binding_hint.add_theme_font_size_override("font_size",13); main.binding_hint.add_theme_color_override("font_color",Color("#f0d592")); column.add_child(main.binding_hint)
 	var reset = main._styled_button("단축키 기본값 복원",Color("#596174")); reset.name="ResetBattleBindings"; reset.pressed.connect(func(): main._cancel_binding_capture(); main.binding_draft=BattleBindings.DEFAULTS.duplicate(); main._refresh_binding_buttons()); column.add_child(reset)
 	main._refresh_binding_buttons()
