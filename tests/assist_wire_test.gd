@@ -90,6 +90,6 @@ func run() -> void:
 	check(await wait_until(func(): return server.assist.queue.jobs.has(2) and server.assist.queue.jobs[2].done, 20.0), "the main server finishes the rest on its own")
 	var answer: Dictionary = server.assist.result_for(2)
 	check(int(answer.sum) == 2550 and int(answer.chunks) == 50, "every chunk was done exactly once: sum %s" % [answer.get("sum")])
-	check(server.assist.local_done_chunks > 0 and server.assist.local_done_chunks + int(worker.stats.chunks) - 6 == 50, "split between the helper (%d) and the main server (%d)" % [int(worker.stats.chunks) - 6, server.assist.local_done_chunks])
+	check(server.assist.local_done_chunks > 0 and server.assist.local_done_chunks + int(worker.stats.chunks) - 6 >= 50 and server.assist.local_done_chunks + int(worker.stats.chunks) - 6 <= 51, "split between the helper (%d) and the main server (%d); at most the chunk in flight at wrap-up is computed twice" % [int(worker.stats.chunks) - 6, server.assist.local_done_chunks])
 	check(int(worker.stats.chunks) - 6 >= before - 6, "chunks the helper reported before leaving were kept")
 	await finish(0 if failures == 0 else 1)

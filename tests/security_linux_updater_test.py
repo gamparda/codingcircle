@@ -237,6 +237,13 @@ class LinuxUpdaterSecurityTests(unittest.TestCase):
         self.assertLess(wrapper.index("--main-pack"), wrapper.index("--path"))
         self.assertIn("server.pck", wrapper)
 
+    def test_first_pack_mode_run_converts_a_current_checkout(self):
+        script = UPDATER.read_text(encoding="utf-8")
+        gate = script.split('if [[ "$target_commit" == "$current_commit"', 1)[1].split("fi\n", 1)[0]
+        self.assertIn('"$convert_to_pack" -eq 0', gate)
+        self.assertIn('[[ "$UPDATE_MODE" == pack && ! -e "$APP_DIR/server.pck" ]]', script)
+        self.assertLess(script.index("convert_to_pack=0"), script.index('if [[ "$target_commit" == "$current_commit"'))
+
 
 if __name__ == "__main__":
     unittest.main()

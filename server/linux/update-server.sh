@@ -243,7 +243,12 @@ if [[ -e "$trusted_commit_file" ]]; then
   read -r trusted_commit < "$trusted_commit_file"
   valid_commit "$trusted_commit" || fail "trusted commit state is corrupt"
 fi
-if [[ "$target_commit" == "$current_commit" ]]; then
+# The first run in pack mode converts a project checkout into server.pck even when the commit is already current.
+convert_to_pack=0
+if [[ "$UPDATE_MODE" == pack && ! -e "$APP_DIR/server.pck" ]]; then
+  convert_to_pack=1
+fi
+if [[ "$target_commit" == "$current_commit" && "$convert_to_pack" -eq 0 ]]; then
   [[ -z "$trusted_commit" || "$trusted_commit" == "$current_commit" ]] || fail "installed commit predates trusted state"
   exit 0
 fi
