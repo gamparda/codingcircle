@@ -6,8 +6,12 @@
     python tools/release_meta.py github-env  # print KEY=VALUE lines for $GITHUB_ENV
     python tools/release_meta.py get <field> # print one release.json field
 
+Versions: content_version moves with every release. windows_version is the version of the installer/executable and moves
+only when the executable itself must change (engine, export settings, installer, new native files): Windows clients
+get every other release as a small game-data pack through the launcher.
+
 Generated from release.json:
-  build_info.json     version, binary_version, update_url (commit is stamped at build time)
+  build_info.json     version, windows_version, binary_version, update_url (commit is stamped at build time)
   project.godot       config/version            = android_binary_version
   export_presets.cfg  Windows file/product ver  = windows_version
                       Android version/name      = android_binary_version
@@ -47,6 +51,7 @@ def _regex_edits(release: dict) -> list:
 def _build_info(release: dict, commit: str) -> dict:
     return {
         "version": release["content_version"],
+        "windows_version": release["windows_version"],
         "binary_version": release["android_binary_version"],
         "commit": commit,
         "update_url": release["update_url"],

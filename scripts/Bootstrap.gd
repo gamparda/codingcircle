@@ -17,6 +17,8 @@ const PACK_BOOT_STABILITY_SECONDS := 5.0
 
 var bundled_version := "0.0.0"
 var bundled_binary_version := "0.0.0"
+var bundled_windows_version := "0.0.0"
+var pack_kind := "content" # manifest field prefix: Android reads content_pack_*, Windows reads desktop_pack_*
 var bundled_commit := "unknown"
 var active_version := "0.0.0"
 var active_commit := "unknown"
@@ -41,16 +43,29 @@ func _ready() -> void:
 	bundled_version = String(versions.content)
 	bundled_binary_version = String(versions.binary)
 	bundled_commit = String(build_info.get("commit", bundled_commit))
+	bundled_windows_version = String(build_info.get("windows_version", bundled_version))
+	Engine.set_meta("bundled_windows_version", bundled_windows_version) # the installer version this executable shipped with
 	active_version = bundled_version
 	active_commit = bundled_commit
 	var args := OS.get_cmdline_user_args()
-	if OS.get_name() != "Android" or args.has("--server") or args.has("--disable-content-updates"):
+	if OS.get_name() == "Windows":
+		pack_kind = "desktop"
+	if not content_updates_wanted(OS.get_name(), OS.has_feature("release"), DisplayServer.get_name() == "headless", args):
 		_launch_game()
 		return
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(CONTENT_DIR))
 	_recover_interrupted_update()
 	_load_installed_pack()
 	_check_for_update()
+
+## Android always updates its content pack; Windows only in release builds (or when asked), never for the headless
+## dedicated server, which is updated by the Linux updater or by the installer.
+static func content_updates_wanted(os_name: String, is_release: bool, is_headless: bool, args: PackedStringArray) -> bool:
+	if args.has("--server") or args.has("--disable-content-updates") or is_headless:
+		return false
+	if os_name == "Android":
+		return true
+	return os_name == "Windows" and (is_release or args.has("--force-content-updates"))
 
 static func preferred_locale(_saved_data: Dictionary, _system_locale: String) -> String:
 	return "ko"
@@ -148,20 +163,28 @@ func _handle_manifest(result: int, response_code: int, body: PackedByteArray) ->
 		_show_recoverable_error(Localization.text("업데이트 서버에 연결하지 못했습니다."))
 		return
 	var candidate = JSON.parse_string(body.get_string_from_utf8())
-	if not candidate is Dictionary or not validate_content_manifest(candidate):
+	if candidate is Dictionary and pack_kind == "desktop":
+		# A newer installer (a new executable) is the job of the main scene updater; this step only swaps game data.
+		if not validate_desktop_manifest(candidate) or is_newer_version(String(candidate.version), bundled_windows_version):
+			_launch_game()
+			return
+	elif not candidate is Dictionary or not validate_content_manifest(candidate):
 		_show_recoverable_error(Localization.text("업데이트 정보가 올바르지 않습니다."))
 		return
 	manifest = candidate
-	if requires_apk_update(manifest_android_binary_version(manifest), bundled_binary_version, String(manifest.get("android_apk_url", ""))):
+	if pack_kind == "content" and requires_apk_update(manifest_android_binary_version(manifest), bundled_binary_version, String(manifest.get("android_apk_url", ""))):
 		_show_apk_update_required()
 		return
-	var remote_version := String(manifest.content_pack_version)
-	var remote_commit := String(manifest.content_pack_commit)
+	var remote_version := _pack("version")
+	var remote_commit := _pack("commit")
 	if not should_install_content(remote_version, active_version, remote_commit, active_commit):
 		status_label.text = Localization.text("최신 버전입니다.")
 		_launch_game()
 		return
 	_begin_pack_download()
+
+func _pack(field: String) -> String:
+	return String(manifest.get("%s_pack_%s" % [pack_kind, field], ""))
 
 func _begin_pack_download() -> void:
 	status_label.text = Localization.text("게임 데이터 업데이트 다운로드 중...")
@@ -169,7 +192,7 @@ func _begin_pack_download() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PENDING_PACK))
 	http.download_file = ProjectSettings.globalize_path(PENDING_PACK)
 	state = "downloading"
-	var error := http.request(String(manifest.content_pack_url), ["Cache-Control: no-cache"])
+	var error := http.request(_pack("url"), ["Cache-Control: no-cache"])
 	if error != OK:
 		_show_recoverable_error(Localization.text("게임 데이터 다운로드를 시작하지 못했습니다."))
 
@@ -181,7 +204,7 @@ func _handle_pack_download(result: int, response_code: int) -> void:
 		return
 	status_label.text = Localization.text("다운로드한 게임 데이터를 검증하는 중...")
 	progress_bar.value = 100.0
-	var expected_hash := String(manifest.content_pack_sha256).to_lower()
+	var expected_hash := _pack("sha256").to_lower()
 	if FileAccess.get_sha256(pending_path).to_lower() != expected_hash:
 		DirAccess.remove_absolute(pending_path)
 		_show_recoverable_error(Localization.text("게임 데이터의 SHA-256 검증에 실패했습니다."))
@@ -189,8 +212,8 @@ func _handle_pack_download(result: int, response_code: int) -> void:
 	if not _activate_pending_pack(expected_hash):
 		_show_recoverable_error(Localization.text("게임 데이터 교체에 실패했습니다."))
 		return
-	active_version = String(manifest.content_pack_version)
-	active_commit = String(manifest.content_pack_commit)
+	active_version = _pack("version")
+	active_commit = _pack("commit")
 	active_pack_loaded = ProjectSettings.load_resource_pack(ACTIVE_PACK, true)
 	if not active_pack_loaded:
 		_rollback_pack()
@@ -219,8 +242,8 @@ func _activate_pending_pack(expected_hash: String) -> bool:
 			DirAccess.rename_absolute(previous_metadata_path, metadata_path)
 		return false
 	var metadata := {
-		"version": String(manifest.content_pack_version),
-		"commit": String(manifest.content_pack_commit),
+		"version": _pack("version"),
+		"commit": _pack("commit"),
 		"sha256": expected_hash,
 		"pending_boot": true,
 	}
@@ -253,6 +276,11 @@ func _load_installed_pack() -> void:
 	var active_path := ProjectSettings.globalize_path(ACTIVE_PACK)
 	if not FileAccess.file_exists(active_path) or FileAccess.get_sha256(active_path).to_lower() != String(metadata.sha256).to_lower():
 		_rollback_pack()
+		return
+	if is_newer_version(bundled_version, String(metadata.version)):
+		# A freshly installed executable already carries newer game data than the downloaded pack.
+		_rollback_pack()
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(PREVIOUS_PACK))
 		return
 	if ProjectSettings.load_resource_pack(ACTIVE_PACK, true):
 		active_pack_loaded = true
@@ -298,6 +326,10 @@ func _confirm_pack_boot() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(PREVIOUS_METADATA))
 
 func _show_recoverable_error(message: String) -> void:
+	if pack_kind == "desktop":
+		push_warning(message) # a PC starts with what it has; the main scene updater retries later
+		_launch_game()
+		return
 	state = "failed"
 	status_label.text = message
 	progress_bar.value = 0.0
@@ -342,17 +374,25 @@ static func requires_apk_update(remote_version: String, installed_version: Strin
 static func manifest_android_binary_version(candidate: Dictionary) -> String:
 	return String(candidate.get("android_binary_version", candidate.get("version", "")))
 
-static func _validate_content_pack_fields(candidate: Dictionary) -> bool:
-	for field in ["content_pack_version", "content_pack_commit", "content_pack_url", "content_pack_sha256"]:
-		if not candidate.has(field) or not candidate[field] is String:
+static func _validate_content_pack_fields(candidate: Dictionary, kind: String = "content") -> bool:
+	var keys := {}
+	for field in ["version", "commit", "url", "sha256"]:
+		keys[field] = "%s_pack_%s" % [kind, field]
+		if not candidate.has(keys[field]) or not candidate[keys[field]] is String:
 			return false
 	var version_pattern := RegEx.create_from_string("^[0-9]+\\.[0-9]+\\.[0-9]+$")
 	var commit_pattern := RegEx.create_from_string("^[0-9a-fA-F]{40}$")
 	var hash_pattern := RegEx.create_from_string("^[0-9a-fA-F]{64}$")
-	return version_pattern.search(candidate.content_pack_version) != null \
-		and commit_pattern.search(candidate.content_pack_commit) != null \
-		and hash_pattern.search(candidate.content_pack_sha256) != null \
-		and is_trusted_content_url(candidate.content_pack_url)
+	return version_pattern.search(candidate[keys.version]) != null \
+		and commit_pattern.search(candidate[keys.commit]) != null \
+		and hash_pattern.search(candidate[keys.sha256]) != null \
+		and is_trusted_content_url(candidate[keys.url])
+
+## Windows: the installer version plus the desktop game-data pack.
+static func validate_desktop_manifest(candidate: Dictionary) -> bool:
+	if not _validate_content_pack_fields(candidate, "desktop"):
+		return false
+	return candidate.get("version") is String and RegEx.create_from_string("^[0-9]+\\.[0-9]+\\.[0-9]+$").search(candidate.version) != null
 
 static func validate_content_manifest(candidate: Dictionary) -> bool:
 	if not _validate_content_pack_fields(candidate):

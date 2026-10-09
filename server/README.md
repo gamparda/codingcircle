@@ -26,6 +26,28 @@ first. The live server then stops accepting new players, waits for active matche
 finish, swaps the application tree, and restarts. A failed readiness check rolls back to
 the previous tree.
 
+### Pack mode (no clone, no import, no tests on the server)
+
+By default every update clones the repository twice, imports the assets twice and runs the unit tests on the server.
+In **pack mode** the updater instead downloads the one game-data pack that CI built and tested
+(`CatWarDesktop.pck`, about 6 MB), checks its SHA-256 against the manifest, runs a short self-check as the `catwar`
+account (`tests/pack_selfcheck.gd`: starts, carries the manifest commit, loads the server code) and swaps it in. The
+safety rules stay: the target must be a forward descendant of the installed/last trusted commit and an ancestor of
+`origin/main`. That is answered by a root-owned, commits-only mirror (`$CONTROL_DIR/history.git`) that downloads only new
+commits on each run and never executes anything from the repository.
+
+One-time switch (the agent that manages the server does this):
+
+1. Install `server/linux/run-server.sh` next to the updater (root-owned, mode 0755):
+   `install -o root -g root -m 0755 server/linux/run-server.sh /usr/local/libexec/catwar/run-server.sh`
+2. Point `catwar-server.service` at it: `ExecStart=/usr/local/libexec/catwar/run-server.sh`. It reads
+   `CATWAR_APP_DIR`, `CATWAR_GODOT_BIN` and `CATWAR_SERVER_PORT` from `/etc/catwar/server.env` and starts either layout
+   (`server.pck` or a project checkout), so rollbacks and mode changes never need the unit edited again. Run
+   `systemctl daemon-reload`, and restart the server once.
+3. Install the new `update-server.sh` and add `CATWAR_UPDATE_MODE=pack` to `/etc/catwar/server.env`.
+4. Run the updater once (`systemctl start catwar-update.service`). The first run converts the checkout into
+   `server.pck` + `commit`; later runs only swap the pack. Without `CATWAR_UPDATE_MODE=pack` nothing changes.
+
 ### Secure updater installation
 
 The updater is a root oneshot because only it may replace the root-owned application

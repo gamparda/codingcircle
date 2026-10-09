@@ -19,7 +19,8 @@
     "tests/deck_simulator_test.gd",
     "tests/replay_shelf_test.gd",
     "tests/ime_fix_test.gd",
-    "tests/job_queue_test.gd"
+    "tests/job_queue_test.gd",
+    "tests/pack_selfcheck.gd"
   ],
   "network": [
     "tests/network_recovery_test.gd",

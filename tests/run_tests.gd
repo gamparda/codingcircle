@@ -333,6 +333,26 @@ func _init() -> void:
 		var legacy_binary_manifest: Dictionary = content_manifest.duplicate(true)
 		legacy_binary_manifest.erase("android_binary_version")
 		expect_eq(Bootstrap.manifest_android_binary_version(legacy_binary_manifest), "0.5.0", "legacy manifests fall back to the shared binary version")
+		expect_true(Bootstrap.content_updates_wanted("Android", false, false, PackedStringArray()), "Android always updates its content pack")
+		expect_true(Bootstrap.content_updates_wanted("Windows", true, false, PackedStringArray()), "release builds on Windows update their game data")
+		expect_true(not Bootstrap.content_updates_wanted("Windows", false, false, PackedStringArray()), "editor runs on Windows do not")
+		expect_true(Bootstrap.content_updates_wanted("Windows", false, false, PackedStringArray(["--force-content-updates"])), "unless asked to")
+		expect_true(not Bootstrap.content_updates_wanted("Windows", true, true, PackedStringArray()) and not Bootstrap.content_updates_wanted("Windows", true, false, PackedStringArray(["--server"])), "a headless or dedicated server never swaps packs by itself")
+		var desktop_manifest := {
+			"version": "0.16.0",
+			"desktop_pack_version": "0.16.1",
+			"desktop_pack_commit": "0123456789abcdef0123456789abcdef01234567",
+			"desktop_pack_url": "https://gamparda.github.io/codingcircle/CatWarDesktop.pck",
+			"desktop_pack_sha256": "c".repeat(64),
+		}
+		expect_true(Bootstrap.validate_desktop_manifest(desktop_manifest), "a published desktop pack is accepted")
+		var foreign_desktop: Dictionary = desktop_manifest.duplicate(true)
+		foreign_desktop.desktop_pack_url = "https://example.com/CatWarDesktop.pck"
+		expect_true(not Bootstrap.validate_desktop_manifest(foreign_desktop), "desktop packs only come from the official origin")
+		var old_manifest: Dictionary = desktop_manifest.duplicate(true)
+		old_manifest.erase("desktop_pack_sha256")
+		expect_true(not Bootstrap.validate_desktop_manifest(old_manifest), "a manifest without a desktop pack is ignored, not trusted")
+		expect_true(Bootstrap.should_install_content("0.16.1", "0.16.0", "a", "b") and not Bootstrap.should_install_content("0.16.0", "0.16.0", "a", "a"), "a newer pack is installed, the same one is not")
 		var untrusted_manifest: Dictionary = content_manifest.duplicate(true)
 		untrusted_manifest.content_pack_url = "https://example.com/CatWarContent.pck"
 		expect_true(not Bootstrap.validate_content_manifest(untrusted_manifest), "untrusted content pack origins are rejected")
@@ -355,7 +375,7 @@ func _init() -> void:
 	var Main = load("res://scripts/Main.gd")
 	expect_true(Main != null, "Main script loads")
 	expect_eq(Main.build_binary_version(), "0.4.18", "Korean-only release updates the native Android bootstrap")
-	expect_eq(Main.build_version(), "0.15.4", "content pack version advances independently")
+	expect_eq(Main.build_version(), "0.16.0", "content pack version advances independently")
 	expect_true(NetworkController.is_valid_room_code(Main.DEFAULT_SMOKE_ROOM_CODE), "default smoke room code follows production room-code rules")
 	expect_true(Main.apk_update_required("Android", "0.4.4", "0.4.5"), "new content warns when it runs on an older Android APK")
 	expect_true(not Main.apk_update_required("Android", "0.4.5", "0.4.5"), "matching Android APK and content versions do not warn")

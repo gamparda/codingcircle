@@ -154,6 +154,9 @@ jobs:
           }
           & $env:GODOT_CONSOLE --headless --path . --export-pack Android dist/CatWarContent.pck
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWarContent.pck)) { throw "Android content pack export failed" }
+          # Game data for Windows clients and the Linux server: same code, no executable. Updating it avoids a full installer.
+          & $env:GODOT_CONSOLE --headless --path . --export-pack "Windows Desktop" dist/CatWarDesktop.pck
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWarDesktop.pck)) { throw "Desktop content pack export failed" }
 
       - name: Create public update channel
         shell: pwsh
@@ -163,6 +166,7 @@ jobs:
           $previous = Invoke-RestMethod "https://gamparda.github.io/codingcircle/update.json?publish=${{ github.sha }}"
           Copy-Item dist/CatWarSetup.exe site/CatWarSetup.exe
           Copy-Item dist/CatWarContent.pck site/CatWarContent.pck
+          Copy-Item dist/CatWarDesktop.pck site/CatWarDesktop.pck
           if ($env:BUILD_ANDROID -eq "true") {
             Copy-Item dist/CatWar.apk site/CatWar.apk
           } else {
@@ -173,6 +177,7 @@ jobs:
           $sha = (Get-FileHash site/CatWarSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           $androidSha = (Get-FileHash site/CatWar.apk -Algorithm SHA256).Hash.ToLowerInvariant()
           $contentSha = (Get-FileHash site/CatWarContent.pck -Algorithm SHA256).Hash.ToLowerInvariant()
+          $desktopSha = (Get-FileHash site/CatWarDesktop.pck -Algorithm SHA256).Hash.ToLowerInvariant()
           $manifest = [ordered]@{
             version = $env:WINDOWS_VERSION
             commit = "${{ github.sha }}"
@@ -185,11 +190,15 @@ jobs:
             content_pack_commit = "${{ github.sha }}"
             content_pack_url = "https://gamparda.github.io/codingcircle/CatWarContent.pck"
             content_pack_sha256 = $contentSha
+            desktop_pack_version = $env:CONTENT_VERSION
+            desktop_pack_commit = "${{ github.sha }}"
+            desktop_pack_url = "https://gamparda.github.io/codingcircle/CatWarDesktop.pck"
+            desktop_pack_sha256 = $desktopSha
             mandatory = $true
             published_at = (Get-Date).ToUniversalTime().ToString("o")
           } | ConvertTo-Json
           [System.IO.File]::WriteAllText((Join-Path $PWD "site/update.json"), $manifest + "`n", [System.Text.UTF8Encoding]::new($false))
-          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n$androidSha  CatWar.apk`n$contentSha  CatWarContent.pck`n", [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n$androidSha  CatWar.apk`n$contentSha  CatWarContent.pck`n$desktopSha  CatWarDesktop.pck`n", [System.Text.UTF8Encoding]::new($false))
           New-Item -ItemType File -Force site/.nojekyll | Out-Null
 
       - name: Publish GitHub Release (new versions only)
@@ -200,7 +209,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $tag = "v$env:CONTENT_VERSION"
-          $assets = @("site/CatWarSetup.exe", "site/CatWar.apk", "site/CatWarContent.pck", "site/update.json", "site/SHA256SUMS.txt")
+          $assets = @("site/CatWarSetup.exe", "site/CatWar.apk", "site/CatWarContent.pck", "site/CatWarDesktop.pck", "site/update.json", "site/SHA256SUMS.txt")
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             # A published tag is immutable. Re-pushes of the same version are dev builds:

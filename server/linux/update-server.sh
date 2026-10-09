@@ -13,6 +13,12 @@ REPOSITORY_URL="${CATWAR_REPOSITORY_URL:-https://github.com/gamparda/codingcircl
 MANIFEST_URL="${CATWAR_MANIFEST_URL:-https://gamparda.github.io/codingcircle/update.json}"
 LOCK_FILE="${CATWAR_UPDATE_LOCK:-${CONTROL_DIR}/update.lock}"
 PYTHON_BIN="${CATWAR_PYTHON_BIN:-python3}"
+# "git" (default) builds every release from a fresh checkout and imports its assets. "pack" installs the single
+# CI-built game-data pack instead: no clone, no import, no test run on this machine.
+UPDATE_MODE="${CATWAR_UPDATE_MODE:-git}"
+HISTORY_DIR="${CATWAR_HISTORY_DIR:-${CONTROL_DIR}/history.git}"
+PACK_URL="${CATWAR_PACK_URL:-${MANIFEST_URL%/*}/CatWarDesktop.pck}"
+PACK_MAX_BYTES="${CATWAR_PACK_MAX_BYTES:-300000000}"
 
 fail() {
   echo "Cat War updater: $*" >&2
@@ -88,6 +94,58 @@ validate_update_graph() {
   fi
 }
 
+# Prints "commit pack_version pack_commit pack_sha256 pack_url" for a manifest that publishes a desktop pack.
+read_pack_manifest() {
+  local manifest=$1
+  [[ -f "$manifest" && ! -L "$manifest" ]] || fail "manifest must be a regular file"
+  "$PYTHON_BIN" - "$manifest" <<'PY'
+import json, re, sys
+with open(sys.argv[1], encoding="utf-8-sig") as handle:
+    manifest = json.load(handle)
+def need(name, pattern):
+    value = str(manifest.get(name, ""))
+    if not re.fullmatch(pattern, value):
+        raise SystemExit("update manifest has no valid " + name)
+    return value
+commit = need("commit", r"[0-9a-f]{40}").lower()
+version = need("desktop_pack_version", r"[0-9]+\.[0-9]+\.[0-9]+")
+pack_commit = need("desktop_pack_commit", r"[0-9a-fA-F]{40}").lower()
+digest = need("desktop_pack_sha256", r"[0-9a-fA-F]{64}").lower()
+url = str(manifest.get("desktop_pack_url", ""))
+if re.search(r"[\s'\"\\]", url):
+    raise SystemExit("update manifest pack url is not plain")
+if pack_commit != commit:
+    raise SystemExit("update manifest pack commit differs from its commit")
+print(commit, version, pack_commit, digest, url)
+PY
+}
+
+# A root-owned, commits-only mirror of origin/main. Only ancestry questions are asked of it, and it never executes
+# anything from the repository, so the first run downloads a little history and later runs only the new commits.
+refresh_history() {
+  [[ -d "$HISTORY_DIR/objects" ]] || {
+    rm -rf -- "$HISTORY_DIR"
+    git init --quiet --bare "$HISTORY_DIR"
+    git -C "$HISTORY_DIR" remote add origin "$REPOSITORY_URL"
+    git -C "$HISTORY_DIR" config remote.origin.promisor true
+    git -C "$HISTORY_DIR" config remote.origin.partialclonefilter tree:0
+  }
+  GIT_TERMINAL_PROMPT=0 git -C "$HISTORY_DIR" fetch --quiet --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+}
+
+installed_commit() {
+  local value
+  if [[ -f "$APP_DIR/server.pck" && ! -L "$APP_DIR/server.pck" ]]; then
+    [[ -f "$APP_DIR/commit" && ! -L "$APP_DIR/commit" ]] || fail "installed pack has no commit record"
+    read -r value < "$APP_DIR/commit"
+  else
+    value=$(git -C "$APP_DIR" rev-parse HEAD)
+  fi
+  value=${value,,}
+  valid_commit "$value" || fail "installed application commit is invalid"
+  printf '%s\n' "$value"
+}
+
 check_readiness() {
   local service=$1 port=$2 main_pid sockets socket
   [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )) || fail "server port is invalid"
@@ -107,6 +165,11 @@ case "${1:-}" in
   --validate-update-graph)
     [[ $# -ge 4 && $# -le 5 ]] || fail "usage: --validate-update-graph REPO CURRENT TARGET [TRUSTED]"
     validate_update_graph "$2" "$3" "$4" "${5:-}"
+    exit
+    ;;
+  --read-pack-manifest)
+    [[ $# -eq 2 ]] || fail "usage: --read-pack-manifest MANIFEST"
+    read_pack_manifest "$2"
     exit
     ;;
   --check-readiness)
@@ -162,7 +225,7 @@ cleanup() {
     rollback
   fi
   clear_pending
-  rm -f -- "$manifest_file"
+  rm -f -- "$manifest_file" "$CONTROL_DIR/pack-${target_commit:-none}.pck"
   [[ -z "$staging_dir" ]] || rm -rf -- "$staging_dir"
   [[ -z "$test_dir" ]] || rm -rf -- "$test_dir"
 }
@@ -173,9 +236,7 @@ curl --fail --silent --show-error --location \
   "$MANIFEST_URL" -o "$manifest_file"
 target_commit=$(read_manifest_commit "$manifest_file")
 
-current_commit=$(git -C "$APP_DIR" rev-parse HEAD)
-current_commit=${current_commit,,}
-valid_commit "$current_commit" || fail "installed application commit is invalid"
+current_commit=$(installed_commit)
 trusted_commit=""
 if [[ -e "$trusted_commit_file" ]]; then
   [[ -f "$trusted_commit_file" && ! -L "$trusted_commit_file" ]] || fail "trusted commit state is invalid"
@@ -187,6 +248,49 @@ if [[ "$target_commit" == "$current_commit" ]]; then
   exit 0
 fi
 
+build_pack_staging() {
+  local fields pack_version pack_commit pack_sha pack_url download actual size
+  fields=$(read_pack_manifest "$manifest_file")
+  read -r _ pack_version pack_commit pack_sha pack_url <<<"$fields"
+  [[ "$pack_commit" == "$target_commit" ]] || fail "pack was not built from the manifest commit"
+  [[ "$pack_url" == "$PACK_URL" ]] || fail "pack url is not the official one"
+
+  refresh_history
+  validate_update_graph "$HISTORY_DIR" "$current_commit" "$target_commit" "$trusted_commit"
+
+  test_dir="$RELEASES_DIR/.testing-$target_commit"
+  rm -rf -- "$test_dir"
+  install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 -- "$test_dir"
+  download="$CONTROL_DIR/pack-$target_commit.pck"
+  rm -f -- "$download"
+  curl --fail --silent --show-error --location --proto '=https' --max-redirs 3 \
+    --connect-timeout 10 --max-time 600 --max-filesize "$PACK_MAX_BYTES" \
+    -H 'Cache-Control: no-cache' "$pack_url" -o "$download"
+  [[ -f "$download" && ! -L "$download" ]] || fail "pack download is not a regular file"
+  actual=$(sha256sum -- "$download")
+  actual=${actual%% *}
+  [[ "$actual" == "$pack_sha" ]] || fail "pack SHA-256 does not match the manifest"
+  size=$(stat -c %s -- "$download")
+  (( size > 0 && size <= PACK_MAX_BYTES )) || fail "pack size is out of range"
+
+  # The unprivileged service account opens a private copy: it must start, carry the manifest commit and load the
+  # server code. Nothing it writes is ever promoted.
+  install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0600 -- "$download" "$test_dir/server.pck"
+  run_as_service_user "$GODOT_BIN" --headless --main-pack "$test_dir/server.pck" --script res://tests/pack_selfcheck.gd -- "$target_commit"
+  rm -rf -- "$test_dir"
+  test_dir=""
+
+  staging_dir="$RELEASES_DIR/.staging-$target_commit"
+  rm -rf -- "$staging_dir"
+  install -d -o root -g root -m 0755 -- "$staging_dir"
+  install -o root -g root -m 0644 -- "$download" "$staging_dir/server.pck"
+  printf '%s\n' "$target_commit" > "$staging_dir/commit"
+  chown root:root -- "$staging_dir/commit"
+  chmod 0644 -- "$staging_dir/commit"
+  rm -f -- "$download"
+}
+
+build_git_staging() {
 # Execute all checkout-controlled import and test code only as the service account.
 test_dir="$RELEASES_DIR/.testing-$target_commit"
 rm -rf -- "$test_dir"
@@ -214,6 +318,14 @@ install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 -- "$staging_dir/.godot
 run_as_service_user "$GODOT_BIN" --headless --path "$staging_dir" --import >/dev/null
 chown -hR root:root -- "$staging_dir"
 chmod -R a-w,a+rX -- "$staging_dir"
+
+}
+
+if [[ "$UPDATE_MODE" == pack ]]; then
+  build_pack_staging
+else
+  build_git_staging
+fi
 
 # The writable state directory is never accessed as root: a malicious symlink can
 # at worst exercise the already-unprivileged catwar account.

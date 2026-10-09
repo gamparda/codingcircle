@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import sys
 import subprocess
 import tempfile
 import unittest
@@ -179,6 +180,62 @@ class LinuxUpdaterSecurityTests(unittest.TestCase):
             )
             split_evidence = run(BASH, UPDATER, "--check-readiness", "catwar-server.service", "8123", env=env)
             self.assertNotEqual(split_evidence.returncode, 0)
+
+    def _manifest(self, directory, **overrides):
+        manifest = {
+            "commit": "a" * 40,
+            "desktop_pack_version": "0.16.0",
+            "desktop_pack_commit": "a" * 40,
+            "desktop_pack_sha256": "b" * 64,
+            "desktop_pack_url": "https://gamparda.github.io/codingcircle/CatWarDesktop.pck",
+        }
+        manifest.update(overrides)
+        path = Path(directory) / "manifest.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        return path
+
+    def test_pack_manifest_is_read_only_when_every_field_is_valid(self):
+        env = os.environ.copy()
+        env["CATWAR_PYTHON_BIN"] = sys.executable
+        with tempfile.TemporaryDirectory() as directory:
+            good = run(BASH, UPDATER, "--read-pack-manifest", self._manifest(directory), env=env)
+            self.assertEqual(good.returncode, 0, good.stderr)
+            self.assertEqual(good.stdout.split(), ["a" * 40, "0.16.0", "a" * 40, "b" * 64, "https://gamparda.github.io/codingcircle/CatWarDesktop.pck"])
+            for bad in (
+                {"desktop_pack_commit": "c" * 40},
+                {"desktop_pack_sha256": "xyz"},
+                {"desktop_pack_version": "latest"},
+                {"desktop_pack_url": "https://x/a b.pck"},
+                {"desktop_pack_url": "https://x/a\'b.pck"},
+                {"commit": "short"},
+            ):
+                result = run(BASH, UPDATER, "--read-pack-manifest", self._manifest(directory, **bad), env=env)
+                self.assertNotEqual(result.returncode, 0, bad)
+
+    def test_pack_mode_never_clones_or_imports_and_verifies_before_installing(self):
+        script = UPDATER.read_text(encoding="utf-8")
+        self.assertIn('UPDATE_MODE="${CATWAR_UPDATE_MODE:-git}"', script)
+        body = script.split("build_pack_staging() {", 1)[1].split("\nbuild_git_staging() {", 1)[0]
+        for forbidden in ("git clone", "--import", "run_tests.gd", "checkout"):
+            self.assertNotIn(forbidden, body)
+        order = [
+            "validate_update_graph",
+            "--proto '=https'",
+            "--max-filesize",
+            "sha256sum",
+            "run_as_service_user",
+            "pack_selfcheck.gd",
+            'install -o root -g root -m 0644 -- "$download" "$staging_dir/server.pck"',
+        ]
+        positions = [body.index(item) for item in order]
+        self.assertEqual(positions, sorted(positions), "history check, download, hash, selfcheck, then a root-owned install")
+        self.assertIn('[[ "$pack_url" == "$PACK_URL" ]]', body)
+        self.assertIn("pack was not built from the manifest commit", body)
+
+    def test_service_wrapper_prefers_the_pack_and_falls_back_to_the_checkout(self):
+        wrapper = (REPO / "server" / "linux" / "run-server.sh").read_text(encoding="utf-8")
+        self.assertLess(wrapper.index("--main-pack"), wrapper.index("--path"))
+        self.assertIn("server.pck", wrapper)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ class_name UpdateManager
 extends Node
 
 const Localization = preload("res://scripts/Localization.gd")
+const Bootstrap = preload("res://scripts/Bootstrap.gd")
 
 signal update_started(version: String)
 signal update_status(message: String, progress: float)
@@ -12,9 +13,13 @@ const BUILD_INFO_PATH := "res://build_info.json"
 const DEFAULT_UPDATE_URL := "https://gamparda.github.io/codingcircle/update.json"
 const OFFICIAL_DOWNLOAD_PREFIX := "https://gamparda.github.io/codingcircle/"
 const CHECK_INTERVAL := 60.0
+const RESTART_GUARD_PATH := "user://content/restart_attempt.json"
+const RESTART_GUARD_SECONDS := 600.0 # one restart per published build per ten minutes: a failing download never loops
 
-var current_version := "0.0.0"
+var current_version := "0.0.0" # installer (executable) version
+var current_version_content := "0.0.0" # game data version, may be newer than the installer
 var current_commit := "unknown"
+var content_restart := false # the pending update is a game-data pack: restart and let the launcher swap it
 var update_url := DEFAULT_UPDATE_URL
 var safe_to_update := false
 var enabled := false
@@ -113,16 +118,64 @@ func accept_manifest(body: PackedByteArray) -> bool:
 		return false
 	var candidate: Dictionary = parsed
 	var remote_version: String = candidate.version
+	content_restart = false
 	if not is_newer_version(remote_version, current_version):
-		state = "idle"
-		return true
+		if not content_pack_is_newer(candidate):
+			state = "idle"
+			return true
+		content_restart = true # same installer, newer game data
 	manifest = candidate
 	state = "waiting_safe"
 	if safe_to_update:
 		_begin_download()
 	return true
 
+## The installed game data (the downloaded pack when there is one, otherwise what the executable shipped with)
+## against the published desktop pack. Only where the launcher would actually swap packs.
+func content_pack_is_newer(candidate: Dictionary) -> bool:
+	var args := OS.get_cmdline_user_args()
+	if not Bootstrap.content_updates_wanted(OS.get_name(), OS.has_feature("release"), DisplayServer.get_name() == "headless", args):
+		return false
+	if not Bootstrap.validate_desktop_manifest(candidate):
+		return false
+	return Bootstrap.should_install_content(String(candidate.desktop_pack_version), current_version_content, String(candidate.desktop_pack_commit), current_commit)
+
+func _restart_blocked(commit: String) -> bool:
+	var guard = JSON.parse_string(FileAccess.get_file_as_string(RESTART_GUARD_PATH)) if FileAccess.file_exists(RESTART_GUARD_PATH) else null
+	return guard is Dictionary and String(guard.get("commit", "")) == commit and Time.get_unix_time_from_system() - float(guard.get("at", 0.0)) < RESTART_GUARD_SECONDS
+
+func _restart_for_content() -> void:
+	var commit := String(manifest.get("desktop_pack_commit", ""))
+	if _restart_blocked(commit):
+		state = "idle"
+		return
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://content"))
+	var guard := FileAccess.open(RESTART_GUARD_PATH, FileAccess.WRITE)
+	if guard != null:
+		guard.store_string(JSON.stringify({"commit": commit, "at": Time.get_unix_time_from_system()}))
+		guard.close()
+	state = "installing"
+	update_started.emit(String(manifest.get("desktop_pack_version", "new")))
+	update_status.emit(Localization.text("게임 데이터를 업데이트하기 위해 다시 시작합니다..."), 1.0)
+	var args: Array = []
+	for argument in OS.get_cmdline_args():
+		if argument == "--":
+			break
+		args.append(argument)
+	var user_args := OS.get_cmdline_user_args()
+	if not user_args.is_empty():
+		args.append("--")
+		args.append_array(user_args)
+	if OS.create_process(OS.get_executable_path(), PackedStringArray(args)) <= 0:
+		_fail_update(Localization.text("게임을 다시 시작하지 못했습니다."))
+		return
+	restart_scheduled.emit()
+	get_tree().quit(0)
+
 func _begin_download() -> void:
+	if content_restart:
+		_restart_for_content()
+		return
 	var version := String(manifest.get("version", "new"))
 	update_started.emit(version)
 	update_status.emit(Localization.text("필수 업데이트 준비 중..."), 0.0)
@@ -264,7 +317,9 @@ func _load_build_info() -> void:
 		return
 	var parsed = JSON.parse_string(file.get_as_text())
 	if parsed is Dictionary:
-		current_version = String(parsed.get("version", current_version))
+		current_version_content = String(parsed.get("version", current_version_content))
+		# The installer version is what the executable shipped with (the launcher records it before it swaps game data).
+		current_version = String(Engine.get_meta("bundled_windows_version", parsed.get("windows_version", current_version_content)))
 		current_commit = String(parsed.get("commit", current_commit))
 		update_url = String(parsed.get("update_url", update_url))
 
