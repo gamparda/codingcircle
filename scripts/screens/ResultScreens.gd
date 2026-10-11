@@ -382,8 +382,8 @@ static func _share_result(main, winner: int) -> bool:
 	var result := 0 if winner == side else (2 if winner == 2 else 1)
 	MetaStats.queue_report(main.save_data, main.local_model.unit_decks[side], main.local_model.structure_decks[side], result, mode)
 	if mode == "daily" and result == 0:
-		var entry: Dictionary = main.save_data.get(DailyChallenge.store_name(main.daily_challenge), {}).get(String(main.daily_challenge.key), {})
-		MetaStats.queue_daily(main.save_data, DailyChallenge.board_key(main.daily_challenge), int(entry.get("score", 0)), float(entry.get("seconds", 0.0)))
+		var entry := DailyChallenge.record_for(main.save_data, main.daily_challenge)
+		MetaStats.queue_daily(main.save_data, DailyChallenge.board_key(main.daily_challenge), int(entry.get("score", 0)), float(entry.get("seconds", 0.0)), String(entry.get("ruleset", "0")))
 	return true
 
 static func _judge_achievements(main, winner: int) -> Array:

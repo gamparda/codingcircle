@@ -25,7 +25,7 @@ signal server_ready
 signal meta_stats_received(data: Dictionary)
 signal daily_board_received(data: Dictionary)
 signal result_report_saved(id: String, sequence: int)
-signal daily_score_saved(id: String, date: String, score: int, seconds: float)
+signal daily_score_saved(id: String, date: String, score: int, seconds: float, ruleset: String)
 signal assist_welcomed(ok: bool, message: String)
 signal assist_assigned(job_id: int, chunk_index: int, type: String, params: Dictionary, lease: float)
 signal assist_idle_received
@@ -1226,38 +1226,39 @@ func report_result(units: Array, structures: Array, result: int, mode: String, r
 		report_counts[sender] = int(report_counts.get(sender, 0)) + 1
 		stats.flush()
 
-func send_daily_score(date: String, install_id: String, nickname: String, score: int, seconds: float) -> void:
+func send_daily_score(date: String, install_id: String, nickname: String, score: int, seconds: float, ruleset: String = "") -> void:
 	if client_is_online():
-		submit_daily_score.rpc_id(1, date, install_id, nickname, score, seconds)
+		submit_daily_score.rpc_id(1, date, install_id, nickname, score, seconds, ServerStats.ruleset_id() if ruleset.is_empty() else ruleset)
 
 func send_daily_board_request(date: String, install_id: String) -> void:
 	if client_is_online():
-		request_daily_board.rpc_id(1, date, install_id)
+		request_daily_board.rpc_id(1, date, install_id, ServerStats.ruleset_id())
 
 @rpc("any_peer", "call_remote", "reliable")
-func submit_daily_score(date: String, install_id: String, nickname: String, score: int, seconds: float) -> void:
+func submit_daily_score(date: String, install_id: String, nickname: String, score: int, seconds: float, ruleset: String) -> void:
 	if not server_mode: return
 	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender): return
+	if not can_process_request(sender) or ruleset != daily_board.ruleset: return
 	if daily_board.submit(date, install_id, nickname, score, seconds):
 		receive_daily_board.rpc_id(sender, daily_board.board(date, install_id))
 		if daily_board.path.is_empty() or not daily_board.dirty:
-			receive_daily_score_saved.rpc_id(sender, install_id, date, score, seconds)
+			receive_daily_score_saved.rpc_id(sender, install_id, date, score, seconds, ruleset)
 
 @rpc("authority", "call_remote", "reliable")
-func receive_daily_score_saved(id: String, date: String, score: int, seconds: float) -> void:
-	daily_score_saved.emit(id, date, score, seconds)
+func receive_daily_score_saved(id: String, date: String, score: int, seconds: float, ruleset: String) -> void:
+	if ruleset == ServerStats.ruleset_id():
+		daily_score_saved.emit(id, date, score, seconds, ruleset)
 
 @rpc("any_peer", "call_remote", "reliable")
-func request_daily_board(date: String, install_id: String) -> void:
+func request_daily_board(date: String, install_id: String, ruleset: String) -> void:
 	if not server_mode: return
 	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not ServerDailyBoard.accepts_date(date, DailyChallenge.date_key()): return
+	if not can_process_request(sender) or ruleset != daily_board.ruleset or not ServerDailyBoard.accepts_date(date, DailyChallenge.date_key()): return
 	receive_daily_board.rpc_id(sender, daily_board.board(date, install_id))
 
 @rpc("authority", "call_remote", "reliable")
 func receive_daily_board(data: Dictionary) -> void:
-	if not MetaStats.valid_board(data): return
+	if not MetaStats.valid_board(data) or String(data.ruleset) != ServerStats.ruleset_id(): return
 	MetaStats.boards[String(data.date)] = data
 	daily_board_received.emit(data)
 

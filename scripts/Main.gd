@@ -426,8 +426,8 @@ func _on_result_report_saved(id: String, sequence: int) -> void:
 		_save_profile()
 		result_sharing_elapsed = MetaStats.RETRY_SECONDS - 0.5
 
-func _on_daily_score_saved(id: String, date: String, score: int, seconds: float) -> void:
-	if MetaStats.acknowledge_daily(save_data, id, date, score, seconds):
+func _on_daily_score_saved(id: String, date: String, score: int, seconds: float, ruleset: String) -> void:
+	if MetaStats.acknowledge_daily(save_data, id, date, score, seconds, ruleset):
 		_save_profile()
 
 func _update_server_lifecycle(delta: float) -> void:

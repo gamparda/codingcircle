@@ -40,6 +40,20 @@ retained within the existing 20-result queue. Historical `stats_0.json` files re
 they are not merged into a versioned store because their original rulesets cannot be recovered.
 Challenge score dates and their existing submission policy are unchanged.
 
+Daily and weekly leaderboards also use the active content ruleset and are persisted in
+`daily_board_<ruleset>.json`. Score submissions, board requests, responses and persistence
+receipts carry the version; mismatched versions are rejected. The legacy `daily_board.json`
+is left untouched because its originating rules cannot be inferred. New versions start fresh
+boards, including when a release occurs during the same UTC day or week. Client profiles retain
+previous-version best scores within their existing day/week history limits, while comparing
+only scores from the same version. Lifetime clears and daily streaks survive rules updates.
+Old or unversioned queued scores are not submitted; they expire under the existing date policy
+or are replaced by a new-version score for the same board. A delayed old-version receipt cannot
+clear that replacement. Client and server must be deployed from the same build as usual.
+Restored client queues use the same score/time validation as new submissions; malformed
+or out-of-range queued scores are excluded instead of retrying forever or fabricating a
+zero-second time. Invalid entries do not consume the four-valid-score queue limit.
+
 The server stores shared replay codes, aggregate statistics, and the challenge leaderboard in
 `CATWAR_STATE_DIR`, or `user://server_state` when that environment variable is unset. Finished
 match archives remain in `user://replays`. An upload receives a code only after the shared file

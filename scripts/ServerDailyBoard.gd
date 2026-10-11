@@ -13,12 +13,15 @@ const MAX_SCORE := 3000
 const MAX_SECONDS := 3600.0
 
 var days: Dictionary = {}
+var ruleset := ServerStats.ruleset_id()
 var path := ""
 var dirty := false
 var verifier: Callable = Callable()
 
-func configure(directory: String) -> void:
-	path = "" if directory.is_empty() else directory.path_join("daily_board.json")
+func configure(directory: String, rule: String = "") -> void:
+	ruleset = rule if ServerStats.valid_ruleset(rule) else ServerStats.ruleset_id()
+	# Legacy boards have no reliable originating version; leave them untouched.
+	path = "" if directory.is_empty() else directory.path_join("daily_board_%s.json" % ruleset)
 	days = {}
 	var loaded = ServerStats.read_json(path)
 	if loaded is Dictionary:
@@ -52,10 +55,14 @@ static func valid_date(date: String) -> bool:
 	return day <= month_days[month - 1] and (not date.begins_with("w") or DailyChallenge.week_key(DailyChallenge._to_unix(digits)) == digits)
 
 static func valid_entry(entry: Variant) -> bool:
-	if not entry is Dictionary or not entry.get("nick") is String or not ServerStats.valid_count(entry.get("score")):
+	if not entry is Dictionary or not entry.get("nick") is String:
 		return false
-	var seconds = entry.get("seconds")
-	return preload("res://scripts/RoomSessions.gd").safe_text(entry.nick, 16) and int(entry.score) >= MIN_SCORE and int(entry.score) <= MAX_SCORE and (seconds is int or seconds is float) and is_finite(float(seconds)) and float(seconds) >= 0.0 and float(seconds) <= MAX_SECONDS
+	return preload("res://scripts/RoomSessions.gd").safe_text(entry.nick, 16) and valid_score(entry.get("score"), entry.get("seconds"))
+
+## Queuing, loading and server submission must agree; never turn a malformed
+## completion time into a legitimate zero-second result.
+static func valid_score(points: Variant, seconds: Variant) -> bool:
+	return ServerStats.valid_count(points) and int(points) >= MIN_SCORE and int(points) <= MAX_SCORE and (seconds is int or seconds is float) and is_finite(float(seconds)) and float(seconds) >= 0.0 and float(seconds) <= MAX_SECONDS
 
 static func valid_id(value: String) -> bool:
 	return ServerStats.valid_report_id(value)
@@ -71,9 +78,9 @@ static func accepts_date(date: String, today: String) -> bool:
 
 func submit(date: String, id: String, nickname: String, score: int, seconds: float, today: String = "") -> bool:
 	var now_key := today if not today.is_empty() else DailyChallenge.date_key()
-	if not accepts_date(date, now_key) or not valid_id(id) or score < MIN_SCORE or score > MAX_SCORE:
+	if not accepts_date(date, now_key) or not valid_id(id) or not valid_score(score, seconds):
 		return false
-	if not preload("res://scripts/RoomSessions.gd").safe_text(nickname, 16) or not is_finite(seconds) or seconds < 0.0 or seconds > MAX_SECONDS:
+	if not preload("res://scripts/RoomSessions.gd").safe_text(nickname, 16):
 		return false
 	var entry := {"nick": nickname.strip_edges(), "score": score, "seconds": snappedf(seconds, 0.1)}
 	if verifier.is_valid() and not bool(verifier.call(date, entry)):
@@ -115,7 +122,7 @@ func board(date: String, id: String = "") -> Dictionary:
 			mine = int(ranked[index].score)
 		if index < TOP:
 			entries.append({"nick": ranked[index].nick, "score": ranked[index].score, "seconds": ranked[index].seconds})
-	return {"date": date, "total": ranked.size(), "entries": entries, "rank": rank, "mine": mine}
+	return {"date": date, "ruleset": ruleset, "total": ranked.size(), "entries": entries, "rank": rank, "mine": mine}
 
 func flush() -> void:
 	if path.is_empty() or not dirty:

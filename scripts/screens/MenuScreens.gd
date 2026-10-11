@@ -124,7 +124,7 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	ai_row.add_child(practice_button)
 
 	var today := DailyChallenge.date_key()
-	var done_today: bool = bool(main.save_data.get("daily", {}).get(today, {}).get("won", false))
+	var done_today: bool = bool(DailyChallenge.record_for(main.save_data, {"key": today}).get("won", false))
 	var daily_button = main._styled_button(Localization.text("일일 도전") + ("  ✓" if done_today else ""), UIKit.GOLD_DEEP, false)
 	daily_button.name = "DailyButton"
 	daily_button.custom_minimum_size.y = 56
@@ -132,7 +132,7 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	daily_button.pressed.connect(main._show_daily_brief)
 	ai_row.add_child(daily_button)
 	var week := DailyChallenge.week_key()
-	var done_week: bool = bool(main.save_data.get("weekly", {}).get(week, {}).get("won", false))
+	var done_week: bool = bool(DailyChallenge.record_for(main.save_data, {"key": week, "period": "weekly"}).get("won", false))
 	var weekly_button = main._styled_button(Localization.text("주간 도전") + ("  ✓" if done_week else ""), UIKit.GOLD_DEEP, false)
 	weekly_button.name = "WeeklyButton"
 	weekly_button.custom_minimum_size.y = 56

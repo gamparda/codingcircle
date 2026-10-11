@@ -141,14 +141,18 @@ static func queue_report(save: Dictionary, units: Array, structures: Array, resu
 	return true
 
 ## Keeps the best unsent score for each board (a few at most: today, this week).
-static func queue_daily(save: Dictionary, date: String, score: int, seconds: float) -> bool:
-	if not sharing(save) or not ServerDailyBoard.valid_date(date) or score < ServerDailyBoard.MIN_SCORE or score > ServerDailyBoard.MAX_SCORE or not is_finite(seconds) or seconds < 0.0 or seconds > ServerDailyBoard.MAX_SECONDS:
+static func queue_daily(save: Dictionary, date: String, score: int, seconds: float, ruleset: String = "") -> bool:
+	if not sharing(save) or not ServerDailyBoard.valid_date(date) or not ServerDailyBoard.valid_score(score, seconds):
+		return false
+	ruleset = ServerStats.ruleset_id() if ruleset.is_empty() else ruleset
+	if ruleset != ServerStats.ruleset_id():
 		return false
 	install_id(save)
 	var pending: Dictionary = save.get("pending_daily", {})
-	if not DailyChallenge.better_result(score, seconds, pending.get(date, {})):
+	var previous: Dictionary = pending.get(date, {})
+	if String(previous.get("ruleset", "0")) == ruleset and not DailyChallenge.better_result(score, seconds, previous):
 		return false
-	pending[date] = {"score": score, "seconds": seconds}
+	pending[date] = {"score": score, "seconds": seconds, "ruleset": ruleset}
 	while pending.size() > 4:
 		pending.erase(pending.keys()[0])
 	save["pending_daily"] = pending
@@ -176,8 +180,8 @@ static func flush(save: Dictionary, network) -> void:
 		network.send_confirmed_report(install_id(save), int(report.sequence), report.units, report.structures, int(report.result), String(report.mode), String(report.ruleset))
 	var pending: Dictionary = save.get("pending_daily", {})
 	for date in pending:
-		if ServerDailyBoard.accepts_date(String(date), DailyChallenge.date_key()):
-			network.send_daily_score(String(date), install_id(save), String(save.get("nickname", "")), int(pending[date].score), float(pending[date].seconds))
+		if String(pending[date].get("ruleset", "0")) == ServerStats.ruleset_id() and ServerDailyBoard.accepts_date(String(date), DailyChallenge.date_key()):
+			network.send_daily_score(String(date), install_id(save), String(save.get("nickname", "")), int(pending[date].score), float(pending[date].seconds), String(pending[date].ruleset))
 
 ## Retain older/unknown results in the bounded queue, but never mix them into current statistics.
 static func first_current_report(save: Dictionary) -> Dictionary:
@@ -206,26 +210,34 @@ static func sharing_status(save: Dictionary, online: bool, save_pending: bool) -
 	for report in save.get("pending_reports", []):
 		if String(report.get("ruleset", "0")) == ruleset: current += 1
 		else: older += 1
-	var count: int = current + save.get("pending_daily", {}).size()
+	for score in save.get("pending_daily", {}).values():
+		if String(score.get("ruleset", "0")) == ruleset: current += 1
+		else: older += 1
+	var count: int = current
 	var text := "전송 대기 없음"
 	if count > 0:
 		if save_pending: text = "전송 대기 %d개 · 기기 저장을 완료한 뒤 전송합니다." % count
 		elif not online: text = "전송 대기 %d개 · 서버 연결 후 자동으로 보냅니다." % count
 		else: text = "서버 저장 확인 대기 %d개 · 자동으로 재시도합니다." % count
 	if older > 0:
-		text += "\n이전 버전·버전 미상 결과 %d개는 현재 통계 전송에서 제외됩니다." % older
+		text += "\n이전 버전·버전 미상 결과·점수 %d개는 현재 전송에서 제외됩니다." % older
 	return text
 
-static func acknowledge_daily(save: Dictionary, id: String, date: String, score: int, seconds: float) -> bool:
+static func acknowledge_daily(save: Dictionary, id: String, date: String, score: int, seconds: float, ruleset: String = "") -> bool:
 	if id != String(save.get("install_id", "")):
 		return false
 	var pending: Dictionary = save.get("pending_daily", {})
+	ruleset = ServerStats.ruleset_id() if ruleset.is_empty() else ruleset
+	if ruleset != ServerStats.ruleset_id() or String(pending.get(date, {}).get("ruleset", "0")) != ruleset:
+		return false
 	if not pending.has(date) or int(pending[date].score) != score or float(pending[date].seconds) != seconds:
 		return false # A faster or higher score may have been queued while this was in flight.
 	pending.erase(date)
 	return true
 
 static func valid_board(data: Variant) -> bool:
+	if not data is Dictionary or not ServerStats.valid_ruleset(data.get("ruleset")):
+		return false
 	if not data is Dictionary or not data.get("date") is String or not ServerDailyBoard.valid_date(data.date) or not data.get("entries") is Array or data.entries.size() > ServerDailyBoard.TOP:
 		return false
 	for key in ["total", "rank", "mine"]:

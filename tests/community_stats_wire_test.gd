@@ -166,9 +166,9 @@ func run() -> void:
 	client.send_daily_board_request(today, id)
 	check(await wait_until(func(): return boards.size() >= 3), "the board can be requested")
 	var score_acks := []
-	client.daily_score_saved.connect(func(install, date, score, seconds):
+	client.daily_score_saved.connect(func(install, date, score, seconds, ruleset):
 		score_acks.append(score)
-		MetaStats.acknowledge_daily(queued, install, date, score, seconds))
+		MetaStats.acknowledge_daily(queued, install, date, score, seconds, ruleset))
 	MetaStats.queue_daily(queued, today, 1400, 60.0)
 	DirAccess.make_dir_absolute(server.daily_board.path + ".tmp")
 	MetaStats.flush(queued, client)
@@ -176,6 +176,17 @@ func run() -> void:
 	DirAccess.remove_absolute(server.daily_board.path + ".tmp")
 	MetaStats.flush(queued, client)
 	check(await wait_until(func(): return not queued.pending_daily.has(today)) and score_acks == [1400], "a persisted challenge score acknowledges and clears its queue")
+	var boards_before := boards.size()
+	var receipts_before := score_acks.size()
+	client.send_daily_score(today, id, "다른 버전", 2900, 20.0, "older")
+	client.rpc_id(1, "request_daily_board", today, id, "older")
+	await create_timer(0.25).timeout
+	check(server.daily_board.board(today, id).mine == 1100 and boards.size() == boards_before and score_acks.size() == receipts_before, "foreign-version submissions and requests neither change the board nor receive confirmation")
+	var foreign_board: Dictionary = server.daily_board.board(today, id)
+	foreign_board.ruleset = "older"
+	client.receive_daily_board(foreign_board)
+	client.receive_daily_score_saved(queued.install_id, today, 1400, 60.0, "older")
+	check(boards.size() == boards_before and score_acks.size() == receipts_before and MetaStats.boards[today].ruleset == ServerStats.ruleset_id(), "foreign-version boards and receipts cannot replace current client state")
 	# Replay codes and recent online battles.
 	var BattleReplay = load("res://scripts/BattleReplay.gd")
 	var model := BattleModel.new()

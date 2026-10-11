@@ -14,8 +14,8 @@ class ReportConnection:
 	func client_is_online() -> bool: return online
 	func send_confirmed_report(id, sequence, units, structures, result, mode, ruleset) -> void:
 		sent.append([id, sequence, units, structures, result, mode, ruleset])
-	func send_daily_score(date, id, nickname, score, seconds) -> void:
-		sent.append([date, id, nickname, score, seconds])
+	func send_daily_score(date, id, nickname, score, seconds, ruleset) -> void:
+		sent.append([date, id, nickname, score, seconds, ruleset])
 
 func check(condition: bool, message: String) -> void:
 	if not condition:
@@ -120,12 +120,24 @@ func run() -> void:
 	var reloaded_board := ServerDailyBoard.new()
 	reloaded_board.configure(dir)
 	check(reloaded_board.days.has("20261030"), "the board survives a restart")
+	var legacy_path := dir.path_join("daily_board.json")
+	check(ServerStats.write_json(legacy_path, board.days), "legacy board fixture is written")
+	var legacy_bytes := FileAccess.get_file_as_bytes(legacy_path)
+	var previous_board_bytes := FileAccess.get_file_as_bytes(board.path)
+	var new_board := ServerDailyBoard.new()
+	new_board.configure(dir, "new-board-rules")
+	check(new_board.days.is_empty() and new_board.path != board.path, "new rules start an independent daily and weekly leaderboard")
+	new_board.submit(today, me, "새 규칙", 200, 100.0, today)
+	check(FileAccess.get_file_as_bytes(legacy_path) == legacy_bytes and FileAccess.get_file_as_bytes(board.path) == previous_board_bytes and board.board("20261030", me).mine == 900, "new-version writes preserve legacy and previous-version leaderboard data")
+	var reopened_new := ServerDailyBoard.new()
+	reopened_new.configure(dir, "new-board-rules")
+	check(reopened_new.board(today, me).mine == 200 and reopened_new.board(today).ruleset == "new-board-rules", "new-version scores and board identity persist independently")
 	var damaged_days := {today: {me: {"nick": " 나 ", "score": 900, "seconds": 80.0}, rival: 7,
 		"c".repeat(32): {"nick": "상대", "score": 1000.5, "seconds": 60},
 		"d".repeat(32): {"nick": "상대", "score": 1000, "seconds": []},
 		"f".repeat(32): {"nick": "상대\n", "score": 1000, "seconds": 60},
 		"bad-id": {"nick": "상대", "score": 1000, "seconds": 60}}, "20260230": {}, "w20261006": {}, "20261007": []}
-	check(ServerStats.write_json(dir.path_join("daily_board.json"), damaged_days), "damaged board fixture is written")
+	check(ServerStats.write_json(board.path, damaged_days), "damaged board fixture is written")
 	var repaired_board := ServerDailyBoard.new()
 	repaired_board.configure(dir)
 	check(repaired_board.days.size() == 1 and repaired_board.board(today, me).total == 1 and repaired_board.board(today, me).mine == 900 and repaired_board.board(today).entries[0].nick == "나", "board loading preserves valid entries and excludes malformed ids, dates and scores")
@@ -161,7 +173,7 @@ func run() -> void:
 	check(legacy.pending_reports[0].sequence == 1 and legacy.pending_reports[-1].sequence == MetaStats.MAX_PENDING and legacy.next_report_sequence == MetaStats.MAX_PENDING + 1, "older queues receive ordered sequences and retain every valid result")
 	var unknown_connection := ReportConnection.new()
 	MetaStats.flush(legacy, unknown_connection)
-	check(legacy.pending_reports[0].ruleset == "0" and unknown_connection.sent.all(func(payload): return payload.size() == 5), "a legacy result without a recorded version is never relabelled and sent as current")
+	check(legacy.pending_reports[0].ruleset == "0" and unknown_connection.sent.all(func(payload): return payload.size() == 6), "a legacy result without a recorded version is never relabelled and sent as current")
 	var versioned := save.duplicate(true)
 	versioned.pending_daily = {}
 	versioned.pending_reports[0].ruleset = "older"
@@ -175,7 +187,7 @@ func run() -> void:
 	check(version_connection.sent.size() == 1 and version_connection.sent[0][1] == current_sequence and version_connection.sent[0][6] == build.version, "older results do not mix into current statistics or block the first current result")
 	check(not MetaStats.acknowledge_report(versioned, id, int(versioned.pending_reports[0].sequence)) and not MetaStats.acknowledge_report(versioned, id, int(versioned.pending_reports[4].sequence)), "old and out-of-order confirmations cannot remove retained reports")
 	check(MetaStats.acknowledge_report(versioned, id, current_sequence) and versioned.pending_reports[0].ruleset == "older" and versioned.pending_reports[3].sequence == current_sequence + 1, "current confirmation removes its report while preserving older reports")
-	check(MetaStats.sharing_status(versioned, false, false).contains("서버 연결 후") and MetaStats.sharing_status(versioned, true, true).contains("기기 저장") and MetaStats.sharing_status(versioned, true, false).contains("버전 미상 결과 3개"), "sharing status distinguishes connection, profile writes and excluded versions")
+	check(MetaStats.sharing_status(versioned, false, false).contains("서버 연결 후") and MetaStats.sharing_status(versioned, true, true).contains("기기 저장") and MetaStats.sharing_status(versioned, true, false).contains("버전 미상 결과·점수 3개"), "sharing status distinguishes connection, profile writes and excluded versions")
 	var connection := ReportConnection.new()
 	var before_send := save.duplicate(true)
 	MetaStats.flush(save, connection)
@@ -190,6 +202,20 @@ func run() -> void:
 	check(not MetaStats.acknowledge_daily(save, id, today, 1000, 90.0) and save.pending_daily[today].seconds == 70.0, "a delayed score acknowledgement preserves the faster queued result")
 	check(MetaStats.acknowledge_daily(save, id, today, 1000, 70.0) and save.pending_daily.is_empty(), "a matching score acknowledgement clears its queue")
 	check(not MetaStats.queue_daily(save, today, 0, 70.0) and not MetaStats.queue_daily(save, today, 1000, NAN), "invalid challenge scores cannot block the retry queue")
+	var challenge_queue := SaveData.default_data()
+	challenge_queue.settings.share_results = true
+	var current_date := DailyChallenge.date_key()
+	challenge_queue.pending_daily[current_date] = {"score": 2500, "seconds": 50.0, "ruleset": "older"}
+	var old_queue_connection := ReportConnection.new()
+	MetaStats.flush(challenge_queue, old_queue_connection)
+	check(old_queue_connection.sent.is_empty() and MetaStats.sharing_status(challenge_queue, true, false).contains("결과·점수 1개"), "old challenge scores are retained and visibly excluded from transmission")
+	check(MetaStats.queue_daily(challenge_queue, current_date, 200, 100.0) and challenge_queue.pending_daily[current_date].score == 200, "an older high score cannot block a lower current-version submission")
+	check(not MetaStats.acknowledge_daily(challenge_queue, challenge_queue.install_id, current_date, 200, 100.0, "older") and challenge_queue.pending_daily.has(current_date), "a foreign-version receipt cannot clear the current challenge score")
+	var loaded_queue := SaveData.sanitize(JSON.parse_string(JSON.stringify(challenge_queue)))
+	check(loaded_queue.pending_daily[current_date].ruleset == build.version, "challenge queue versions survive saving")
+	challenge_queue.pending_daily[current_date].erase("ruleset")
+	loaded_queue = SaveData.sanitize(challenge_queue)
+	check(loaded_queue.pending_daily[current_date].ruleset == "0", "legacy challenge queues remain version unknown")
 	MetaStats.queue_daily(save, "20000101", 1000, 70.0)
 	check(MetaStats.prune_daily(save) and save.pending_daily.is_empty(), "expired boards leave the retry queue")
 	var tomorrow := DailyChallenge.date_key(DailyChallenge._to_unix(DailyChallenge.date_key()) + 86400)
@@ -350,7 +376,7 @@ func run() -> void:
 	var profile_id := String(main.save_data.install_id)
 	var profile_sequence := int(main.save_data.pending_reports[0].sequence)
 	main.network.result_report_saved.emit(profile_id, profile_sequence)
-	main.network.daily_score_saved.emit(profile_id, DailyChallenge.date_key(), 1000, 80.0)
+	main.network.daily_score_saved.emit(profile_id, DailyChallenge.date_key(), 1000, 80.0, ServerStats.ruleset_id())
 	var confirmed_profile := SaveData.load_data()
 	check(main.save_data.pending_reports.is_empty() and main.save_data.pending_daily.is_empty() and confirmed_profile.pending_reports.is_empty() and confirmed_profile.pending_daily.is_empty(), "Main persists both acknowledgements so restart does not resend confirmed results")
 	check(main.result_sharing_elapsed == MetaStats.RETRY_SECONDS - 0.5, "a confirmed result schedules the next queued report without waiting a full retry period")

@@ -33,7 +33,7 @@ static func for_date(key: String) -> Dictionary:
 	var decks := _random_decks(rng)
 	var modifier: Dictionary = MODIFIERS[rng.randi_range(0, MODIFIERS.size() - 1)]
 	var stage := rng.randi_range(MIN_STAGE, MAX_BASE_STAGE)
-	return {"key": key, "stage": stage, "units": decks.units, "structures": decks.structures, "modifier": String(modifier.id)}
+	return {"key": key, "ruleset": preload("res://scripts/ServerStats.gd").ruleset_id(), "stage": stage, "units": decks.units, "structures": decks.structures, "modifier": String(modifier.id)}
 
 ## Weekly challenge: a tougher stage with two twists at once.
 static func for_week(monday_key: String) -> Dictionary:
@@ -43,7 +43,7 @@ static func for_week(monday_key: String) -> Dictionary:
 	var first := rng.randi_range(0, MODIFIERS.size() - 1)
 	var second := (first + rng.randi_range(1, MODIFIERS.size() - 1)) % MODIFIERS.size()
 	var stage := rng.randi_range(WEEKLY_MIN_STAGE, WEEKLY_MAX_STAGE)
-	return {"key": monday_key, "period": "weekly", "stage": stage, "units": decks.units, "structures": decks.structures,
+	return {"key": monday_key, "ruleset": preload("res://scripts/ServerStats.gd").ruleset_id(), "period": "weekly", "stage": stage, "units": decks.units, "structures": decks.structures,
 		"modifier": String(MODIFIERS[first].id), "modifiers": [String(MODIFIERS[first].id), String(MODIFIERS[second].id)]}
 
 static func _random_decks(rng: RandomNumberGenerator) -> Dictionary:
@@ -115,6 +115,21 @@ static func score(won: bool, own_base: float, seconds: float) -> int:
 static func better_result(points: int, seconds: float, previous: Dictionary) -> bool:
 	return previous.is_empty() or points > int(previous.score) or (points == int(previous.score) and seconds < float(previous.seconds))
 
+## Compare scores only within the rules that produced them. Legacy scores remain
+## available as version "0", and still count toward lifetime clears and streaks.
+static func record_for(save: Dictionary, challenge: Dictionary) -> Dictionary:
+	var entry: Dictionary = save.get(store_name(challenge), {}).get(String(challenge.key), {})
+	var ruleset: String = String(challenge.get("ruleset", preload("res://scripts/ServerStats.gd").ruleset_id()))
+	return entry if String(entry.get("ruleset", "0")) == ruleset else entry.get("previous", {}).get(ruleset, {})
+
+static func has_clear(entry: Dictionary) -> bool:
+	if bool(entry.get("won", false)):
+		return true
+	for previous in entry.get("previous", {}).values():
+		if bool(previous.get("won", false)):
+			return true
+	return false
+
 ## Stores the result (best score per day or week). Returns {"score", "best", "new_best"}.
 static func record(save: Dictionary, challenge: Dictionary, won: bool, own_base: float, seconds: float) -> Dictionary:
 	var store := store_name(challenge)
@@ -122,14 +137,22 @@ static func record(save: Dictionary, challenge: Dictionary, won: bool, own_base:
 		save[store] = {}
 	var key := String(challenge.key)
 	var points := score(won, own_base, seconds)
-	var previous: Dictionary = save[store].get(key, {})
+	var existing: Dictionary = save[store].get(key, {})
+	var previous := record_for(save, challenge)
+	var ruleset: String = String(challenge.get("ruleset", preload("res://scripts/ServerStats.gd").ruleset_id()))
 	var best := int(previous.get("score", 0))
 	var new_best := won and better_result(points, seconds, previous)
-	if won and not bool(previous.get("won", false)):
+	if won and not has_clear(existing):
 		var counter := "weekly_completed" if is_weekly(challenge) else "daily_completed"
 		save.stats[counter] = int(save.stats.get(counter, 0)) + 1
 	if new_best or previous.is_empty():
-		save[store][key] = {"won": won or bool(previous.get("won", false)), "score": maxi(points, best), "seconds": seconds if new_best or previous.is_empty() else float(previous.get("seconds", seconds))}
+		var history: Dictionary = existing.get("previous", {}).duplicate(true)
+		if not existing.is_empty() and String(existing.get("ruleset", "0")) != ruleset:
+			var old := existing.duplicate(true)
+			old.erase("previous")
+			history[String(existing.get("ruleset", "0"))] = old
+		history.erase(ruleset)
+		save[store][key] = {"won": won or bool(previous.get("won", false)), "score": maxi(points, best), "seconds": seconds if new_best or previous.is_empty() else float(previous.get("seconds", seconds)), "ruleset": ruleset, "previous": history}
 	return {"score": points, "best": maxi(points, best), "new_best": new_best and won}
 
 ## Consecutive days (ending today or yesterday) with a win.
@@ -144,13 +167,13 @@ static func streak(save: Dictionary, today: String) -> int:
 	return days
 
 static func _won_on(save: Dictionary, unix: int) -> bool:
-	return bool(save.get("daily", {}).get(date_key(unix), {}).get("won", false))
+	return has_clear(save.get("daily", {}).get(date_key(unix), {}))
 
 static func _to_unix(key: String) -> int:
 	return int(Time.get_unix_time_from_datetime_dict({"year": int(key.substr(0, 4)), "month": int(key.substr(4, 2)), "day": int(key.substr(6, 2)), "hour": 12, "minute": 0, "second": 0}))
 
 static func result_note(challenge: Dictionary, save: Dictionary, won: bool) -> String:
-	var entry: Dictionary = save.get(store_name(challenge), {}).get(String(challenge.key), {})
+	var entry := record_for(save, challenge)
 	var weekly := is_weekly(challenge)
 	if not won:
 		return "%s 도전에 실패했습니다. %s 안에 다시 도전할 수 있습니다." % ["주간" if weekly else "일일", "이번 주" if weekly else "오늘"]

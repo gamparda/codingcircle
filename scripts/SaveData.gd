@@ -88,6 +88,11 @@ static func _is_integer(value: Variant) -> bool:
 static func _is_number(value: Variant) -> bool:
 	return (value is int or value is float) and is_finite(float(value))
 
+static func _challenge_record(entry: Dictionary) -> Dictionary:
+	return {"won": entry.get("won") is bool and entry.won, "score": clampi(int(entry.score), 0, 100000),
+		"seconds": clampf(float(entry.seconds), 0.0, 100000.0) if _is_number(entry.get("seconds")) else 0.0,
+		"ruleset": String(entry.ruleset) if preload("res://scripts/ServerStats.gd").valid_ruleset(entry.get("ruleset")) else "0"}
+
 static func _string_array(values: Array) -> bool:
 	for value in values:
 		if not value is String:
@@ -184,8 +189,15 @@ static func sanitize(raw: Variant) -> Dictionary:
 			for key in days.slice(maxi(0, days.size() - int(store[1]))):
 				var entry = raw[store[0]][key]
 				if key is String and key.length() == 8 and key.is_valid_int() and entry is Dictionary and _is_integer(entry.get("score")):
-					clean[store[0]][key] = {"won": entry.get("won") is bool and entry.won, "score": clampi(int(entry.score), 0, 100000),
-						"seconds": clampf(float(entry.seconds), 0.0, 100000.0) if _is_number(entry.get("seconds")) else 0.0}
+					var record := _challenge_record(entry)
+					record.previous = {}
+					if entry.get("previous") is Dictionary:
+						for rule in entry.previous:
+							var old = entry.previous[rule]
+							if preload("res://scripts/ServerStats.gd").valid_ruleset(rule) and rule != record.ruleset and old is Dictionary and _is_integer(old.get("score")):
+								record.previous[rule] = _challenge_record(old)
+								record.previous[rule].ruleset = rule
+					clean[store[0]][key] = record
 	if raw.get("goals") is Dictionary:
 		for id in preload("res://scripts/Goals.gd").ids():
 			if raw.goals.get(id) is bool and raw.goals[id]:
@@ -215,10 +227,13 @@ static func sanitize(raw: Variant) -> Dictionary:
 		preload("res://scripts/MetaStats.gd").install_id(clean)
 	var pending = raw.get("pending_daily")
 	if pending is Dictionary:
-		for date in pending.keys().slice(0, 4):
+		for date in pending:
+			if clean.pending_daily.size() >= 4:
+				break
 			var queued = pending[date]
-			if date is String and preload("res://scripts/ServerDailyBoard.gd").valid_date(date) and queued is Dictionary and _is_integer(queued.get("score")):
-				clean.pending_daily[date] = {"score": clampi(int(queued.score), 0, 100000), "seconds": clampf(float(queued.seconds), 0.0, 100000.0) if _is_number(queued.get("seconds")) else 0.0}
+			if date is String and preload("res://scripts/ServerDailyBoard.gd").valid_date(date) and queued is Dictionary and preload("res://scripts/ServerDailyBoard.gd").valid_score(queued.get("score"), queued.get("seconds")):
+				clean.pending_daily[date] = {"score": int(queued.score), "seconds": float(queued.seconds),
+					"ruleset": String(queued.ruleset) if preload("res://scripts/ServerStats.gd").valid_ruleset(queued.get("ruleset")) else "0"}
 	clean.stats.highest_campaign = mini(8, int(clean.stats.highest_campaign))
 	clean.stats.total_stars = 0
 	for record in clean.campaign_records:

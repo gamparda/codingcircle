@@ -58,12 +58,16 @@ static func _show_daily_brief(main, period: String = "daily") -> void:
 	for kind in challenge.structures:
 		structure_names.append({"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}.get(kind, kind))
 	column.add_child(MultiplayerUI.label(Localization.text("구조물: %s") % " · ".join(structure_names), 14, MultiplayerUI.MUTED))
-	var entry: Dictionary = main.save_data.get(DailyChallenge.store_name(challenge), {}).get(key, {})
+	var entry := DailyChallenge.record_for(main.save_data, challenge)
 	var mark := " ✓" if bool(entry.get("won", false)) else ""
 	var best_text := Localization.text("이번 주 최고 점수 %d점%s") % [int(entry.get("score", 0)), mark] if weekly else Localization.text("오늘의 최고 점수 %d점%s  ·  연속 %d일") % [int(entry.get("score", 0)), mark, DailyChallenge.streak(main.save_data, key)]
 	var best := MultiplayerUI.label(best_text, 15, MultiplayerUI.GOLD)
 	best.name = "DailyBest"
 	column.add_child(best)
+	var version_note := MultiplayerUI.label("현재 버전의 최고 점수와 순위입니다. 이전 버전 기록은 보관하며, 연속 성공 일수는 유지합니다.", 12, MultiplayerUI.MUTED)
+	version_note.name = "ChallengeVersionNote"
+	version_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(version_note)
 	column.add_child(MultiplayerUI.label("승리하면 점수를 받습니다. 남은 기지 체력이 많고 빠를수록 높습니다. 전투는 리플레이로 저장되어 공유할 수 있습니다.", 12, MultiplayerUI.MUTED))
 	var board_box := VBoxContainer.new()
 	board_box.name = "DailyBoardRows"

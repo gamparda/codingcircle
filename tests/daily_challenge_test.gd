@@ -73,6 +73,22 @@ func run() -> void:
 	streak_save.daily["20261008"] = {"won": true, "score": 900, "seconds": 70.0}
 	check(DailyChallenge.streak(streak_save, "20261008") == 4, "today extends it")
 	check(SaveData.sanitize(JSON.parse_string(JSON.stringify(streak_save))).daily.size() == 4, "history round-trips through the save file")
+	# A rules update on the same day must not compare incompatible scores or erase a clear.
+	var old_challenge := base.duplicate(true)
+	old_challenge.ruleset = "old-rules"
+	var changed_save := SaveData.default_data()
+	var old_result := DailyChallenge.record(changed_save, old_challenge, true, 500.0, 20.0)
+	check(DailyChallenge.record_for(changed_save, base).is_empty(), "old rules have no current best score")
+	DailyChallenge.record(changed_save, base, false, 0.0, 60.0)
+	check(DailyChallenge.streak(changed_save, "20261008") == 1 and changed_save.stats.daily_completed == 1, "a failed new-version attempt keeps the previous clear and streak")
+	var new_result := DailyChallenge.record(changed_save, base, true, 200.0, 100.0)
+	check(new_result.new_best and new_result.best < old_result.best and changed_save.stats.daily_completed == 1, "a lower score under new rules is a new best without a duplicate daily clear")
+	changed_save = SaveData.sanitize(JSON.parse_string(JSON.stringify(changed_save)))
+	check(DailyChallenge.record_for(changed_save, old_challenge).score == old_result.score and DailyChallenge.record_for(changed_save, base).score == new_result.score, "both version records survive JSON save and load")
+	check(not DailyChallenge.record(changed_save, old_challenge, true, 100.0, 200.0).new_best and DailyChallenge.record_for(changed_save, base).score == new_result.score, "returning to older rules restores its best without overwriting the newer score")
+	var legacy_challenge := base.duplicate(true)
+	legacy_challenge.ruleset = "0"
+	check(DailyChallenge.record_for(streak_save, base).is_empty() and DailyChallenge.record_for(streak_save, legacy_challenge).score == 900, "unversioned scores remain unknown rather than being inferred as current")
 
 	# Full UI flow.
 	BattleReplay.save_dir = "user://daily_challenge_test"

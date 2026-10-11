@@ -50,6 +50,11 @@ func run() -> void:
 	check(DailyChallenge.result_note(base, save, true).begins_with("주간 도전 성공") and DailyChallenge.result_note(base, save, false).contains("이번 주"), "result notes name the week")
 	var stored := SaveData.sanitize(JSON.parse_string(JSON.stringify(save)))
 	check(stored.weekly.has("20261005") and stored.stats.weekly_completed == 1, "weekly history survives saving")
+	var updated := base.duplicate(true)
+	updated.ruleset = "updated-weekly"
+	var updated_result := DailyChallenge.record(save, updated, true, 100.0, 200.0)
+	stored = SaveData.sanitize(JSON.parse_string(JSON.stringify(save)))
+	check(updated_result.new_best and updated_result.best < result.best and stored.stats.weekly_completed == 1 and DailyChallenge.record_for(stored, base).seconds == 80.0, "a weekly rules update separates scores and preserves the previous best without another clear")
 
 	# Leaderboard keys.
 	var board := ServerDailyBoard.new()

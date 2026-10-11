@@ -72,7 +72,7 @@ static func fill_board(box: VBoxContainer, date: String) -> void:
 	for child in box.get_children():
 		child.queue_free()
 	var board: Dictionary = MetaStats.boards.get(date, {})
-	if board.is_empty():
+	if board.is_empty() or String(board.get("ruleset", "0")) != preload("res://scripts/ServerStats.gd").ruleset_id():
 		box.add_child(_label(Localization.text("서버에 연결하면 오늘의 순위표를 볼 수 있습니다."), 13, UIKit.TEXT_MUTED))
 		return
 	box.add_child(_label(Localization.text("이번 주 순위표  ·  참가 %d명" if date.begins_with("w") else "오늘의 순위표  ·  참가 %d명") % int(board.total), 13, UIKit.GOLD))
