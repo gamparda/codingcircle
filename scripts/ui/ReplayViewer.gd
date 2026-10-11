@@ -5,6 +5,7 @@ extends Control
 signal closed
 signal branch_requested(tick: int)
 signal notes_changed(replay: Dictionary)
+signal storage_requested
 
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
@@ -42,6 +43,11 @@ var moment_toast: ToastLabel
 var last_announced_tick := 0
 var clip_finished := false
 var note_input: LineEdit
+var storage_path := ""
+var notes_dirty := false
+var storage_label: Label
+var storage_button: Button
+var discard_dialog: ConfirmationDialog
 var loop_start := -1
 var loop_end := -1
 var loop_enabled := false
@@ -99,12 +105,57 @@ func _build() -> void:
 	moment_toast.tone = UIKit.GOLD
 	add_child(moment_toast)
 	moment_toast.place_center(640.0, 100.0)
+	_build_storage_controls()
 	for i in 4:
 		var voice := AudioStreamPlayer.new()
 		voice.bus = "SFX" if AudioServer.get_bus_index("SFX") >= 0 else "Master"
 		voice.volume_db = -8.0
 		add_child(voice)
 		sound_players.append(voice)
+
+func _build_storage_controls() -> void:
+	var panel := PanelContainer.new()
+	panel.name = "ReplayStoragePanel"
+	panel.position = Vector2(18, 96)
+	panel.size = Vector2(510, 58)
+	panel.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE, UIKit.SURFACE, UIKit.TEAL, 10), 10, 0))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	storage_label = Label.new()
+	storage_label.name = "ReplayStorageStatus"
+	storage_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	storage_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	storage_label.add_theme_font_size_override("font_size", 13)
+	row.add_child(storage_label)
+	storage_button = _control_button(row, "ReplaySaveLocal", "로컬 보관", UIKit.TEAL, false)
+	storage_button.custom_minimum_size = Vector2(140, 58)
+	storage_button.pressed.connect(func(): storage_requested.emit())
+	panel.add_child(row)
+	add_child(panel)
+	set_storage_state("", false)
+
+func set_storage_state(path: String, dirty: bool) -> void:
+	storage_path = path
+	notes_dirty = dirty
+	storage_button.visible = path.is_empty() or dirty
+	storage_button.text = "메모 저장 재시도" if dirty else "로컬 보관"
+	storage_label.text = "메모를 저장하지 못했습니다. 나가기 전에 재시도하세요." if dirty else ("공유 리플레이 · 메모를 남기면 이 기기에 보관됩니다." if path.is_empty() else "이 기기에 보관됨 · 메모 자동 저장")
+	storage_label.add_theme_color_override("font_color", UIKit.GOLD if dirty else UIKit.TEXT_MUTED)
+
+func _request_close() -> void:
+	if not notes_dirty:
+		closed.emit()
+		return
+	if not is_instance_valid(discard_dialog):
+		discard_dialog = ConfirmationDialog.new()
+		discard_dialog.name = "DiscardReplayNotes"
+		discard_dialog.title = "저장하지 않은 메모"
+		discard_dialog.dialog_text = "메모가 아직 저장되지 않았습니다.\n돌아가서 저장을 재시도하거나, 변경 내용을 버리고 나갈 수 있습니다."
+		discard_dialog.ok_button_text = "저장하지 않고 나가기"
+		discard_dialog.cancel_button_text = "돌아가기"
+		discard_dialog.confirmed.connect(func(): closed.emit())
+		add_child(discard_dialog)
+	discard_dialog.popup_centered(Vector2i(520, 180))
 
 func _build_top_bar() -> void:
 	var top := ColorRect.new()
@@ -258,10 +309,13 @@ func _build_bottom_bar() -> void:
 	branch.tooltip_text = "지금 장면에서 이어서 직접 조작해 보는 되감기 실험입니다"
 	branch.pressed.connect(func():
 		if player != null and not player.is_finished():
-			branch_requested.emit(player.ticks))
+			if notes_dirty:
+				_toast("메모 저장을 재시도한 뒤 여기서 해보기를 눌러주세요.")
+			else:
+				branch_requested.emit(player.ticks))
 	var close := _control_button(row, "ReplayClose", "나가기", UIKit.DANGER, false)
 	close.custom_minimum_size.x = 90
-	close.pressed.connect(func(): closed.emit())
+	close.pressed.connect(_request_close)
 
 func _control_button(parent: Control, node_name: String, text: String, color: Color, primary: bool) -> Button:
 	var button := Button.new()

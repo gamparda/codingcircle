@@ -25,8 +25,6 @@ static func _show_result(main, winner: int) -> void:
 	main.tutorial_hint = null
 	main.tutorial_step = -1
 	main.result_shown = true
-	main.updater.set_safe_to_update(true)
-	main.updater.check_for_update()
 	var goals_before := Goals.done_ids(main.save_data)
 	var awarded_stars := 0
 	var growth_before := SaveData.campaign_growth_level(main.save_data)
@@ -53,7 +51,9 @@ static func _show_result(main, winner: int) -> void:
 			main.save_data.stats.online_draws += 1 if winner == 2 else 0
 		unlocked = _judge_achievements(main, winner)
 		_share_result(main, winner)
-		SaveData.save_data(main.save_data)
+		main._save_profile()
+	main.updater.set_safe_to_update(not main.profile_save_pending)
+	main.updater.check_for_update()
 	var screen := Control.new()
 	screen.name = "ResultOverlay"
 	screen.position = Vector2.ZERO
@@ -155,7 +155,7 @@ static func _show_result(main, winner: int) -> void:
 	var advances = main.local_ai_mode and main.campaign_mode and winner == main.own_side and main.current_ai_stage < ServerAI.MAX_STAGE
 	var note := Label.new()
 	if main.local_ai_mode:
-		note.text = Localization.text("%02d단계 승리 · 최고 ★ %d · 다음 단계 해금") % [main.current_ai_stage, awarded_stars] if main.campaign_mode and winner == main.own_side else Localization.text("%02d단계 결과가 개인 전적에 저장되었습니다.") % main.current_ai_stage
+		note.text = Localization.text("%02d단계 승리 · 최고 ★ %d · 다음 단계 해금") % [main.current_ai_stage, awarded_stars] if main.campaign_mode and winner == main.own_side else Localization.text("%02d단계 결과를 개인 전적에 반영했습니다.") % main.current_ai_stage
 		if not main.campaign_mode and main.practice_used_tools: note.text = "실험 설정 결과는 전적에 기록하지 않습니다."
 		if not main.ghost_context.is_empty():
 			var branch: bool = String(main.ghost_context.mode) == "branch"

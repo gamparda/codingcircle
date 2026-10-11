@@ -178,7 +178,7 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	NewFeatures.decorate(main, column)
 	NewFeatures.add_chip(main)
 	Goals.add_chip(main)
-	main.updater.set_safe_to_update(true)
+	main.updater.set_safe_to_update(not main.profile_save_pending)
 	main.updater.check_for_update()
 
 static func _build_ai_stage_screen(main, as_campaign: bool = false) -> void:
@@ -189,7 +189,7 @@ static func _build_ai_stage_screen(main, as_campaign: bool = false) -> void:
 	main.local_model = null
 	main.local_ai = null
 	main.current_snapshot.clear()
-	main.updater.set_safe_to_update(true)
+	main.updater.set_safe_to_update(not main.profile_save_pending)
 	main._clear_screen()
 	main.root_background = main._make_background()
 	var backdrop := MenuBackdrop.new()

@@ -73,8 +73,14 @@ func run() -> void:
 	DirAccess.make_dir_absolute(path + ".tmp")
 	viewer.note_input.text = "저장 실패 확인"
 	check(viewer.add_note() and viewer.moment_toast.text.contains("저장하지 못했습니다"), "failed note save explains the failure")
+	check(viewer.notes_dirty and viewer.storage_button.visible, "failed note save keeps a persistent warning and retry button")
 	check(FileAccess.get_file_as_string(path) == original, "failed note save keeps the file intact")
+	viewer._request_close()
+	check(is_instance_valid(viewer.discard_dialog) and viewer.discard_dialog.visible, "closing with unsaved notes asks before discarding them")
+	viewer.discard_dialog.hide()
 	DirAccess.remove_absolute(path + ".tmp")
+	viewer.storage_button.pressed.emit()
+	check(not viewer.notes_dirty and not viewer.storage_button.visible and BattleReplay.notes_of(BattleReplay.load_file(path)).size() == 1, "retry writes the unsaved note without another edit")
 	changes.clear()
 	viewer.note_input.text = "여기서 밀렸다"
 	check(viewer.add_note() and viewer.note_input.text == "" and changes.size() == 1, "the button pins a note and reports it")
@@ -94,6 +100,37 @@ func run() -> void:
 	main._build_replay_list()
 	await process_frame
 	check(main.find_children("*", "Label", true, false).any(func(label): return label.text.contains("메모 1개")), "the list shows how many notes a replay has")
+	preload("res://scripts/screens/ReplayScreens.gd")._play_replay_data(main, replay)
+	await process_frame
+	viewer = main.replay_viewer
+	check(viewer.storage_path.is_empty() and viewer.storage_button.visible, "shared replay offers local storage")
+	var shared_dir := BattleReplay.save_dir
+	var blocker := shared_dir.path_join("blocked-storage")
+	var blocked_file := FileAccess.open(blocker, FileAccess.WRITE)
+	blocked_file.store_string("blocked")
+	blocked_file.close()
+	BattleReplay.save_dir = blocker
+	viewer.seek(200)
+	viewer.note_input.text = "공유 기록 메모"
+	check(viewer.add_note() and viewer.storage_path.is_empty() and viewer.notes_dirty, "failed first shared save keeps the note and offers retry")
+	BattleReplay.save_dir = shared_dir
+	DirAccess.remove_absolute(blocker)
+	viewer.storage_button.pressed.emit()
+	check(not viewer.storage_path.is_empty() and not viewer.notes_dirty, "retry stores the shared replay and first note locally")
+	var shared_path: String = viewer.storage_path
+	var saved_count := BattleReplay.list_saved().size()
+	viewer.seek(300)
+	viewer.note_input.text = "두 번째 메모"
+	viewer.add_note()
+	check(viewer.storage_path == shared_path and BattleReplay.list_saved().size() == saved_count, "later shared notes update the same local replay")
+	main._play_replay(shared_path)
+	await process_frame
+	check(BattleReplay.notes_of(main.replay_viewer.replay).size() == 2, "shared notes survive closing and reopening")
+	preload("res://scripts/screens/ReplayScreens.gd")._play_replay_data(main, replay)
+	await process_frame
+	viewer = main.replay_viewer
+	viewer.storage_button.pressed.emit()
+	check(not viewer.storage_path.is_empty() and BattleReplay.notes_of(BattleReplay.load_file(viewer.storage_path)).is_empty(), "shared replay can also be kept locally without making notes")
 	for file in BattleReplay.list_saved():
 		DirAccess.remove_absolute(file)
 	DirAccess.remove_absolute("user://replay_notes_test")

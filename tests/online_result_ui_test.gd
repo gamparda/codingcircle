@@ -68,5 +68,27 @@ func run() -> void:
 	main._show_result(0)
 	await process_frame
 	check(main.result_overlay.find_child("MatchStrip", true, false) != null and main.result_overlay.find_child("RecordCard", true, false) == null, "spectators get no personal record card")
+	# A failed disk write must leave the result in memory and allow saving without counting again.
+	main.network.client_is_spectator = false
+	main.result_recorded = false
+	check(SaveData.save_data(main.save_data), "baseline profile is saved")
+	var original := FileAccess.get_file_as_string(SaveData.SAVE_PATH)
+	DirAccess.make_dir_absolute(SaveData.SAVE_PATH + ".tmp")
+	main._show_result(0)
+	await process_frame
+	check(main.profile_save_pending and main.save_data.stats.online_wins == 9, "failed save keeps the newly earned win in memory")
+	check(FileAccess.get_file_as_string(SaveData.SAVE_PATH) == original, "failed result save keeps the old profile intact")
+	check(main.find_child("RetryProfileSave", true, false) != null, "failed save offers retry")
+	var outcome: Dictionary = main.save_data.duplicate(true)
+	main._show_result(0)
+	check(main.save_data == outcome, "showing the same result again does not count or unlock twice")
+	main._build_connect_screen()
+	await process_frame
+	check(main.find_child("RetryProfileSave", true, false) != null and main.profile_save_pending, "save warning persists after leaving the result")
+	DirAccess.remove_absolute(SaveData.SAVE_PATH + ".tmp")
+	main.find_child("RetryProfileSave", true, false).pressed.emit()
+	await process_frame
+	check(not main.profile_save_pending and main.find_child("ProfileSaveWarning", true, false) == null, "retry clears the warning after success")
+	check(SaveData.load_data() == SaveData.sanitize(outcome), "retry saves the outcome without duplicating it")
 	print("online_result_ui_test failures=%d" % failures)
 	quit(1 if failures > 0 else 0)

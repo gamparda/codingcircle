@@ -61,7 +61,7 @@ static func _on_room_join_failed(main, error: String) -> void:
 
 static func _on_opponent_left(main) -> void:
 	if main.battle_active and not main.result_shown and not main.save_data.is_empty() and not main.network.client_is_spectator:
-		main.save_data.stats.online_interrupted += 1; SaveData.save_data(main.save_data)
+		main.save_data.stats.online_interrupted += 1; main._save_profile()
 	main.local_ai_mode = false; main.battle_active = false
 	main.network.disconnect_from_server()
 	main.lobby_data = {"rooms":[],"page":0,"total":0}
@@ -154,11 +154,11 @@ static func _save_nickname(main, value: String) -> void:
 	if not preload("res://scripts/RoomSessions.gd").safe_text(value,16): return
 	main.network.client_nickname = value
 	if main.save_data.get("nickname","") != value:
-		main.save_data.nickname = value; SaveData.save_data(main.save_data)
+		main.save_data.nickname = value; main._save_profile()
 
 static func _choose_session_deck(main, index: int, in_room: bool) -> void:
 	if index<0 or index>=main.save_data.deck_presets.size(): return
-	main.save_data.last_deck = index; main.battle_preset = main._active_preset().duplicate(true); SaveData.save_data(main.save_data)
+	main.save_data.last_deck = index; main.battle_preset = main._active_preset().duplicate(true); main._save_profile()
 	if in_room:
 		main.network.request_session_deck.rpc_id(1,main.battle_preset.units,main.battle_preset.structures)
 		if is_instance_valid(main.session_deck_names): main.session_deck_names.text = main._active_deck_names()

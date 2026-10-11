@@ -27,6 +27,7 @@ static func wipe(main) -> Dictionary:
 	if main.network.client_connection_state != "idle":
 		main.network.disconnect_from_server()
 	main.save_data = SaveData.default_data()
+	main._profile_saved()
 	main.network.client_nickname = String(main.save_data.nickname)
 	main.battle_preset = {}
 	main.campaign_mode = false

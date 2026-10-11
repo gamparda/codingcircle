@@ -57,7 +57,7 @@ static func _finish_tutorial(main) -> void:
 	if main.tutorial_step < 0:
 		return
 	main.save_data.tutorial_completed = true
-	SaveData.save_data(main.save_data)
+	main._save_profile()
 	main.tutorial_step = -1
 	if is_instance_valid(main.tutorial_banner):
 		main.tutorial_banner.queue_free()

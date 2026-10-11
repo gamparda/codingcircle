@@ -69,7 +69,7 @@ static func decorate(main, scope: Node) -> void:
 		var name_of_button := String(feature.button)
 		button.pressed.connect(func():
 			mark_button_seen(main.save_data, name_of_button)
-			SaveData.save_data(main.save_data)
+			main._save_profile()
 			if is_instance_valid(tag):
 				tag.queue_free()
 		, CONNECT_ONE_SHOT)
@@ -98,7 +98,7 @@ static func open_feature(main, id: String) -> void:
 	var feature := _find(id)
 	if not feature.is_empty():
 		mark_button_seen(main.save_data, String(feature.button))
-		SaveData.save_data(main.save_data)
+		main._save_profile()
 
 static func _find(id: String) -> Dictionary:
 	for feature in FEATURES:

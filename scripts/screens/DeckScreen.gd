@@ -104,6 +104,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 			status.text = Localization.text("덱을 저장하지 못했습니다. 저장 공간과 파일 권한을 확인하고 다시 시도하세요.")
 			return
 		main.save_data = draft
+		main._profile_saved()
 		main._build_connect_screen(Localization.text("덱을 저장했습니다."))
 	)
 	var simulate := Button.new()

@@ -446,7 +446,7 @@ static func import_text(main, text: String) -> String:
 		status.text = message
 	return message
 
-## Plays replay data that has no file behind it (fetched by code); notes made there are not stored.
+## Shared replays are kept locally on request or when the first note is made.
 static func _play_replay_data(main, replay: Dictionary) -> void:
 	_open_viewer(main, replay, "")
 
@@ -460,7 +460,7 @@ static func _play_replay(main, path: String) -> void:
 static func _open_viewer(main, replay: Dictionary, path: String) -> void:
 	if not main.save_data.is_empty():
 		preload("res://scripts/Goals.gd").mark(main.save_data, "watch_replay")
-		SaveData.save_data(main.save_data)
+		main._save_profile()
 	main.battle_active = false
 	main._clear_screen()
 	main.root_background = main._make_background()
@@ -468,10 +468,21 @@ static func _open_viewer(main, replay: Dictionary, path: String) -> void:
 	var viewer := ReplayViewer.new()
 	viewer.open(replay, "%s  ·  %s" % [Localization.text(String(info.title)), info.duration])
 	viewer.closed.connect(func(): main._build_replay_list())
-	viewer.branch_requested.connect(func(tick): main._start_branch_battle(replay, tick))
-	if path != "":
-		viewer.notes_changed.connect(func(updated):
-			if not BattleReplay.write_file(path, updated):
-				viewer.moment_toast.text = Localization.text("메모를 저장하지 못했습니다. 저장 공간과 파일 권한을 확인하세요."))
+	viewer.branch_requested.connect(func(tick): main._start_branch_battle(viewer.replay, tick))
+	viewer.set_storage_state(path, false)
+	var store := func():
+		var stored_path: String = viewer.storage_path
+		var saved := false
+		if stored_path.is_empty():
+			stored_path = BattleReplay.save(viewer.replay, "shared")
+			saved = not stored_path.is_empty()
+		else:
+			saved = BattleReplay.write_file(stored_path, viewer.replay)
+		viewer.set_storage_state(stored_path, not saved)
+		main.updater.set_safe_to_update(saved and not main.profile_save_pending)
+		if not saved:
+			viewer.moment_toast.text = Localization.text("메모를 저장하지 못했습니다. 저장 공간과 파일 권한을 확인하세요.")
+	viewer.storage_requested.connect(store)
+	viewer.notes_changed.connect(func(_updated): store.call())
 	main.root_background.add_child(viewer)
 	main.replay_viewer = viewer

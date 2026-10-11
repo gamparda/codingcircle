@@ -95,9 +95,12 @@ func run() -> void:
 	await process_frame
 	await process_frame
 	check(main.find_child("ReplayRows", true, false) != null and main.find_child("ReplayViewer", true, false) == null, "leaving returns to the list")
+	var deleted: String = BattleReplay.list_saved()[0] # the list shows the newest (imported) replay first
 	main.find_child("DeleteReplayButton", true, false).pressed.emit()
 	await process_frame
-	check(not FileAccess.file_exists(saved), "delete removes the file")
+	check(not FileAccess.file_exists(deleted), "delete removes the file shown by that card")
+	for path in BattleReplay.list_saved():
+		DirAccess.remove_absolute(path)
 	DirAccess.remove_absolute("user://replay_viewer_test")
 	print("replay_viewer_test failures=%d" % failures)
 	quit(1 if failures > 0 else 0)

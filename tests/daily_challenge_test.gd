@@ -98,12 +98,20 @@ func run() -> void:
 		main._purchase_unit(kind)
 	for i in 30:
 		main._process(0.1)
+	SaveData.save_data(main.save_data)
+	DirAccess.make_dir_absolute(SaveData.SAVE_PATH + ".tmp")
 	main.local_model.winner = 0
 	main._on_snapshot(main.local_model.snapshot())
 	await process_frame
 	await process_frame
 	check(main.save_data.daily.has(today) and main.save_data.daily[today].won and main.save_data.achievements.has("daily_clear"), "winning stores the score and unlocks the daily badge")
 	check(main.save_data.stats.ai_matches == 0, "daily battles are not counted as ordinary AI matches")
+	check(main.profile_save_pending and main.find_child("RetryProfileSave", true, false) != null, "daily save failure offers retry without discarding score or badge")
+	var earned: Dictionary = main.save_data.duplicate(true)
+	DirAccess.remove_absolute(SaveData.SAVE_PATH + ".tmp")
+	main.find_child("RetryProfileSave", true, false).pressed.emit()
+	var persisted := SaveData.load_data()
+	check(not main.profile_save_pending and main.save_data == earned and persisted.stats == earned.stats and persisted.achievements == earned.achievements and persisted.daily[today].score == earned.daily[today].score and persisted.daily[today].won, "retry persists the daily score and badge without awarding them twice")
 	var notes: Array = main.result_overlay.find_children("*", "Label", true, false).map(func(label): return label.text)
 	check(notes.any(func(text): return text.contains("일일 도전 성공")), "the result screen reports the score")
 	check(main.last_replay_path != "", "the battle was saved as a replay")

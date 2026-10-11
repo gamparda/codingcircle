@@ -17,7 +17,7 @@ static func share_toggle(main) -> CheckButton:
 		if not on:
 			main.save_data.pending_reports = []
 			main.save_data.pending_daily = {}
-		SaveData.save_data(main.save_data))
+		main._save_profile())
 	return toggle
 
 static func _label(text: String, size: int, color: Color) -> Label:

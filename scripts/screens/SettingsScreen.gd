@@ -283,6 +283,7 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 			dirty.text = Localization.text("설정을 저장하지 못했습니다. 저장 공간과 파일 권한을 확인하고 다시 시도하세요.")
 			return
 		main.save_data = draft
+		main._profile_saved()
 		Localization.install(String(updated.language)); main._apply_settings(); main._apply_helper_settings()
 		main._build_connect_screen(Localization.text("설정을 저장했습니다."))
 	)

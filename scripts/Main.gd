@@ -111,6 +111,7 @@ var server_state_dir := ""
 var server_status_accumulator := 0.0
 var server_draining := false
 var save_data: Dictionary = {}
+var profile_save_pending := false
 var campaign_mode := false
 var result_recorded := false
 var placement_status_label: Label
@@ -383,7 +384,7 @@ func _on_server_ready() -> void:
 		return
 	lobby_filter = "all" # a new connection starts with the unfiltered list
 	MetaStats.flush(save_data, network)
-	SaveData.save_data(save_data)
+	_save_profile()
 	network.send_stats_request([network.client_unit_deck])
 	var identity := MetaStats.install_id(save_data) if MetaStats.sharing(save_data) else ""
 	var daily := preload("res://scripts/DailyChallenge.gd")
@@ -543,14 +544,59 @@ func _set_fullscreen(enabled: bool) -> void:
 	var toggle := find_child("FullscreenToggle", true, false) as CheckButton
 	if toggle != null:
 		toggle.set_pressed_no_signal(enabled)
-	SaveData.save_data(save_data)
+	_save_profile()
 
 func _make_background() -> ColorRect:
 	var bg := ColorRect.new()
 	bg.color = Color("#0b121c")
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
+	_refresh_save_warning(bg)
 	return bg
+
+## Keep automatic progress in memory on failure. Retrying only writes the current profile;
+## it never replays achievement or match accounting.
+func _save_profile() -> bool:
+	profile_save_pending = not SaveData.save_data(save_data)
+	_refresh_save_warning(root_background)
+	if is_instance_valid(updater):
+		updater.set_safe_to_update(not profile_save_pending and (not battle_active or result_shown) and (not is_instance_valid(replay_viewer) or not replay_viewer.notes_dirty))
+	return not profile_save_pending
+
+func _profile_saved() -> void:
+	profile_save_pending = false
+	_refresh_save_warning(root_background)
+
+func _refresh_save_warning(background: Control) -> void:
+	if not is_instance_valid(background):
+		return
+	var old := background.get_node_or_null("ProfileSaveWarning")
+	if old != null:
+		background.remove_child(old)
+		old.queue_free()
+	if not profile_save_pending:
+		return
+	var panel := PanelContainer.new()
+	panel.name = "ProfileSaveWarning"
+	panel.position = Vector2(290, 6)
+	panel.size = Vector2(700, 64)
+	panel.z_index = 200
+	panel.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE, UIKit.SURFACE, UIKit.DANGER, 12), 12, 3))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var label := Label.new()
+	label.text = "진행도를 저장하지 못했습니다. 종료하면 변경 내용이 사라집니다.\n저장 공간과 파일 권한을 확인하고 다시 시도하세요."
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.add_theme_font_size_override("font_size", 15)
+	row.add_child(label)
+	var retry := _styled_button("저장 재시도", UIKit.GOLD_DEEP)
+	retry.name = "RetryProfileSave"
+	retry.custom_minimum_size = Vector2(140, 58)
+	retry.pressed.connect(_save_profile)
+	row.add_child(retry)
+	panel.add_child(row)
+	background.add_child(panel)
 
 func _add_menu_portrait(parent: Control, texture_path: String, position_value: Vector2, accent: Color, label_text: String) -> void:
 	MenuScreens._add_menu_portrait(self, parent, texture_path, position_value, accent, label_text)
