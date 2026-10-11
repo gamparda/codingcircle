@@ -163,7 +163,7 @@ func _select_records_tab(period: String) -> void:
 	else:
 		var state: Dictionary = _history_state[period]
 		_history_filter.select(int(state.filter))
-		_history_search.set_text_no_signal(String(state.query))
+		_history_search.text = String(state.query)
 		_refresh_history()
 
 func _on_history_filter_changed(index: int) -> void:
@@ -181,7 +181,7 @@ func _reset_history_search() -> void:
 	_history_state[_active_period].filter = 0
 	_history_state[_active_period].query = ""
 	_history_filter.select(0)
-	_history_search.set_text_no_signal("")
+	_history_search.text = ""
 	_restart_history_page()
 
 func _restart_history_page() -> void:

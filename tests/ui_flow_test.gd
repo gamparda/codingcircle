@@ -206,6 +206,9 @@ func run() -> void:
 
 	main._on_match_found(0)
 	await process_frame
+	# Purchases stay locked until the first battle snapshot arrives; placement results come after it.
+	main._on_snapshot(BattleModel.new().snapshot())
+	await process_frame
 	main.battle_view.selected_structure = "turret"
 	expect_true(main.has_method("_on_structure_placement_result"), "battle UI handles authoritative structure placement results")
 	if main.has_method("_on_structure_placement_result"):

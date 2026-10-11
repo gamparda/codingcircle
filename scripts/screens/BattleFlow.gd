@@ -214,8 +214,14 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 		return
 	# A delayed live snapshot cannot reopen a confirmed result. New matches reset
 	# this state at their start; rebuilding the same match after recovery does not.
+	# An online rematch reuses the match without a new match-found event: the server
+	# resets the model, so its first snapshot restarts the clock near zero.
 	if not main.result_presentation.is_empty() and int(data.get("winner", -1)) == -1:
-		return
+		var restarted := float(data.get("elapsed", 0.0)) < 1.0 and float(data.get("elapsed", 0.0)) <= float(main.current_snapshot.get("elapsed", 0.0))
+		if not restarted or main.local_ai_mode:
+			return
+		_cancel_finale(main)
+		_reset_result(main)
 	main.current_snapshot = data
 	main.battle_view.set_snapshot(data)
 	_sample_battle_curve(main, data)
