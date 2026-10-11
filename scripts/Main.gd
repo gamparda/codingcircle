@@ -352,7 +352,7 @@ func _input(event: InputEvent) -> void:
 	if battle_active and is_instance_valid(battle_view) and battle_view.build_touch_index >= 0:
 		# Only capture a gesture that the battlefield itself started. HUD and modal
 		# touches must reach their controls, even while a structure is selected.
-		if result_shown or finale_active or placement_pending or network.client_is_spectator or (not local_ai_mode and network_paused) or (local_ai_mode and not campaign_mode and practice.paused) or is_instance_valid(stats_overlay) or is_instance_valid(report_overlay) or is_instance_valid(action_overlay) or (is_instance_valid(battle_chat_panel) and battle_chat_panel.visible):
+		if not _battle_purchase_block_reason().is_empty() or placement_pending or is_instance_valid(stats_overlay) or is_instance_valid(report_overlay) or is_instance_valid(action_overlay) or (is_instance_valid(battle_chat_panel) and battle_chat_panel.visible):
 			battle_view.reset_build_touch()
 		elif event is InputEventScreenDrag:
 			var local_position: Vector2 = battle_view.get_global_transform_with_canvas().affine_inverse() * event.position
@@ -887,6 +887,9 @@ func _refresh_structure_selection() -> void:
 
 func _refresh_purchase_buttons(resources: float) -> void:
 	BattleHud._refresh_purchase_buttons(self, resources)
+
+func _battle_purchase_block_reason() -> String:
+	return BattleHud._purchase_block_reason(self)
 
 func _on_battlefield_clicked(world_x: float) -> void:
 	BattleFlow._on_battlefield_clicked(self, world_x)

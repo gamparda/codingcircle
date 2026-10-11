@@ -341,6 +341,7 @@ static func _add_spawn_button(main, row: HBoxContainer, title: String, kind: Str
 	var primary := Localization.text("공속 +%d%% 누적") % roundi(BattleModel.SUPPORT_INCREMENT * 100.0) if kind == "healer" else Localization.text("공격 %d") % int(stats.damage)
 	var button = main._styled_button(Localization.text("%s  ·  %d\n체력 %d  ·  %s") % [title, int(stats.cost), int(stats.hp), primary], color)
 	button.tooltip_text = BattleModel.unit_stat_summary(kind, growth_level)
+	button.set_meta("base_tooltip", button.tooltip_text)
 	button.set_meta("purchase_cost", float(stats.cost))
 	button.set_meta("unit_kind", kind)
 	button.set_meta("base_text",button.text)
@@ -436,9 +437,9 @@ static func _add_structure_button(main, row: HBoxContainer, title: String, kind:
 	emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.add_child(emblem)
 	button.pressed.connect(func():
-		if is_instance_valid(main.battle_view) and not main.placement_pending:
+		if is_instance_valid(main.battle_view) and not main.placement_pending and main._battle_purchase_block_reason().is_empty() and not button.disabled:
 			main.battle_view.selected_structure = "" if main.battle_view.selected_structure == kind else kind
-			main._refresh_structure_selection()
+		main._refresh_structure_selection()
 	)
 	row.add_child(button)
 	main.structure_buttons.append(button)
@@ -593,8 +594,33 @@ static func _refresh_structure_selection(main) -> void:
 	if is_instance_valid(main.battle_view):
 		main.battle_view.queue_redraw()
 
+## Share the same battle-wide lock across card feedback and every purchase input.
+## A completed snapshot arrives before the finale/result UI, so check its winner too.
+static func _purchase_block_reason(main) -> String:
+	if not main.battle_active or main.result_shown or main.finale_active or int(main.current_snapshot.get("winner", -1)) != -1:
+		return "전투 종료"
+	if main.network.client_is_spectator:
+		return "관전"
+	if not main.local_ai_mode:
+		if main.network.client_reconnecting: return "연결 복구 중"
+		if main.network_paused: return "복구 대기"
+	elif not main.campaign_mode and main.practice.paused:
+		return "일시정지"
+	return ""
+
+static func _purchase_block_hint(reason: String) -> String:
+	return {
+		"전투 종료": "전투가 종료되어 병력 생산과 구조물 설치를 할 수 없습니다.",
+		"관전": "관전 중에는 병력 생산과 구조물 설치를 할 수 없습니다.",
+		"연결 복구 중": "서버 연결을 복구하고 있습니다. 복구 후 전투 상태를 받으면 자원과 생산 대기에 맞춰 구매 카드가 갱신됩니다.",
+		"복구 대기": "전투 상태를 복구하고 있습니다. 전투가 재개되면 자원과 생산 대기에 맞춰 구매 카드가 갱신됩니다.",
+		"일시정지": "전투가 일시정지되어 있습니다. 상단의 계속 버튼으로 재개하세요.",
+	}.get(reason, "")
+
 static func _refresh_purchase_buttons(main, resources: float) -> void:
 	main.latest_resources = resources
+	var block_reason := _purchase_block_reason(main)
+	var block_hint := _purchase_block_hint(block_reason)
 	var counts := BattleModel.structure_counts(main.current_snapshot.get("structures", []), main.own_side)
 	if is_instance_valid(main.structure_count_label):
 		main.structure_count_label.text = "구조물 %d / %d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT]
@@ -612,6 +638,7 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 		var waiting: bool = main.placement_pending and button.has_meta("structure_kind")
 		var limit_error := ""
 		var limit_state := ""
+		var tooltip := String(button.get_meta("base_tooltip", ""))
 		if button.has_meta("structure_kind"):
 			var kind: String = button.get_meta("structure_kind")
 			var count := int(counts.kinds.get(kind, 0))
@@ -623,7 +650,9 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			limit_error = BattleModel.structure_limit_error(kind, counts)
 			if not limit_error.is_empty():
 				limit_state = "전체 한도 %d/%d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT] if int(counts.total) >= BattleModel.STRUCTURE_LIMIT else "종류 한도 %d/%d" % [count, maximum]
-			var tooltip := "%s\n설치 %d / %d · 전체 %d / %d" % [String(button.get_meta("base_text")), count, maximum, int(counts.total), BattleModel.STRUCTURE_LIMIT]
+			tooltip = "%s\n설치 %d / %d · 전체 %d / %d" % [String(button.get_meta("base_text")), count, maximum, int(counts.total), BattleModel.STRUCTURE_LIMIT]
+			if not block_hint.is_empty():
+				tooltip += "\n" + block_hint
 			if waiting:
 				tooltip += "\n서버 확인 중입니다. 이미 요청한 설치는 취소할 수 없습니다."
 			elif not limit_error.is_empty():
@@ -631,15 +660,19 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 				tooltip += " 아군 구조물이 파괴되거나 만료되어 전체·종류별 한도에 빈자리가 생기면 다시 선택할 수 있습니다."
 			elif missing > 0:
 				tooltip += "\n자원이 %d 더 필요합니다." % missing
-			else:
+			elif block_reason.is_empty():
 				tooltip += "\n카드를 선택한 뒤 전장에서 위치를 선택하세요."
 			if kind == "generator": tooltip += "\n발전기는 자신의 후방에만 설치할 수 있습니다."
-			if button.tooltip_text != tooltip: button.tooltip_text = tooltip
-		var unavailable: bool = waiting or not limit_error.is_empty() or main.network.client_is_spectator or (not main.local_ai_mode and main.network_paused) or main.result_shown or (main.local_ai_mode and not main.campaign_mode and main.practice.paused) or missing>0 or cooldown>0.001
+		else:
+			if not block_hint.is_empty(): tooltip += "\n" + block_hint
+			if missing > 0: tooltip += "\n자원이 %d 더 필요합니다." % missing
+			if cooldown > 0.001: tooltip += "\n생산 대기 %.1f초" % cooldown
+		if button.tooltip_text != tooltip: button.tooltip_text = tooltip
+		var unavailable: bool = not block_reason.is_empty() or waiting or not limit_error.is_empty() or missing>0 or cooldown>0.001
 		var state_label := button.get_node_or_null("PurchaseState") as Label
 		if state_label:
 			var state_text := ""
-			if main.network.client_is_spectator: state_text = "관전"
+			if not block_reason.is_empty(): state_text = block_reason
 			elif waiting: state_text = "서버 확인 중"
 			elif not limit_state.is_empty(): state_text = limit_state
 			elif missing > 0: state_text = "자원 -%d" % missing
@@ -651,7 +684,8 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			button.modulate = Color(0.4, 0.4, 0.4, 1.0) if unavailable else Color.WHITE
 		if state_label: state_label.modulate = Color(2.5,2.5,2.5,1.0) if unavailable else Color.WHITE
 		if unavailable and not waiting and button.has_meta("structure_kind") and is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")):
-			if not limit_error.is_empty(): main._show_placement_status(limit_error)
+			if not block_reason.is_empty(): main._show_placement_status(block_hint)
+			elif not limit_error.is_empty(): main._show_placement_status(limit_error)
 			main.battle_view.selected_structure = ""
 			clear_selection = true
 	if clear_selection:

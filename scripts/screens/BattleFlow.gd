@@ -166,7 +166,7 @@ static func _on_match_found(main, side: int) -> void:
 		main.network.send_spawn("swordsman")
 
 static func _on_battlefield_clicked(main, world_x: float) -> void:
-	if not main.battle_active or main.network.client_is_spectator or (not main.local_ai_mode and main.network_paused) or main.result_shown or main.finale_active or (main.local_ai_mode and not main.campaign_mode and main.practice.paused) or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay) or (is_instance_valid(main.battle_chat_panel) and main.battle_chat_panel.visible): return
+	if not main._battle_purchase_block_reason().is_empty() or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay) or (is_instance_valid(main.battle_chat_panel) and main.battle_chat_panel.visible): return
 	if not is_instance_valid(main.battle_view) or main.battle_view.selected_structure.is_empty() or main.placement_pending:
 		return
 	var kind = main.battle_view.selected_structure
@@ -246,6 +246,7 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 		main._dismiss_result_overlay()
 		main.result_recorded = false
 		main.updater.set_safe_to_update(false)
+		main._refresh_purchase_buttons(main.latest_resources)
 
 const FINALE_TIME_SCALE := 0.35
 
@@ -320,7 +321,7 @@ static func _exit_ai_battle(main) -> void:
 	main._build_ai_stage_screen(main.campaign_mode)
 
 static func _handle_battle_hotkey(main, event: InputEventKey) -> bool:
-	if not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed or not main.battle_active or main.result_shown or (not main.local_ai_mode and main.network_paused) or main.network.client_is_spectator or main._battle_text_has_focus() or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay): return false
+	if not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed or not main._battle_purchase_block_reason().is_empty() or main._battle_text_has_focus() or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay): return false
 	var key := event.physical_keycode if event.physical_keycode!=0 else event.keycode
 	var codes: Array = main.save_data.settings.get("battle_keys",BattleBindings.DEFAULTS)
 	var index := codes.find(key)
@@ -332,7 +333,7 @@ static func _handle_battle_hotkey(main, event: InputEventKey) -> bool:
 	return true
 
 static func _purchase_unit(main, kind: String) -> void:
-	if main.network.client_is_spectator or (not main.local_ai_mode and main.network_paused) or not main.battle_active or main.result_shown or (main.local_ai_mode and not main.campaign_mode and main.practice.paused) or float(main.client_purchase_gates.get(kind,0))>Time.get_ticks_msec(): return
+	if not main._battle_purchase_block_reason().is_empty() or float(main.client_purchase_gates.get(kind,0))>Time.get_ticks_msec(): return
 	var accepted := false
 	if main.local_ai_mode:
 		if not main.campaign_mode: main.practice.refill(main.local_model,main.own_side)

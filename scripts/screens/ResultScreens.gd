@@ -25,6 +25,7 @@ static func _show_result(main, winner: int) -> void:
 	main.tutorial_hint = null
 	main.tutorial_step = -1
 	main.result_shown = true
+	main._refresh_purchase_buttons(main.latest_resources)
 	var goals_before := Goals.done_ids(main.save_data)
 	var awarded_stars := 0
 	var growth_before := SaveData.campaign_growth_level(main.save_data)

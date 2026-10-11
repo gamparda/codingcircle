@@ -218,12 +218,14 @@ static func _on_latency_updated(main, milliseconds: int) -> void:
 static func _on_reconnect_status(main, active: bool, remaining: float) -> void:
 	if active:
 		main.resuming_battle_ui = true
-		if not main.network_paused:
-			main.network_paused = true; main._refresh_purchase_buttons(main.latest_resources)
+		main.network_paused = true
 		var text := "연결 복구 중 · %d초"%ceili(remaining)
 		if is_instance_valid(main.recovery_label) and main.recovery_label.text!=text: main.recovery_label.text=text
 		elif is_instance_valid(main.status_label): main.status_label.text=text
 	elif is_instance_valid(main.recovery_label): main.recovery_label.text=""
+	# The local connection can change while the opponent's recovery already
+	# holds the battle paused. Refresh even if network_paused did not change.
+	main._refresh_purchase_buttons(main.latest_resources)
 
 static func _on_recovery_changed(main, data: Dictionary) -> void:
 	if main.local_ai_mode: return
