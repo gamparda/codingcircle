@@ -26,6 +26,34 @@ static func valid(data: Variant) -> bool:
 		if not is_equal_approx(damage,float(side.damage)) or kills!=int(side.kills): return false
 	return true
 
+static func kind_name(kind: String) -> String:
+	return "포탑" if kind == "turret" else String(BattleModel.UNIT_NAMES[kind])
+
+static func has_activity(row: Dictionary) -> bool:
+	return int(row.purchased) > 0 or int(row.summoned) > 0 or int(row.kills) > 0 or float(row.damage) > 0.0
+
+## Derived presentation only: the authoritative report and wire format stay intact.
+static func comparison_rows(data: Array, metric: String = "damage") -> Array:
+	var rows: Array = []
+	if not valid(data): return rows
+	var key := "kills" if metric == "kills" else "damage"
+	for kind in KINDS:
+		var blue: Dictionary = data[0].units[kind]
+		var red: Dictionary = data[1].units[kind]
+		if not has_activity(blue) and not has_activity(red): continue
+		var amounts := [float(blue[key]), float(red[key])]
+		var shares: Array = []
+		for side in 2:
+			var total := float(data[side][key])
+			shares.append(clampf(amounts[side] / total, 0.0, 1.0) if total > 0.0 else 0.0)
+		rows.append({"kind": kind, "name": kind_name(kind), "amounts": amounts, "shares": shares,
+			"purchased": [int(blue.purchased), int(red.purchased)], "summoned": [int(blue.summoned), int(red.summoned)]})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var left := float(a.amounts[0]) + float(a.amounts[1])
+		var right := float(b.amounts[0]) + float(b.amounts[1])
+		return KINDS.find(a.kind) < KINDS.find(b.kind) if left == right else left > right)
+	return rows
+
 static func lines(side: Dictionary) -> PackedStringArray:
 	var output := PackedStringArray()
 	for kind in KINDS:
