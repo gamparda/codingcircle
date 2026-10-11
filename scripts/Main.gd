@@ -82,6 +82,7 @@ var replay_recording_error := ""
 var replay_viewer = null
 var quick_wait_started_msec := 0
 var battle_curve: Array = []
+var battle_curve_samples: Array = [] # timestamped observations for the report; never saved or sent
 var battle_contested := false # becomes true at the first attack; before that the momentum curve stays flat
 var ghost_context: Dictionary = {}   # {"mode": "ghost" | "branch", "replay": Dictionary, "tick": int}
 var finale_seconds := 1.4 # real seconds of base-collapse slow motion before the result; 0 disables it

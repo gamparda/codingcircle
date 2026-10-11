@@ -91,8 +91,12 @@ static func momentum_from_snapshot(data: Dictionary) -> float:
 
 ## One sentence about how the battle went for `own_side`, from its momentum curve (blue-positive).
 static func summary_line(curve: Array, winner: int, own_side: int) -> String:
-	if curve.size() < 4 or winner < 0:
+	var observations: Array = curve.filter(func(value): return value != null)
+	if observations.size() < 4 or winner < 0:
 		return ""
+	# Avoid claims about the entire match when only some intervals were seen.
+	if observations.size() != curve.size():
+		return "확인한 구간에서 크게 밀렸다가 역전했습니다." if winner == own_side and sustained_deficit(curve, own_side) else "일부 전세 기록이 없습니다. 전투 요약에서 확인하세요."
 	var sign := 1.0 if own_side == 0 else -1.0
 	var lowest := 1.0
 	var highest := -1.0
@@ -124,6 +128,9 @@ static func sustained_lead(curve: Array, own_side: int) -> bool:
 static func _sustained(curve: Array, sign: float, threshold: float, above: bool) -> bool:
 	var run := 0
 	for value in curve:
+		if value == null:
+			run = 0
+			continue
 		var mine: float = float(value) * sign
 		if (mine >= threshold) if above else (mine <= threshold):
 			run += 1

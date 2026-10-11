@@ -13,6 +13,11 @@ const CombatSounds = preload("res://scripts/CombatSounds.gd")
 static func _reset_result(main) -> void:
 	main.result_recorded = false
 	main.result_presentation = {}
+	# History belongs to the match, rather than a particular HUD instance.
+	main.battle_curve = []
+	main.battle_curve_samples = []
+	main.battle_contested = false
+	main.curve_next_elapsed = 0.0
 
 static func _start_local_ai_battle(main, stage: int = 1, reuse_deck: bool = false) -> void:
 	main.ghost_context = {}
@@ -213,9 +218,7 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 		return
 	main.current_snapshot = data
 	main.battle_view.set_snapshot(data)
-	if float(data.get("elapsed", 0.0)) >= main.curve_next_elapsed and int(data.get("winner", -1)) == -1:
-		main.curve_next_elapsed = float(data.get("elapsed", 0.0)) + 0.5
-		main.battle_curve.append(ReplayAnalysis.momentum_from_snapshot(data) if main.battle_contested else 0.0)
+	_sample_battle_curve(main, data)
 	if main.ai_smoke_mode:
 		var has_human: bool = data.get("units", []).any(func(unit): return int(unit.side) == 0)
 		var has_ai: bool = data.get("units", []).any(func(unit): return int(unit.side) == 1)
@@ -270,6 +273,43 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 		main._refresh_purchase_buttons(main.latest_resources)
 
 const FINALE_TIME_SCALE := 0.35
+
+## Record observed battle time, including the final position. A missing interval
+## is not an observed lead/deficit and must not count toward a comeback award.
+static func _sample_battle_curve(main, data: Dictionary) -> void:
+	if not main.result_presentation.is_empty(): return
+	var elapsed := float(data.get("elapsed", 0.0))
+	var samples: Array = main.battle_curve_samples
+	var last_elapsed := float(samples.back().seconds) if not samples.is_empty() else -1.0
+	var finished := int(data.get("winner", -1)) != -1
+	if elapsed < last_elapsed or (elapsed == last_elapsed and not finished): return
+	if elapsed < main.curve_next_elapsed and not finished: return
+	# Combat events are transient. On mid-battle entry/recovery the snapshot can
+	# still prove that fighting has occurred, even when its event was missed.
+	var bases: Array = data.get("base_hp", [0.0, 0.0])
+	var maxima: Array = data.get("base_max_hp", [BattleModel.BASE_MAX_HP, BattleModel.BASE_MAX_HP])
+	if not main.battle_contested:
+		for side in 2:
+			if float(bases[side]) < float(maxima[side]): main.battle_contested = true
+		for group in [data.get("units", []), data.get("structures", [])]:
+			for entity in group:
+				if float(entity.hp) < float(entity.get("max_hp", entity.hp)): main.battle_contested = true
+		for report in data.get("battle_report", []):
+			if float(report.get("damage", 0.0)) > 0.0: main.battle_contested = true
+	var momentum := ReplayAnalysis.momentum_from_snapshot(data) if main.battle_contested else 0.0
+	var tick := roundi(elapsed * BattleReplay.DEFAULT_HZ)
+	if not samples.is_empty() and tick == int(samples.back().t):
+		# Surrender can finish at the very same simulation time as the last sample.
+		var last_sample: Dictionary = samples.back()
+		last_sample.momentum = momentum
+		return
+	var gap := elapsed - maxf(last_elapsed, 0.0) > 1.0
+	if gap: main.battle_curve.append(null)
+	# A terminal point completes the graph, but a closely spaced final snapshot
+	# must not artificially lengthen the sustained-lead/deficit sample count.
+	if elapsed >= main.curve_next_elapsed: main.battle_curve.append(momentum)
+	samples.append({"t": tick, "seconds": elapsed, "momentum": momentum, "break_before": gap})
+	main.curve_next_elapsed = elapsed + 0.5
 
 ## Cancel before replacing a view or displaying an immediate result. An old
 ## timer must not restore time or display a result in a newer battle.

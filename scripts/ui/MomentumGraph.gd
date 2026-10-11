@@ -56,24 +56,13 @@ func _draw() -> void:
 	draw_style_box(panel, Rect2(Vector2.ZERO, size))
 	var mid := size.y * 0.5
 	draw_line(Vector2(0, mid), Vector2(size.x, mid), Color(1, 1, 1, 0.14), 1.0)
-	if samples.size() >= 2:
-		var blue := PackedVector2Array()
-		var red := PackedVector2Array()
-		blue.append(Vector2(0, mid))
-		red.append(Vector2(0, mid))
-		for sample in samples:
-			var x := _x_for(int(sample.t))
-			var y := float(sample.momentum) * (mid - 3.0)
-			blue.append(Vector2(x, mid - maxf(y, 0.0)))
-			red.append(Vector2(x, mid - minf(y, 0.0)))
-		blue.append(Vector2(_x_for(int(samples.back().t)), mid))
-		red.append(Vector2(_x_for(int(samples.back().t)), mid))
-		_fill(blue, Color(UIKit.TEAM_BLUE.r, UIKit.TEAM_BLUE.g, UIKit.TEAM_BLUE.b, 0.55))
-		_fill(red, Color(UIKit.TEAM_RED.r, UIKit.TEAM_RED.g, UIKit.TEAM_RED.b, 0.55))
-		var line := PackedVector2Array()
-		for sample in samples:
-			line.append(Vector2(_x_for(int(sample.t)), mid - float(sample.momentum) * (mid - 3.0)))
-		draw_polyline(line, Color(1, 1, 1, 0.8), 1.5, true)
+	var segment: Array = []
+	for sample in samples:
+		if bool(sample.get("break_before", false)) and not segment.is_empty():
+			_draw_segment(segment, mid)
+			segment = []
+		segment.append(sample)
+	_draw_segment(segment, mid)
 	for item in highlights:
 		var hx := _x_for(int(item.tick))
 		var color: Color = MARKER_COLORS.get(String(item.kind), Color.WHITE)
@@ -93,6 +82,28 @@ func _draw() -> void:
 	var px := _x_for(playhead)
 	draw_line(Vector2(px, 0), Vector2(px, size.y), UIKit.GOLD, 2.0)
 	draw_circle(Vector2(px, mid), 4.0, UIKit.GOLD)
+
+func _draw_segment(segment: Array, mid: float) -> void:
+	if segment.is_empty(): return
+	var start_x := _x_for(int(segment.front().t))
+	var blue := PackedVector2Array([Vector2(start_x, mid)])
+	var red := PackedVector2Array([Vector2(start_x, mid)])
+	var line := PackedVector2Array()
+	for sample in segment:
+		var x := _x_for(int(sample.t))
+		var y := float(sample.momentum) * (mid - 3.0)
+		blue.append(Vector2(x, mid - maxf(y, 0.0)))
+		red.append(Vector2(x, mid - minf(y, 0.0)))
+		line.append(Vector2(x, mid - y))
+	var end_x := _x_for(int(segment.back().t))
+	blue.append(Vector2(end_x, mid))
+	red.append(Vector2(end_x, mid))
+	_fill(blue, Color(UIKit.TEAM_BLUE.r, UIKit.TEAM_BLUE.g, UIKit.TEAM_BLUE.b, 0.55))
+	_fill(red, Color(UIKit.TEAM_RED.r, UIKit.TEAM_RED.g, UIKit.TEAM_RED.b, 0.55))
+	if line.size() >= 2:
+		draw_polyline(line, Color(1, 1, 1, 0.8), 1.5, true)
+	else:
+		draw_circle(line[0], 2.0, Color(1, 1, 1, 0.8))
 
 func _fill(points: PackedVector2Array, color: Color) -> void:
 	if points.size() >= 3 and not Geometry2D.triangulate_polygon(points).is_empty():

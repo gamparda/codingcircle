@@ -440,7 +440,20 @@ static func _show_battle_report(main) -> void:
 	main.report_overlay = ColorRect.new(); main.report_overlay.name = "BattleReportOverlay"; main.report_overlay.color = Color(0.02,0.03,0.05,0.97); main.report_overlay.size = Vector2(1280,720); main.report_overlay.z_index = 150; main.root_background.add_child(main.report_overlay)
 	var content := MultiplayerUI.panel(main,main.report_overlay,"BattleReportPanel",Rect2(80,40,1120,640))
 	content.add_child(MultiplayerUI.label("전투 요약",28,MultiplayerUI.GOLD))
-	var columns := HBoxContainer.new(); columns.add_theme_constant_override("separation",28); columns.size_flags_vertical = Control.SIZE_EXPAND_FILL; content.add_child(columns)
+	var scroll := ScrollContainer.new()
+	scroll.name = "BattleReportScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	scroll.scroll_deadzone = 16
+	scroll.focus_mode = Control.FOCUS_ALL
+	content.add_child(scroll)
+	var body := VBoxContainer.new()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 12)
+	scroll.add_child(body)
+	_add_battle_graph(main, body)
+	var columns := HBoxContainer.new(); columns.add_theme_constant_override("separation",28); body.add_child(columns)
 	for side in 2:
 		var column := VBoxContainer.new(); column.size_flags_horizontal = Control.SIZE_EXPAND_FILL; column.add_theme_constant_override("separation",14); columns.add_child(column)
 		var data: Dictionary = main.current_snapshot.battle_report[side]
@@ -448,8 +461,42 @@ static func _show_battle_report(main) -> void:
 		column.add_child(MultiplayerUI.label("사용 자원 %d · 건설 %d
 처치 %d · 실제 피해 %d" % [roundi(float(data.resources_spent)),int(data.structures_built),int(data.kills),roundi(float(data.damage))],16,MultiplayerUI.GOLD))
 		for text in Report.lines(data): column.add_child(MultiplayerUI.label(text,14,MultiplayerUI.MUTED))
-	content.add_child(MultiplayerUI.label("피해는 실제로 감소시킨 체력입니다. 해골의 처치·피해는 네크로맨서에 합산합니다.",12,MultiplayerUI.MUTED))
-	MultiplayerUI.button(main,content,"닫기","CloseBattleReportButton",main._dismiss_battle_report)
+	body.add_child(MultiplayerUI.label("피해는 실제로 감소시킨 체력입니다. 해골의 처치·피해는 네크로맨서에 합산합니다.",12,MultiplayerUI.MUTED))
+	var close := MultiplayerUI.button(main,content,"닫기","CloseBattleReportButton",main._dismiss_battle_report)
+	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44
+	scroll.grab_focus.call_deferred()
+
+static func _add_battle_graph(main, parent: VBoxContainer) -> void:
+	var heading := MultiplayerUI.label("전세 흐름 · 기지와 생존 병력의 체력 기준", 16, MultiplayerUI.GOLD)
+	parent.add_child(heading)
+	var legend := HBoxContainer.new()
+	legend.add_theme_constant_override("separation", 24)
+	parent.add_child(legend)
+	legend.add_child(MultiplayerUI.label("▲ " + _report_side_name(main, 0), 14, UIKit.TEAM_BLUE))
+	legend.add_child(MultiplayerUI.label("▼ " + _report_side_name(main, 1), 14, UIKit.TEAM_RED))
+	var elapsed := float(main.current_snapshot.get("elapsed", 0.0))
+	var ticks := maxi(1, roundi(elapsed * BattleReplay.DEFAULT_HZ))
+	var graph := preload("res://scripts/ui/MomentumGraph.gd").new()
+	graph.name = "BattleReportMomentumGraph"
+	graph.custom_minimum_size = Vector2(0, 88)
+	graph.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(graph)
+	graph.setup({"samples": main.battle_curve_samples.duplicate(true), "ticks": ticks})
+	graph.set_playhead(ticks)
+	graph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	graph.tooltip_text = "파랑 위쪽·빨강 아래쪽은 해당 진영의 우세입니다. 빈 구간은 수신한 전세 기록이 없는 시간입니다."
+	var axis := HBoxContainer.new()
+	parent.add_child(axis)
+	axis.add_child(MultiplayerUI.label("00:00", 12, MultiplayerUI.MUTED))
+	var end := MultiplayerUI.label("%02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60], 12, MultiplayerUI.MUTED)
+	end.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	end.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	axis.add_child(end)
+	var note := MultiplayerUI.label("교전이 확인되기 전은 수평선으로 표시합니다. 빈 구간은 관전 입장 전 또는 전투 상태를 받지 못한 시간입니다.", 12, MultiplayerUI.MUTED)
+	note.name = "BattleReportCurveNote"
+	if main.battle_curve_samples.is_empty(): note.text = "수신한 전세 기록이 없습니다. 아래에서 확정된 전체 전투 집계를 확인할 수 있습니다."
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(note)
 
 static func _report_side_name(main, side: int) -> String:
 	if main.local_ai_mode: return "내 전투" if side==main.own_side else "상대 AI"
