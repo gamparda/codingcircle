@@ -6,6 +6,25 @@ const TABLE_WIDTHS := [56, 150, 96, 70, 70, 100, 140]
 const ServerStats = preload("res://scripts/ServerStats.gd")
 const HISTORY_HEADERS := ["날짜 (UTC)", "콘텐츠 버전", "결과", "최고 점수", "완료 시간"]
 const HISTORY_WIDTHS := [170, 0, 70, 115, 115]
+const HISTORY_PAGE_DATES := 10
+
+var _history: Dictionary = {}
+var _history_panels: Dictionary = {}
+var _history_state := {
+	"daily": {"filter": 0, "query": "", "page": 0, "scroll": 0},
+	"weekly": {"filter": 0, "query": "", "page": 0, "scroll": 0}}
+var _active_period := "campaign"
+var _records_summary: HBoxContainer
+var _history_tools: HBoxContainer
+var _history_filter: OptionButton
+var _history_search: LineEdit
+var _history_reset: Button
+var _history_navigation: HBoxContainer
+var _history_page_label: Label
+var _history_page_buttons: Array[Button] = []
+var _records_scroll: ScrollContainer
+var _history_page_count := 1
+var _campaign_scroll := 0
 
 func populate(save_data: Dictionary) -> void:
 	var stats: Dictionary = save_data.stats
@@ -20,29 +39,52 @@ func populate(save_data: Dictionary) -> void:
 		[str(stats.online_completed), "완료", UIKit.TEXT], [str(stats.online_wins), "승", UIKit.SUCCESS], [str(stats.online_losses), "패", UIKit.DANGER],
 		[str(stats.online_draws), "무", UIKit.TEXT_MUTED], [str(stats.online_interrupted), "중단", UIKit.TEXT_MUTED], ["%.1f%%" % online_rate, "승률", UIKit.GOLD]]))
 	column.add_child(summary)
+	_records_summary = summary
 
 	var tabs := HBoxContainer.new()
 	tabs.name = "RecordsTabs"
 	column.add_child(tabs)
+	var tools := HBoxContainer.new()
+	tools.name = "ChallengeHistoryTools"
+	tools.visible = false
+	tools.add_theme_constant_override("separation", 10)
+	column.add_child(tools)
+	_history_tools = tools
 	var filter := OptionButton.new()
 	filter.name = "ChallengeHistoryFilter"
 	filter.add_item("전체 버전", 0)
 	filter.add_item("현재 버전", 1)
 	filter.add_item("이전·미상 버전", 2)
 	filter.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 40
-	filter.visible = false
-	column.add_child(filter)
+	tools.add_child(filter)
+	_history_filter = filter
+	var search := LineEdit.new()
+	search.name = "ChallengeHistorySearch"
+	search.placeholder_text = "날짜 검색 · 2026-10 / 20261011"
+	search.tooltip_text = "UTC 날짜의 앞부분으로 검색합니다. 연도·월·일을 숫자로 입력하세요. 주간 기록은 월요일 날짜입니다."
+	search.max_length = 10
+	search.custom_minimum_size.y = filter.custom_minimum_size.y
+	search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tools.add_child(search)
+	_history_search = search
+	_history_reset = UIKit.style_button(Button.new(), UIKit.TEAL)
+	_history_reset.name = "ChallengeHistoryReset"
+	_history_reset.text = "초기화"
+	tools.add_child(_history_reset)
+	_build_history_navigation()
 	var scroll := ScrollContainer.new()
 	scroll.name = "RecordsScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.follow_focus = true
 	scroll.scroll_deadzone = 16
+	scroll.focus_mode = Control.FOCUS_ALL
+	scroll.gui_input.connect(_on_records_scroll_input)
 	column.add_child(scroll)
+	_records_scroll = scroll
 	var pages := VBoxContainer.new()
 	pages.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(pages)
-	var panels := {}
 	var buttons := {}
 	var group := ButtonGroup.new()
 	for entry in [["campaign", "캠페인"], ["daily", "일일 도전"], ["weekly", "주간 도전"]]:
@@ -51,7 +93,7 @@ func populate(save_data: Dictionary) -> void:
 		page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		page.visible = entry[0] == "campaign"
 		pages.add_child(page)
-		panels[entry[0]] = page
+		_history_panels[entry[0]] = page
 		var button := UIKit.style_button(Button.new(), UIKit.ACCENT)
 		button.name = "RecordsTab_" + entry[0]
 		button.text = entry[1]
@@ -62,20 +104,120 @@ func populate(save_data: Dictionary) -> void:
 		tabs.add_child(button)
 		buttons[entry[0]] = button
 	for id in buttons:
-		buttons[id].pressed.connect(func():
-			for key in panels: panels[key].visible = key == id
-			filter.visible = id != "campaign"
-			scroll.scroll_vertical = 0
-		)
+		buttons[id].pressed.connect(_select_records_tab.bind(id))
 	# Keep a read-only snapshot so filtering does not modify best scores or pending submissions.
-	var history := {"daily": save_data.daily.duplicate(true), "weekly": save_data.weekly.duplicate(true)}
-	var refresh_history := func(_index: int = 0):
-		for period in history:
-			_populate_history(panels[period], history[period], period, filter.selected)
-		scroll.scroll_vertical = 0
-	filter.item_selected.connect(refresh_history)
-	refresh_history.call()
-	_populate_campaign(panels.campaign, save_data)
+	_history = {"daily": save_data.daily.duplicate(true), "weekly": save_data.weekly.duplicate(true)}
+	filter.item_selected.connect(_on_history_filter_changed)
+	search.text_changed.connect(_on_history_search_changed)
+	_history_reset.pressed.connect(_reset_history_search)
+	_populate_campaign(_history_panels.campaign, save_data)
+
+func _build_history_navigation() -> void:
+	_history_navigation = HBoxContainer.new()
+	_history_navigation.name = "ChallengeHistoryNavigation"
+	_history_navigation.visible = false
+	_history_navigation.add_theme_constant_override("separation", 8)
+	column.add_child(_history_navigation)
+	for entry in [["First", "최신", 0], ["Previous", "더 최근", -1], ["Next", "더 이전", 1], ["Last", "마지막", 0]]:
+		var button := UIKit.style_button(Button.new(), UIKit.ACCENT, false, 14)
+		button.name = "ChallengeHistory" + entry[0]
+		button.text = entry[1]
+		button.custom_minimum_size.x = 90
+		_history_navigation.add_child(button)
+		_history_page_buttons.append(button)
+		button.pressed.connect(_move_history_page.bind(String(entry[0]), int(entry[2])))
+	_history_page_label = Label.new()
+	_history_page_label.name = "ChallengeHistoryPage"
+	_history_page_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_history_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_history_page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_history_page_label.add_theme_font_size_override("font_size", 14)
+	_history_page_label.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	_history_navigation.add_child(_history_page_label)
+	_history_navigation.move_child(_history_page_label, 2)
+
+func _move_history_page(action: String, direction: int) -> void:
+	if _active_period == "campaign": return
+	var state: Dictionary = _history_state[_active_period]
+	var target := 0 if action == "First" else (_history_page_count - 1 if action == "Last" else int(state.page) + direction)
+	state.page = clampi(target, 0, _history_page_count - 1)
+	state.scroll = 0
+	_refresh_history()
+
+func _select_records_tab(period: String) -> void:
+	if period == _active_period:
+		return
+	if _active_period == "campaign":
+		_campaign_scroll = _records_scroll.scroll_vertical
+	else:
+		_history_state[_active_period].scroll = _records_scroll.scroll_vertical
+	_active_period = period
+	for key in _history_panels:
+		_history_panels[key].visible = key == period
+	_history_tools.visible = period != "campaign"
+	_history_navigation.visible = period != "campaign"
+	# Summary cards remain on the campaign tab, leaving room for challenge navigation.
+	_records_summary.visible = period == "campaign"
+	if period == "campaign":
+		_records_scroll.set_deferred("scroll_vertical", _campaign_scroll)
+	else:
+		var state: Dictionary = _history_state[period]
+		_history_filter.select(int(state.filter))
+		_history_search.set_text_no_signal(String(state.query))
+		_refresh_history()
+
+func _on_history_filter_changed(index: int) -> void:
+	if _active_period == "campaign": return
+	_history_state[_active_period].filter = index
+	_restart_history_page()
+
+func _on_history_search_changed(query: String) -> void:
+	if _active_period == "campaign": return
+	_history_state[_active_period].query = query
+	_restart_history_page()
+
+func _reset_history_search() -> void:
+	if _active_period == "campaign": return
+	_history_state[_active_period].filter = 0
+	_history_state[_active_period].query = ""
+	_history_filter.select(0)
+	_history_search.set_text_no_signal("")
+	_restart_history_page()
+
+func _restart_history_page() -> void:
+	_history_state[_active_period].page = 0
+	_history_state[_active_period].scroll = 0
+	_refresh_history()
+
+func _refresh_history() -> void:
+	var state: Dictionary = _history_state[_active_period]
+	var result := _populate_history(_history_panels[_active_period], _history[_active_period], _active_period, int(state.filter), String(state.query), int(state.page))
+	state.page = result.page
+	_history_page_count = result.pages
+	var first := int(result.page) * HISTORY_PAGE_DATES + 1 if int(result.dates) > 0 else 0
+	var last := mini((int(result.page) + 1) * HISTORY_PAGE_DATES, int(result.dates))
+	_history_page_label.text = "%d–%d / %d%s · %d개 기록" % [first, last, int(result.dates), "주" if _active_period == "weekly" else "일", int(result.records)]
+	_history_page_label.tooltip_text = "검색과 버전 필터에 맞는 날짜 수와 전체 기록 수입니다. 같은 날짜의 버전별 기록은 한 페이지에 표시합니다."
+	for index in _history_page_buttons.size():
+		_history_page_buttons[index].disabled = int(state.page) == (0 if index < 2 else _history_page_count - 1)
+	_history_reset.disabled = int(state.filter) == 0 and String(state.query).is_empty() and int(state.page) == 0
+	_records_scroll.set_deferred("scroll_vertical", int(state.scroll))
+
+func _on_records_scroll_input(event: InputEvent) -> void:
+	if not event is InputEventKey or not event.pressed or event.ctrl_pressed or event.alt_pressed or event.meta_pressed:
+		return
+	var bar := _records_scroll.get_v_scroll_bar()
+	var target := _records_scroll.scroll_vertical
+	match event.keycode:
+		KEY_UP: target -= 48
+		KEY_DOWN: target += 48
+		KEY_PAGEUP: target -= maxi(48, int(bar.page))
+		KEY_PAGEDOWN: target += maxi(48, int(bar.page))
+		KEY_HOME: target = 0
+		KEY_END: target = int(bar.max_value - bar.page)
+		_: return
+	_records_scroll.scroll_vertical = clampi(target, 0, maxi(0, int(bar.max_value - bar.page)))
+	_records_scroll.accept_event()
 
 func _populate_campaign(page: VBoxContainer, save_data: Dictionary) -> void:
 
@@ -107,10 +249,22 @@ func _populate_campaign(page: VBoxContainer, save_data: Dictionary) -> void:
 				color = UIKit.GOLD if stars > 0 else UIKit.TEXT_DIM
 			table.add_child(_cell(String(cells[index]), index, color, 16))
 
-func _populate_history(page: VBoxContainer, history: Dictionary, period: String, filter: int) -> void:
+func _populate_history(page: VBoxContainer, history: Dictionary, period: String, filter: int, query: String = "", page_index: int = 0) -> Dictionary:
 	for child in page.get_children():
 		page.remove_child(child)
 		child.queue_free()
+	var prefix := query.strip_edges().replace("-", "").replace("/", "")
+	var valid_query := prefix.length() <= 8
+	for character in prefix:
+		if not "0123456789".contains(character): valid_query = false
+	var rows := _history_rows(history, filter, prefix) if valid_query else []
+	var dates: Array = []
+	for row in rows:
+		if dates.is_empty() or dates.back() != row.date:
+			dates.append(row.date)
+	var pages := maxi(1, ceili(float(dates.size()) / HISTORY_PAGE_DATES))
+	page_index = clampi(page_index, 0, pages - 1)
+	var page_dates := dates.slice(page_index * HISTORY_PAGE_DATES, (page_index + 1) * HISTORY_PAGE_DATES)
 	var hint := Label.new()
 	hint.text = "기기에 보관된 최고 기록 · %s · 버전이 다른 점수는 따로 표시합니다." % ("최근 %d주, 주 시작일 기준" % SaveData.WEEKLY_HISTORY if period == "weekly" else "최근 %d일" % SaveData.DAILY_HISTORY)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -127,13 +281,45 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 	for index in HISTORY_HEADERS.size():
 		table.add_child(_history_cell(HISTORY_HEADERS[index], index, UIKit.TEXT_DIM))
 	var current := ServerStats.ruleset_id()
+	for row in rows:
+		if not page_dates.has(row.date): continue
+		var item: Dictionary = row.record
+		var rule := String(row.ruleset)
+		var won := bool(item.get("won", false))
+		var status := "버전 미상" if rule == "0" else ("현재" if rule == current else "이전")
+		var key := String(row.date)
+		var cells := ["%s-%s-%s" % [key.substr(0, 4), key.substr(4, 2), key.substr(6, 2)],
+			"%s · %s" % [status, rule], "성공" if won else "실패", "%d점" % int(item.get("score", 0)), "%.1f초" % float(item.get("seconds", 0.0))]
+		for index in cells.size():
+			var color := UIKit.GOLD if rule == current else UIKit.TEXT_MUTED
+			if index == 2: color = UIKit.SUCCESS if won else UIKit.DANGER
+			table.add_child(_history_cell(cells[index], index, color))
+	if rows.is_empty():
+		var empty := Label.new()
+		empty.name = "ChallengeHistoryEmpty_" + period
+		if not valid_query:
+			empty.text = "날짜를 2026-10 또는 20261011처럼 입력하세요."
+		elif history.is_empty():
+			empty.text = "저장된 %s 도전 기록이 없습니다." % ("주간" if period == "weekly" else "일일")
+		elif not prefix.is_empty():
+			empty.text = "날짜와 버전 조건에 맞는 기록이 없습니다. 주간 기록은 월요일 날짜로 검색하세요." if period == "weekly" else "날짜와 버전 조건에 맞는 기록이 없습니다. 검색 날짜나 버전을 바꿔 보세요."
+		else:
+			empty.text = "선택한 버전의 기록이 없습니다. 다른 버전을 선택해 보세요."
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+		page.add_child(empty)
+	return {"page": page_index, "pages": pages, "dates": dates.size(), "records": rows.size()}
+
+func _history_rows(history: Dictionary, filter: int, prefix: String) -> Array:
+	var current := ServerStats.ruleset_id()
 	var dates: Array = history.keys()
 	dates.sort()
 	dates.reverse()
-	var count := 0
+	var rows: Array = []
 	for date in dates:
+		if not String(date).begins_with(prefix): continue
 		var record: Dictionary = history[date]
-		var versions: Dictionary = record.get("previous", {}).duplicate(true)
+		var versions: Dictionary = record.get("previous", {}).duplicate()
 		versions[String(record.get("ruleset", "0"))] = record
 		var rules: Array = versions.keys()
 		rules.sort()
@@ -142,23 +328,8 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 			rules.push_front(current)
 		for rule in rules:
 			if (filter == 1 and rule != current) or (filter == 2 and rule == current): continue
-			var item: Dictionary = versions[rule]
-			var won := bool(item.get("won", false))
-			var status := "버전 미상" if rule == "0" else ("현재" if rule == current else "이전")
-			var key := String(date)
-			var cells := ["%s-%s-%s" % [key.substr(0, 4), key.substr(4, 2), key.substr(6, 2)],
-				"%s · %s" % [status, rule], "성공" if won else "실패", "%d점" % int(item.get("score", 0)), "%.1f초" % float(item.get("seconds", 0.0))]
-			for index in cells.size():
-				var color := UIKit.GOLD if rule == current else UIKit.TEXT_MUTED
-				if index == 2: color = UIKit.SUCCESS if won else UIKit.DANGER
-				table.add_child(_history_cell(cells[index], index, color))
-			count += 1
-	if count == 0:
-		var empty := Label.new()
-		empty.name = "ChallengeHistoryEmpty_" + period
-		empty.text = "저장된 %s 도전 기록이 없습니다." % ("주간" if period == "weekly" else "일일") if history.is_empty() else "선택한 버전의 기록이 없습니다. 다른 버전을 선택해 보세요."
-		empty.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
-		page.add_child(empty)
+			rows.append({"date": date, "ruleset": rule, "record": versions[rule]})
+	return rows
 
 func _history_cell(text: String, index: int, color: Color) -> Label:
 	var label := Label.new()
