@@ -70,11 +70,17 @@ static func _build_battle_screen(main) -> void:
 	main.battle_view.show_battle_effects = bool(main.save_data.settings.battle_effects)
 	main.battle_view.effect_intensity = float(main.save_data.settings.effect_intensity)
 	main.battle_view.battlefield_clicked.connect(main._on_battlefield_clicked)
+	main.battle_view.build_touch_cancelled.connect(func(): main._show_placement_status("설치 동작을 취소했습니다. 전장에서 다시 위치를 선택하세요."))
 	main.root_background.add_child(main.battle_view)
 	main.placement_status_label = ToastLabel.new()
 	main.placement_status_label.tone = UIKit.DANGER
 	main.root_background.add_child(main.placement_status_label)
-	main.placement_status_label.place_center(640.0, 540.0)
+	main.placement_status_label.place_center(640.0, 548.0)
+	main.placement_hint_label = ToastLabel.new()
+	main.placement_hint_label.name = "BuildPlacementHint"
+	main.placement_hint_label.tone = UIKit.TEAL
+	main.root_background.add_child(main.placement_hint_label)
+	main.placement_hint_label.place_center(640.0, 440.0)
 	main.structure_count_label = Label.new()
 	main.structure_count_label.position = Vector2(1030, 548)
 	main.structure_count_label.size = Vector2(220, 28)
@@ -196,7 +202,7 @@ static func _build_battle_screen(main) -> void:
 
 	main.base_warning_label = ToastLabel.new(); main.base_warning_label.name = "BaseDangerWarning"; main.base_warning_label.text = "기지 체력 위험"; main.base_warning_label.tone = UIKit.DANGER; main.base_warning_label.visible = false; main.root_background.add_child(main.base_warning_label)
 	main.base_warning_label.place_center(640.0, 96.0)
-	main.cancel_build_button = main._styled_button("설치 취소 · Esc",Color("#697386")); main.cancel_build_button.name = "CancelBuildButton"; main.cancel_build_button.position = Vector2(536,500); main.cancel_build_button.size = Vector2(208,44); main.cancel_build_button.visible = false; main.cancel_build_button.z_index = 10; main.cancel_build_button.pressed.connect(main._cancel_build_selection); main.root_background.add_child(main.cancel_build_button)
+	main.cancel_build_button = main._styled_button("설치 취소 · Esc",Color("#697386")); main.cancel_build_button.name = "CancelBuildButton"; main.cancel_build_button.position = Vector2(536,480); main.cancel_build_button.size = Vector2(208,58); main.cancel_build_button.visible = false; main.cancel_build_button.z_index = 10; main.cancel_build_button.pressed.connect(main._cancel_build_selection); main.root_background.add_child(main.cancel_build_button)
 	_battle_intro(main)
 
 ## "STAGE 03 · 전진" style band that slides in, holds, and leaves. Purely decorative (ignores input).
@@ -430,7 +436,7 @@ static func _add_structure_button(main, row: HBoxContainer, title: String, kind:
 	emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.add_child(emblem)
 	button.pressed.connect(func():
-		if is_instance_valid(main.battle_view):
+		if is_instance_valid(main.battle_view) and not main.placement_pending:
 			main.battle_view.selected_structure = "" if main.battle_view.selected_structure == kind else kind
 			main._refresh_structure_selection()
 	)
@@ -476,6 +482,7 @@ static func _add_purchase_labels(main, button: Button, key_text: String) -> void
 	button.add_child(state)
 
 static func _show_stats_panel(main) -> void:
+	if is_instance_valid(main.battle_view): main.battle_view.reset_build_touch()
 	main._dismiss_stats_panel()
 	main.stats_overlay = ColorRect.new()
 	main.stats_overlay.name = "UnitStatsPanel"
@@ -562,11 +569,24 @@ static func _add_battle_chat(main) -> void:
 	main.session_chat_log = RichTextLabel.new(); main.session_chat_log.bbcode_enabled = false; main.session_chat_log.scroll_following = true; main.session_chat_log.size_flags_vertical = Control.SIZE_EXPAND_FILL; content.add_child(main.session_chat_log)
 	main.session_chat_input = LineEdit.new(); main.session_chat_input.placeholder_text = "메시지 입력 · Enter 전송"; main.session_chat_input.max_length = 160; main.session_chat_input.custom_minimum_size.y = 40; main.session_chat_input.text_submitted.connect(func(_value): main._send_session_chat()); content.add_child(main.session_chat_input)
 	main.battle_chat_panel.visible = false
-	toggle.pressed.connect(func(): main.battle_chat_panel.visible = not main.battle_chat_panel.visible)
+	toggle.pressed.connect(func():
+		if is_instance_valid(main.battle_view): main.battle_view.reset_build_touch()
+		main.battle_chat_panel.visible = not main.battle_chat_panel.visible)
 	MultiplayerUI.chat(main)
 
 static func _refresh_structure_selection(main) -> void:
-	if is_instance_valid(main.cancel_build_button): main.cancel_build_button.visible = is_instance_valid(main.battle_view) and not main.battle_view.selected_structure.is_empty()
+	var selected: bool = is_instance_valid(main.battle_view) and not main.battle_view.selected_structure.is_empty()
+	if is_instance_valid(main.battle_view): main.battle_view.reset_build_touch()
+	if is_instance_valid(main.cancel_build_button):
+		main.cancel_build_button.visible = selected
+		main.cancel_build_button.disabled = main.placement_pending
+		main.cancel_build_button.text = "서버 확인 중..." if main.placement_pending else "설치 취소 · Esc"
+	if is_instance_valid(main.placement_hint_label):
+		main.placement_hint_label.text = ""
+		if selected:
+			var kind: String = main.battle_view.selected_structure
+			var title: String = {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}.get(kind, kind)
+			main.placement_hint_label.text = "%s · 서버의 설치 결과를 기다리는 중" % title if main.placement_pending else "%s · 전장을 클릭하거나, 누른 채 이동 후 놓아 설치 · 전장 밖에 놓으면 취소" % title
 	for button in main.structure_buttons:
 		if is_instance_valid(button):
 			button.set_pressed_no_signal(is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")))
@@ -585,17 +605,18 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			var advertised: Array = main.current_snapshot.get("spawn_cooldowns",[{},{}])
 			cooldown = maxf(float(advertised[main.own_side].get(kind,0.0)),maxf(0.0,float(main.client_purchase_gates.get(kind,0))-Time.get_ticks_msec())/1000.0)
 		var missing := maxi(0,ceili(float(button.get_meta("purchase_cost"))-resources))
-		var unavailable: bool = main.network.client_is_spectator or (not main.local_ai_mode and main.network_paused) or main.result_shown or (main.local_ai_mode and not main.campaign_mode and main.practice.paused) or missing>0 or cooldown>0.001
+		var waiting: bool = main.placement_pending and button.has_meta("structure_kind")
+		var unavailable: bool = waiting or main.network.client_is_spectator or (not main.local_ai_mode and main.network_paused) or main.result_shown or (main.local_ai_mode and not main.campaign_mode and main.practice.paused) or missing>0 or cooldown>0.001
 		var state_label := button.get_node_or_null("PurchaseState") as Label
 		if state_label:
-			var state_text := "관전" if main.network.client_is_spectator else ("자원 -%d" % missing if missing>0 else ("대기 %.1f초" % cooldown if cooldown>0.001 else ""))
+			var state_text := "관전" if main.network.client_is_spectator else ("서버 확인 중" if waiting else ("자원 -%d" % missing if missing>0 else ("대기 %.1f초" % cooldown if cooldown>0.001 else "")))
 			if state_label.text!=state_text: state_label.text = state_text
 			state_label.visible = not state_text.is_empty()
 		if button.disabled != unavailable:
 			button.disabled = unavailable
 			button.modulate = Color(0.4, 0.4, 0.4, 1.0) if unavailable else Color.WHITE
 		if state_label: state_label.modulate = Color(2.5,2.5,2.5,1.0) if unavailable else Color.WHITE
-		if unavailable and button.has_meta("structure_kind") and is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")):
+		if unavailable and not waiting and button.has_meta("structure_kind") and is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")):
 			main.battle_view.selected_structure = ""
 			clear_selection = true
 	if clear_selection:

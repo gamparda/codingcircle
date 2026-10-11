@@ -4,6 +4,7 @@ extends Control
 const Localization = preload("res://scripts/Localization.gd")
 
 signal battlefield_clicked(world_x: float)
+signal build_touch_cancelled
 signal rage_started(unit_id: int)
 
 const Motion = preload("res://scripts/BattleMotion.gd")
@@ -88,6 +89,8 @@ var rage_states: Dictionary = {}
 var rage_flashes: Dictionary = {}
 var walk_times: Dictionary = {}
 var touch_preview_active := false
+var build_touch_index := -1
+var build_touch_kind := ""
 var finale_world_side := -1
 ## Replay-viewer extras, all inert unless `inspect_mode` is set: clicking a unit, wheel zoom, middle-drag pan.
 var inspect_mode := false
@@ -289,24 +292,61 @@ func _process(delta: float) -> void:
 	if not selected_structure.is_empty() or not snapshot.get("units", []).is_empty() or not visual_events.is_empty():
 		queue_redraw()
 
+func reset_build_touch() -> void:
+	build_touch_index = -1
+	build_touch_kind = ""
+	queue_redraw()
+
+func update_build_touch(index: int, position_value: Vector2) -> bool:
+	if index != build_touch_index or build_touch_index < 0:
+		return false
+	if selected_structure != build_touch_kind:
+		reset_build_touch()
+		return false
+	touch_preview_active = true
+	mouse_position = position_value
+	queue_redraw()
+	return true
+
+func finish_build_touch(index: int, position_value: Vector2, canceled: bool = false) -> bool:
+	if not update_build_touch(index, position_value):
+		return false
+	reset_build_touch()
+	if canceled or not Rect2(Vector2.ZERO, size).has_point(position_value):
+		build_touch_cancelled.emit()
+	else:
+		battlefield_clicked.emit(screen_to_world_x(position_value.x))
+	return true
+
 func _gui_input(event: InputEvent) -> void:
 	if inspect_mode and _inspect_input(event):
 		if is_inside_tree(): accept_event()
 		return
+	# Placement uses the original touch event; its emulated mouse event must
+	# neither move another finger's preview nor repeat the release action.
+	if not inspect_mode and (event is InputEventMouseMotion or event is InputEventMouseButton) and event.device == InputEvent.DEVICE_ID_EMULATION:
+		if is_inside_tree(): accept_event()
+		return
 	if event is InputEventMouseMotion:
+		if build_touch_index >= 0:
+			return
 		touch_preview_active = false
 		mouse_position = event.position
 	elif event is InputEventScreenTouch:
-		touch_preview_active = true
-		mouse_position = event.position
-		if not event.pressed:
-			battlefield_clicked.emit(screen_to_world_x(event.position.x))
+		if event.pressed and build_touch_index < 0 and not selected_structure.is_empty() and Rect2(Vector2.ZERO, size).has_point(event.position):
+			build_touch_index = event.index
+			build_touch_kind = selected_structure
+			update_build_touch(event.index, event.position)
+		elif not event.pressed:
+			finish_build_touch(event.index, event.position, event.canceled)
 		if is_inside_tree(): accept_event()
 	elif event is InputEventScreenDrag:
-		touch_preview_active = true
-		mouse_position = event.position
+		update_build_touch(event.index, event.position)
 		if is_inside_tree(): accept_event()
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		if build_touch_index >= 0:
+			if is_inside_tree(): accept_event()
+			return
 		mouse_position = event.position
 		var world_x: float = screen_to_world_x(event.position.x)
 		battlefield_clicked.emit(world_x)
@@ -683,7 +723,10 @@ func build_preview(world_x: float) -> Dictionary:
 		if own_side == 0: upper = BattleModel.BLUE_REAR_MAX
 		else: lower = BattleModel.RED_REAR_MIN
 	var stats: Dictionary = BattleModel.STRUCTURE_STATS.get(kind, {})
-	return {"error": placement_error(kind, world_x), "lower": lower, "upper": upper,
+	var error := placement_error(kind, world_x)
+	if build_touch_index >= 0 and not Rect2(Vector2.ZERO, size).has_point(mouse_position):
+		error = Localization.text("전장 밖에서 손을 떼면 설치하지 않습니다.")
+	return {"error": error, "lower": lower, "upper": upper,
 		"radius": float(stats.get("radius", stats.get("range", 0.0))), "x": world_x}
 
 func _draw_build_preview(lane_y: float) -> void:

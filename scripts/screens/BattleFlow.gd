@@ -166,7 +166,7 @@ static func _on_match_found(main, side: int) -> void:
 		main.network.send_spawn("swordsman")
 
 static func _on_battlefield_clicked(main, world_x: float) -> void:
-	if main.network.client_is_spectator or (not main.local_ai_mode and main.network_paused) or main.result_shown or (main.local_ai_mode and not main.campaign_mode and main.practice.paused): return
+	if not main.battle_active or main.network.client_is_spectator or (not main.local_ai_mode and main.network_paused) or main.result_shown or main.finale_active or (main.local_ai_mode and not main.campaign_mode and main.practice.paused) or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay) or (is_instance_valid(main.battle_chat_panel) and main.battle_chat_panel.visible): return
 	if not is_instance_valid(main.battle_view) or main.battle_view.selected_structure.is_empty() or main.placement_pending:
 		return
 	var kind = main.battle_view.selected_structure
@@ -184,6 +184,8 @@ static func _on_battlefield_clicked(main, world_x: float) -> void:
 			main._tutorial_advance(1)
 	else:
 		main.placement_pending = true
+		main._refresh_structure_selection()
+		main._refresh_purchase_buttons(main.latest_resources)
 		main.network.send_structure(kind, world_x)
 		main._show_placement_status(Localization.text("서버 확인 중..."), 0.0)
 
@@ -193,7 +195,8 @@ static func _on_structure_placement_result(main, success: bool, error: String) -
 		return
 	if success:
 		main.battle_view.selected_structure = ""
-		main._refresh_structure_selection()
+	main._refresh_purchase_buttons(main.latest_resources)
+	main._refresh_structure_selection()
 	main._show_placement_status(Localization.text("건설 완료") if success else (error if not error.is_empty() else Localization.text("구조물을 설치하지 못했습니다.")))
 
 static func _on_snapshot(main, data: Dictionary) -> void:

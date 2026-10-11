@@ -120,6 +120,7 @@ var profile_load_details := ""
 var campaign_mode := false
 var result_recorded := false
 var placement_status_label: Label
+var placement_hint_label: Label
 var structure_count_label: Label
 var placement_pending := false
 var placement_message_serial := 0
@@ -348,16 +349,21 @@ func _input(event: InputEvent) -> void:
 			settings_touch_scroll.scroll_vertical = maxi(0, settings_touch_scroll.scroll_vertical - roundi(event.relative.y))
 			get_viewport().set_input_as_handled()
 			return
-	if event is InputEventScreenDrag and battle_active and is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty():
-		battle_view.mouse_position = event.position - battle_view.get_global_rect().position
-		battle_view.queue_redraw()
-		return
-	if event is InputEventScreenTouch and not event.pressed and battle_active and is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty():
-		var local_position: Vector2 = battle_view.get_global_transform_with_canvas().affine_inverse() * event.position
-		if Rect2(Vector2.ZERO, battle_view.size).has_point(local_position):
-			_on_battlefield_clicked(battle_view.screen_to_world_x(local_position.x))
-			get_viewport().set_input_as_handled()
-		return
+	if battle_active and is_instance_valid(battle_view) and battle_view.build_touch_index >= 0:
+		# Only capture a gesture that the battlefield itself started. HUD and modal
+		# touches must reach their controls, even while a structure is selected.
+		if result_shown or finale_active or placement_pending or network.client_is_spectator or (not local_ai_mode and network_paused) or (local_ai_mode and not campaign_mode and practice.paused) or is_instance_valid(stats_overlay) or is_instance_valid(report_overlay) or is_instance_valid(action_overlay) or (is_instance_valid(battle_chat_panel) and battle_chat_panel.visible):
+			battle_view.reset_build_touch()
+		elif event is InputEventScreenDrag:
+			var local_position: Vector2 = battle_view.get_global_transform_with_canvas().affine_inverse() * event.position
+			if battle_view.update_build_touch(event.index, local_position):
+				get_viewport().set_input_as_handled()
+				return
+		elif event is InputEventScreenTouch and not event.pressed:
+			var local_position: Vector2 = battle_view.get_global_transform_with_canvas().affine_inverse() * event.position
+			if battle_view.finish_build_touch(event.index, local_position, event.canceled):
+				get_viewport().set_input_as_handled()
+				return
 	if event is InputEventKey and _battle_text_has_focus(): return
 	if event is InputEventKey and _handle_battle_hotkey(event):
 		get_viewport().set_input_as_handled(); return
@@ -367,9 +373,7 @@ func _input(event: InputEvent) -> void:
 		_set_fullscreen(not bool(save_data.settings.fullscreen))
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_ESCAPE and battle_active and is_instance_valid(battle_view) and not battle_view.selected_structure.is_empty():
-		battle_view.selected_structure = ""
-		_refresh_structure_selection()
-		_show_placement_status(Localization.text("건설을 취소했습니다."))
+		_cancel_build_selection()
 		get_viewport().set_input_as_handled()
 
 func _server_can_update() -> bool:
@@ -481,6 +485,7 @@ func _clear_screen() -> void:
 	result_overlay = null
 	stats_overlay = null
 	placement_status_label = null
+	placement_hint_label = null
 	structure_count_label = null
 	connect_button_ref = null
 	join_button_ref = null
@@ -1019,6 +1024,9 @@ func _purchase_unit(kind: String) -> void:
 	BattleFlow._purchase_unit(self, kind)
 
 func _cancel_build_selection() -> void:
+	if placement_pending:
+		_show_placement_status("서버 확인 중입니다. 이미 요청한 설치는 취소할 수 없습니다.", 0.0)
+		return
 	if is_instance_valid(battle_view): battle_view.selected_structure = ""
 	_refresh_structure_selection(); _show_placement_status("건설을 취소했습니다.")
 
@@ -1046,6 +1054,7 @@ func _dismiss_action_overlay() -> void:
 	action_overlay = null
 
 func _action_panel(title: String, rect: Rect2) -> VBoxContainer:
+	if is_instance_valid(battle_view): battle_view.reset_build_touch()
 	_dismiss_action_overlay()
 	action_overlay = ColorRect.new(); action_overlay.name = "BattleActionOverlay"; action_overlay.color = Color(0.02,0.03,0.05,0.95); action_overlay.size = Vector2(1280,720); action_overlay.z_index = 160; root_background.add_child(action_overlay)
 	var column := MultiplayerUI.panel(self,action_overlay,"BattleActionPanel",rect)
