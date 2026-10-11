@@ -10,6 +10,10 @@ const DraftMatch = preload("res://scripts/DraftMatch.gd")
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
 const CombatSounds = preload("res://scripts/CombatSounds.gd")
 
+static func _reset_result(main) -> void:
+	main.result_recorded = false
+	main.result_presentation = {}
+
 static func _start_local_ai_battle(main, stage: int = 1, reuse_deck: bool = false) -> void:
 	main.ghost_context = {}
 	main.daily_challenge = {}
@@ -17,7 +21,7 @@ static func _start_local_ai_battle(main, stage: int = 1, reuse_deck: bool = fals
 	main.local_ai_mode = true
 	main.practice.reset_battle_state()
 	main.practice_used_tools = not main.campaign_mode and (main.practice.unlimited or not main.practice.enemy_units.is_empty() or main.practice.speed!=1.0)
-	main.result_recorded = false
+	_reset_result(main)
 	main.current_ai_stage = clampi(stage, ServerAI.MIN_STAGE, ServerAI.MAX_STAGE)
 	main.own_side = 0
 	main.local_model = BattleModel.new()
@@ -57,7 +61,7 @@ static func _begin_scripted_battle(main, model: BattleModel, opponent, preset: D
 	main.local_ai_mode = true
 	main.practice.reset_battle_state()
 	main.practice_used_tools = true
-	main.result_recorded = false
+	_reset_result(main)
 	main.current_ai_stage = 1
 	main.own_side = 0
 	main.local_model = model
@@ -109,7 +113,7 @@ static func _start_daily_challenge(main, period: String = "daily") -> void:
 	main.local_ai_mode = true
 	main.practice.reset_battle_state()
 	main.practice_used_tools = false
-	main.result_recorded = false
+	_reset_result(main)
 	main.current_ai_stage = int(setup.stage)
 	main.own_side = 0
 	main.local_model = setup.model
@@ -133,7 +137,7 @@ static func _start_draft_battle(main, my_units: Array, enemy_units: Array, stage
 	main.local_ai_mode = true
 	main.practice.reset_battle_state()
 	main.practice_used_tools = false
-	main.result_recorded = false
+	_reset_result(main)
 	main.current_ai_stage = int(setup.stage)
 	main.own_side = 0
 	main.local_model = setup.model
@@ -154,7 +158,7 @@ static func _restart_context(main) -> void:
 		_start_ghost_battle(main, context.replay)
 
 static func _on_match_found(main, side: int) -> void:
-	if not main.resuming_battle_ui: main.result_recorded = false
+	if not main.resuming_battle_ui: _reset_result(main)
 	main.resuming_battle_ui = false
 	main.multiplayer_screen = ""
 	main.local_ai_mode = false
@@ -203,6 +207,10 @@ static func _on_structure_placement_result(main, success: bool, error: String) -
 static func _on_snapshot(main, data: Dictionary) -> void:
 	if not main.battle_active or not is_instance_valid(main.battle_view):
 		return
+	# A delayed live snapshot cannot reopen a confirmed result. New matches reset
+	# this state at their start; rebuilding the same match after recovery does not.
+	if not main.result_presentation.is_empty() and int(data.get("winner", -1)) == -1:
+		return
 	main.current_snapshot = data
 	main.battle_view.set_snapshot(data)
 	if float(data.get("elapsed", 0.0)) >= main.curve_next_elapsed and int(data.get("winner", -1)) == -1:
@@ -246,15 +254,30 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 	main._update_base_warning(data)
 	var winner: int = int(data.get("winner", -1))
 	if winner != -1 and not main.result_shown:
-		if not _begin_finale(main, data, winner):
+		# Progress and the finished replay must survive a disconnect or navigation
+		# during the visual delay. The result screen reuses these rewards.
+		var had_result: bool = not main.result_presentation.is_empty()
+		main._dismiss_action_overlay()
+		main._record_battle_result(winner)
+		if not main.local_ai_mode and (main.awaiting_battle_snapshot or main.network.client_reconnecting):
+			return
+		# On recovery, a previously confirmed result can appear immediately.
+		if (had_result and not main.finale_active) or not _begin_finale(main, data, winner):
 			main._show_result(winner)
 	elif winner == -1 and main.result_shown:
 		main._dismiss_result_overlay()
-		main.result_recorded = false
 		main.updater.set_safe_to_update(false)
 		main._refresh_purchase_buttons(main.latest_resources)
 
 const FINALE_TIME_SCALE := 0.35
+
+## Cancel before replacing a view or displaying an immediate result. An old
+## timer must not restore time or display a result in a newer battle.
+static func _cancel_finale(main) -> void:
+	main.finale_serial += 1
+	if main.finale_active:
+		Engine.time_scale = 1.0
+	main.finale_active = false
 
 ## When a base has actually been destroyed, let it collapse in slow motion before the result appears.
 ## Returns true while the finale is still running (the caller must not show the result yet).
@@ -266,13 +289,23 @@ static func _begin_finale(main, data: Dictionary, winner: int) -> bool:
 	if float(data.get("base_hp", [1.0, 1.0])[1 - winner]) > 0.0:
 		return false # surrender or disconnect: nothing was destroyed
 	main.finale_active = true
+	main.finale_serial += 1
+	var serial: int = main.finale_serial
+	var view: BattleView = main.battle_view
 	main.battle_view.start_finale(1 - winner)
 	Engine.time_scale = FINALE_TIME_SCALE
 	main.get_tree().create_timer(main.finale_seconds, true, false, true).timeout.connect(func():
-		Engine.time_scale = 1.0
-		main.finale_active = false
-		if main.battle_active and not main.result_shown and is_instance_valid(main.battle_view):
-			main._show_result(int(main.current_snapshot.get("winner", winner))))
+		if not is_instance_valid(main) or serial != main.finale_serial:
+			return
+		_cancel_finale(main)
+		if not main.battle_active or main.result_shown or not is_instance_valid(view) or main.battle_view != view:
+			return
+		# Recovery must supply a fresh terminal snapshot before showing the result.
+		if main.awaiting_battle_snapshot or main.network.client_reconnecting:
+			return
+		var confirmed_winner: int = int(main.current_snapshot.get("winner", -1))
+		if confirmed_winner in [0, 1, 2]:
+			main._show_result(confirmed_winner))
 	return true
 
 static func _on_rage_started(main, _unit_id: int) -> void:

@@ -60,7 +60,7 @@ static func _on_room_join_failed(main, error: String) -> void:
 	main._set_room_controls_disabled(false)
 
 static func _on_opponent_left(main) -> void:
-	if main.battle_active and not main.result_shown and not main.save_data.is_empty() and not main.network.client_is_spectator:
+	if main.battle_active and not main.local_ai_mode and not main.result_recorded and not main.result_shown and not main.save_data.is_empty() and not main.network.client_is_spectator:
 		main.save_data.stats.online_interrupted += 1; main._save_profile()
 	main.local_ai_mode = false; main.battle_active = false
 	main.network.disconnect_from_server()
@@ -205,6 +205,9 @@ static func _send_session_chat(main) -> void:
 	main.network.request_session_chat.rpc_id(1,text); main.session_chat_input.text = ""
 
 static func _on_spectate_started(main) -> void:
+	if not main.resuming_battle_ui:
+		main._reset_battle_result()
+	main.resuming_battle_ui = false
 	main.local_ai_mode = false; main.campaign_mode = false; main.own_side = 0; main.multiplayer_screen = ""
 	var players: Array = main.network.client_session.get("members",[]).filter(func(member): return member.role=="player")
 	if not players.is_empty(): main.battle_preset = players[0].deck.duplicate(true)
@@ -220,6 +223,7 @@ static func _on_reconnect_status(main, active: bool, remaining: float) -> void:
 		main.resuming_battle_ui = true
 		main.network_paused = true
 		if main.battle_active and not main.local_ai_mode:
+			main._cancel_battle_finale()
 			main.awaiting_battle_snapshot = true
 		var text := "연결 복구 중 · %d초"%ceili(remaining)
 		if is_instance_valid(main.recovery_label) and main.recovery_label.text!=text: main.recovery_label.text=text

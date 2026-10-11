@@ -86,6 +86,7 @@ var battle_contested := false # becomes true at the first attack; before that th
 var ghost_context: Dictionary = {}   # {"mode": "ghost" | "branch", "replay": Dictionary, "tick": int}
 var finale_seconds := 1.4 # real seconds of base-collapse slow motion before the result; 0 disables it
 var finale_active := false
+var finale_serial := 0 # Invalidates delayed callbacks when the battle view changes.
 var helper_service = null # lends spare CPU to the main server's job queue when "계산 돕기" is on
 var running_as_assist := false # started with --assist: the assist server window instead of the game
 var draft_context: Dictionary = {} # stage and decks while a drafted battle is running
@@ -120,6 +121,7 @@ var profile_load_warning := ""
 var profile_load_details := ""
 var campaign_mode := false
 var result_recorded := false
+var result_presentation: Dictionary = {} # Rewards captured when the result is first confirmed.
 var placement_status_label: Label
 var placement_hint_label: Label
 var structure_count_label: Label
@@ -462,7 +464,11 @@ func _update_server_lifecycle(delta: float) -> void:
 	var status_path := server_state_dir.path_join("server-status.json")
 	preload("res://scripts/ServerStats.gd").write_json(status_path, status)
 
+func _exit_tree() -> void:
+	BattleFlow._cancel_finale(self)
+
 func _clear_screen() -> void:
+	BattleFlow._cancel_finale(self)
 	awaiting_battle_snapshot = false
 	_cancel_binding_capture()
 	binding_buttons.clear(); binding_hint=null; binding_draft.clear()
@@ -910,6 +916,15 @@ func _on_combat_events(events: Array) -> void:
 
 func _show_result(winner: int) -> void:
 	ResultScreens._show_result(self, winner)
+
+func _cancel_battle_finale() -> void:
+	BattleFlow._cancel_finale(self)
+
+func _reset_battle_result() -> void:
+	BattleFlow._reset_result(self)
+
+func _record_battle_result(winner: int) -> Dictionary:
+	return ResultScreens._record_result(self, winner)
 
 func _dismiss_result_overlay() -> void:
 	if is_instance_valid(result_overlay):

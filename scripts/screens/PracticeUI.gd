@@ -133,10 +133,12 @@ static func _add_practice_controls(main) -> void:
 
 static func _confirm_surrender(main) -> void:
 	if not main.battle_active or main.result_shown or main.network.client_is_spectator: return
+	if main.finale_active or int(main.current_snapshot.get("winner", -1)) != -1: return
 	var column = main._action_panel("항복할까요?",Rect2(400,230,480,260))
 	column.add_child(MultiplayerUI.label("이 경기는 패배로 종료됩니다.",16,MultiplayerUI.MUTED))
 	MultiplayerUI.button(main,column,"항복","ConfirmSurrender",func():
 		main._dismiss_action_overlay()
+		if not main.battle_active or main.result_shown or int(main.current_snapshot.get("winner", -1)) != -1: return
 		if main.local_ai_mode:
 			main.local_model.winner=1-main.own_side; main._on_snapshot(main.local_model.snapshot())
 		else: main.network.send_surrender()

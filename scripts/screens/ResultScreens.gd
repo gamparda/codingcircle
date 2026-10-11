@@ -16,16 +16,11 @@ const MetaStats = preload("res://scripts/MetaStats.gd")
 const Goals = preload("res://scripts/Goals.gd")
 const ServerLink = preload("res://scripts/ServerLink.gd")
 
-static func _show_result(main, winner: int) -> void:
-	main._dismiss_result_overlay()
-	main._dismiss_stats_panel()
-	if is_instance_valid(main.tutorial_banner):
-		main.tutorial_banner.queue_free()
-	main.tutorial_banner = null
-	main.tutorial_hint = null
-	main.tutorial_step = -1
-	main.result_shown = true
-	main._refresh_purchase_buttons(main.latest_resources)
+## Account for the confirmed result before any visual delay; keep the reward
+## presentation so recovery can rebuild the screen without awarding it again.
+static func _record_result(main, winner: int) -> Dictionary:
+	if (main.result_recorded or main.network.client_is_spectator) and not main.result_presentation.is_empty():
+		return main.result_presentation
 	var goals_before := Goals.done_ids(main.save_data)
 	var awarded_stars := 0
 	var growth_before := SaveData.campaign_growth_level(main.save_data)
@@ -55,6 +50,29 @@ static func _show_result(main, winner: int) -> void:
 		var queued := _share_result(main, winner)
 		if main._save_profile() and queued:
 			ServerLink.run(main, main._flush_shared_results, Callable(), false)
+	main.result_presentation = {"winner": winner, "goals_before": goals_before,
+		"awarded_stars": awarded_stars, "growth_before": growth_before, "unlocked": unlocked,
+		"summary": ReplayAnalysis.summary_line(main.battle_curve, winner, main.own_side)}
+	return main.result_presentation
+
+static func _show_result(main, winner: int) -> void:
+	if winner not in [0, 1, 2]:
+		return
+	main._cancel_battle_finale()
+	main._dismiss_result_overlay()
+	main._dismiss_stats_panel()
+	if is_instance_valid(main.tutorial_banner):
+		main.tutorial_banner.queue_free()
+	main.tutorial_banner = null
+	main.tutorial_hint = null
+	main.tutorial_step = -1
+	main.result_shown = true
+	main._refresh_purchase_buttons(main.latest_resources)
+	var presentation := _record_result(main, winner)
+	var goals_before: Array = presentation.goals_before
+	var awarded_stars: int = int(presentation.awarded_stars)
+	var growth_before: int = int(presentation.growth_before)
+	var unlocked: Array = presentation.unlocked
 	main.updater.set_safe_to_update(main._client_can_update())
 	main.updater.check_for_update()
 	var screen := Control.new()
@@ -201,7 +219,7 @@ static func _show_result(main, winner: int) -> void:
 	if not main.local_ai_mode:
 		inner.add_child(_match_strip(main, winner, Vector2(28, 252), 524))
 	var notes_y := 300.0 + strip_extra
-	var summary_text := "" if main.network.client_is_spectator else ReplayAnalysis.summary_line(main.battle_curve, winner, main.own_side)
+	var summary_text := "" if main.network.client_is_spectator else String(presentation.summary)
 	if not summary_text.is_empty():
 		var summary_label := Label.new()
 		summary_label.name = "MatchSummaryLine"
