@@ -64,6 +64,7 @@ var action_overlay: Control
 var latency_label: Label
 var recovery_label: Label
 var network_paused := false
+var awaiting_battle_snapshot := false # Transport recovery alone does not refresh battle resources.
 var resuming_battle_ui := false
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
 var binding_draft: Array = []
@@ -462,6 +463,7 @@ func _update_server_lifecycle(delta: float) -> void:
 	preload("res://scripts/ServerStats.gd").write_json(status_path, status)
 
 func _clear_screen() -> void:
+	awaiting_battle_snapshot = false
 	_cancel_binding_capture()
 	binding_buttons.clear(); binding_hint=null; binding_draft.clear()
 	for player in combat_sfx_players:

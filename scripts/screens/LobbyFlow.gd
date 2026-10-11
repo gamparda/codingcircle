@@ -219,10 +219,13 @@ static func _on_reconnect_status(main, active: bool, remaining: float) -> void:
 	if active:
 		main.resuming_battle_ui = true
 		main.network_paused = true
+		if main.battle_active and not main.local_ai_mode:
+			main.awaiting_battle_snapshot = true
 		var text := "연결 복구 중 · %d초"%ceili(remaining)
 		if is_instance_valid(main.recovery_label) and main.recovery_label.text!=text: main.recovery_label.text=text
 		elif is_instance_valid(main.status_label): main.status_label.text=text
-	elif is_instance_valid(main.recovery_label): main.recovery_label.text=""
+	elif is_instance_valid(main.recovery_label):
+		main.recovery_label.text = "최신 전투 상태를 받는 중" if main.awaiting_battle_snapshot else ""
 	# The local connection can change while the opponent's recovery already
 	# holds the battle paused. Refresh even if network_paused did not change.
 	main._refresh_purchase_buttons(main.latest_resources)
@@ -233,4 +236,4 @@ static func _on_recovery_changed(main, data: Dictionary) -> void:
 	if main.network_paused!=paused:
 		main.network_paused=paused; main._refresh_purchase_buttons(main.latest_resources)
 	if is_instance_valid(main.recovery_label) and not main.network.client_reconnecting:
-		main.recovery_label.text="상대 연결 복구 대기 · %d초"%ceili(float(data.get("reconnect_remaining",0))) if paused else ""
+		main.recovery_label.text="상대 연결 복구 대기 · %d초"%ceili(float(data.get("reconnect_remaining",0))) if paused else ("최신 전투 상태를 받는 중" if main.awaiting_battle_snapshot else "")

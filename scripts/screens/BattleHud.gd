@@ -19,6 +19,10 @@ static func _build_battle_screen(main) -> void:
 	main.result_shown = false
 	main.updater.set_safe_to_update(false)
 	main._clear_screen()
+	# A new view must not inherit the previous battle's winner, resources or cooldowns.
+	main.current_snapshot = {}
+	main.latest_resources = 0.0
+	main.awaiting_battle_snapshot = not main.local_ai_mode
 	main.root_background = main._make_background()
 
 	var top := ColorRect.new()
@@ -197,12 +201,14 @@ static func _build_battle_screen(main) -> void:
 		var surrender = main._styled_button("항복",Color("#8f4652")); surrender.name = "SurrenderButton"; surrender.position = Vector2(14,98); surrender.size = Vector2(136,48); surrender.z_index = 10; surrender.visible = not main.network.client_is_spectator; surrender.pressed.connect(main._confirm_surrender); main.root_background.add_child(surrender)
 		main.recovery_label = ToastLabel.new(); main.recovery_label.name = "NetworkRecoveryStatus"; main.recovery_label.tone = UIKit.GOLD; main.root_background.add_child(main.recovery_label)
 		main.recovery_label.place_center(640.0, 156.0)
+		main.recovery_label.text = "최신 전투 상태를 받는 중"
 	if not main.network.client_session.is_empty(): main._add_battle_chat()
 	if not main.local_ai_mode: main._on_latency_updated(main.network.latency_ms)
 
 	main.base_warning_label = ToastLabel.new(); main.base_warning_label.name = "BaseDangerWarning"; main.base_warning_label.text = "기지 체력 위험"; main.base_warning_label.tone = UIKit.DANGER; main.base_warning_label.visible = false; main.root_background.add_child(main.base_warning_label)
 	main.base_warning_label.place_center(640.0, 96.0)
 	main.cancel_build_button = main._styled_button("설치 취소 · Esc",Color("#697386")); main.cancel_build_button.name = "CancelBuildButton"; main.cancel_build_button.position = Vector2(536,480); main.cancel_build_button.size = Vector2(208,58); main.cancel_build_button.visible = false; main.cancel_build_button.z_index = 10; main.cancel_build_button.pressed.connect(main._cancel_build_selection); main.root_background.add_child(main.cancel_build_button)
+	main._refresh_purchase_buttons(main.latest_resources)
 	_battle_intro(main)
 
 ## "STAGE 03 · 전진" style band that slides in, holds, and leaves. Purely decorative (ignores input).
@@ -603,6 +609,7 @@ static func _purchase_block_reason(main) -> String:
 		return "관전"
 	if not main.local_ai_mode:
 		if main.network.client_reconnecting: return "연결 복구 중"
+		if main.awaiting_battle_snapshot: return "상태 수신 중"
 		if main.network_paused: return "복구 대기"
 	elif not main.campaign_mode and main.practice.paused:
 		return "일시정지"
@@ -613,28 +620,34 @@ static func _purchase_block_hint(reason: String) -> String:
 		"전투 종료": "전투가 종료되어 병력 생산과 구조물 설치를 할 수 없습니다.",
 		"관전": "관전 중에는 병력 생산과 구조물 설치를 할 수 없습니다.",
 		"연결 복구 중": "서버 연결을 복구하고 있습니다. 복구 후 전투 상태를 받으면 자원과 생산 대기에 맞춰 구매 카드가 갱신됩니다.",
+		"상태 수신 중": "최신 전투 상태를 기다리고 있습니다. 자원·생산 대기·설치 개수를 받은 뒤 구매할 수 있습니다.",
 		"복구 대기": "전투 상태를 복구하고 있습니다. 전투가 재개되면 자원과 생산 대기에 맞춰 구매 카드가 갱신됩니다.",
 		"일시정지": "전투가 일시정지되어 있습니다. 상단의 계속 버튼으로 재개하세요.",
 	}.get(reason, "")
 
 static func _refresh_purchase_buttons(main, resources: float) -> void:
 	main.latest_resources = resources
+	var awaiting_state: bool = not main.local_ai_mode and main.awaiting_battle_snapshot
+	if awaiting_state and is_instance_valid(main.resource_label):
+		main.resource_label.text = "동기화 중"
+		var resource_bar = main.resource_label.get_meta("bar", null)
+		if is_instance_valid(resource_bar): resource_bar.visible = false
 	var block_reason := _purchase_block_reason(main)
 	var block_hint := _purchase_block_hint(block_reason)
 	var counts := BattleModel.structure_counts(main.current_snapshot.get("structures", []), main.own_side)
 	if is_instance_valid(main.structure_count_label):
-		main.structure_count_label.text = "구조물 %d / %d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT]
-		main.structure_count_label.add_theme_color_override("font_color", UIKit.GOLD if int(counts.total) >= BattleModel.STRUCTURE_LIMIT else Color("#a7afc0"))
+		main.structure_count_label.text = "구조물 — / %d" % BattleModel.STRUCTURE_LIMIT if awaiting_state else "구조물 %d / %d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT]
+		main.structure_count_label.add_theme_color_override("font_color", UIKit.GOLD if not awaiting_state and int(counts.total) >= BattleModel.STRUCTURE_LIMIT else Color("#a7afc0"))
 	var clear_selection := false
 	for button in main.purchase_buttons:
 		if not is_instance_valid(button):
 			continue
 		var cooldown := 0.0
-		if button.has_meta("unit_kind"):
+		if button.has_meta("unit_kind") and not awaiting_state:
 			var kind: String = button.get_meta("unit_kind")
 			var advertised: Array = main.current_snapshot.get("spawn_cooldowns",[{},{}])
 			cooldown = maxf(float(advertised[main.own_side].get(kind,0.0)),maxf(0.0,float(main.client_purchase_gates.get(kind,0))-Time.get_ticks_msec())/1000.0)
-		var missing := maxi(0,ceili(float(button.get_meta("purchase_cost"))-resources))
+		var missing := 0 if awaiting_state else maxi(0,ceili(float(button.get_meta("purchase_cost"))-resources))
 		var waiting: bool = main.placement_pending and button.has_meta("structure_kind")
 		var limit_error := ""
 		var limit_state := ""
@@ -644,13 +657,15 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			var count := int(counts.kinds.get(kind, 0))
 			var maximum := int(BattleModel.STRUCTURE_STATS[kind].get("max_count", BattleModel.STRUCTURE_LIMIT))
 			var lines := String(button.get_meta("base_text")).split("\n")
-			lines[0] += " · %d/%d" % [count, maximum]
+			lines[0] += " · —/%d" % maximum if awaiting_state else " · %d/%d" % [count, maximum]
 			var card_text := "\n".join(lines)
 			if button.text != card_text: button.text = card_text
-			limit_error = BattleModel.structure_limit_error(kind, counts)
+			limit_error = "" if awaiting_state else BattleModel.structure_limit_error(kind, counts)
 			if not limit_error.is_empty():
 				limit_state = "전체 한도 %d/%d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT] if int(counts.total) >= BattleModel.STRUCTURE_LIMIT else "종류 한도 %d/%d" % [count, maximum]
-			tooltip = "%s\n설치 %d / %d · 전체 %d / %d" % [String(button.get_meta("base_text")), count, maximum, int(counts.total), BattleModel.STRUCTURE_LIMIT]
+			tooltip = String(button.get_meta("base_text"))
+			if not awaiting_state:
+				tooltip += "\n설치 %d / %d · 전체 %d / %d" % [count, maximum, int(counts.total), BattleModel.STRUCTURE_LIMIT]
 			if not block_hint.is_empty():
 				tooltip += "\n" + block_hint
 			if waiting:

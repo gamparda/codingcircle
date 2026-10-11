@@ -223,8 +223,14 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 	main.resource_label.text = "%d / %d" % [int(resources[main.own_side]), int(resource_cap)]
 	var resource_bar = main.resource_label.get_meta("bar", null)
 	if is_instance_valid(resource_bar):
+		resource_bar.visible = true
 		resource_bar.max_value = resource_cap
 		resource_bar.value = float(resources[main.own_side])
+	# Release the purchase lock after replacing the snapshot and resource display.
+	if not main.local_ai_mode and not main.network.client_reconnecting:
+		main.awaiting_battle_snapshot = false
+		if not main.network_paused and is_instance_valid(main.recovery_label):
+			main.recovery_label.text = ""
 	main._refresh_purchase_buttons(float(resources[main.own_side]))
 	if main.local_ai_mode and main.tutorial_step == 2 and float(resources[main.own_side]) > main.tutorial_low_resource + 0.5:
 		main._tutorial_advance(2)
