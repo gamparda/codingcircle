@@ -89,6 +89,37 @@ func run() -> void:
 	check(alpha.cancel_quick_match(), "alpha cancels")
 	if not await require(func(): return statuses.get(0, "") == "cancelled" and alpha.client_connection_state == "lobby" and server.quick_queue.size() == 0, "cancel returns alpha to the lobby and empties the queue"): return
 	alpha.start_quick_match()
+	if not await require(func(): return server.quick_queue.size() == 1, "alpha waits before the storage outage"): return
+	var Replay = preload("res://scripts/BattleReplay.gd")
+	var original_dir: String = Replay.save_dir
+	Replay.save_dir = "user://quick_match_backlog/blocked"
+	DirAccess.make_dir_recursive_absolute("user://quick_match_backlog")
+	var blocker := FileAccess.open(Replay.save_dir, FileAccess.WRITE)
+	blocker.store_string("blocked archive")
+	blocker.close()
+	for index in server.replays.MAX_PENDING:
+		var completed := BattleModel.new()
+		server.replays.begin(10000 + index, completed)
+		completed.winner = 0
+		server.replays.settle(10000 + index, completed)
+	var errors: Array = []
+	beta.session_error.connect(func(text): errors.append(text))
+	beta.create_session_room("장애 중 새 방")
+	if not await require(func(): return errors.size() == 1 and beta.client_connection_state == "lobby", "backlog rejects new persistent rooms without disconnecting the client"): return
+	beta.start_quick_match()
+	if not await require(func(): return errors.size() == 2 and beta.client_connection_state == "lobby", "backlog rejects new quick matches with a retryable error"): return
+	check(errors[0].contains("기록 저장") and not beta.client_in_match and server.quick_queue.has(alpha.multiplayer.get_unique_id()), "storage-specific error preserves the earlier waiting player")
+	server._pair_quick_queue()
+	check(server.quick_queue.size() == 1 and server.models.is_empty(), "pairing during outage does not consume the waiting queue")
+	DirAccess.remove_absolute(Replay.save_dir)
+	server._advance_persistence(NetworkController.PERSISTENCE_RETRY_SECONDS)
+	check(server.replays.pending.is_empty() and server.can_create_match() and server.replays.saved_paths.size() == server.replays.MAX_PENDING, "periodic persistence recovers each pending archive and reopens match admission")
+	for recovered in server.replays.saved_paths:
+		DirAccess.remove_absolute(recovered)
+	server.replays.saved_paths.clear()
+	DirAccess.remove_absolute(Replay.save_dir)
+	DirAccess.remove_absolute("user://quick_match_backlog")
+	Replay.save_dir = original_dir
 	beta.start_quick_match()
 	if not await require(func(): return alpha.client_in_match and beta.client_in_match, "two queued players are paired into a running battle"): return
 	check(alpha.client_session.get("phase", "") == "playing" and alpha.client_session.name == "빠른 대전" and alpha.client_session.members.size() == 2, "pairing creates a normal session room with both players")

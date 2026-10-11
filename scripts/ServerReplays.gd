@@ -6,6 +6,10 @@ extends RefCounted
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const ServerReplayShelf = preload("res://scripts/ServerReplayShelf.gd")
 
+## Pause new battles during sustained storage outages; already running battles still finish.
+const MAX_PENDING := 16
+const MAX_PENDING_COMMANDS := 100000
+
 var enabled := true
 var recorders: Dictionary = {}
 var saved_paths: Array = []
@@ -13,6 +17,15 @@ var saved_paths: Array = []
 var pending: Array = []
 var stats = null
 var shelf = null
+
+func pending_command_count() -> int:
+	var count := 0
+	for entry in pending:
+		count += entry.replay.commands.size()
+	return count
+
+func backlog_full() -> bool:
+	return pending.size() >= MAX_PENDING or pending_command_count() >= MAX_PENDING_COMMANDS
 
 func begin(match_id: int, model: BattleModel, meta: Dictionary = {}) -> void:
 	if enabled:

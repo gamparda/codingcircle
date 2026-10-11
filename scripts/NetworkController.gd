@@ -104,6 +104,7 @@ var persistence_elapsed := 0.0
 var allow_test_room_codes := false
 var client_in_match := false
 var accepting_players := true
+var replay_backlog_blocked := false
 var admission := PeerAdmission.new()
 var request_windows: Dictionary:
 	get: return admission.request_windows
@@ -325,10 +326,10 @@ func peer_should_disconnect_for_drain(peer_id: int) -> bool:
 	return model.winner != -1
 
 func can_accept_room_request() -> bool:
-	return accepting_players
+	return can_create_match()
 
 func can_accept_rematch(model: BattleModel) -> bool:
-	return accepting_players and model.winner != -1
+	return can_create_match() and model.winner != -1
 
 func can_process_request(peer_id: int, now_msec: int = -1) -> bool:
 	return admission.can_process_request(peer_id, now_msec)
@@ -340,7 +341,10 @@ func release_peer_address(peer_id: int) -> void:
 	admission.release_peer_address(peer_id)
 
 func can_create_match() -> bool:
-	return true # No application-level match quota.
+	return accepting_players and not replays.backlog_full()
+
+func match_admission_error() -> String:
+	return "서버가 업데이트 준비 중입니다. 잠시 후 다시 시도하세요." if not accepting_players else "서버의 기록 저장이 지연되어 새 전투를 잠시 보류합니다. 잠시 후 다시 시도하세요."
 
 func can_admit_deck(peer_id: int) -> bool:
 	# Admission must be checked when the deck arrives, not just on connection.
@@ -421,6 +425,7 @@ func _process(delta: float) -> void:
 				_send_room_listing(int(peer_id), int(lobby_pages[peer_id]), listing)
 	_advance_assist(delta)
 	var step := battle.advance(delta, _match_paused)
+	_refresh_backlog_status()
 	for tick in step.ticks:
 		var match_id: int = tick.match_id
 		if tick.finished and session_matches.has(match_id):
@@ -561,7 +566,7 @@ func request_create_room(title: String = "") -> void:
 	var sender := multiplayer.get_remote_sender_id()
 	if sessions.peer_to_room.has(sender): return
 	if not can_accept_room_request():
-		receive_room_join_failed.rpc_id(sender, Localization.text("서버가 업데이트 준비 중입니다. 잠시 후 다시 시도하세요."))
+		receive_room_join_failed.rpc_id(sender, match_admission_error())
 		return
 	if not can_process_request(sender) or not peer_decks.has(sender) or registry.peer_to_room.has(sender) or registry.has_match(sender):
 		receive_room_join_failed.rpc_id(sender, Localization.text("지금은 방을 만들 수 없습니다. 잠시 후 다시 시도하세요."))
@@ -585,7 +590,7 @@ func request_join_room(code: String, create_if_missing: bool = false) -> void:
 	if sessions.peer_to_room.has(sender): return
 	var normalized := code.strip_edges().to_upper()
 	if not can_accept_room_request():
-		receive_room_join_failed.rpc_id(sender, Localization.text("서버가 업데이트 준비 중입니다. 잠시 후 다시 시도하세요."))
+		receive_room_join_failed.rpc_id(sender, match_admission_error())
 		return
 	if not can_process_request(sender) or not peer_decks.has(sender) or not is_valid_room_code(normalized):
 		receive_room_join_failed.rpc_id(sender, Localization.text("올바른 방 코드를 입력하세요."))
@@ -656,6 +661,8 @@ func request_rematch() -> void:
 	if not models.has(match_id):
 		return
 	if not can_accept_rematch(models[match_id]):
+		if not can_create_match():
+			receive_room_join_failed.rpc_id(sender, match_admission_error())
 		return
 	if not rematch_ready.has(match_id):
 		rematch_ready[match_id] = {}
@@ -1115,9 +1122,21 @@ func _advance_persistence(delta: float) -> void:
 
 func flush_persistence() -> void:
 	replays.retry_pending()
+	if BattleReplay.list_saved().size() > BattleReplay.MAX_SAVED:
+		BattleReplay._prune()
 	shelf._trim()
 	stats.flush(true)
 	daily_board.flush()
+	_refresh_backlog_status()
+	if server_mode and can_create_match():
+		_pair_quick_queue()
+
+func _refresh_backlog_status() -> void:
+	var blocked := replays.backlog_full()
+	if blocked == replay_backlog_blocked:
+		return
+	replay_backlog_blocked = blocked
+	print("REPLAY_BACKLOG blocked=%s pending=%d commands=%d" % [blocked, replays.pending.size(), replays.pending_command_count()])
 
 ## Memory-only stores need no disk write. Finished replay archives always do.
 func pending_persistence_count() -> int:

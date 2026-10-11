@@ -11,6 +11,7 @@ const MAX_COMMANDS := 20000
 const MAX_TICKS := 30 * 3600 * 2
 ## Where replays live; tests point this at a scratch folder so they never touch real replays.
 static var save_dir := "user://replays"
+static var _last_saved_path := ""
 const MAX_SAVED := 50
 
 # --- recording ---------------------------------------------------------------
@@ -357,7 +358,9 @@ static func save(replay: Dictionary, name_hint: String = "") -> String:
 		path = "%s_%020d%s.json" % [base, suffix, hint]
 	if not write_file(path, replay):
 		return ""
-	_prune()
+	# Clock changes or externally named files must never remove the file just saved.
+	_last_saved_path = path
+	_prune(path)
 	return path
 
 ## Rewrites an existing replay file (used when notes change).
@@ -381,8 +384,10 @@ static func load_file(path: String) -> Dictionary:
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null or file.get_length() > 4 * 1024 * 1024:
 		return {}
-	var parsed = JSON.parse_string(file.get_as_text())
-	return parsed if valid(parsed) else {}
+	var json := JSON.new()
+	if json.parse(file.get_as_text()) != OK:
+		return {}
+	return json.data if valid(json.data) else {}
 
 static func list_saved() -> Array:
 	var names: Array = []
@@ -395,7 +400,30 @@ static func list_saved() -> Array:
 	names.reverse()
 	return names
 
-static func _prune() -> void:
-	var names := list_saved()
-	for index in range(MAX_SAVED, names.size()):
-		DirAccess.remove_absolute(names[index])
+## Unreadable files may contain recoverable data; leave them for explicit deletion.
+## Returns actual counts so callers can distinguish a successful save from failed cleanup.
+static func _prune(protected_path: String = "") -> Dictionary:
+	# Periodic/server and manual retries must preserve the same most recent save too.
+	if protected_path.is_empty() and _last_saved_path.get_base_dir() == save_dir:
+		protected_path = _last_saved_path
+	var readable: Array = []
+	var unreadable := 0
+	for path in list_saved():
+		if load_file(path).is_empty():
+			unreadable += 1
+		else:
+			readable.append(path)
+	if readable.has(protected_path):
+		readable.erase(protected_path)
+		readable.push_front(protected_path)
+	var failed: Array = []
+	var removed := 0
+	for index in range(MAX_SAVED, readable.size()):
+		var path: String = readable[index]
+		if DirAccess.remove_absolute(path) == OK:
+			removed += 1
+		else:
+			failed.append(path)
+	if not failed.is_empty():
+		printerr("REPLAY_TRIM_PENDING files=%d directory=%s" % [failed.size(), save_dir])
+	return {"removed": removed, "remaining": readable.size() - removed, "unreadable": unreadable, "failed": failed}

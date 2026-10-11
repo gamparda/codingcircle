@@ -6,6 +6,7 @@ var observer
 var late_observer
 var snapshots:Dictionary={}
 var errors:Array=[]
+var host_errors:Array=[]
 var listing:Dictionary={}
 var checks:=0
 var failures:=0
@@ -47,6 +48,7 @@ func run()->void:
 		if not server.start_dedicated_server(port):await finish(1);return
 	host=make_controller("방장");guest=make_controller("참가자");observer=make_controller("관전자");late_observer=make_controller("후발관전자")
 	guest.session_error.connect(func(text):errors.append(text))
+	host.session_error.connect(func(text):host_errors.append(text))
 	guest.room_list_received.connect(func(data):listing=data)
 	var clients:Array=[host,guest,observer,late_observer]
 	for index in clients.size():
@@ -73,8 +75,19 @@ func run()->void:
 	if not await require(func():return errors.size()==2,"non-owner start rejected"):return
 	guest.request_session_ready.rpc_id(1,true)
 	if not await require(func():return host.client_session.members.any(func(member):return member.nickname=="참가자" and member.ready),"ready state reaches host"):return
+	if not production:
+		# Boundary fixture: accepted completed destinations are immediately recoverable.
+		for index in server.replays.MAX_PENDING:
+			server.replays.pending.append({"match_id": index, "replay": {"commands": []}, "archived": true, "shared": true})
+		host.request_session_start.rpc_id(1)
+		if not await require(func():return host_errors.size()==1,"storage backlog rejects persistent-room battle start"):return
+		check(host_errors[0].contains("기록 저장") and host.client_session.phase=="waiting" and not host.client_in_match and server.models.is_empty(),"rejected start preserves room, readiness and connection")
+		server.replays.pending.clear()
 	host.request_session_start.rpc_id(1)
 	if not await require(func():return host.client_in_match and guest.client_in_match and observer.client_in_match,"owner starts players and spectator together"):return
+	if not production:
+		for index in server.replays.MAX_PENDING:
+			server.replays.pending.append({"match_id": index, "replay": {"commands": []}, "archived": true, "shared": true})
 	late_observer.join_session_room(code,"room-test-726",true)
 	if not await require(func():return late_observer.client_in_match and snapshots.has(3),"late spectator receives the live authoritative snapshot"):return
 	host.send_spawn("swordsman")
@@ -86,6 +99,8 @@ func run()->void:
 	observer.request_session_chat.rpc_id(1,"[b]관전 채팅[/b]")
 	if not await require(func():return clients.all(func(control):return control.client_session.messages.any(func(message):return message.text=="[b]관전 채팅[/b]")),"room chat reaches players and spectators during combat"):return
 	if not production:
+		check(not server.can_create_match() and host.client_in_match and server.models.values()[0].elapsed>0.0,"storage backlog leaves live simulation, purchases, chat and spectator admission running")
+		server.replays.pending.clear()
 		var mid:int=server.sessions.rooms[code].match_id
 		server.models[mid].winner=0
 		if not await require(func():return host.client_session.phase=="finished","battle result preserves room membership"):return

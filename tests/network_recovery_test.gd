@@ -77,6 +77,9 @@ func run() -> void:
 	check(server.models[mid].winner == -1 and not observer.send_surrender(),"forged and UI spectator surrender denied")
 	host.send_spawn("swordsman")
 	if not await require(func(): return server.models[mid].units.size()==1,"authoritative unit exists before recovery"): return
+	for index in server.replays.MAX_PENDING:
+		server.replays.pending.append({"match_id": index, "replay": {"commands": []}, "archived": true, "shared": true})
+	check(not server.can_create_match(), "storage backlog blocks new battles before reconnecting")
 	server.multiplayer.disconnect_peer(live_id)
 	server._on_peer_disconnected(live_id) # SceneMultiplayer.disconnect_peer intentionally suppresses its local signal.
 	if not await require(func(): return server.sessions.paused(code),"unexpected disconnect pauses match"): return
@@ -100,6 +103,8 @@ func run() -> void:
 	if not await require(func(): return not server.sessions.room_for(observer_old).is_empty() and not server.sessions.room_for(observer_old).members[observer_old].connected,"spectator gets recovery grace"): return
 	check(not server.sessions.paused(code),"spectator disconnect does not pause players")
 	if not await require(func(): return not observer.client_reconnecting and observer.client_is_spectator and observer.client_in_match and observer.multiplayer.get_unique_id()!=observer_old,"spectator rejoins with unchanged authority"): return
+	check(not server.can_create_match(), "players and spectators recovered while storage admission remained closed")
+	server.replays.pending.clear()
 	check(host.send_surrender(),"player surrender API accepts active player")
 	if not await require(func(): return latest.get("winner",-1)==1 and host.client_session.phase=="finished","surrender authoritative result preserves room"): return
 	host.request_session_return.rpc_id(1); guest.request_session_return.rpc_id(1)

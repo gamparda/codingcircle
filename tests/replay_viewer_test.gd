@@ -125,6 +125,20 @@ func run() -> void:
 	main.find_child("DeleteReplayButton", true, false).pressed.emit()
 	await process_frame
 	check(not FileAccess.file_exists(deleted), "delete removes the file shown by that card")
+	# A library above the retention bound explains cleanup failure and offers a retry.
+	for path in BattleReplay.list_saved():
+		DirAccess.remove_absolute(path)
+	var small_model := BattleModel.new()
+	small_model.winner = 0
+	var small_replay := BattleReplay.Recorder.new(small_model).finish(small_model)
+	for index in BattleReplay.MAX_SAVED + 1:
+		BattleReplay.write_file(BattleReplay.save_dir.path_join("20261011_%02d.json" % index), small_replay)
+	main._build_replay_list()
+	await process_frame
+	check(main.find_child("ReplayStatus", true, false).text.contains("51개") and main.find_child("RetryReplayCleanup", true, false) != null, "over-limit library shows actual count and cleanup retry")
+	main.find_child("RetryReplayCleanup", true, false).pressed.emit()
+	await process_frame
+	check(BattleReplay.list_saved().size() == BattleReplay.MAX_SAVED and main.find_child("RetryReplayCleanup", true, false) == null, "cleanup retry trims oldest files and clears the warning")
 	for path in BattleReplay.list_saved():
 		DirAccess.remove_absolute(path)
 	DirAccess.remove_absolute("user://replay_viewer_test")

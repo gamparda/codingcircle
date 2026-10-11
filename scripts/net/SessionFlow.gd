@@ -7,6 +7,8 @@ static func request_create_session(main, title: String, nickname: String, salt: 
 	if not main.server_mode: return
 	var sender = main.multiplayer.get_remote_sender_id()
 	if not main.can_process_request(sender): return
+	if not main.can_create_match():
+		main.receive_session_error.rpc_id(sender,main.match_admission_error()); return
 	if not main._can_enter_session(sender) or not main.is_valid_room_name(title) or not SessionStore.safe_text(nickname,SessionStore.MAX_NICKNAME):
 		main.receive_session_error.rpc_id(sender,"지금은 방을 만들 수 없습니다."); return
 	if not ((salt.is_empty() and secret.is_empty()) or (main._hex_string(salt,32) and main._hex_string(secret,64))):
@@ -65,7 +67,9 @@ static func request_session_start(main) -> void:
 	if not main.server_mode: return
 	var sender = main.multiplayer.get_remote_sender_id()
 	if not main.can_process_request(sender): return
-	if not main.accepting_players or not main.sessions.can_start(sender):
+	if not main.can_create_match():
+		main.receive_session_error.rpc_id(sender,main.match_admission_error()); return
+	if not main.sessions.can_start(sender):
 		main.receive_session_error.rpc_id(sender,"두 플레이어가 준비해야 시작할 수 있습니다."); return
 	main._begin_session_match(sender, "session")
 
@@ -91,6 +95,8 @@ static func request_quick_match(main, nickname: String) -> void:
 	if not main.server_mode: return
 	var sender = main.multiplayer.get_remote_sender_id()
 	if not main.can_process_request(sender): return
+	if not main.can_create_match():
+		main.receive_session_error.rpc_id(sender,main.match_admission_error()); return
 	if not main._can_enter_session(sender) or not SessionStore.safe_text(nickname,SessionStore.MAX_NICKNAME):
 		main.receive_session_error.rpc_id(sender,"지금은 빠른 대전을 시작할 수 없습니다."); return
 	if not main.quick_queue.enqueue(sender,nickname.strip_edges(),Time.get_ticks_msec()):
@@ -110,6 +116,8 @@ static func request_room_list_for(main, peer_id: int) -> void:
 	main.lobby_pages[peer_id] = 0; main.lobby_dirty = true
 
 static func _pair_quick_queue(main) -> void:
+	# Do not consume waiting peers during a storage outage. Resume after persistence recovers.
+	if not main.can_create_match(): return
 	while true:
 		var pair = main.quick_queue.take_pair(func(id): return main.accepting_players and main._peer_is_connected(id) and main.peer_decks.has(id) and not main.sessions.peer_to_room.has(id) and not main.registry.has_match(id))
 		if pair.is_empty(): return

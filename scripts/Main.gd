@@ -416,6 +416,9 @@ func _update_server_lifecycle(delta: float) -> void:
 	var status := {
 		"active_matches": _active_match_count(),
 		"accepting_players": not server_draining,
+		"accepting_matches": network.can_create_match(),
+		"replay_backlog_full": network.replays.backlog_full(),
+		"pending_replay_commands": network.replays.pending_command_count(),
 		"safe_to_update": _server_can_update(),
 		"pending_saves": network.pending_persistence_count(),
 	}

@@ -163,6 +163,31 @@ func _init() -> void:
 	check(BattleReplay.save(bad, "invalid") == "", "invalid data is not stored")
 	if path != "":
 		DirAccess.remove_absolute(path)
+	# Old damaged files must not take the slots reserved for readable battles.
+	var damaged_path := BattleReplay.save_dir.path_join("000_damaged.json")
+	var damaged_file := FileAccess.open(damaged_path, FileAccess.WRITE)
+	damaged_file.store_string("{broken original")
+	damaged_file.close()
+	var prune_model := BattleModel.new()
+	prune_model.winner = 0
+	var short_replay := BattleReplay.Recorder.new(prune_model).finish(prune_model)
+	for index in BattleReplay.MAX_SAVED:
+		check(BattleReplay.write_file(BattleReplay.save_dir.path_join("90000000_%02d.json" % index), short_replay), "retention fixture written")
+	# On Windows an open file prevents removal, reproducing cleanup failure without mocks.
+	var oldest := BattleReplay.save_dir.path_join("90000000_00.json")
+	var locked: FileAccess = FileAccess.open(oldest, FileAccess.READ) if OS.get_name() == "Windows" else null
+	var newest := BattleReplay.save(short_replay, "clock-change")
+	check(not newest.is_empty() and FileAccess.file_exists(newest), "save never prunes its own file even when other filenames sort later")
+	check(FileAccess.get_file_as_string(damaged_path) == "{broken original", "automatic cleanup preserves unreadable originals")
+	var retention := BattleReplay._prune()
+	if locked != null:
+		check(retention.failed == [oldest] and retention.remaining == BattleReplay.MAX_SAVED + 1, "cleanup reports a real locked file and the actual readable count")
+		locked.close()
+	retention = BattleReplay._prune()
+	check(retention.failed.is_empty() and retention.remaining == BattleReplay.MAX_SAVED and retention.unreadable == 1, "cleanup retry restores the readable limit and leaves damaged data available")
+	check(FileAccess.file_exists(newest), "background and manual cleanup retries also preserve the latest save after a clock change")
+	for fixture in BattleReplay.list_saved():
+		DirAccess.remove_absolute(fixture)
 	# Server hooks: record accepted commands only, save once at the end, and replay exactly.
 	var Replays = load("res://scripts/ServerReplays.gd")
 	var hooks = Replays.new()

@@ -64,8 +64,19 @@ static func _build_replay_list(main) -> void:
 			continue
 		shown += 1
 		rows.add_child(_replay_card(main, String(path), replay))
+	var notices := PackedStringArray()
 	if unreadable > 0:
-		status.text = "읽을 수 없는 리플레이 %d개가 있습니다. 파일을 보관하거나 목록에서 삭제할 수 있습니다." % unreadable
+		notices.append("읽을 수 없는 리플레이 %d개가 있습니다. 자동 정리에서 제외하며, 파일을 보관하거나 목록에서 삭제할 수 있습니다." % unreadable)
+	if shown > BattleReplay.MAX_SAVED:
+		notices.append("리플레이 %d개를 보관 중입니다. 자동 정리를 완료하지 못했습니다. 파일 권한을 확인하고 정리를 다시 시도하세요." % shown)
+		var retry := main._styled_button("오래된 리플레이 정리 재시도", UIKit.GOLD_DEEP, false) as Button
+		retry.name = "RetryReplayCleanup"
+		column.add_child(retry)
+		column.move_child(retry, column.get_node("Footer").get_index())
+		retry.pressed.connect(func():
+			BattleReplay._prune()
+			main._build_replay_list())
+	status.text = "\n".join(notices)
 	if shown == 0 and unreadable == 0:
 		var empty := VBoxContainer.new()
 		empty.name = "NoReplays"

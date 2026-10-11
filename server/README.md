@@ -38,6 +38,20 @@ contents. The shelf keeps the newest 200 entries and preserves creation order ac
 A failed oldest-file deletion is logged as `REPLAY_SHELF_TRIM_PENDING` and retried periodically;
 further uploads are refused while the shelf remains over its limit.
 
+If completed replays awaiting persistence reach 16 recordings or 100,000 commands, the
+server pauses new battles (quick matches, room starts and rematches) with a retryable storage
+message. Existing battles, reconnects, spectators and room chat continue. Waiting quick-match
+players keep their queue position and pairing resumes after the periodic writes recover.
+This prevents an ongoing outage from accepting more battles once the backlog reaches its
+threshold; already active battles may still finish and add pending records. It is not a hard
+memory limit. `REPLAY_BACKLOG` logs pause/recovery transitions; `server-status.json` exposes
+`accepting_matches`, `replay_backlog_full` and `pending_replay_commands` separately from the
+update-related `accepting_players` flag. Update draining still takes priority after recovery.
+
+Local match archives keep the newest 50 readable files. Unreadable originals are preserved
+for manual recovery or deletion and do not consume those slots. Archive cleanup failures log
+`REPLAY_TRIM_PENDING` and retry every 30 seconds as well as after the next archive save.
+
 ## Assist servers and helper PCs
 
 Assist servers and helper PCs may connect and take over batch work such as balance experiments. There is no token;
