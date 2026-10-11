@@ -234,6 +234,13 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	data_note.add_theme_font_size_override("font_size", 14)
 	data_note.add_theme_color_override("font_color", Color("#9aa5c0"))
 	pages.data.add_child(data_note)
+	var recovery_button = main._styled_button("진행도 보관·복구", Color("#3d647d"), false)
+	recovery_button.name = "ProfileRecoveryButton"
+	recovery_button.tooltip_text = "현재 진행도 사본을 보관하고 복구할 사본을 확인합니다. 저장하지 않은 설정 편집은 포함되지 않습니다."
+	recovery_button.pressed.connect(func():
+		main._apply_settings()
+		preload("res://scripts/screens/ProfileRecovery.gd").show(main))
+	pages.data.add_child(recovery_button)
 	var reset_button = main._styled_button(Localization.text("데이터 전체 초기화"), Color("#8f3a4a"), false)
 	reset_button.name = "DataResetButton"
 	reset_button.tooltip_text = Localization.text("이 기기에 저장된 전적·덱·설정·리플레이를 모두 지웁니다")

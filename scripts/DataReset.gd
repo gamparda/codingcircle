@@ -106,7 +106,7 @@ static func show_confirm(main) -> void:
 		"덱 프리셋, 닉네임, 설정(소리·화면·단축키), 튜토리얼과 시작 목표 진행",
 		"저장된 리플레이 %d개" % replays,
 		"전체 통계 캐시와 내 결과 보내기 설정",
-		"손상된 저장 파일의 복구용 원본 보관함",
+		"진행도 사본과 손상된 저장 파일의 복구용 원본 보관함",
 	]
 	for item in items:
 		dialog.add_child(_wrapped("•  " + Localization.text(String(item)), 15, UIKit.TEXT))

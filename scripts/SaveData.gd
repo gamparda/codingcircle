@@ -243,6 +243,98 @@ static func sanitize(raw: Variant) -> Dictionary:
 static func recovery_dir(path: String = SAVE_PATH) -> String:
 	return path + ".recovery"
 
+## A recovery candidate must be a profile, not an unrelated JSON dictionary.
+static func _recoverable(raw: Dictionary) -> bool:
+	if not _is_integer(raw.get("save_version")) or int(raw.save_version) < 1 or int(raw.save_version) > SAVE_VERSION:
+		return false
+	if not raw.get("campaign_records") is Array or raw.campaign_records.size() != 8 or not raw.get("deck_presets") is Array or raw.deck_presets.size() != 3 or not raw.get("settings") is Dictionary or not raw.get("stats") is Dictionary:
+		return false
+	for record in raw.campaign_records:
+		if not record is Dictionary:
+			return false
+	for preset in raw.deck_presets:
+		if not preset is Dictionary:
+			return false
+	return true
+
+static func _fingerprint(bytes: PackedByteArray) -> String:
+	var digest := HashingContext.new()
+	digest.start(HashingContext.HASH_SHA256)
+	digest.update(bytes)
+	return digest.finish().hex_encode()
+
+## All snapshots share the existing recovery directory and reset policy. No pruning:
+## overwriting or removing a player's last usable recovery point is never automatic.
+static func create_backup(data: Dictionary, path: String = SAVE_PATH) -> String:
+	return _preserve_original(JSON.stringify(sanitize(data), "\t").to_utf8_buffer(), path)
+
+static func recovery_candidates(path: String = SAVE_PATH) -> Dictionary:
+	var result := {"entries": [], "excluded": 0, "error": ""}
+	var folder := recovery_dir(path)
+	if not DirAccess.dir_exists_absolute(folder) and not FileAccess.file_exists(folder):
+		return result
+	var directory := DirAccess.open(folder)
+	if directory == null or directory.list_dir_begin() != OK:
+		result.error = "복구 폴더를 읽지 못했습니다. 파일 권한을 확인하고 다시 시도하세요."
+		return result
+	var name := directory.get_next()
+	while not name.is_empty():
+		if not directory.current_is_dir() and not directory.is_link(name) and name.ends_with(".json"):
+			var candidate := folder.path_join(name)
+			var source := _read_profile(candidate)
+			if source.status == "ok" and _recoverable(source.raw):
+				result.entries.append({"path": candidate, "data": sanitize(source.raw), "fingerprint": _fingerprint(source.bytes), "modified": FileAccess.get_modified_time(candidate)})
+			else:
+				result.excluded += 1
+		name = directory.get_next()
+	directory.list_dir_end()
+	result.entries.sort_custom(func(a: Dictionary, b: Dictionary):
+		return int(a.modified) > int(b.modified) if int(a.modified) != int(b.modified) else String(a.path) < String(b.path))
+	return result
+
+## Preserve both the current in-memory progress and exact on-disk original before
+## replacing anything. Return the new profile only after the atomic write succeeds.
+static func restore_backup(current: Dictionary, candidate: String, fingerprint: String, path: String = SAVE_PATH) -> Dictionary:
+	var result := {"ok": false, "data": {}, "backup": "", "error": ""}
+	if candidate.get_base_dir() != recovery_dir(path):
+		result.error = "이 저장 파일의 복구 폴더에 있는 사본만 선택할 수 있습니다."
+		return result
+	var source := _read_profile(candidate)
+	if source.status != "ok" or not _recoverable(source.raw):
+		result.error = "선택한 사본을 읽거나 복구할 수 없습니다. 목록을 새로고침하세요."
+		return result
+	if _fingerprint(source.bytes) != fingerprint:
+		result.error = "확인 중 사본의 내용이 바뀌었습니다. 목록을 새로고침해 다시 확인하세요."
+		return result
+	var active := _read_profile(path)
+	if active.status in ["unreadable", "newer"]:
+		result.error = "현재 저장 파일을 안전하게 보관할 수 없습니다. 파일 권한이나 게임 버전을 확인하세요."
+		return result
+	var live := sanitize(current)
+	result.backup = create_backup(live, path)
+	if result.backup.is_empty() or (active.status in ["ok", "invalid"] and _preserve_original(active.bytes, path).is_empty()):
+		result.error = "현재 진행도나 원본을 보관하지 못해 복구를 중단했습니다. 저장 공간과 파일 권한을 확인하세요."
+		return result
+	var restored := sanitize(source.raw)
+	# Never resurrect acknowledged results or roll an installation's sequence back.
+	# Keep device settings (including sharing consent) and current unsent results.
+	var sequence := int(live.next_report_sequence)
+	if not String(live.install_id).is_empty() and live.install_id == restored.install_id:
+		sequence = maxi(sequence, int(restored.next_report_sequence))
+	if active.status == "ok" and not String(live.install_id).is_empty():
+		var disk := sanitize(active.raw)
+		if live.install_id == disk.install_id:
+			sequence = maxi(sequence, int(disk.next_report_sequence))
+	for key in ["settings", "install_id", "pending_reports", "pending_daily"]:
+		restored[key] = live[key]
+	restored.next_report_sequence = sequence
+	if not save_data(restored, path):
+		result.error = "복구할 진행도를 저장하지 못했습니다. 현재 진행도는 유지됩니다. 파일 권한을 확인하고 다시 시도하세요."
+		return result
+	result.ok = true
+	result.data = restored
+	return result
+
 ## Keep missing, unreadable, malformed and newer-version saves distinct. Retain the
 ## exact bytes of malformed files; decoding and re-encoding could lose evidence.
 static func _read_profile(path: String) -> Dictionary:
