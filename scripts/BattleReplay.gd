@@ -315,7 +315,10 @@ const MAX_SHARE_CHARS := 2_000_000
 
 ## Compact single-line text (deflate + base64) that can be pasted into chat or a bug report.
 static func to_share_text(replay: Dictionary) -> String:
-	var raw := JSON.stringify(replay).to_utf8_buffer()
+	# Local retention order is not part of the battle or its shared identity.
+	var shared := replay.duplicate()
+	shared.erase("_local_order")
+	var raw := JSON.stringify(shared).to_utf8_buffer()
 	return SHARE_PREFIX + Marshalls.raw_to_base64(raw.compress(FileAccess.COMPRESSION_DEFLATE)) + ":" + str(raw.size())
 
 ## Parses share text back into a validated replay, or {} when it is not a good replay.
@@ -336,13 +339,25 @@ static func from_share_text(text: String) -> Dictionary:
 	if raw.size() != raw_size:
 		return {}
 	var parsed = JSON.parse_string(raw.get_string_from_utf8())
-	return parsed if valid(parsed) else {}
+	if not valid(parsed):
+		return {}
+	parsed.erase("_local_order")
+	return parsed
 
 # --- storage -----------------------------------------------------------------
 
 static func save(replay: Dictionary, name_hint: String = "") -> String:
 	if not valid(replay) or DirAccess.make_dir_recursive_absolute(save_dir) != OK:
 		return ""
+	# Read the last committed order from disk, including after a process restart.
+	# Existing files without this field retain their filename order below new saves.
+	var order := 0
+	for entry in _saved_entries():
+		order = maxi(order, int(entry.order))
+	if order >= 9007199254740991:
+		return ""
+	var stored := replay.duplicate()
+	stored["_local_order"] = order + 1
 	var stamp := Time.get_datetime_string_from_system(false, false).replace(":", "").replace("-", "").replace("T", "_")
 	var safe := ""
 	for ch in name_hint:
@@ -356,7 +371,7 @@ static func save(replay: Dictionary, name_hint: String = "") -> String:
 	while FileAccess.file_exists(path):
 		suffix += 1
 		path = "%s_%020d%s.json" % [base, suffix, hint]
-	if not write_file(path, replay):
+	if not write_file(path, stored):
 		return ""
 	# Clock changes or externally named files must never remove the file just saved.
 	_last_saved_path = path
@@ -367,11 +382,17 @@ static func save(replay: Dictionary, name_hint: String = "") -> String:
 static func write_file(path: String, replay: Dictionary) -> bool:
 	if not valid(replay):
 		return false
+	var stored := replay.duplicate()
+	if FileAccess.file_exists(path):
+		var existing := load_file(path)
+		stored.erase("_local_order")
+		if _storage_order(existing) > 0:
+			stored["_local_order"] = _storage_order(existing)
 	var temporary := path + ".tmp"
 	var file := FileAccess.open(temporary, FileAccess.WRITE)
 	if file == null:
 		return false
-	file.store_string(JSON.stringify(replay))
+	file.store_string(JSON.stringify(stored))
 	file.flush()
 	var error := file.get_error()
 	file.close()
@@ -389,16 +410,32 @@ static func load_file(path: String) -> Dictionary:
 		return {}
 	return json.data if valid(json.data) else {}
 
-static func list_saved() -> Array:
+static func _storage_order(replay: Dictionary) -> int:
+	var value = replay.get("_local_order")
+	return int(value) if _is_integer(value) and float(value) > 0.0 else 0
+
+## Count-only callers can skip opening the JSON files.
+static func list_saved(sort_by_order: bool = true) -> Array:
 	var names: Array = []
 	if not DirAccess.dir_exists_absolute(save_dir):
 		return names
 	for file in DirAccess.get_files_at(save_dir):
 		if file.ends_with(".json"):
 			names.append(save_dir + "/" + file)
-	names.sort()
-	names.reverse()
+	if sort_by_order:
+		names = _saved_entries(names).map(func(entry): return entry.path)
 	return names
+
+static func _saved_entries(paths: Array = []) -> Array:
+	if paths.is_empty():
+		paths = list_saved(false)
+	var entries: Array = []
+	for path in paths:
+		var replay := load_file(path)
+		entries.append({"path": path, "order": _storage_order(replay), "readable": not replay.is_empty()})
+	entries.sort_custom(func(a, b):
+		return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
+	return entries
 
 ## Unreadable files may contain recoverable data; leave them for explicit deletion.
 ## Returns actual counts so callers can distinguish a successful save from failed cleanup.
@@ -408,11 +445,11 @@ static func _prune(protected_path: String = "") -> Dictionary:
 		protected_path = _last_saved_path
 	var readable: Array = []
 	var unreadable := 0
-	for path in list_saved():
-		if load_file(path).is_empty():
+	for entry in _saved_entries():
+		if not entry.readable:
 			unreadable += 1
 		else:
-			readable.append(path)
+			readable.append(entry.path)
 	if readable.has(protected_path):
 		readable.erase(protected_path)
 		readable.push_front(protected_path)

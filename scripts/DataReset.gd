@@ -99,7 +99,7 @@ static func _wrapped(text: String, size: int, color: Color) -> Label:
 static func show_confirm(main) -> void:
 	var dialog = main._action_panel("데이터 전체 초기화", Rect2(260, 90, 760, 540))
 	main.action_overlay.set_meta("profile_reset", false)
-	var replays := BattleReplay.list_saved().size()
+	var replays := BattleReplay.list_saved(false).size()
 	dialog.add_child(_wrapped("이 기기에 저장된 데이터를 모두 지웁니다. 되돌릴 수 없습니다.", 17, UIKit.DANGER.lightened(0.2)))
 	var items := [
 		"캠페인 진행도·별·최고 기록, 전적, 업적, 일일·주간 도전 기록",

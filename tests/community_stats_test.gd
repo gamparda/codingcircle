@@ -240,6 +240,27 @@ func run() -> void:
 	ServerStats.write_json(restarted.path, receipt_file)
 	restarted.configure(dir, "receipts")
 	check(restarted.report_sequences == {id: 2} and restarted.data.reported.matches == 2, "malformed receipt fields cannot interrupt loading valid counters and deduplication")
+	# Capacity diagnoses a receipt limit separately from disk failures and battle admission.
+	var capacity := ServerStats.new()
+	capacity.configure("", "capacity-test")
+	for index in ServerStats.MAX_REPORTERS - 1:
+		capacity.report_sequences["%032x" % index] = 1
+	check(capacity.report_capacity_status().used == ServerStats.MAX_REPORTERS - 1 and not capacity.report_capacity_status().new_installations_paused, "receipt diagnostics show space for the final new installation")
+	var final_id := "f".repeat(32)
+	check(capacity.record_report(final_id, 1, deck_a, structures, 0), "the last receipt slot still accepts a new installation")
+	var full_status := capacity.report_capacity_status()
+	check(full_status == {"ruleset": "capacity-test", "used": ServerStats.MAX_REPORTERS, "limit": ServerStats.MAX_REPORTERS, "new_installations_paused": true}, "full receipt diagnostics expose only aggregate usage, limit and ruleset")
+	check(not capacity.record_report("e".repeat(32), 1, deck_a, structures, 0) and capacity.report_sequences.size() == ServerStats.MAX_REPORTERS, "capacity rejects a new installation without evicting existing receipts")
+	check(capacity.record_report(final_id, 1, deck_a, structures, 0) and capacity.record_report(final_id, 2, deck_a, structures, 1) and capacity.data.reported.matches == 2, "existing installations and duplicate confirmations continue at capacity")
+	check(capacity.record("online", deck_a, structures, 0), "online results are still counted at the receipt limit")
+	capacity.path = dir.path_join("stats_capacity-test.json")
+	check(capacity.flush(true), "a full receipt store can still persist its counters")
+	var loaded_capacity := ServerStats.new()
+	loaded_capacity.configure(dir, "capacity-test")
+	check(loaded_capacity.report_capacity_status().new_installations_paused and loaded_capacity._report_capacity_full and loaded_capacity.record_report(final_id, 2, deck_a, structures, 1) and loaded_capacity.data.reported.matches == 2, "startup diagnoses a full persisted store and continues acknowledging existing receipts")
+	loaded_capacity.configure("", "another-ruleset")
+	check(not loaded_capacity.report_capacity_status().new_installations_paused and not loaded_capacity._report_capacity_full and capacity.report_sequences.size() == ServerStats.MAX_REPORTERS, "a different ruleset resets its own capacity without discarding the old store")
+	capacity.path = ""
 
 	# Snapshot validation and cache.
 	MetaStats.cache_path = dir.path_join("cache.json")
@@ -329,6 +350,12 @@ func run() -> void:
 	var server_status: Dictionary = ServerStats.read_json(dir.path_join("server-status.json"))
 	check(server_status.pending_saves == 2 and not server_status.safe_to_update, "server status exposes pending writes and postpones updates")
 	check(server_status.accepting_matches and not server_status.replay_backlog_full and server_status.pending_replay_commands == 0, "status distinguishes ordinary pending statistics from replay backpressure")
+	check(server_status.reported_result_capacity.ruleset == stats.ruleset and int(server_status.reported_result_capacity.used) == stats.report_sequences.size() and int(server_status.reported_result_capacity.limit) == ServerStats.MAX_REPORTERS and not server_status.reported_result_capacity.new_installations_paused, "server status includes receipt capacity independently of pending writes")
+	main.network.stats = capacity
+	main._update_server_lifecycle(1.0)
+	server_status = ServerStats.read_json(dir.path_join("server-status.json"))
+	check(server_status.reported_result_capacity.new_installations_paused and server_status.accepting_matches and server_status.pending_saves == 1, "receipt capacity does not pause battles or invent a pending disk write")
+	main.network.stats = stats
 	for index in main.network.replays.MAX_PENDING:
 		main.network.replays.pending.append({"replay": {"commands": []}})
 	main._update_server_lifecycle(1.0)

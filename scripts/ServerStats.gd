@@ -22,6 +22,7 @@ var dirty := false
 var last_save_msec := 0
 ## Highest confirmed sequence per anonymous install. Stored atomically with the counters.
 var report_sequences: Dictionary = {}
+var _report_capacity_full := false
 
 func _init() -> void:
 	data = _empty()
@@ -67,6 +68,19 @@ func configure(directory: String, rule: String = "") -> void:
 				if id is String and valid_report_id(id) and valid_count(sequence) and int(sequence) > 0 and report_sequences.size() < MAX_REPORTERS:
 					report_sequences[id] = int(sequence)
 	dirty = false
+	_refresh_report_capacity()
+
+## Diagnostic only: never expose install IDs or remove deduplication receipts.
+func report_capacity_status() -> Dictionary:
+	return {"ruleset": ruleset, "used": report_sequences.size(), "limit": MAX_REPORTERS,
+		"new_installations_paused": report_sequences.size() >= MAX_REPORTERS}
+
+func _refresh_report_capacity() -> void:
+	var full := report_sequences.size() >= MAX_REPORTERS
+	if full == _report_capacity_full:
+		return
+	_report_capacity_full = full
+	print("STATS_REPORT_CAPACITY full=%s used=%d limit=%d ruleset=%s" % [full, report_sequences.size(), MAX_REPORTERS, ruleset])
 
 static func _sanitize_section(raw: Dictionary) -> Dictionary:
 	var clean: Dictionary = _empty()["online"]
@@ -141,12 +155,14 @@ func record(source: String, units: Array, structures: Array, result: int) -> boo
 func record_report(id: String, sequence: int, units: Array, structures: Array, result: int) -> bool:
 	if not valid_report_id(id) or sequence <= 0 or sequence >= MAX_COUNT:
 		return false
+	_refresh_report_capacity()
 	if sequence > int(report_sequences.get(id, 0)):
 		if not report_sequences.has(id) and report_sequences.size() >= MAX_REPORTERS:
 			return false # Never evict receipts and silently count a retry twice.
 		if not record("reported", units, structures, result):
 			return false
 		report_sequences[id] = sequence
+		_refresh_report_capacity()
 	return flush(true)
 
 static func _bump(group: Dictionary, key: String, result: int) -> void:

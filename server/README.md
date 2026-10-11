@@ -87,8 +87,23 @@ update-related `accepting_players` flag. Update draining still takes priority af
 Local match archives keep the newest 50 readable files. Unreadable originals are preserved
 for manual recovery or deletion and do not consume those slots. Archive cleanup failures log
 `REPLAY_TRIM_PENDING` and retry every 30 seconds as well as after the next archive save.
+New archives persist a local sequence inside the replay, so clock reversals, filename changes
+and process restarts do not change their retention order. Note rewrites preserve that sequence;
+shared text omits it and local imports receive a new sequence. Legacy files without a valid
+sequence keep their filename order behind new archives. Their historical save order cannot
+be recovered reliably. Copying a raw sequenced JSON between archives also copies its sequence;
+use share text when the destination should assign a fresh local order.
 The server's in-memory diagnostic path history also retains only the latest 50 successful
 archive paths. This history does not control pending writes or delete files.
+
+`server-status.json` includes `reported_result_capacity` with `ruleset`, `used`, `limit` and
+`new_installations_paused`. At the 100,000-install receipt limit, only new installations' anonymous
+result confirmations are withheld; existing installations, online results and challenge scores
+continue. `STATS_REPORT_CAPACITY` logs entry into or exit from this state, including a full store
+loaded at startup. Receipt capacity is separate from `pending_saves` and match admission. Repairing
+disk permissions will not free receipt slots. Keep the current ruleset's receipts: deleting them
+can count queued retries again. Each new content ruleset has its own receipt store and capacity;
+keep older files for audit rather than clearing them or changing rules solely to free slots.
 
 ## Assist servers and helper PCs
 

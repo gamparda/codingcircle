@@ -452,6 +452,7 @@ func _update_server_lifecycle(delta: float) -> void:
 		"pending_replay_commands": network.replays.pending_command_count(),
 		"safe_to_update": _server_can_update(),
 		"pending_saves": network.pending_persistence_count(),
+		"reported_result_capacity": network.stats.report_capacity_status(),
 	}
 	var status_path := server_state_dir.path_join("server-status.json")
 	preload("res://scripts/ServerStats.gd").write_json(status_path, status)

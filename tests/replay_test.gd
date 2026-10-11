@@ -188,6 +188,48 @@ func _init() -> void:
 	check(FileAccess.file_exists(newest), "background and manual cleanup retries also preserve the latest save after a clock change")
 	for fixture in BattleReplay.list_saved():
 		DirAccess.remove_absolute(fixture)
+	# Persisted order survives renamed files, repeated clock reversals and process state loss.
+	var legacy := BattleReplay.save_dir.path_join("99999999_legacy.json")
+	BattleReplay.write_file(legacy, short_replay)
+	var first := BattleReplay.save(short_replay, "first")
+	var first_renamed := BattleReplay.save_dir.path_join("19000101_first.json")
+	DirAccess.rename_absolute(first, first_renamed)
+	BattleReplay._last_saved_path = ""
+	var second := BattleReplay.save(short_replay, "second")
+	var second_renamed := BattleReplay.save_dir.path_join("18000101_second.json")
+	DirAccess.rename_absolute(second, second_renamed)
+	BattleReplay._last_saved_path = ""
+	check(BattleReplay.list_saved() == [second_renamed, first_renamed, legacy], "committed local order survives filename reversal and restart state loss")
+	var first_order := int(BattleReplay.load_file(first_renamed)._local_order)
+	var edit := BattleReplay.with_note(short_replay, 0, "오래된 기록 편집")
+	edit["_local_order"] = 999
+	check(BattleReplay.write_file(first_renamed, edit) and int(BattleReplay.load_file(first_renamed)._local_order) == first_order, "notes preserve the stored order even when the editor supplies a different one")
+	check(BattleReplay.list_saved()[0] == second_renamed and BattleReplay.list_saved()[1] == first_renamed, "editing an older replay does not promote it in the list")
+	var local_second := BattleReplay.load_file(second_renamed)
+	check(BattleReplay.to_share_text(local_second) == BattleReplay.to_share_text(_clone(short_replay)), "local retention metadata does not change shared replay identity after a JSON round trip")
+	var foreign := short_replay.duplicate(true)
+	foreign["_local_order"] = 9007199254740991
+	var raw := JSON.stringify(foreign).to_utf8_buffer()
+	var foreign_text := BattleReplay.SHARE_PREFIX + Marshalls.raw_to_base64(raw.compress(FileAccess.COMPRESSION_DEFLATE)) + ":" + str(raw.size())
+	check(not BattleReplay.from_share_text(foreign_text).has("_local_order"), "incoming shares cannot inject a foreign local order")
+	# Fill to 51 readable files, then retry cleanup with no remembered last save.
+	for index in range(3, BattleReplay.MAX_SAVED + 1):
+		var fixture := short_replay.duplicate(true)
+		fixture["_local_order"] = index
+		BattleReplay.write_file(BattleReplay.save_dir.path_join("17000101_%02d.json" % index), fixture)
+	retention = BattleReplay._prune()
+	check(retention.remaining == BattleReplay.MAX_SAVED and not FileAccess.file_exists(legacy) and FileAccess.file_exists(first_renamed) and FileAccess.file_exists(second_renamed), "restart cleanup trims legacy files before newer committed saves")
+	var imported := BattleReplay.save(foreign, "imported")
+	check(int(BattleReplay.load_file(imported)._local_order) == BattleReplay.MAX_SAVED + 1 and not foreign.is_empty() and int(foreign._local_order) == 9007199254740991, "saving an imported replay assigns this library's next order without mutating its source")
+	BattleReplay._last_saved_path = ""
+	BattleReplay._prune()
+	check(BattleReplay.list_saved()[0] == imported and not FileAccess.file_exists(first_renamed) and FileAccess.file_exists(second_renamed), "later cleanup removes the actual oldest managed save rather than the smallest filename")
+	for value in ["99", -1, 1.5, [99]]:
+		var fallback := short_replay.duplicate(true)
+		fallback["_local_order"] = value
+		check(BattleReplay._storage_order(fallback) == 0 and BattleReplay.valid(fallback), "bad optional local metadata falls back without rejecting the battle")
+	for fixture in BattleReplay.list_saved():
+		DirAccess.remove_absolute(fixture)
 	# Server hooks: record accepted commands only, save once at the end, and replay exactly.
 	var Replays = load("res://scripts/ServerReplays.gd")
 	var hooks = Replays.new()

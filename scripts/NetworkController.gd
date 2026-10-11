@@ -1127,7 +1127,7 @@ func _advance_persistence(delta: float) -> void:
 
 func flush_persistence() -> void:
 	replays.retry_pending()
-	if BattleReplay.list_saved().size() > BattleReplay.MAX_SAVED:
+	if BattleReplay.list_saved(false).size() > BattleReplay.MAX_SAVED:
 		BattleReplay._prune()
 	shelf._trim()
 	stats.flush(true)
