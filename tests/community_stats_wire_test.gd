@@ -88,13 +88,15 @@ func run() -> void:
 	client.send_daily_score(today, id, "클라", 1100, 75.0)
 	check(await wait_until(func(): return not boards.is_empty()), "a submitted score returns the board")
 	check(boards[0].rank == 1 and boards[0].mine == 1100 and boards[0].entries[0].nick == "클라", "the player is first on an empty board")
+	client.send_daily_score(today, id, "클라", 1100, 65.0)
+	check(await wait_until(func(): return boards.size() >= 2) and boards[1].entries[0].seconds == 65.0, "a faster equal score returns the improved time over RPC")
 	client.send_daily_score("20000101", id, "클라", 1500, 75.0)
 	client.send_daily_score(today, "bad", "클라", 1500, 75.0)
 	client.send_daily_score(today, id, "클라", 999999, 75.0)
 	await create_timer(0.4).timeout
 	check(server.daily_board.board(today, id).mine == 1100, "invalid submissions change nothing")
 	client.send_daily_board_request(today, id)
-	check(await wait_until(func(): return boards.size() >= 2), "the board can be requested")
+	check(await wait_until(func(): return boards.size() >= 3), "the board can be requested")
 	# Replay codes and recent online battles.
 	var BattleReplay = load("res://scripts/BattleReplay.gd")
 	var model := BattleModel.new()

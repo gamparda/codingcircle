@@ -12,6 +12,12 @@ On an installed copy, launch **Cat War Dedicated Server** from the Start menu or
 
 ## Persistence and storage failures
 
+Statistics and leaderboard files are checked field by field on startup. Valid entries remain
+available when neighboring entries have invalid types, counts, participant IDs, dates or times;
+invalid entries are excluded from queries and subsequent submissions. Loading alone does not
+rewrite the original file. Daily and weekly boards retain the highest score and, for equal
+scores, the shortest completion time, matching the client's local records and offline queue.
+
 The server stores shared replay codes, aggregate statistics, and the challenge leaderboard in
 `CATWAR_STATE_DIR`, or `user://server_state` when that environment variable is unset. Finished
 match archives remain in `user://replays`. An upload receives a code only after the shared file

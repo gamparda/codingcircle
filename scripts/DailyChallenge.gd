@@ -111,6 +111,10 @@ static func score(won: bool, own_base: float, seconds: float) -> int:
 		return 0
 	return clampi(roundi(1000.0 + own_base * 2.0 - seconds * 2.0), 100, 3000)
 
+## The same ordering is used by local records, the offline queue and the server.
+static func better_result(points: int, seconds: float, previous: Dictionary) -> bool:
+	return previous.is_empty() or points > int(previous.score) or (points == int(previous.score) and seconds < float(previous.seconds))
+
 ## Stores the result (best score per day or week). Returns {"score", "best", "new_best"}.
 static func record(save: Dictionary, challenge: Dictionary, won: bool, own_base: float, seconds: float) -> Dictionary:
 	var store := store_name(challenge)
@@ -120,7 +124,7 @@ static func record(save: Dictionary, challenge: Dictionary, won: bool, own_base:
 	var points := score(won, own_base, seconds)
 	var previous: Dictionary = save[store].get(key, {})
 	var best := int(previous.get("score", 0))
-	var new_best := points > best
+	var new_best := won and better_result(points, seconds, previous)
 	if won and not bool(previous.get("won", false)):
 		var counter := "weekly_completed" if is_weekly(challenge) else "daily_completed"
 		save.stats[counter] = int(save.stats.get(counter, 0)) + 1

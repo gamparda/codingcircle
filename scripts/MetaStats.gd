@@ -20,22 +20,50 @@ static var cache_path := CACHE_PATH
 static func valid_snapshot(data: Variant) -> bool:
 	if not data is Dictionary or not data.get("ruleset") is String or data.size() > 8:
 		return false
+	if not ServerStats.valid_count(data.get("min_samples")) or int(data.min_samples) <= 0:
+		return false
 	for source in ServerStats.SOURCES:
 		var section = data.get(source)
 		if not section is Dictionary or not section.get("top") is Array or not section.get("lookup") is Dictionary:
 			return false
-		if section.top.size() > ServerStats.TOP_COMBOS or section.lookup.size() > ServerStats.MAX_LOOKUP:
+		if not ServerStats.valid_count(section.get("matches")) or section.top.size() > ServerStats.TOP_COMBOS or section.lookup.size() > ServerStats.MAX_LOOKUP:
 			return false
+		for row in section.top:
+			if not _valid_row(row, int(section.matches)):
+				return false
+		for key in section.lookup:
+			var row = section.lookup[key]
+			if not key is String or not _valid_row(row, int(section.matches)) or ServerStats.deck_key(row.deck) != key:
+				return false
+		for group in ["units", "structures"]:
+			if not section.get(group) is Dictionary or section[group].size() > ServerStats.MAX_COMBOS:
+				return false
+			for key in section[group]:
+				var entry = section[group][key]
+				if not ServerStats.valid_group_key(group, key) or not ServerStats.valid_counts(entry) or int(entry.games) > int(section.matches):
+					return false
 	return true
+
+static func _valid_row(row: Variant, matches: int) -> bool:
+	if not ServerStats.valid_counts(row) or not ServerStats.valid_unit_deck(row.get("deck")) or int(row.games) > matches:
+		return false
+	var confidence = row.get("score")
+	return (confidence is int or confidence is float) and is_finite(float(confidence)) and float(confidence) >= 0.0 and float(confidence) <= 1.0
 
 static func store(data: Dictionary) -> void:
 	if not valid_snapshot(data):
 		return
+	data = data.duplicate(true)
 	if not snapshot.is_empty() and String(snapshot.ruleset) == String(data.ruleset):
-		# Lookups accumulate: keep rows for decks asked about earlier.
+		# Keep recently requested decks within the same bound used when reading the cache.
 		for source in ServerStats.SOURCES:
-			var merged: Dictionary = snapshot[source].lookup.duplicate()
-			merged.merge(data[source].lookup, true)
+			# A lower total means the server store was reset; discard its previous lookups.
+			var merged: Dictionary = snapshot[source].lookup.duplicate() if int(data[source].matches) >= int(snapshot[source].matches) else {}
+			for key in data[source].lookup:
+				merged.erase(key)
+				merged[key] = data[source].lookup[key]
+			while merged.size() > ServerStats.MAX_LOOKUP:
+				merged.erase(merged.keys()[0])
 			data[source].lookup = merged
 	snapshot = data
 	ServerStats.write_json(cache_path, data)
@@ -111,7 +139,7 @@ static func queue_daily(save: Dictionary, date: String, score: int, seconds: flo
 	if not sharing(save):
 		return false
 	var pending: Dictionary = save.get("pending_daily", {})
-	if int(pending.get(date, {}).get("score", 0)) >= score:
+	if not DailyChallenge.better_result(score, seconds, pending.get(date, {})):
 		return false
 	pending[date] = {"score": score, "seconds": seconds}
 	while pending.size() > 4:
@@ -133,9 +161,14 @@ static func flush(save: Dictionary, network) -> void:
 	save["pending_daily"] = {}
 
 static func valid_board(data: Variant) -> bool:
-	if not data is Dictionary or not data.get("date") is String or not data.get("entries") is Array or data.entries.size() > ServerDailyBoard.TOP:
+	if not data is Dictionary or not data.get("date") is String or not ServerDailyBoard.valid_date(data.date) or not data.get("entries") is Array or data.entries.size() > ServerDailyBoard.TOP:
+		return false
+	for key in ["total", "rank", "mine"]:
+		if not ServerStats.valid_count(data.get(key)):
+			return false
+	if int(data.total) > ServerDailyBoard.MAX_PER_DAY or data.entries.size() != mini(ServerDailyBoard.TOP, int(data.total)) or int(data.rank) > int(data.total):
 		return false
 	for entry in data.entries:
-		if not entry is Dictionary or not entry.get("nick") is String or not (entry.get("score") is int or entry.get("score") is float):
+		if not ServerDailyBoard.valid_entry(entry):
 			return false
-	return data.get("total") is int or data.get("total") is float
+	return int(data.mine) == 0 if int(data.rank) == 0 else int(data.mine) >= ServerDailyBoard.MIN_SCORE and int(data.mine) <= ServerDailyBoard.MAX_SCORE

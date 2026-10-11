@@ -58,6 +58,20 @@ func run() -> void:
 	other_rules.configure(dir, "t2")
 	check(other_rules.data.online.matches == 0, "a new ruleset starts from zero")
 	check(not FileAccess.file_exists(dir.path_join("stats_t1.json.tmp")), "no temporary file is left behind")
+	# Malformed persisted fields must not abort loading, querying or recording new results.
+	var damaged_stats := stats.data.duplicate(true)
+	damaged_stats.online.units.archer = {"games": [], "wins": {}, "draws": "0"}
+	damaged_stats.online.units.shield = {"games": 2.5, "wins": 1, "draws": 0}
+	damaged_stats.online.units.swordsman = {"games": 3, "wins": 2, "draws": 2}
+	damaged_stats.online.combos["unknown,shield,swordsman"] = {"games": 100, "wins": 100, "draws": 0}
+	damaged_stats.reported.matches = {}
+	check(ServerStats.write_json(dir.path_join("stats_damaged.json"), damaged_stats), "damaged statistics fixture is written")
+	var repaired := ServerStats.new()
+	repaired.configure(dir, "damaged")
+	check(repaired.data.online.matches == stats.data.online.matches and repaired.snapshot([deck_a]).online.lookup[key].games == 3 and repaired.data.reported.matches == 0, "valid statistics survive mixed malformed fields and JSON float counts")
+	check(not repaired.data.online.units.has("archer") and not repaired.data.online.units.has("shield") and not repaired.data.online.units.has("swordsman") and not repaired.data.online.combos.has("unknown,shield,swordsman"), "invalid counts and unknown decks are omitted")
+	check(repaired.record("online", deck_a, structures, 0) and repaired.data.online.units.archer.games == 1, "new results can update a repaired store")
+	check(not ServerStats.valid_count(INF) and not ServerStats.valid_count(NAN) and not ServerStats.valid_count(true) and not ServerStats.valid_count("2") and not ServerStats.valid_count(-1) and not ServerStats.valid_count(1e20), "counts reject non-finite, coercible and out-of-range values")
 
 	# Daily board.
 	var board := ServerDailyBoard.new()
@@ -75,6 +89,12 @@ func run() -> void:
 	var view := board.board(today, me)
 	check(view.rank == 1 and view.mine == 1500 and view.total == 2 and view.entries[0].nick == "나" and view.entries[1].nick == "상대", "the board is ordered by score")
 	check(board.board(today, "c".repeat(32)).rank == 0, "a stranger has no rank")
+	board.submit(today, rival, "상대", 1500, 60.0, today)
+	check(board.board(today, me).rank == 1, "time orders equal scores")
+	board.submit(today, rival, "새 이름", 1500, 40.0, today)
+	check(board.board(today, rival).rank == 1 and board.board(today).entries[0].seconds == 40.0, "a faster equal-score retry changes the ranking")
+	board.submit(today, rival, "최신 이름", 1500, 70.0, today)
+	check(board.board(today).entries[0].seconds == 40.0 and board.board(today).entries[0].nick == "최신 이름", "slower ties retain the best time but refresh the nickname")
 	var rejecting := ServerDailyBoard.new()
 	rejecting.verifier = func(_date, entry): return int(entry.score) < 1000
 	check(rejecting.submit(today, me, "나", 900, 50.0, today) and not rejecting.submit(today, rival, "상대", 1500, 50.0, today), "a verifier can veto submissions later")
@@ -83,6 +103,19 @@ func run() -> void:
 	var reloaded_board := ServerDailyBoard.new()
 	reloaded_board.configure(dir)
 	check(reloaded_board.days.has("20261030"), "the board survives a restart")
+	var damaged_days := {today: {me: {"nick": " 나 ", "score": 900, "seconds": 80.0}, rival: 7,
+		"c".repeat(32): {"nick": "상대", "score": 1000.5, "seconds": 60},
+		"d".repeat(32): {"nick": "상대", "score": 1000, "seconds": []},
+		"f".repeat(32): {"nick": "상대\n", "score": 1000, "seconds": 60},
+		"bad-id": {"nick": "상대", "score": 1000, "seconds": 60}}, "20260230": {}, "w20261006": {}, "20261007": []}
+	check(ServerStats.write_json(dir.path_join("daily_board.json"), damaged_days), "damaged board fixture is written")
+	var repaired_board := ServerDailyBoard.new()
+	repaired_board.configure(dir)
+	check(repaired_board.days.size() == 1 and repaired_board.board(today, me).total == 1 and repaired_board.board(today, me).mine == 900 and repaired_board.board(today).entries[0].nick == "나", "board loading preserves valid entries and excludes malformed ids, dates and scores")
+	check(repaired_board.submit(today, rival, "복구", 1200, 60.0, today) and repaired_board.board(today, rival).rank == 1, "a previously malformed participant can submit again")
+	check(ServerDailyBoard.valid_date("20240229") and not ServerDailyBoard.valid_date("20260229") and not ServerDailyBoard.valid_date("20261301") and not ServerDailyBoard.valid_date("+0261008"), "challenge keys require real calendar dates")
+	board.dirty = true
+	board.flush() # Keep the normal store for the existing persistence-retry checks below.
 
 	# Client queue and opt-in.
 	var save := SaveData.default_data()
@@ -94,6 +127,7 @@ func run() -> void:
 	check(save.pending_reports.size() == MetaStats.MAX_PENDING, "the queue is bounded")
 	MetaStats.queue_daily(save, today, 900, 80.0)
 	check(not MetaStats.queue_daily(save, today, 800, 60.0) and MetaStats.queue_daily(save, today, 1000, 90.0) and save.pending_daily[today].score == 1000, "only the best unsent daily score is kept")
+	check(MetaStats.queue_daily(save, today, 1000, 70.0) and not MetaStats.queue_daily(save, today, 1000, 80.0) and save.pending_daily[today].seconds == 70.0, "offline equal-score retries retain the faster time")
 	var id := MetaStats.install_id(save)
 	check(ServerDailyBoard.valid_id(id) and MetaStats.install_id(save) == id, "the install id is stable and well-formed")
 	var stored := SaveData.sanitize(JSON.parse_string(JSON.stringify(save)))
@@ -112,6 +146,49 @@ func run() -> void:
 	check(MetaStats.deck_record(deck_b).games == 3, "the cache is read back and deck order does not matter")
 	check(MetaStats.record_text(MetaStats.deck_record(deck_a)).contains("표본 부족") and MetaStats.record_text({}).contains("없음"), "small samples are labelled")
 	check(MetaStats.valid_board(board.board(today, me)) and not MetaStats.valid_board({"date": 5}), "boards are validated")
+	var bad_snapshot := fresh.duplicate(true)
+	bad_snapshot.online.units.archer = {"games": "10", "wins": 9, "draws": 0}
+	check(not MetaStats.valid_snapshot(bad_snapshot), "cache validation checks nested kind counts")
+	bad_snapshot = fresh.duplicate(true)
+	bad_snapshot.online.top[0].deck = ["archer", {}, "shield"]
+	check(not MetaStats.valid_snapshot(bad_snapshot), "cache validation checks displayed deck rows")
+	bad_snapshot = fresh.duplicate(true)
+	bad_snapshot.online.matches = NAN
+	check(not MetaStats.valid_snapshot(bad_snapshot), "snapshot counts must be finite")
+	var bad_board := board.board("20261030", me)
+	bad_board.entries[0].seconds = {}
+	check(not MetaStats.valid_board(bad_board), "board validation checks displayed times")
+	bad_board = board.board("20261030", me)
+	bad_board.rank = "1"
+	check(not MetaStats.valid_board(bad_board), "board validation checks the player's rank")
+	MetaStats.store(bad_snapshot)
+	check(MetaStats.deck_record(deck_a).games == 3, "malformed updates do not replace the valid cache")
+	bad_snapshot.online.matches = {}
+	ServerStats.write_json(MetaStats.cache_path, bad_snapshot)
+	MetaStats.snapshot = {}
+	check(MetaStats.current().is_empty() and MetaStats.kind_text("units", "archer") == "", "malformed disk caches are discarded before display")
+	# Accumulated lookup requests stay readable after a restart and keep the newest decks.
+	var kinds := BattleModel.UNIT_STATS.keys()
+	var requested := 0
+	var newest_deck: Array = []
+	for a in kinds.size():
+		for b in range(a + 1, kinds.size()):
+			for c in range(b + 1, kinds.size()):
+				if requested > ServerStats.MAX_LOOKUP:
+					break
+				newest_deck = [kinds[a], kinds[b], kinds[c]]
+				stats.record("online", newest_deck, structures, 0)
+				var update := stats.snapshot([newest_deck])
+				update.ruleset = ServerStats.ruleset_id()
+				MetaStats.store(update)
+				requested += 1
+	check(MetaStats.current().online.lookup.size() == ServerStats.MAX_LOOKUP and MetaStats.valid_snapshot(MetaStats.current()), "accumulated lookups obey the cache validation limit")
+	MetaStats.snapshot = {}
+	check(not MetaStats.deck_record(newest_deck).is_empty(), "the newest lookup survives cache reload after more than twelve requests")
+	var reset_stats := ServerStats.new()
+	reset_stats.record("online", deck_a, structures, 0)
+	MetaStats.store(reset_stats.snapshot([deck_a]))
+	check(MetaStats.current().online.lookup.size() == 1 and MetaStats.deck_record(deck_a).games == 1 and MetaStats.deck_record(newest_deck).is_empty(), "a server counter reset discards stale accumulated lookups")
 
 	# Screens.
 	BattleReplay.save_dir = "user://community_stats_test_replays"

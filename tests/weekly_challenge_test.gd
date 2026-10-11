@@ -45,6 +45,8 @@ func run() -> void:
 	var save := SaveData.default_data()
 	var result := DailyChallenge.record(save, base, true, 400.0, 90.0)
 	check(result.new_best and save.weekly.has("20261005") and save.daily.is_empty() and save.stats.weekly_completed == 1 and save.stats.daily_completed == 0, "weekly results live in their own store")
+	var faster_tie := DailyChallenge.record(save, base, true, 390.0, 80.0)
+	check(faster_tie.new_best and faster_tie.score == result.score and save.weekly["20261005"].seconds == 80.0 and save.stats.weekly_completed == 1, "weekly ties also retain the faster time without another clear")
 	check(DailyChallenge.result_note(base, save, true).begins_with("주간 도전 성공") and DailyChallenge.result_note(base, save, false).contains("이번 주"), "result notes name the week")
 	var stored := SaveData.sanitize(JSON.parse_string(JSON.stringify(save)))
 	check(stored.weekly.has("20261005") and stored.stats.weekly_completed == 1, "weekly history survives saving")

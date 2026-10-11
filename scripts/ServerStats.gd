@@ -12,6 +12,7 @@ const TOP_COMBOS := 8
 const MAX_LOOKUP := 12
 const MAX_COMBOS := 4000
 const SAVE_INTERVAL_MSEC := 30000
+const MAX_COUNT := 9_000_000_000_000_000 # Integers that survive JSON's floating-point round trip.
 
 var ruleset := ""
 var path := ""
@@ -51,15 +52,41 @@ func configure(directory: String, rule: String = "") -> void:
 
 static func _sanitize_section(raw: Dictionary) -> Dictionary:
 	var clean: Dictionary = _empty()["online"]
-	clean.matches = maxi(0, int(raw.get("matches", 0)))
+	clean.matches = int(raw.matches) if valid_count(raw.get("matches")) else 0
 	for group in ["combos", "units", "structures"]:
 		if raw.get(group) is Dictionary:
 			for key in raw[group]:
 				var entry = raw[group][key]
-				if entry is Dictionary and clean[group].size() < MAX_COMBOS:
-					var games := maxi(0, int(entry.get("games", 0)))
-					clean[group][String(key)] = {"games": games, "wins": clampi(int(entry.get("wins", 0)), 0, games), "draws": clampi(int(entry.get("draws", 0)), 0, games)}
+				if valid_group_key(group, key) and valid_counts(entry) and int(entry.games) <= clean.matches and clean[group].size() < MAX_COMBOS:
+					clean[group][key] = {"games": int(entry.games), "wins": int(entry.wins), "draws": int(entry.draws)}
 	return clean
+
+static func valid_count(value: Variant) -> bool:
+	return (value is int or value is float) and is_finite(float(value)) and float(value) >= 0.0 and float(value) <= MAX_COUNT and float(value) == floorf(float(value))
+
+static func valid_counts(entry: Variant) -> bool:
+	return entry is Dictionary and valid_count(entry.get("games")) and valid_count(entry.get("wins")) and valid_count(entry.get("draws")) and int(entry.wins) + int(entry.draws) <= int(entry.games)
+
+static func valid_unit_deck(deck: Variant) -> bool:
+	if not deck is Array or deck.size() != 3:
+		return false
+	var seen := {}
+	for kind in deck:
+		if not kind is String or not BattleModel.UNIT_STATS.has(kind) or seen.has(kind):
+			return false
+		seen[kind] = true
+	return true
+
+static func valid_group_key(group: String, key: Variant) -> bool:
+	if not key is String:
+		return false
+	match group:
+		"units": return BattleModel.UNIT_STATS.has(key)
+		"structures": return BattleModel.STRUCTURE_STATS.has(key)
+		"combos":
+			var deck := Array(key.split(","))
+			return valid_unit_deck(deck) and deck_key(deck) == key
+	return false
 
 static func deck_key(units: Array) -> String:
 	var sorted: Array = units.duplicate()

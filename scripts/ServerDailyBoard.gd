@@ -23,8 +23,13 @@ func configure(directory: String) -> void:
 	var loaded = ServerStats.read_json(path)
 	if loaded is Dictionary:
 		for date in loaded:
-			if _valid_date(String(date)) and loaded[date] is Dictionary:
-				days[String(date)] = loaded[date]
+			if date is String and _valid_date(date) and loaded[date] is Dictionary:
+				var day := {}
+				for id in loaded[date]:
+					var entry = loaded[date][id]
+					if id is String and valid_id(id) and valid_entry(entry) and day.size() < MAX_PER_DAY:
+						day[id] = {"nick": entry.nick.strip_edges(), "score": int(entry.score), "seconds": float(entry.seconds)}
+				days[date] = day
 	dirty = false
 
 static func _valid_date(date: String) -> bool:
@@ -33,7 +38,24 @@ static func _valid_date(date: String) -> bool:
 ## "YYYYMMDD" for a daily board, "wYYYYMMDD" (the Monday) for a weekly one.
 static func valid_date(date: String) -> bool:
 	var digits := date.trim_prefix("w")
-	return digits.length() == 8 and digits.is_valid_int() and date.length() <= 9
+	if digits.length() != 8:
+		return false
+	for character in digits:
+		if not "0123456789".contains(character):
+			return false
+	var year := int(digits.substr(0, 4))
+	var month := int(digits.substr(4, 2))
+	var day := int(digits.substr(6, 2))
+	if year < 1 or month < 1 or month > 12 or day < 1:
+		return false
+	var month_days := [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+	return day <= month_days[month - 1] and (not date.begins_with("w") or DailyChallenge.week_key(DailyChallenge._to_unix(digits)) == digits)
+
+static func valid_entry(entry: Variant) -> bool:
+	if not entry is Dictionary or not entry.get("nick") is String or not ServerStats.valid_count(entry.get("score")):
+		return false
+	var seconds = entry.get("seconds")
+	return preload("res://scripts/RoomSessions.gd").safe_text(entry.nick, 16) and int(entry.score) >= MIN_SCORE and int(entry.score) <= MAX_SCORE and (seconds is int or seconds is float) and is_finite(float(seconds)) and float(seconds) >= 0.0 and float(seconds) <= MAX_SECONDS
 
 static func valid_id(value: String) -> bool:
 	if value.length() != 32:
@@ -65,7 +87,7 @@ func submit(date: String, id: String, nickname: String, score: int, seconds: flo
 	if not day.has(id) and day.size() >= MAX_PER_DAY:
 		return false
 	var previous: Dictionary = day.get(id, {})
-	if not previous.is_empty() and int(previous.score) >= score:
+	if not DailyChallenge.better_result(score, float(entry.seconds), previous):
 		previous.nick = entry.nick
 		day[id] = previous
 	else:
