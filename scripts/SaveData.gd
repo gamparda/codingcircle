@@ -8,6 +8,9 @@ const SAVE_PATH := "user://catwar_save.json"
 const WINDOW_SIZES := ["1280x720", "1600x900", "1920x1080"]
 const FPS_LIMITS := [30, 60, 120, 144, 240]
 const GRAPHICS_QUALITIES := ["auto", "high", "medium", "low"]
+## A failed read must remain protected even if permissions recover before the next
+## automatic save: the caller is still working with fallback progress.
+static var protected_paths: Dictionary = {}
 const CAMPAIGN_TARGETS := [
 	{"time": 90.0, "base_hp": 400.0}, {"time": 100.0, "base_hp": 390.0},
 	{"time": 110.0, "base_hp": 380.0}, {"time": 120.0, "base_hp": 365.0},
@@ -81,6 +84,15 @@ static func _migrate_removed_structures(structures: Array, fallback: Array) -> A
 static func _is_integer(value: Variant) -> bool:
 	return (value is int or value is float) and is_finite(float(value)) and abs(float(value)) <= 9007199254740991.0 and float(value) == floor(float(value))
 
+static func _is_number(value: Variant) -> bool:
+	return (value is int or value is float) and is_finite(float(value))
+
+static func _string_array(values: Array) -> bool:
+	for value in values:
+		if not value is String:
+			return false
+	return true
+
 static func graphics_profile(quality: String, mobile: bool, screen_size: Vector2i) -> Dictionary:
 	var resolved := quality
 	if resolved == "auto":
@@ -122,17 +134,18 @@ static func sanitize(raw: Variant) -> Dictionary:
 				var record: Dictionary = clean.campaign_records[index]
 				if source.get("cleared") is bool: record.cleared = source.cleared
 				if _is_integer(source.get("best_stars")): record.best_stars = clampi(source.best_stars, 0, 3)
-				if source.get("fastest_win") is int or source.get("fastest_win") is float: record.fastest_win = max(0.0, float(source.fastest_win))
-				if source.get("best_base_hp") is int or source.get("best_base_hp") is float: record.best_base_hp = clamp(float(source.best_base_hp), 0.0, 500.0)
+				if _is_number(source.get("fastest_win")): record.fastest_win = max(0.0, float(source.fastest_win))
+				if _is_number(source.get("best_base_hp")): record.best_base_hp = clamp(float(source.best_base_hp), 0.0, 500.0)
 				if _is_integer(source.get("attempts")): record.attempts = max(0, int(source.attempts))
 				if _is_integer(source.get("wins")): record.wins = clampi(int(source.wins), 0, int(record.attempts))
 	if raw.get("deck_presets") is Array and raw.deck_presets.size() == 3:
 		for index in 3:
 			var preset = raw.deck_presets[index]
-			if preset is Dictionary and preset.get("units") is Array and preset.get("structures") is Array:
+			if preset is Dictionary and preset.get("units") is Array and preset.get("structures") is Array and _string_array(preset.units) and _string_array(preset.structures):
 				var structures := _migrate_removed_structures(preset.structures, clean.deck_presets[index].structures)
 				if BattleModel._valid_deck(preset.units, BattleModel.UNIT_STATS) and BattleModel._valid_deck(structures, BattleModel.STRUCTURE_STATS):
-					clean.deck_presets[index] = {"name": String(preset.get("name", Localization.text("덱 %d") % (index + 1))).left(20), "units": preset.units.duplicate(), "structures": structures}
+					var name: String = preset.name.left(20) if preset.get("name") is String else clean.deck_presets[index].name
+					clean.deck_presets[index] = {"name": name, "units": preset.units.duplicate(), "structures": structures}
 	if raw.get("settings") is Dictionary:
 		clean.settings.battle_keys = preload("res://scripts/BattleBindings.gd").sanitize(raw.settings.get("battle_keys"))
 		# Existing players' hand-tuned visual settings must not be replaced by a new preset.
@@ -140,9 +153,9 @@ static func sanitize(raw: Variant) -> Dictionary:
 		if raw.settings.get("graphics_quality") is String and GRAPHICS_QUALITIES.has(String(raw.settings.graphics_quality)):
 			clean.settings.graphics_quality = String(raw.settings.graphics_quality)
 		for key in ["master_volume", "bgm_volume", "sfx_volume"]:
-			if raw.settings.get(key) is int or raw.settings.get(key) is float:
+			if _is_number(raw.settings.get(key)):
 				clean.settings[key] = clamp(float(raw.settings[key]), 0.0, 1.0)
-		if raw.settings.get("effect_intensity") is int or raw.settings.get("effect_intensity") is float:
+		if _is_number(raw.settings.get("effect_intensity")):
 			clean.settings.effect_intensity = clamp(float(raw.settings.effect_intensity), 0.2, 1.0)
 		if raw.settings.get("window_size") is String and WINDOW_SIZES.has(String(raw.settings.window_size)):
 			clean.settings.window_size = String(raw.settings.window_size)
@@ -169,9 +182,9 @@ static func sanitize(raw: Variant) -> Dictionary:
 			days.sort()
 			for key in days.slice(maxi(0, days.size() - int(store[1]))):
 				var entry = raw[store[0]][key]
-				if String(key).length() == 8 and String(key).is_valid_int() and entry is Dictionary and _is_integer(entry.get("score")):
-					clean[store[0]][String(key)] = {"won": bool(entry.get("won", false)), "score": clampi(int(entry.score), 0, 100000),
-						"seconds": clampf(float(entry.get("seconds", 0.0)), 0.0, 100000.0)}
+				if key is String and key.length() == 8 and key.is_valid_int() and entry is Dictionary and _is_integer(entry.get("score")):
+					clean[store[0]][key] = {"won": entry.get("won") is bool and entry.won, "score": clampi(int(entry.score), 0, 100000),
+						"seconds": clampf(float(entry.seconds), 0.0, 100000.0) if _is_number(entry.get("seconds")) else 0.0}
 	if raw.get("goals") is Dictionary:
 		for id in preload("res://scripts/Goals.gd").ids():
 			if raw.goals.get(id) is bool and raw.goals[id]:
@@ -184,36 +197,103 @@ static func sanitize(raw: Variant) -> Dictionary:
 		clean.install_id = String(raw.install_id)
 	if raw.get("pending_reports") is Array:
 		for report in raw.pending_reports.slice(0, 20):
-			if report is Dictionary and report.get("units") is Array and report.get("structures") is Array and _is_integer(report.get("result")) and preload("res://scripts/MetaStats.gd").REPORT_MODES.has(String(report.get("mode", ""))) 					and preload("res://scripts/NetworkProtocol.gd").validate_deck_payload(report.units, report.structures) and int(report.result) >= 0 and int(report.result) <= 2:
+			if report is Dictionary and report.get("units") is Array and report.get("structures") is Array and _is_integer(report.get("result")) and report.get("mode") is String and preload("res://scripts/MetaStats.gd").REPORT_MODES.has(report.mode) and preload("res://scripts/NetworkProtocol.gd").validate_deck_payload(report.units, report.structures) and int(report.result) >= 0 and int(report.result) <= 2:
 				clean.pending_reports.append({"units": report.units.duplicate(), "structures": report.structures.duplicate(), "result": int(report.result), "mode": String(report.mode)})
 	var pending = raw.get("pending_daily")
 	if pending is Dictionary:
 		for date in pending.keys().slice(0, 4):
 			var queued = pending[date]
-			if preload("res://scripts/ServerDailyBoard.gd").valid_date(String(date)) and queued is Dictionary and _is_integer(queued.get("score")):
-				clean.pending_daily[String(date)] = {"score": clampi(int(queued.score), 0, 100000), "seconds": clampf(float(queued.get("seconds", 0.0)), 0.0, 100000.0)}
+			if date is String and preload("res://scripts/ServerDailyBoard.gd").valid_date(date) and queued is Dictionary and _is_integer(queued.get("score")):
+				clean.pending_daily[date] = {"score": clampi(int(queued.score), 0, 100000), "seconds": clampf(float(queued.seconds), 0.0, 100000.0) if _is_number(queued.get("seconds")) else 0.0}
 	clean.stats.highest_campaign = mini(8, int(clean.stats.highest_campaign))
 	clean.stats.total_stars = 0
 	for record in clean.campaign_records:
 		clean.stats.total_stars += int(record.best_stars)
 	return clean
 
-static func load_data() -> Dictionary:
-	if not FileAccess.file_exists(SAVE_PATH):
-		return default_data()
-	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+static func recovery_dir(path: String = SAVE_PATH) -> String:
+	return path + ".recovery"
+
+## Keep missing, unreadable, malformed and newer-version saves distinct. Retain the
+## exact bytes of malformed files; decoding and re-encoding could lose evidence.
+static func _read_profile(path: String) -> Dictionary:
+	if DirAccess.dir_exists_absolute(path):
+		return {"status": "unreadable"}
+	if not FileAccess.file_exists(path):
+		return {"status": "missing"}
+	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
-		return default_data()
-	var parsed = JSON.parse_string(file.get_as_text())
-	return sanitize(parsed)
+		return {"status": "unreadable"}
+	var length := file.get_length()
+	var bytes := file.get_buffer(length)
+	var error := file.get_error()
+	file.close()
+	if bytes.size() != length or error not in [OK, ERR_FILE_EOF]:
+		return {"status": "unreadable"}
+	var json := JSON.new()
+	if json.parse(bytes.get_string_from_utf8()) != OK or not json.data is Dictionary:
+		return {"status": "invalid", "bytes": bytes}
+	if _is_integer(json.data.get("save_version")) and int(json.data.save_version) > SAVE_VERSION:
+		return {"status": "newer"}
+	return {"status": "ok", "raw": json.data, "bytes": bytes}
+
+static func _preserve_original(bytes: PackedByteArray, path: String) -> String:
+	var directory := recovery_dir(path)
+	if DirAccess.make_dir_recursive_absolute(directory) != OK:
+		return ""
+	var digest := HashingContext.new()
+	digest.start(HashingContext.HASH_SHA256)
+	digest.update(bytes)
+	var backup := directory.path_join(digest.finish().hex_encode() + ".json")
+	if FileAccess.file_exists(backup):
+		var existing := FileAccess.open(backup, FileAccess.READ)
+		if existing == null:
+			return ""
+		var same := existing.get_buffer(existing.get_length()) == bytes
+		existing.close()
+		return backup if same else ""
+	return backup if _write_atomic(bytes, backup) else ""
+
+static func load_result(path: String = SAVE_PATH) -> Dictionary:
+	var source := _read_profile(path)
+	var result := {"data": default_data(), "status": source.status, "backup": "", "warning": ""}
+	if source.status in ["missing", "ok"]:
+		protected_paths.erase(path)
+	else:
+		protected_paths[path] = true
+	match source.status:
+		"ok":
+			result.data = sanitize(source.raw)
+		"invalid":
+			result.backup = _preserve_original(source.bytes, path)
+			result.warning = "저장 파일이 손상되어 기본 진행도로 시작했습니다.\n" + ("원본은 별도 복구 폴더에 보관했습니다." if not result.backup.is_empty() else "새 진행도는 원본을 복구 폴더에 보관할 수 있을 때만 저장합니다.")
+		"unreadable":
+			result.warning = "저장 파일을 읽지 못해 기본 진행도로 시작했습니다.\n파일 권한을 확인하세요. 새 진행도는 원본을 별도 보관한 뒤 저장합니다."
+		"newer":
+			result.warning = "더 새로운 버전의 저장 파일입니다. 기본 진행도로 시작했습니다.\n원본을 보호하기 위해 저장하지 않습니다. 게임을 업데이트하세요."
+	return result
+
+static func load_data(path: String = SAVE_PATH) -> Dictionary:
+	return load_result(path).data
 
 static func save_data(data: Dictionary, path: String = SAVE_PATH) -> bool:
+	var source := _read_profile(path)
+	if source.status in ["unreadable", "newer"]:
+		return false
+	if (source.status == "invalid" or (source.status == "ok" and protected_paths.has(path))) and _preserve_original(source.bytes, path).is_empty():
+		return false
+	var saved := _write_atomic(JSON.stringify(sanitize(data), "\t").to_utf8_buffer(), path)
+	if saved:
+		protected_paths.erase(path)
+	return saved
+
+static func _write_atomic(bytes: PackedByteArray, path: String) -> bool:
 	# Never truncate the active save before the replacement is fully written.
 	var temporary := path + ".tmp"
 	var file := FileAccess.open(temporary, FileAccess.WRITE)
 	if file == null:
 		return false
-	file.store_string(JSON.stringify(sanitize(data), "	"))
+	file.store_buffer(bytes)
 	file.flush()
 	var error := file.get_error()
 	file.close()

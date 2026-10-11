@@ -20,6 +20,7 @@ theme_override_constants/separation = 10
 layout_mode = 2
 theme_override_colors/font_color = Color(0.956863, 0.835294, 0.552941, 1)
 horizontal_alignment = 1
+autowrap_mode = 3
 
 [node name="Footer" type="HBoxContainer" parent="Column" index="4"]
 layout_mode = 2

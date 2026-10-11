@@ -55,13 +55,18 @@ static func _build_replay_list(main) -> void:
 	var status: Label = column.get_node("ReplayStatus")
 	var paths: Array = BattleReplay.list_saved()
 	var shown := 0
+	var unreadable := 0
 	for path in paths:
 		var replay := BattleReplay.load_file(path)
 		if replay.is_empty():
+			unreadable += 1
+			rows.add_child(_unreadable_replay_card(main, String(path)))
 			continue
 		shown += 1
 		rows.add_child(_replay_card(main, String(path), replay))
-	if shown == 0:
+	if unreadable > 0:
+		status.text = "읽을 수 없는 리플레이 %d개가 있습니다. 파일을 보관하거나 목록에서 삭제할 수 있습니다." % unreadable
+	if shown == 0 and unreadable == 0:
 		var empty := VBoxContainer.new()
 		empty.name = "NoReplays"
 		empty.custom_minimum_size.y = 260
@@ -111,6 +116,40 @@ static func _build_replay_list(main) -> void:
 	UIKit.style_button(recent_button, UIKit.ACCENT, false, 16)
 	column.get_node("Footer").add_child(recent_button)
 	recent_button.pressed.connect(func(): _show_recent_battles(main))
+
+static func _delete_replay(main, path: String) -> void:
+	# Keep the existing card (and its retry button) when removal fails.
+	if DirAccess.dir_exists_absolute(path) or (FileAccess.file_exists(path) and DirAccess.remove_absolute(path) != OK):
+		var status := main.find_child("ReplayStatus", true, false) as Label
+		if status != null:
+			status.text = "리플레이를 삭제하지 못했습니다. 파일 권한을 확인하고 삭제를 다시 시도하세요."
+			status.tooltip_text = ProjectSettings.globalize_path(path)
+		return
+	main._build_replay_list()
+
+static func _delete_button(main, path: String) -> Button:
+	var button: Button = main._styled_button("삭제", UIKit.DANGER, false)
+	button.name = "DeleteReplayButton"
+	button.custom_minimum_size = Vector2(80, 46)
+	button.pressed.connect(func(): _delete_replay(main, path))
+	return button
+
+static func _unreadable_replay_card(main, path: String) -> PanelContainer:
+	var card := PanelContainer.new()
+	card.name = "UnreadableReplayCard"
+	card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE, UIKit.SURFACE, UIKit.DANGER, 12), 14, 10))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var label := Label.new()
+	label.text = "읽을 수 없는 리플레이\n%s\n파일이 손상되었거나 지원하지 않는 형식입니다." % path.get_file()
+	label.tooltip_text = ProjectSettings.globalize_path(path)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.add_theme_font_size_override("font_size", 14)
+	row.add_child(label)
+	row.add_child(_delete_button(main, path))
+	card.add_child(row)
+	return card
 
 ## Overlay with one row per deck I have played: record, average length, hardest stage and advice.
 static func _show_deck_analysis(main) -> void:
@@ -292,13 +331,7 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 		DisplayServer.clipboard_set(BattleReplay.to_share_text(replay))
 		share.text = "복사됨 ✓")
 	row.add_child(share)
-	var delete = main._styled_button("삭제", UIKit.DANGER, false)
-	delete.name = "DeleteReplayButton"
-	delete.custom_minimum_size = Vector2(80, 46)
-	delete.pressed.connect(func():
-		DirAccess.remove_absolute(path)
-		main._build_replay_list())
-	row.add_child(delete)
+	row.add_child(_delete_button(main, path))
 	return card
 
 ## Asks for a six-letter code and plays the replay it names.

@@ -45,6 +45,18 @@ func run() -> void:
 	main._build_replay_list()
 	await process_frame
 	check(main.find_child("NoReplays", true, false) != null, "empty replay list explains how replays appear")
+	var unreadable := BattleReplay.save_dir.path_join("damaged.json")
+	DirAccess.make_dir_recursive_absolute(BattleReplay.save_dir)
+	var invalid := FileAccess.open(unreadable, FileAccess.WRITE)
+	invalid.store_string("[]")
+	invalid.close()
+	main._build_replay_list()
+	await process_frame
+	check(main.find_child("UnreadableReplayCard", true, false) != null and main.find_child("NoReplays", true, false) == null, "unreadable saved files are visible rather than reported as an empty library")
+	check(main.find_child("PlayReplayButton", true, false) == null and main.find_child("ReplayStatus", true, false).text.contains("1개"), "unreadable replay cannot be played and the list explains the problem")
+	main.find_child("DeleteReplayButton", true, false).pressed.emit()
+	await process_frame
+	check(not FileAccess.file_exists(unreadable) and main.find_child("NoReplays", true, false) != null, "an unreadable replay can be deleted from the list")
 
 	var replay := _make_replay()
 	var saved := BattleReplay.save(replay, "viewer-test")
@@ -96,6 +108,20 @@ func run() -> void:
 	await process_frame
 	check(main.find_child("ReplayRows", true, false) != null and main.find_child("ReplayViewer", true, false) == null, "leaving returns to the list")
 	var deleted: String = BattleReplay.list_saved()[0] # the list shows the newest (imported) replay first
+	var delete_button: Button = main.find_child("DeleteReplayButton", true, false)
+	DirAccess.rename_absolute(deleted, deleted + ".hold")
+	DirAccess.make_dir_absolute(deleted)
+	var blocked := FileAccess.open(deleted.path_join("keep.txt"), FileAccess.WRITE)
+	blocked.store_string("keep")
+	blocked.close()
+	delete_button.pressed.emit()
+	await process_frame
+	check(main.find_child("DeleteReplayButton", true, false) == delete_button and main.find_child("ReplayRows", true, false).get_child_count() == 2, "failed deletion keeps the displayed replay and its retry action")
+	check(main.find_child("ReplayStatus", true, false).text.contains("삭제하지 못했습니다") and main.find_child("ReplayStatus", true, false).tooltip_text.contains(deleted.get_file()), "deletion failure identifies the affected file and offers retry")
+	check(FileAccess.file_exists(deleted.path_join("keep.txt")), "a directory at a replay path is never recursively deleted")
+	DirAccess.remove_absolute(deleted.path_join("keep.txt"))
+	DirAccess.remove_absolute(deleted)
+	DirAccess.rename_absolute(deleted + ".hold", deleted)
 	main.find_child("DeleteReplayButton", true, false).pressed.emit()
 	await process_frame
 	check(not FileAccess.file_exists(deleted), "delete removes the file shown by that card")

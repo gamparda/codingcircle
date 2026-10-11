@@ -114,6 +114,8 @@ var server_status_accumulator := 0.0
 var server_draining := false
 var save_data: Dictionary = {}
 var profile_save_pending := false
+var profile_load_warning := ""
+var profile_load_details := ""
 var campaign_mode := false
 var result_recorded := false
 var placement_status_label: Label
@@ -196,7 +198,10 @@ func _ready() -> void:
 	smoke_mode = args.has("--smoke-client")
 	ai_smoke_mode = args.has("--ai-smoke")
 	var has_saved_profile := FileAccess.file_exists(SaveData.SAVE_PATH)
-	save_data = SaveData.default_data() if args.has("--server") else SaveData.load_data()
+	if args.has("--server"):
+		save_data = SaveData.default_data()
+	else:
+		_load_profile()
 	if not args.has("--server") and not has_saved_profile:
 		save_data.settings.language = Localization.normalize_locale(TranslationServer.get_locale())
 	Localization.install("ko" if args.has("--server") else String(save_data.settings.language))
@@ -556,6 +561,17 @@ func _make_background() -> ColorRect:
 	_refresh_save_warning(bg)
 	return bg
 
+func _load_profile(path: String = SaveData.SAVE_PATH) -> void:
+	var loaded := SaveData.load_result(path)
+	save_data = loaded.data
+	profile_load_warning = loaded.warning
+	profile_load_details = ProjectSettings.globalize_path(path)
+	if not loaded.backup.is_empty():
+		profile_load_details += "\n원본 보관: " + ProjectSettings.globalize_path(loaded.backup)
+	elif loaded.status in ["invalid", "unreadable"]:
+		profile_load_details += "\n복구 폴더: " + ProjectSettings.globalize_path(SaveData.recovery_dir(path))
+	network.client_nickname = String(save_data.nickname)
+
 ## Keep automatic progress in memory on failure. Retrying only writes the current profile;
 ## it never replays achievement or match accounting.
 func _save_profile() -> bool:
@@ -598,19 +614,29 @@ func _retry_battle_replays(update_safety: bool = true) -> void:
 func _refresh_save_warning(background: Control) -> void:
 	if not is_instance_valid(background):
 		return
-	for node_name in ["ProfileSaveWarning", "ReplaySaveWarning"]:
+	for node_name in ["ProfileLoadWarning", "ProfileSaveWarning", "ReplaySaveWarning"]:
 		var old := background.get_node_or_null(node_name)
 		if old != null:
 			background.remove_child(old)
 			old.queue_free()
+	var y := 6.0
+	if not profile_load_warning.is_empty():
+		_add_save_warning(background, "ProfileLoadWarning", profile_load_warning, "DismissProfileLoadWarning", _dismiss_profile_load_warning, y, "확인", profile_load_details)
+		y += 72.0
 	if profile_save_pending:
-		_add_save_warning(background, "ProfileSaveWarning", "진행도를 저장하지 못했습니다. 종료하면 변경 내용이 사라집니다.\n저장 공간과 파일 권한을 확인하고 다시 시도하세요.", "RetryProfileSave", _save_profile, 6.0)
+		_add_save_warning(background, "ProfileSaveWarning", "진행도를 저장하지 못했습니다. 종료하면 변경 내용이 사라집니다.\n저장 공간과 파일 권한을 확인하고 다시 시도하세요.", "RetryProfileSave", _save_profile, y)
+		y += 72.0
 	if not pending_battle_replays.is_empty():
-		_add_save_warning(background, "ReplaySaveWarning", "리플레이 %d개를 저장하지 못했습니다. 종료하면 기록이 사라집니다.\n저장 공간과 파일 권한을 확인하고 다시 시도하세요." % pending_battle_replays.size(), "RetryBattleReplaySave", _retry_battle_replays, 78.0 if profile_save_pending else 6.0)
+		_add_save_warning(background, "ReplaySaveWarning", "리플레이 %d개를 저장하지 못했습니다. 종료하면 기록이 사라집니다.\n저장 공간과 파일 권한을 확인하고 다시 시도하세요." % pending_battle_replays.size(), "RetryBattleReplaySave", _retry_battle_replays, y)
 	elif not replay_recording_error.is_empty():
-		_add_save_warning(background, "ReplaySaveWarning", replay_recording_error, "", Callable(), 78.0 if profile_save_pending else 6.0)
+		_add_save_warning(background, "ReplaySaveWarning", replay_recording_error, "", Callable(), y)
 
-func _add_save_warning(background: Control, node_name: String, message: String, retry_name: String, callback: Callable, y: float) -> void:
+func _dismiss_profile_load_warning() -> void:
+	profile_load_warning = ""
+	profile_load_details = ""
+	_refresh_save_warning(root_background)
+
+func _add_save_warning(background: Control, node_name: String, message: String, retry_name: String, callback: Callable, y: float, button_text: String = "저장 재시도", details: String = "") -> void:
 	var panel := PanelContainer.new()
 	panel.name = node_name
 	panel.position = Vector2(290, y)
@@ -621,12 +647,13 @@ func _add_save_warning(background: Control, node_name: String, message: String, 
 	row.add_theme_constant_override("separation", 12)
 	var label := Label.new()
 	label.text = message
+	label.tooltip_text = details
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.add_theme_font_size_override("font_size", 15)
 	row.add_child(label)
 	if callback.is_valid():
-		var retry := _styled_button("저장 재시도", UIKit.GOLD_DEEP)
+		var retry := _styled_button(button_text, UIKit.GOLD_DEEP)
 		retry.name = retry_name
 		retry.custom_minimum_size = Vector2(140, 58)
 		retry.pressed.connect(callback)

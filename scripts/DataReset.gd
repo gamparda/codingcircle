@@ -23,6 +23,7 @@ static func wipe(main) -> Dictionary:
 		return result
 	for path in [save_path + ".tmp", MetaStats.cache_path]:
 		result.files += _remove_file(path, result.failed)
+	_remove_folder(SaveData.recovery_dir(save_path), result, false)
 	_remove_folder(BattleReplay.save_dir, result)
 	MetaStats.snapshot = {}
 	MetaStats.boards = {}
@@ -33,6 +34,8 @@ static func wipe(main) -> Dictionary:
 	main.replay_recording_error = ""
 	main.last_replay_path = ""
 	main.local_recorder = null
+	main.profile_load_warning = ""
+	main.profile_load_details = ""
 	main.network.client_nickname = String(main.save_data.nickname)
 	main.battle_preset = {}
 	main.campaign_mode = false
@@ -55,7 +58,7 @@ static func _remove_file(path: String, failed: Array) -> int:
 		return 0
 	return 1
 
-static func _remove_folder(path: String, result: Dictionary) -> void:
+static func _remove_folder(path: String, result: Dictionary, count_replays: bool = true) -> void:
 	if FileAccess.file_exists(path):
 		result.failed.append(path)
 		return
@@ -74,11 +77,13 @@ static func _remove_folder(path: String, result: Dictionary) -> void:
 				if DirAccess.remove_absolute(child) != OK:
 					result.failed.append(child)
 			elif directory.current_is_dir():
-				_remove_folder(child, result)
+				_remove_folder(child, result, count_replays)
 			else:
 				var removed := _remove_file(child, result.failed)
-				if name.ends_with(".json"):
+				if count_replays and name.ends_with(".json"):
 					result.replays += removed
+				elif not count_replays:
+					result.files += removed
 		name = directory.get_next()
 	directory.list_dir_end()
 	if DirAccess.remove_absolute(path) != OK and not result.failed.has(path):
@@ -101,6 +106,7 @@ static func show_confirm(main) -> void:
 		"덱 프리셋, 닉네임, 설정(소리·화면·단축키), 튜토리얼과 시작 목표 진행",
 		"저장된 리플레이 %d개" % replays,
 		"전체 통계 캐시와 내 결과 보내기 설정",
+		"손상된 저장 파일의 복구용 원본 보관함",
 	]
 	for item in items:
 		dialog.add_child(_wrapped("•  " + Localization.text(String(item)), 15, UIKit.TEXT))
