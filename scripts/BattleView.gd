@@ -255,14 +255,9 @@ func placement_error(kind: String, world_x: float) -> String:
 	for structure in snapshot.get("structures", []):
 		if int(structure.side) == own_side and float(structure.get("hp", 1.0)) > 0.0 and abs(float(structure.x) - world_x) < BattleModel.STRUCTURE_MIN_SPACING:
 			return Localization.text("구조물이 너무 가깝습니다.")
-	var owned: Array = snapshot.get("structures", []).filter(func(structure): return int(structure.side) == own_side and float(structure.get("hp", 1.0)) > 0.0)
-	if owned.size() >= BattleModel.STRUCTURE_LIMIT:
-		return Localization.text("구조물은 최대 3개까지 설치할 수 있습니다.")
-	var same_count := owned.filter(func(structure): return String(structure.kind) == kind).size()
-	if kind in ["turret", "generator"] and same_count >= 1:
-		return (Localization.text("포탑") if kind == "turret" else Localization.text("발전기")) + Localization.text("은 1개만 설치할 수 있습니다.")
-	if kind == "wall" and same_count >= 2:
-		return Localization.text("방벽은 2개만 설치할 수 있습니다.")
+	var limit_error := BattleModel.structure_limit_error(kind, BattleModel.structure_counts(snapshot.get("structures", []), own_side))
+	if not limit_error.is_empty():
+		return limit_error
 	var resources: Array = snapshot.get("resources", [0.0, 0.0])
 	if resources.size() <= own_side or float(resources[own_side]) < float(BattleModel.STRUCTURE_STATS[kind].cost):
 		return Localization.text("자원이 부족합니다.")

@@ -217,6 +217,34 @@ static func battle_stat_summary() -> String:
 	var field_line := Localization.text("전장  ·  길이 +%d%%  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [roundi((WORLD_SCALE - 1.0) * 100.0), int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
 	return structures_line + "\n" + support_line + "\n" + field_line
 
+## Shared by authoritative placement, online previews and purchase cards.
+## Destroyed structures can remain in a snapshot until the next cleanup tick.
+static func structure_counts(values: Array, side: int) -> Dictionary:
+	var counts := {"total": 0, "kinds": {}}
+	for structure in values:
+		if int(structure.side) != side or float(structure.get("hp", 1.0)) <= 0.0:
+			continue
+		var kind := String(structure.kind)
+		counts.total += 1
+		counts.kinds[kind] = int(counts.kinds.get(kind, 0)) + 1
+	return counts
+
+static func structure_limit_error(kind: String, counts: Dictionary) -> String:
+	if not STRUCTURE_STATS.has(kind):
+		return Localization.text("설치할 수 없는 구조물입니다.")
+	if int(counts.total) >= STRUCTURE_LIMIT:
+		return Localization.text("구조물은 최대 %d개까지 설치할 수 있습니다.") % STRUCTURE_LIMIT
+	var max_count := int(STRUCTURE_STATS[kind].get("max_count", STRUCTURE_LIMIT))
+	if int(counts.kinds.get(kind, 0)) < max_count:
+		return ""
+	if kind == "turret":
+		return Localization.text("포탑은 %d개만 설치할 수 있습니다.") % max_count
+	if kind == "generator":
+		return Localization.text("발전기는 %d개만 설치할 수 있습니다.") % max_count
+	if kind == "wall":
+		return Localization.text("방벽은 %d개만 설치할 수 있습니다.") % max_count
+	return Localization.text("같은 종류의 구조물은 %d개까지 설치할 수 있습니다.") % max_count
+
 func _owned_structure_count(side: int, kind: String = "") -> int:
 	var count := 0
 	for structure in structures:
@@ -237,15 +265,9 @@ func structure_placement_error(side: int, kind: String, x: float) -> String:
 	for structure in structures:
 		if int(structure.side) == side and float(structure.hp) > 0.0 and abs(float(structure.x) - x) < STRUCTURE_MIN_SPACING:
 			return Localization.text("구조물이 너무 가깝습니다.")
-	if _owned_structure_count(side) >= STRUCTURE_LIMIT:
-		return Localization.text("구조물은 최대 3개까지 설치할 수 있습니다.")
-	var max_count := int(STRUCTURE_STATS[kind].get("max_count", STRUCTURE_LIMIT))
-	if _owned_structure_count(side, kind) >= max_count:
-		if kind == "turret":
-			return Localization.text("포탑은 1개만 설치할 수 있습니다.")
-		if kind == "generator":
-			return Localization.text("발전기는 1개만 설치할 수 있습니다.")
-		return Localization.text("방벽은 2개만 설치할 수 있습니다.")
+	var limit_error := structure_limit_error(kind, structure_counts(structures, side))
+	if not limit_error.is_empty():
+		return limit_error
 	if resources[side] < float(STRUCTURE_STATS[kind].cost):
 		return Localization.text("자원이 부족합니다.")
 	return ""

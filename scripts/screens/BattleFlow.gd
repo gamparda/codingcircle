@@ -182,6 +182,7 @@ static func _on_battlefield_clicked(main, world_x: float) -> void:
 			main.battle_view.selected_structure = ""
 			main._refresh_structure_selection()
 			main._tutorial_advance(1)
+			main._on_snapshot(main.local_model.snapshot())
 	else:
 		main.placement_pending = true
 		main._refresh_structure_selection()
@@ -218,9 +219,6 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 		main.get_tree().quit(0)
 	var resources: Array = data.get("resources", [0.0, 0.0])
 	var bases: Array = data.get("base_hp", [0.0, 0.0])
-	var own_structures: int = data.get("structures", []).filter(func(structure): return int(structure.side) == main.own_side).size()
-	if is_instance_valid(main.structure_count_label):
-		main.structure_count_label.text = Localization.text("구조물 %d / 3") % own_structures
 	var resource_cap = main.local_model.resource_capacity(main.own_side) if main.local_ai_mode and is_instance_valid(main.local_model) else BattleModel.MAX_RESOURCE
 	main.resource_label.text = "%d / %d" % [int(resources[main.own_side]), int(resource_cap)]
 	var resource_bar = main.resource_label.get_meta("bar", null)

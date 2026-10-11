@@ -85,7 +85,7 @@ static func _build_battle_screen(main) -> void:
 	main.structure_count_label.position = Vector2(1030, 548)
 	main.structure_count_label.size = Vector2(220, 28)
 	main.structure_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	main.structure_count_label.text = Localization.text("구조물 0 / 3")
+	main.structure_count_label.text = "구조물 0 / %d" % BattleModel.STRUCTURE_LIMIT
 	main.structure_count_label.add_theme_color_override("font_color", Color("#a7afc0"))
 	main.root_background.add_child(main.structure_count_label)
 
@@ -595,6 +595,10 @@ static func _refresh_structure_selection(main) -> void:
 
 static func _refresh_purchase_buttons(main, resources: float) -> void:
 	main.latest_resources = resources
+	var counts := BattleModel.structure_counts(main.current_snapshot.get("structures", []), main.own_side)
+	if is_instance_valid(main.structure_count_label):
+		main.structure_count_label.text = "구조물 %d / %d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT]
+		main.structure_count_label.add_theme_color_override("font_color", UIKit.GOLD if int(counts.total) >= BattleModel.STRUCTURE_LIMIT else Color("#a7afc0"))
 	var clear_selection := false
 	for button in main.purchase_buttons:
 		if not is_instance_valid(button):
@@ -606,10 +610,40 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			cooldown = maxf(float(advertised[main.own_side].get(kind,0.0)),maxf(0.0,float(main.client_purchase_gates.get(kind,0))-Time.get_ticks_msec())/1000.0)
 		var missing := maxi(0,ceili(float(button.get_meta("purchase_cost"))-resources))
 		var waiting: bool = main.placement_pending and button.has_meta("structure_kind")
-		var unavailable: bool = waiting or main.network.client_is_spectator or (not main.local_ai_mode and main.network_paused) or main.result_shown or (main.local_ai_mode and not main.campaign_mode and main.practice.paused) or missing>0 or cooldown>0.001
+		var limit_error := ""
+		var limit_state := ""
+		if button.has_meta("structure_kind"):
+			var kind: String = button.get_meta("structure_kind")
+			var count := int(counts.kinds.get(kind, 0))
+			var maximum := int(BattleModel.STRUCTURE_STATS[kind].get("max_count", BattleModel.STRUCTURE_LIMIT))
+			var lines := String(button.get_meta("base_text")).split("\n")
+			lines[0] += " · %d/%d" % [count, maximum]
+			var card_text := "\n".join(lines)
+			if button.text != card_text: button.text = card_text
+			limit_error = BattleModel.structure_limit_error(kind, counts)
+			if not limit_error.is_empty():
+				limit_state = "전체 한도 %d/%d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT] if int(counts.total) >= BattleModel.STRUCTURE_LIMIT else "종류 한도 %d/%d" % [count, maximum]
+			var tooltip := "%s\n설치 %d / %d · 전체 %d / %d" % [String(button.get_meta("base_text")), count, maximum, int(counts.total), BattleModel.STRUCTURE_LIMIT]
+			if waiting:
+				tooltip += "\n서버 확인 중입니다. 이미 요청한 설치는 취소할 수 없습니다."
+			elif not limit_error.is_empty():
+				tooltip += "\n" + limit_error
+				tooltip += " 아군 구조물이 파괴되거나 만료되어 전체·종류별 한도에 빈자리가 생기면 다시 선택할 수 있습니다."
+			elif missing > 0:
+				tooltip += "\n자원이 %d 더 필요합니다." % missing
+			else:
+				tooltip += "\n카드를 선택한 뒤 전장에서 위치를 선택하세요."
+			if kind == "generator": tooltip += "\n발전기는 자신의 후방에만 설치할 수 있습니다."
+			if button.tooltip_text != tooltip: button.tooltip_text = tooltip
+		var unavailable: bool = waiting or not limit_error.is_empty() or main.network.client_is_spectator or (not main.local_ai_mode and main.network_paused) or main.result_shown or (main.local_ai_mode and not main.campaign_mode and main.practice.paused) or missing>0 or cooldown>0.001
 		var state_label := button.get_node_or_null("PurchaseState") as Label
 		if state_label:
-			var state_text := "관전" if main.network.client_is_spectator else ("서버 확인 중" if waiting else ("자원 -%d" % missing if missing>0 else ("대기 %.1f초" % cooldown if cooldown>0.001 else "")))
+			var state_text := ""
+			if main.network.client_is_spectator: state_text = "관전"
+			elif waiting: state_text = "서버 확인 중"
+			elif not limit_state.is_empty(): state_text = limit_state
+			elif missing > 0: state_text = "자원 -%d" % missing
+			elif cooldown > 0.001: state_text = "대기 %.1f초" % cooldown
 			if state_label.text!=state_text: state_label.text = state_text
 			state_label.visible = not state_text.is_empty()
 		if button.disabled != unavailable:
@@ -617,6 +651,7 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			button.modulate = Color(0.4, 0.4, 0.4, 1.0) if unavailable else Color.WHITE
 		if state_label: state_label.modulate = Color(2.5,2.5,2.5,1.0) if unavailable else Color.WHITE
 		if unavailable and not waiting and button.has_meta("structure_kind") and is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")):
+			if not limit_error.is_empty(): main._show_placement_status(limit_error)
 			main.battle_view.selected_structure = ""
 			clear_selection = true
 	if clear_selection:
