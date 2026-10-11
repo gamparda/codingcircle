@@ -19,6 +19,7 @@ class Recorder extends RefCounted:
 	var replay: Dictionary = {}
 	var ticks := 0
 	var finished := false
+	var recording_failed := false
 
 	func _init(model: BattleModel, hz: int = 30, ai: Dictionary = {}, meta: Dictionary = {}) -> void:
 		replay = {
@@ -33,7 +34,11 @@ class Recorder extends RefCounted:
 
 	## Call after every executed model.tick().
 	func on_tick() -> void:
+		if finished:
+			return
 		ticks += 1
+		if ticks > MAX_TICKS:
+			recording_failed = true
 
 	func on_spawn(side: int, kind: String) -> void:
 		_command({"t": ticks, "s": side, "c": "spawn", "k": kind})
@@ -42,14 +47,21 @@ class Recorder extends RefCounted:
 		_command({"t": ticks, "s": side, "c": "place", "k": kind, "x": x})
 
 	func _command(entry: Dictionary) -> void:
-		if not finished and replay.commands.size() < 20000:
-			replay.commands.append(entry)
+		if finished or recording_failed:
+			return
+		if replay.commands.size() >= MAX_COMMANDS:
+			recording_failed = true
+			return
+		replay.commands.append(entry)
 
-	## Seals the replay. `model` must be in its final state.
+	## Seals the replay. `model` must be in its final state. Returns {} if recording
+	## exceeded a limit, because a truncated command log cannot reproduce this battle.
 	func finish(model: BattleModel) -> Dictionary:
 		if finished:
-			return replay
+			return {} if recording_failed else replay
 		finished = true
+		if recording_failed:
+			return {}
 		var natural: bool = model.base_hp[0] <= 0.0 or model.base_hp[1] <= 0.0
 		if model.winner != -1 and not natural:
 			replay.forced_end = {"t": ticks, "winner": model.winner}
@@ -183,7 +195,7 @@ class Player extends RefCounted:
 
 	## Re-simulates one tick; returns false once the battle is over.
 	func step() -> bool:
-		if model.winner != -1 or ticks >= 30 * 3600 * 2:
+		if model.winner != -1:
 			return false
 		var commands: Array = replay.commands
 		while cursor < commands.size() and int(commands[cursor].t) <= ticks:
@@ -196,6 +208,8 @@ class Player extends RefCounted:
 		var forced: Dictionary = replay.get("forced_end", {})
 		if not forced.is_empty() and ticks >= int(forced.t):
 			model.winner = int(forced.winner)
+			return false
+		if ticks >= MAX_TICKS:
 			return false
 		if ai != null:
 			ai.update(model, dt)

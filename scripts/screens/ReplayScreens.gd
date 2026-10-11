@@ -479,7 +479,7 @@ static func _open_viewer(main, replay: Dictionary, path: String) -> void:
 		else:
 			saved = BattleReplay.write_file(stored_path, viewer.replay)
 		viewer.set_storage_state(stored_path, not saved)
-		main.updater.set_safe_to_update(saved and not main.profile_save_pending)
+		main.updater.set_safe_to_update(main._client_can_update())
 		if not saved:
 			viewer.moment_toast.text = Localization.text("메모를 저장하지 못했습니다. 저장 공간과 파일 권한을 확인하세요.")
 	viewer.storage_requested.connect(store)

@@ -112,6 +112,28 @@ func _init() -> void:
 	while player.step() and guard < BattleReplay.MAX_TICKS:
 		guard += 1
 	check(player.summary().state_hash == base.result.state_hash, "stepwise playback matches")
+	# Exercise the recording boundaries without simulating a two-hour battle.
+	var boundary_model := BattleModel.new()
+	var boundary_recorder := BattleReplay.Recorder.new(boundary_model)
+	boundary_recorder.ticks = BattleReplay.MAX_TICKS
+	boundary_model.winner = 0
+	var boundary := boundary_recorder.finish(boundary_model)
+	check(BattleReplay.valid(boundary), "a forced ending at the final supported tick is valid")
+	var boundary_player := BattleReplay.Player.new(boundary)
+	boundary_player.ticks = BattleReplay.MAX_TICKS
+	check(not boundary_player.step() and boundary_player.model.winner == 0 and boundary_player.ticks == BattleReplay.MAX_TICKS, "playback applies the forced ending at the tick limit without advancing again")
+	var too_long := BattleReplay.Recorder.new(boundary_model)
+	too_long.ticks = BattleReplay.MAX_TICKS
+	too_long.on_tick()
+	check(too_long.finish(boundary_model).is_empty() and too_long.finish(boundary_model).is_empty(), "overlong battles never produce a partial replay, including repeat finish calls")
+	var full := BattleReplay.Recorder.new(boundary_model)
+	for _index in BattleReplay.MAX_COMMANDS:
+		full.on_spawn(0, "shield")
+	check(BattleReplay.valid(full.finish(boundary_model)), "exactly the supported number of commands can be recorded")
+	var overflow := BattleReplay.Recorder.new(boundary_model)
+	overflow.replay.commands = full.replay.commands.duplicate()
+	overflow.on_spawn(0, "shield")
+	check(overflow.finish(boundary_model).is_empty(), "a command beyond the limit invalidates recording rather than silently truncating it")
 	# Share text round trip and rejection of anything else.
 	var shared := BattleReplay.to_share_text(base)
 	check(shared.begins_with(BattleReplay.SHARE_PREFIX) and not shared.contains(" ") and shared.length() < JSON.stringify(base).length(), "share text is one compact line")
@@ -161,6 +183,11 @@ func _init() -> void:
 	check(live.winner != -1 and hooks.saved_paths.size() == 1, "server hooks saved exactly one replay: %s" % [hooks.saved_paths])
 	hooks.settle(7, live)
 	check(hooks.saved_paths.size() == 1, "settling again does not save a duplicate")
+	hooks.begin(8, live, {"mode": "test"})
+	hooks.recorders[8].ticks = BattleReplay.MAX_TICKS
+	hooks.on_tick(8)
+	hooks.settle(8, live)
+	check(not hooks.recorders.has(8) and hooks.saved_paths.size() == 1, "server discards an over-limit recording without saving a misleading replay")
 	for saved in hooks.saved_paths:
 		var loaded := BattleReplay.load_file(saved)
 		check(not loaded.is_empty() and bool(BattleReplay.verify(loaded).ok), "server-saved replay verifies")

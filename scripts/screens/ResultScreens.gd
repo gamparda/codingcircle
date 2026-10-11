@@ -33,7 +33,8 @@ static func _show_result(main, winner: int) -> void:
 		main.result_recorded = true
 		if main.local_ai_mode:
 			if main.local_recorder != null and is_instance_valid(main.local_model):
-				if main.local_recorder.ticks > 0: main.last_replay_path = BattleReplay.save(main.local_recorder.finish(main.local_model), "stage%d" % main.current_ai_stage)
+				if main.local_recorder.ticks > 0:
+					main._store_battle_replay(main.local_recorder.finish(main.local_model), "stage%d" % main.current_ai_stage)
 				main.local_recorder = null
 			if not main.daily_challenge.is_empty():
 				var snap: Dictionary = main.current_snapshot
@@ -52,7 +53,7 @@ static func _show_result(main, winner: int) -> void:
 		unlocked = _judge_achievements(main, winner)
 		_share_result(main, winner)
 		main._save_profile()
-	main.updater.set_safe_to_update(not main.profile_save_pending)
+	main.updater.set_safe_to_update(main._client_can_update())
 	main.updater.check_for_update()
 	var screen := Control.new()
 	screen.name = "ResultOverlay"

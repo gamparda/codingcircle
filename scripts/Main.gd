@@ -76,6 +76,8 @@ var local_ai # ServerAI or GhostOpponent (anything with update(model, delta))
 var local_recorder = null # BattleReplay.Recorder for campaign battles
 var local_step_accumulator := 0.0
 var last_replay_path := ""
+var pending_battle_replays: Array = [] # finished battles awaiting a successful disk write
+var replay_recording_error := ""
 var replay_viewer = null
 var quick_wait_started_msec := 0
 var battle_curve: Array = []
@@ -560,41 +562,75 @@ func _save_profile() -> bool:
 	profile_save_pending = not SaveData.save_data(save_data)
 	_refresh_save_warning(root_background)
 	if is_instance_valid(updater):
-		updater.set_safe_to_update(not profile_save_pending and (not battle_active or result_shown) and (not is_instance_valid(replay_viewer) or not replay_viewer.notes_dirty))
+		updater.set_safe_to_update(_client_can_update())
 	return not profile_save_pending
 
 func _profile_saved() -> void:
 	profile_save_pending = false
 	_refresh_save_warning(root_background)
+	updater.set_safe_to_update(_client_can_update())
+
+func _client_can_update() -> bool:
+	return not profile_save_pending and pending_battle_replays.is_empty() and (not battle_active or result_shown) and (not is_instance_valid(replay_viewer) or not replay_viewer.notes_dirty)
+
+## Keep each finished replay independent of the next battle's model and recorder.
+func _store_battle_replay(replay: Dictionary, name_hint: String) -> void:
+	last_replay_path = ""
+	if not BattleReplay.valid(replay):
+		replay_recording_error = "리플레이 기록 한도를 넘거나 데이터가 올바르지 않아 이 전투의 리플레이를 저장할 수 없습니다."
+		_refresh_save_warning(root_background)
+		return
+	pending_battle_replays.append({"replay": replay.duplicate(true), "hint": name_hint})
+	_retry_battle_replays(false) # result accounting and its profile write must finish before updates resume
+
+func _retry_battle_replays(update_safety: bool = true) -> void:
+	while not pending_battle_replays.is_empty():
+		var entry: Dictionary = pending_battle_replays[0]
+		var path := BattleReplay.save(entry.replay, String(entry.hint))
+		if path.is_empty():
+			break
+		last_replay_path = path
+		pending_battle_replays.pop_front()
+	_refresh_save_warning(root_background)
+	if update_safety:
+		updater.set_safe_to_update(_client_can_update())
 
 func _refresh_save_warning(background: Control) -> void:
 	if not is_instance_valid(background):
 		return
-	var old := background.get_node_or_null("ProfileSaveWarning")
-	if old != null:
-		background.remove_child(old)
-		old.queue_free()
-	if not profile_save_pending:
-		return
+	for node_name in ["ProfileSaveWarning", "ReplaySaveWarning"]:
+		var old := background.get_node_or_null(node_name)
+		if old != null:
+			background.remove_child(old)
+			old.queue_free()
+	if profile_save_pending:
+		_add_save_warning(background, "ProfileSaveWarning", "진행도를 저장하지 못했습니다. 종료하면 변경 내용이 사라집니다.\n저장 공간과 파일 권한을 확인하고 다시 시도하세요.", "RetryProfileSave", _save_profile, 6.0)
+	if not pending_battle_replays.is_empty():
+		_add_save_warning(background, "ReplaySaveWarning", "리플레이 %d개를 저장하지 못했습니다. 종료하면 기록이 사라집니다.\n저장 공간과 파일 권한을 확인하고 다시 시도하세요." % pending_battle_replays.size(), "RetryBattleReplaySave", _retry_battle_replays, 78.0 if profile_save_pending else 6.0)
+	elif not replay_recording_error.is_empty():
+		_add_save_warning(background, "ReplaySaveWarning", replay_recording_error, "", Callable(), 78.0 if profile_save_pending else 6.0)
+
+func _add_save_warning(background: Control, node_name: String, message: String, retry_name: String, callback: Callable, y: float) -> void:
 	var panel := PanelContainer.new()
-	panel.name = "ProfileSaveWarning"
-	panel.position = Vector2(290, 6)
+	panel.name = node_name
+	panel.position = Vector2(290, y)
 	panel.size = Vector2(700, 64)
 	panel.z_index = 200
 	panel.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE, UIKit.SURFACE, UIKit.DANGER, 12), 12, 3))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	var label := Label.new()
-	label.text = "진행도를 저장하지 못했습니다. 종료하면 변경 내용이 사라집니다.\n저장 공간과 파일 권한을 확인하고 다시 시도하세요."
+	label.text = message
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.add_theme_font_size_override("font_size", 15)
 	row.add_child(label)
-	var retry := _styled_button("저장 재시도", UIKit.GOLD_DEEP)
-	retry.name = "RetryProfileSave"
-	retry.custom_minimum_size = Vector2(140, 58)
-	retry.pressed.connect(_save_profile)
-	row.add_child(retry)
+	if callback.is_valid():
+		var retry := _styled_button("저장 재시도", UIKit.GOLD_DEEP)
+		retry.name = retry_name
+		retry.custom_minimum_size = Vector2(140, 58)
+		retry.pressed.connect(callback)
+		row.add_child(retry)
 	panel.add_child(row)
 	background.add_child(panel)
 

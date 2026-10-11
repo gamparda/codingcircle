@@ -315,7 +315,7 @@ static func _exit_ai_battle(main) -> void:
 	main.local_model = null
 	main.local_ai = null
 	main.current_snapshot.clear()
-	main.updater.set_safe_to_update(not main.profile_save_pending)
+	main.updater.set_safe_to_update(main._client_can_update())
 	main._build_ai_stage_screen(main.campaign_mode)
 
 static func _handle_battle_hotkey(main, event: InputEventKey) -> bool:

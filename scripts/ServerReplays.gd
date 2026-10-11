@@ -36,6 +36,9 @@ func settle(match_id: int, model: BattleModel) -> void:
 	if stats != null:
 		stats.record_model(model)
 	var finished: Dictionary = recorder.finish(model)
+	if finished.is_empty():
+		print("REPLAY_SKIPPED match=%d reason=recording_limit" % match_id)
+		return
 	if shelf != null:
 		shelf.add(BattleReplay.to_share_text(finished), true)
 	var path := BattleReplay.save(finished, "match%d" % match_id)

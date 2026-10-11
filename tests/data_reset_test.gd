@@ -66,11 +66,52 @@ func run() -> void:
 	main.find_child("CancelDataReset", true, false).pressed.emit()
 	await process_frame
 	check(FileAccess.file_exists(DataReset.save_path) and main.save_data.stats.ai_wins == 9, "cancelling keeps everything")
-
-	# With no countdown the button works and wipes the player's data only.
+	# Failure to remove the profile must not claim success or switch to default progress.
+	var original_save := DataReset.save_path
+	DataReset.save_path = base + "/blocked-profile"
+	DirAccess.make_dir_absolute(DataReset.save_path)
+	_touch(DataReset.save_path + "/keep.txt")
 	DataReset.countdown_seconds = 0
 	DataReset.show_confirm(main)
 	await process_frame
+	main.find_child("ConfirmDataReset", true, false).pressed.emit()
+	await process_frame
+	check(main.save_data.stats.ai_wins == 9 and main.network.client_nickname == "지울 닉네임", "failed profile removal preserves in-memory progress and identity")
+	check(FileAccess.file_exists(base + "/replays/a.json") and FileAccess.file_exists(MetaStats.cache_path), "failed profile removal leaves the other data alone")
+	check(main.find_child("DataResetStatus", true, false).text.contains("유지했습니다") and main.find_child("ConfirmDataReset", true, false).text.contains("재시도"), "reset failure explains preserved progress and offers retry")
+	check(FileAccess.file_exists(DataReset.save_path + "/keep.txt"), "an unexpected directory at the save path is never recursively wiped")
+	DirAccess.remove_absolute(DataReset.save_path + "/keep.txt")
+	DirAccess.remove_absolute(DataReset.save_path)
+	DataReset.save_path = original_save
+	main._dismiss_action_overlay()
+
+	# If a secondary location is blocked, report partial completion and stay for retry.
+	var original_replays := BattleReplay.save_dir
+	BattleReplay.save_dir = base + "/blocked-replays"
+	_touch(BattleReplay.save_dir)
+	DataReset.show_confirm(main)
+	await process_frame
+	main.find_child("ConfirmDataReset", true, false).pressed.emit()
+	await process_frame
+	check(main.save_data.stats.ai_wins == 0 and not FileAccess.file_exists(DataReset.save_path), "successful profile deletion resets progress even if another location fails")
+	check(main.find_child("DataResetStatus", true, false).text.contains("일부"), "partial deletion is explicitly reported")
+	check(main.find_child("DataResetStatus", true, false).tooltip_text.contains(BattleReplay.save_dir), "failure details identify the remaining path")
+	check(main.find_child("ConfirmDataReset", true, false) != null, "partial reset keeps the retry action available")
+	main.find_child("CancelDataReset", true, false).pressed.emit()
+	await process_frame
+	check(main.find_child("SettingsSaveButton", true, false) == null and main.save_data.stats.ai_wins == 0, "closing a partial reset discards the old settings draft so it cannot restore deleted progress")
+	main._build_settings_screen()
+	DataReset.show_confirm(main)
+	await process_frame
+	main.find_child("ConfirmDataReset", true, false).pressed.emit()
+	await process_frame
+	DirAccess.remove_absolute(BattleReplay.save_dir)
+	BattleReplay.save_dir = original_replays
+	main.pending_battle_replays = [{"replay": {}, "hint": "discard on reset"}]
+	main.replay_recording_error = "old warning"
+	main.last_replay_path = "old replay"
+
+	# With no countdown the button works and wipes the player's data only.
 	confirm = main.find_child("ConfirmDataReset", true, false)
 	check(not confirm.disabled, "the confirm button unlocks")
 	confirm.pressed.emit()
@@ -80,8 +121,9 @@ func run() -> void:
 	check(FileAccess.file_exists(base + "/content/pack.pck") and FileAccess.file_exists(base + "/unrelated.txt"), "content packs and other files are left alone")
 	check(main.save_data.stats.ai_wins == 0 and main.save_data.achievements.is_empty() and not bool(main.save_data.tutorial_completed) and main.save_data.nickname == "플레이어", "the in-memory data is back to defaults")
 	check(main.network.client_nickname == "플레이어" and MetaStats.snapshot.is_empty() and MetaStats.boards.is_empty(), "the nickname and statistics caches are reset too")
+	check(main.pending_battle_replays.is_empty() and main.replay_recording_error.is_empty() and main.last_replay_path.is_empty(), "reset also discards unsaved replay data and stale warnings")
 	check(main.find_child("SettingsSaveButton", true, false) == null and main.find_child("MultiplayerButton", true, false) != null, "the game returns to the main menu")
-	check(main.status_label.text.contains("초기화했습니다"), "and says what happened")
+	check(main.status_label.text.contains("초기화했습니다") and main.status_label.text.contains("3개"), "success reports all actually deleted replays, including nested files")
 	check(FileAccess.file_exists(SaveData.SAVE_PATH) == real_save_exists and (not real_save_exists or FileAccess.get_modified_time(SaveData.SAVE_PATH) == real_save_time), "the real save file was never touched by this test")
 	# Wiping again with nothing there is harmless.
 	var again := DataReset.wipe(main)

@@ -10,6 +10,7 @@ const HpBar = preload("res://scripts/ui/HpBar.gd")
 const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
 
 static func _build_battle_screen(main) -> void:
+	main.replay_recording_error = ""
 	main.base_warning_fired = false; main.client_purchase_gates.clear(); main.sound_gate.clear()
 	main.battle_active = true
 	main.battle_curve = []
