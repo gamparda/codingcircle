@@ -85,6 +85,7 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	dirty.add_theme_color_override("font_color", Color("#f0d592"))
 	dirty.add_theme_font_size_override("font_size", 14)
 	dirty.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dirty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dirty.text = ""
 	var mark_dirty := func(_value = null): dirty.text = Localization.text("● 저장하지 않은 변경이 있습니다")
 
@@ -254,28 +255,35 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	footer.add_child(dirty)
 	var back = main._styled_button(Localization.text("취소"), Color("#697386"), false)
 	back.custom_minimum_size.x = 150
+	back.name = "SettingsCancelButton"
 	back.pressed.connect(func(): main._apply_settings(); main._build_connect_screen())
 	footer.add_child(back)
 	var save_button = main._styled_button(Localization.text("설정 저장"), Color("#5e6ad2"), true)
 	save_button.name = "SettingsSaveButton"
 	save_button.custom_minimum_size.x = 220
 	save_button.pressed.connect(func():
-		settings.master_volume = master.value; settings.bgm_volume = bgm.value; settings.sfx_volume = sfx.value
-		settings.muted = muted.button_pressed; settings.fullscreen = fullscreen.button_pressed; settings.vsync = vsync.button_pressed
-		settings.window_size = window_size.get_item_text(window_size.selected); settings.fps_limit = fps_limit.get_item_id(fps_limit.selected)
-		settings.damage_numbers = damage_numbers.button_pressed; settings.screen_shake = shake.button_pressed; settings.battle_effects = effects.button_pressed; settings.effect_intensity = intensity.value
-		settings.graphics_quality = String(quality_options[quality.selected])
-		if String(settings.graphics_quality) != "custom":
-			var profile := SaveData.graphics_profile(String(settings.graphics_quality), mobile_layout, DisplayServer.screen_get_size())
+		var draft: Dictionary = main.save_data.duplicate(true)
+		var updated: Dictionary = draft.settings
+		updated.master_volume = master.value; updated.bgm_volume = bgm.value; updated.sfx_volume = sfx.value
+		updated.muted = muted.button_pressed; updated.fullscreen = fullscreen.button_pressed; updated.vsync = vsync.button_pressed
+		updated.window_size = window_size.get_item_text(window_size.selected); updated.fps_limit = fps_limit.get_item_id(fps_limit.selected)
+		updated.damage_numbers = damage_numbers.button_pressed; updated.screen_shake = shake.button_pressed; updated.battle_effects = effects.button_pressed; updated.effect_intensity = intensity.value
+		updated.graphics_quality = String(quality_options[quality.selected])
+		if String(updated.graphics_quality) != "custom":
+			var profile := SaveData.graphics_profile(String(updated.graphics_quality), mobile_layout, DisplayServer.screen_get_size())
 			for key in profile:
-				if settings[key] != profile[key]:
-					settings.graphics_quality = "custom"
+				if updated[key] != profile[key]:
+					updated.graphics_quality = "custom"
 					break
-		settings.language = "ko"
-		settings.helper_enabled = helper_toggle.button_pressed
-		settings.helper_cores = int(helper_cores.value)
-		settings.battle_keys = main.binding_draft.duplicate()
-		SaveData.save_data(main.save_data); Localization.install(String(settings.language)); main._apply_settings(); main._apply_helper_settings()
+		updated.language = "ko"
+		updated.helper_enabled = helper_toggle.button_pressed
+		updated.helper_cores = int(helper_cores.value)
+		updated.battle_keys = main.binding_draft.duplicate()
+		if not SaveData.save_data(draft):
+			dirty.text = Localization.text("설정을 저장하지 못했습니다. 저장 공간과 파일 권한을 확인하고 다시 시도하세요.")
+			return
+		main.save_data = draft
+		Localization.install(String(updated.language)); main._apply_settings(); main._apply_helper_settings()
 		main._build_connect_screen(Localization.text("설정을 저장했습니다."))
 	)
 	footer.add_child(save_button)
@@ -318,6 +326,9 @@ static func _add_binding_settings(main, column: VBoxContainer) -> void:
 static func _refresh_binding_buttons(main) -> void:
 	for index in main.binding_buttons.size():
 		if is_instance_valid(main.binding_buttons[index]): main.binding_buttons[index].text="%s · %s"%[BattleBindings.LABELS[index],BattleBindings.key_name(int(main.binding_draft[index]))]
+	var dirty := main.root_background.find_child("SettingsDirty", true, false) as Label
+	if dirty != null and main.binding_draft != main.save_data.settings.battle_keys:
+		dirty.text = Localization.text("● 저장하지 않은 변경이 있습니다")
 
 static func _begin_binding_capture(main, index: int) -> void:
 	main._cancel_binding_capture()

@@ -470,6 +470,8 @@ static func _open_viewer(main, replay: Dictionary, path: String) -> void:
 	viewer.closed.connect(func(): main._build_replay_list())
 	viewer.branch_requested.connect(func(tick): main._start_branch_battle(replay, tick))
 	if path != "":
-		viewer.notes_changed.connect(func(updated): BattleReplay.write_file(path, updated))
+		viewer.notes_changed.connect(func(updated):
+			if not BattleReplay.write_file(path, updated):
+				viewer.moment_toast.text = Localization.text("메모를 저장하지 못했습니다. 저장 공간과 파일 권한을 확인하세요."))
 	main.root_background.add_child(viewer)
 	main.replay_viewer = viewer

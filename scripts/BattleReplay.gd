@@ -61,13 +61,34 @@ class Recorder extends RefCounted:
 static func _is_number(value: Variant) -> bool:
 	return (value is float or value is int) and is_finite(float(value))
 
+static func _is_integer(value: Variant) -> bool:
+	# JSON decodes integers as floats; reject fractions before playback converts them.
+	return _is_number(value) and abs(float(value)) <= 9007199254740991.0 and float(value) == floor(float(value))
+
 static func valid(replay: Variant) -> bool:
-	if not replay is Dictionary or int(replay.get("format", 0)) != FORMAT:
+	if not replay is Dictionary or not _is_integer(replay.get("format")) or int(replay.format) != FORMAT:
 		return false
 	for key in ["hz", "setup", "commands", "result"]:
 		if not replay.has(key):
 			return false
-	if not replay.hz is int and not (replay.hz is float and replay.hz == floorf(replay.hz)) or int(replay.hz) < 10 or int(replay.hz) > 120:
+	if not _is_integer(replay.hz) or int(replay.hz) < 10 or int(replay.hz) > 120:
+		return false
+	var result = replay.result
+	if not result is Dictionary or not _is_integer(result.get("ticks")) or int(result.ticks) < 0 or int(result.ticks) > MAX_TICKS:
+		return false
+	if not _is_integer(result.get("winner")) or int(result.winner) < -1 or int(result.winner) > 2:
+		return false
+	if not _is_number(result.get("elapsed")) or float(result.elapsed) < 0.0 or float(result.elapsed) > 100000.0 or not result.get("state_hash") is String:
+		return false
+	if result.state_hash.length() != 64 or not result.state_hash.is_valid_hex_number():
+		return false
+	var meta = replay.get("meta", {})
+	if not meta is Dictionary:
+		return false
+	for key in ["mode", "date", "period"]:
+		if meta.has(key) and not meta[key] is String:
+			return false
+	if meta.has("stage") and (not _is_integer(meta.stage) or int(meta.stage) < 1 or int(meta.stage) > 8):
 		return false
 	var setup = replay.setup
 	if not setup is Dictionary:
@@ -76,24 +97,32 @@ static func valid(replay: Variant) -> bool:
 		if not setup.has(key) or not setup[key] is Array or setup[key].size() != 2:
 			return false
 	for side in 2:
-		if not setup.unit_decks[side] is Array or not BattleModel._valid_deck(setup.unit_decks[side], BattleModel.UNIT_STATS):
+		if not setup.unit_decks[side] is Array or not setup.structure_decks[side] is Array:
 			return false
-		if not setup.structure_decks[side] is Array or not BattleModel._valid_deck(setup.structure_decks[side], BattleModel.STRUCTURE_STATS):
+		for deck in [setup.unit_decks[side], setup.structure_decks[side]]:
+			for kind in deck:
+				if not kind is String:
+					return false
+		if not BattleModel._valid_deck(setup.unit_decks[side], BattleModel.UNIT_STATS):
+			return false
+		if not BattleModel._valid_deck(setup.structure_decks[side], BattleModel.STRUCTURE_STATS):
 			return false
 		for key in ["campaign_levels", "base_max_hp", "base_hp", "resources"]:
 			var value = setup[key][side]
 			if not _is_number(value) or float(value) < 0.0 or float(value) > 100000.0:
 				return false
+		if not _is_integer(setup.campaign_levels[side]) or int(setup.campaign_levels[side]) > 8:
+			return false
 	if not replay.commands is Array or replay.commands.size() > MAX_COMMANDS:
 		return false
 	var last_tick := 0
 	for entry in replay.commands:
 		if not entry is Dictionary or not entry.has_all(["t", "s", "c", "k"]):
 			return false
-		if not _is_number(entry.t) or int(entry.t) < last_tick or int(entry.t) > MAX_TICKS:
+		if not _is_integer(entry.t) or int(entry.t) < last_tick or int(entry.t) > int(result.ticks):
 			return false
 		last_tick = int(entry.t)
-		if not _is_number(entry.s) or int(entry.s) < 0 or int(entry.s) > 1 or not entry.k is String:
+		if not _is_integer(entry.s) or int(entry.s) < 0 or int(entry.s) > 1 or not entry.k is String or not entry.c is String:
 			return false
 		match String(entry.c):
 			"spawn":
@@ -107,20 +136,22 @@ static func valid(replay: Variant) -> bool:
 	var ai = replay.get("ai", {})
 	if not ai is Dictionary:
 		return false
-	if not ai.is_empty() and (not _is_number(ai.get("side")) or int(ai.side) not in [0, 1] or not _is_number(ai.get("stage")) or int(ai.stage) < 1 or int(ai.stage) > 8):
+	if not ai.is_empty() and (not _is_integer(ai.get("side")) or int(ai.side) not in [0, 1] or not _is_integer(ai.get("stage")) or int(ai.stage) < 1 or int(ai.stage) > 8):
 		return false
 	var forced = replay.get("forced_end", {})
-	if not forced is Dictionary or (not forced.is_empty() and (not _is_number(forced.get("t")) or not _is_number(forced.get("winner")) or int(forced.winner) < -1 or int(forced.winner) > 2)):
+	if not forced is Dictionary:
+		return false
+	if not forced.is_empty() and (not _is_integer(forced.get("t")) or int(forced.t) < 0 or int(forced.t) > int(result.ticks) or not _is_integer(forced.get("winner")) or int(forced.winner) < 0 or int(forced.winner) > 2):
 		return false
 	if replay.has("clip"):
 		var clip = replay.clip
-		if not clip is Dictionary or not _is_number(clip.get("start")) or not _is_number(clip.get("end")):
+		if not clip is Dictionary or not _is_integer(clip.get("start")) or not _is_integer(clip.get("end")):
 			return false
-		if int(clip.start) < 0 or int(clip.end) <= int(clip.start) or int(clip.end) > MAX_TICKS or String(clip.get("title", "")).length() > 80:
+		if int(clip.start) < 0 or int(clip.end) <= int(clip.start) or int(clip.end) > int(result.ticks) or not clip.get("title", "") is String or clip.get("title", "").length() > 80:
 			return false
 	if replay.has("notes") and not _valid_notes(replay.notes, replay.result):
 		return false
-	return replay.result is Dictionary
+	return true
 
 # --- playback ----------------------------------------------------------------
 
@@ -213,7 +244,7 @@ static func _valid_notes(notes: Variant, result: Variant) -> bool:
 		limit = mini(limit, int(result.ticks))
 	var seen := {}
 	for note in notes:
-		if not note is Dictionary or not _is_number(note.get("t")) or not note.get("text") is String:
+		if not note is Dictionary or not _is_integer(note.get("t")) or not note.get("text") is String:
 			return false
 		var text: String = note.text
 		if int(note.t) < 0 or int(note.t) > limit or seen.has(int(note.t)) or text.strip_edges().is_empty() or text.length() > MAX_NOTE_LENGTH:
@@ -295,18 +326,23 @@ static func from_share_text(text: String) -> Dictionary:
 # --- storage -----------------------------------------------------------------
 
 static func save(replay: Dictionary, name_hint: String = "") -> String:
-	DirAccess.make_dir_recursive_absolute(save_dir)
+	if not valid(replay) or DirAccess.make_dir_recursive_absolute(save_dir) != OK:
+		return ""
 	var stamp := Time.get_datetime_string_from_system(false, false).replace(":", "").replace("-", "").replace("T", "_")
 	var safe := ""
 	for ch in name_hint:
 		if (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9") or ch == "-":
 			safe += ch
-	var path := "%s/%s%s.json" % [save_dir, stamp, ("_" + safe) if safe != "" else ""]
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
+	var base := "%s/%s" % [save_dir, stamp]
+	var hint := ("_" + safe) if safe != "" else ""
+	# Keep same-second saves distinct and ordered by time, before the optional hint.
+	var suffix := int(Time.get_unix_time_from_system() * 1000000.0)
+	var path := "%s_%020d%s.json" % [base, suffix, hint]
+	while FileAccess.file_exists(path):
+		suffix += 1
+		path = "%s_%020d%s.json" % [base, suffix, hint]
+	if not write_file(path, replay):
 		return ""
-	file.store_string(JSON.stringify(replay))
-	file.close()
 	_prune()
 	return path
 
@@ -314,11 +350,17 @@ static func save(replay: Dictionary, name_hint: String = "") -> String:
 static func write_file(path: String, replay: Dictionary) -> bool:
 	if not valid(replay):
 		return false
-	var file := FileAccess.open(path, FileAccess.WRITE)
+	var temporary := path + ".tmp"
+	var file := FileAccess.open(temporary, FileAccess.WRITE)
 	if file == null:
 		return false
 	file.store_string(JSON.stringify(replay))
+	file.flush()
+	var error := file.get_error()
 	file.close()
+	if error != OK or DirAccess.rename_absolute(temporary, path) != OK:
+		DirAccess.remove_absolute(temporary)
+		return false
 	return true
 
 static func load_file(path: String) -> Dictionary:

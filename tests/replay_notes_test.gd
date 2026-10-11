@@ -69,6 +69,13 @@ func run() -> void:
 	viewer.notes_changed.connect(func(updated): changes.append(updated))
 	viewer.seek(200)
 	check(not viewer.add_note(), "an empty input adds nothing")
+	var original := FileAccess.get_file_as_string(path)
+	DirAccess.make_dir_absolute(path + ".tmp")
+	viewer.note_input.text = "저장 실패 확인"
+	check(viewer.add_note() and viewer.moment_toast.text.contains("저장하지 못했습니다"), "failed note save explains the failure")
+	check(FileAccess.get_file_as_string(path) == original, "failed note save keeps the file intact")
+	DirAccess.remove_absolute(path + ".tmp")
+	changes.clear()
 	viewer.note_input.text = "여기서 밀렸다"
 	check(viewer.add_note() and viewer.note_input.text == "" and changes.size() == 1, "the button pins a note and reports it")
 	check(BattleReplay.notes_of(BattleReplay.load_file(path)).size() == 1 and BattleReplay.notes_of(BattleReplay.load_file(path))[0].t == viewer.player.ticks, "the note is written back to the replay file")

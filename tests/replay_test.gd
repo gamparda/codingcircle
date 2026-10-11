@@ -44,6 +44,7 @@ func _clone(value: Dictionary) -> Dictionary:
 	return JSON.parse_string(JSON.stringify(value))
 
 func _init() -> void:
+	BattleReplay.save_dir = "user://replay_test_%d" % OS.get_process_id()
 	for config in [[false, false], [true, false], [false, true]]:
 		var replay := _scripted_battle(config[0], config[1])
 		var label := "ai=%s forced=%s" % config
@@ -74,6 +75,37 @@ func _init() -> void:
 	bad.commands[3].t = 0
 	check(not BattleReplay.valid(bad), "decreasing command ticks are rejected")
 	check(not BattleReplay.valid({}) and not BattleReplay.valid("x"), "garbage is rejected")
+	# No conversion errors or silent truncation at the file/share boundary.
+	for field in ["format", "hz"]:
+		for value in [null, {}, [], true, "30", 30.5, INF, NAN, 1e30]:
+			bad = _clone(base)
+			bad[field] = value
+			check(not BattleReplay.valid(bad), "rejects malformed %s: %s" % [field, value])
+	for value in [null, {}, [], "bad", {"winner": 0}, {"ticks": -1, "winner": 0, "elapsed": 1.0, "state_hash": "x"}]:
+		bad = _clone(base)
+		bad.result = value
+		check(not BattleReplay.valid(bad), "rejects incomplete results: %s" % [value])
+	for value in [null, [], "bad", {"mode": []}, {"stage": {}}, {"date": 10}]:
+		bad = _clone(base)
+		bad.meta = value
+		check(not BattleReplay.valid(bad), "rejects unsafe display metadata: %s" % [value])
+	for field in ["t", "s", "c"]:
+		bad = _clone(base)
+		bad.commands[0][field] = 0.5 if field != "c" else {}
+		check(not BattleReplay.valid(bad), "rejects fractional or non-string commands: %s" % field)
+	bad = _clone(base)
+	bad.commands[0].t = int(base.result.ticks) + 1
+	check(not BattleReplay.valid(bad), "commands cannot extend beyond the recorded result")
+	bad = _clone(base)
+	bad.setup.unit_decks[0][0] = {}
+	check(not BattleReplay.valid(bad), "non-string deck kinds are rejected without conversion")
+	for ending in [{"t": -1, "winner": 0}, {"t": int(base.result.ticks) + 1, "winner": 0}, {"t": 1.5, "winner": 0}, {"t": 1, "winner": -1}]:
+		bad = _clone(base)
+		bad.forced_end = ending
+		check(not BattleReplay.valid(bad), "rejects invalid forced endings: %s" % [ending])
+	bad = _clone(base)
+	bad.meta = []
+	check(BattleReplay.from_share_text(BattleReplay.to_share_text(bad)).is_empty(), "invalid shared metadata never reaches the UI")
 	# Stepwise playback (what a viewer uses) matches run_to_end.
 	var player := BattleReplay.Player.new(base)
 	var guard := 0
@@ -93,6 +125,20 @@ func _init() -> void:
 	# Save / load.
 	var path := BattleReplay.save(base, "unit-test")
 	check(path != "" and not BattleReplay.load_file(path).is_empty(), "saved replay loads back")
+	var duplicate_paths := []
+	for _index in 3:
+		var another := BattleReplay.save(base, "unit-test")
+		check(another != "" and another != path and not duplicate_paths.has(another), "rapid saves never overwrite one another")
+		duplicate_paths.append(another)
+		DirAccess.remove_absolute(another)
+	var original := FileAccess.get_file_as_string(path)
+	var noted := BattleReplay.with_note(base, 0, "저장 확인")
+	DirAccess.make_dir_absolute(path + ".tmp")
+	check(not BattleReplay.write_file(path, noted) and FileAccess.get_file_as_string(path) == original, "failed note save preserves the original replay")
+	DirAccess.remove_absolute(path + ".tmp")
+	check(BattleReplay.write_file(path, noted) and BattleReplay.load_file(path).notes.size() == 1, "notes save after retry")
+	check(not FileAccess.file_exists(path + ".tmp"), "atomic replacement leaves no staging file")
+	check(BattleReplay.save(bad, "invalid") == "", "invalid data is not stored")
 	if path != "":
 		DirAccess.remove_absolute(path)
 	# Server hooks: record accepted commands only, save once at the end, and replay exactly.
@@ -119,5 +165,6 @@ func _init() -> void:
 		var loaded := BattleReplay.load_file(saved)
 		check(not loaded.is_empty() and bool(BattleReplay.verify(loaded).ok), "server-saved replay verifies")
 		DirAccess.remove_absolute(saved)
+	DirAccess.remove_absolute(BattleReplay.save_dir)
 	print("replay_test failures=%d" % failures)
 	quit(1 if failures > 0 else 0)

@@ -35,6 +35,7 @@ func run()->void:
 	main._begin_binding_capture(0);main._input(key(KEY_J))
 	check(main.binding_draft[0]==KEY_J and main.binding_capture_index==-1,"actual key capture updates selected action")
 	check(main.save_data.settings.battle_keys==Bindings.DEFAULTS,"unsaved draft leaves profile unchanged")
+	check(main.root_background.find_child("SettingsDirty",true,false).text.contains("저장하지 않은 변경"),"captured keys show the unsaved-changes hint")
 	main._begin_binding_capture(1);main._input(key(KEY_J))
 	check(main.binding_capture_index==1 and main.binding_hint.text.contains("사용 중"),"UI rejects duplicate and continues capture")
 	main._input(key(KEY_ESCAPE));check(main.binding_capture_index==-1 and main.binding_draft[1]==KEY_2,"Escape cancels capture without change")
@@ -45,6 +46,8 @@ func run()->void:
 	var file:=FileAccess.open(temporary,FileAccess.READ);var loaded:=SaveData.sanitize(JSON.parse_string(file.get_as_text()));file.close();DirAccess.remove_absolute(temporary)
 	check(loaded.settings.battle_keys==custom,"persisted physical keys reload")
 	main.save_data.settings.battle_keys=custom.duplicate();main._build_settings_screen();await process_frame
+	main.root_background.find_child("ResetBattleBindings",true,false).pressed.emit()
+	check(main.root_background.find_child("SettingsDirty",true,false).text.contains("저장하지 않은 변경"),"restoring defaults also marks custom keys as unsaved")
 	var scroll: ScrollContainer = main.root_background.find_child("SettingsScroll",true,false)
 	var grid: Control = main.root_background.find_child("BattleKeyBindings",true,false)
 	scroll.scroll_vertical = maxi(0,roundi(grid.get_global_rect().position.y-scroll.get_global_rect().position.y)-35)

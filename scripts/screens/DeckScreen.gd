@@ -96,10 +96,14 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		if not NetworkController.validate_deck_payload(selected_units, selected_structures):
 			status.text = Localization.text("유닛과 구조물을 각각 정확히 3종 선택해야 합니다.")
 			return
-		main.save_data.deck_presets[index] = {"name": name_edit.text.strip_edges().left(20) if not name_edit.text.strip_edges().is_empty() else Localization.text("덱 %d") % (index + 1), "units": selected_units, "structures": selected_structures}
-		main.save_data.last_deck = index
-		preload("res://scripts/Goals.gd").mark(main.save_data, "edit_deck")
-		SaveData.save_data(main.save_data)
+		var draft: Dictionary = main.save_data.duplicate(true)
+		draft.deck_presets[index] = {"name": name_edit.text.strip_edges().left(20) if not name_edit.text.strip_edges().is_empty() else Localization.text("덱 %d") % (index + 1), "units": selected_units, "structures": selected_structures}
+		draft.last_deck = index
+		preload("res://scripts/Goals.gd").mark(draft, "edit_deck")
+		if not SaveData.save_data(draft):
+			status.text = Localization.text("덱을 저장하지 못했습니다. 저장 공간과 파일 권한을 확인하고 다시 시도하세요.")
+			return
+		main.save_data = draft
 		main._build_connect_screen(Localization.text("덱을 저장했습니다."))
 	)
 	var simulate := Button.new()
