@@ -208,7 +208,9 @@ static func sanitize(raw: Variant) -> Dictionary:
 					break
 				clean.next_report_sequence = maxi(int(clean.next_report_sequence), sequence + 1)
 				last_sequence = sequence
-				clean.pending_reports.append({"units": report.units.duplicate(), "structures": report.structures.duplicate(), "result": int(report.result), "mode": String(report.mode), "sequence": sequence})
+				# Older builds did not record the originating version. Do not relabel those results as current.
+				var ruleset: String = String(report.ruleset) if preload("res://scripts/ServerStats.gd").valid_ruleset(report.get("ruleset")) else "0"
+				clean.pending_reports.append({"units": report.units.duplicate(), "structures": report.structures.duplicate(), "result": int(report.result), "mode": String(report.mode), "sequence": sequence, "ruleset": ruleset})
 	if not clean.pending_reports.is_empty() and clean.install_id.is_empty():
 		preload("res://scripts/MetaStats.gd").install_id(clean)
 	var pending = raw.get("pending_daily")

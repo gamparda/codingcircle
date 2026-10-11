@@ -16,7 +16,17 @@ static func _show_daily_brief(main, period: String = "daily") -> void:
 	var weekly := DailyChallenge.is_weekly(challenge)
 	var board_key := DailyChallenge.board_key(challenge)
 	var stamp := "%s-%s-%s" % [key.substr(0, 4), key.substr(4, 2), key.substr(6, 2)]
-	var column = main._action_panel(("주간 도전  ·  %s 주" if weekly else "일일 도전  ·  %s") % stamp, Rect2(200, 30, 880, 660))
+	var outer = main._action_panel(("주간 도전  ·  %s 주" if weekly else "일일 도전  ·  %s") % stamp, Rect2(200, 30, 880, 660))
+	var scroll := ScrollContainer.new()
+	scroll.name = "DailyBriefScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.scroll_deadzone = 16
+	outer.add_child(scroll)
+	var column := VBoxContainer.new()
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_theme_constant_override("separation", 12)
+	scroll.add_child(column)
 	var twist_lines := PackedStringArray()
 	for id in DailyChallenge.modifier_ids(challenge):
 		var info := DailyChallenge.modifier_info(String(id))
@@ -67,9 +77,10 @@ static func _show_daily_brief(main, period: String = "daily") -> void:
 	board_box.tree_exited.connect(func(): if main.network.daily_board_received.is_connected(refresh): main.network.daily_board_received.disconnect(refresh))
 	var identity: String = MetaStats.install_id(main.save_data) if MetaStats.sharing(main.save_data) else ""
 	ServerLink.run(main, func(): main.network.send_daily_board_request(board_key, identity), Callable(), false)
-	column.add_child(MetaStatsUI.share_toggle(main))
-	MultiplayerUI.button(main, column, "도전 시작", "StartDailyChallenge", func(): main._dismiss_action_overlay(); main._start_daily_challenge(period), true)
-	MultiplayerUI.button(main, column, "돌아가기", "CloseDailyBrief", main._dismiss_action_overlay)
+	# Keep sharing state and actions reachable even with two weekly modifiers and a full board.
+	outer.add_child(MetaStatsUI.share_toggle(main))
+	MultiplayerUI.button(main, outer, "도전 시작", "StartDailyChallenge", func(): main._dismiss_action_overlay(); main._start_daily_challenge(period), true)
+	MultiplayerUI.button(main, outer, "돌아가기", "CloseDailyBrief", main._dismiss_action_overlay)
 
 static func _show_stage_brief(main, stage: int) -> void:
 	if not main.campaign_mode or stage>int(main.save_data.campaign_unlocked): return

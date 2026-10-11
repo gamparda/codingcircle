@@ -70,6 +70,9 @@ func _persist(entry: Dictionary) -> bool:
 		if not path.is_empty():
 			entry.archived = true
 			saved_paths.append(path)
+			# Diagnostic history only; persistence retries use each entry's archived flag.
+			while saved_paths.size() > BattleReplay.MAX_SAVED:
+				saved_paths.pop_front()
 			print("REPLAY_SAVED match=%d path=%s" % [entry.match_id, path])
 	if not entry.shared and shelf != null:
 		entry.shared = not shelf.add(entry.text, true).is_empty()

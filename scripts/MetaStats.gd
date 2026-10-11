@@ -52,7 +52,7 @@ static func _valid_row(row: Variant, matches: int) -> bool:
 	return (confidence is int or confidence is float) and is_finite(float(confidence)) and float(confidence) >= 0.0 and float(confidence) <= 1.0
 
 static func store(data: Dictionary) -> void:
-	if not valid_snapshot(data):
+	if not valid_snapshot(data) or String(data.ruleset) != ServerStats.ruleset_id():
 		return
 	data = data.duplicate(true)
 	if not snapshot.is_empty() and String(snapshot.ruleset) == String(data.ruleset):
@@ -136,7 +136,7 @@ static func queue_report(save: Dictionary, units: Array, structures: Array, resu
 	if pending.size() >= MAX_PENDING:
 		pending.pop_front()
 	save["next_report_sequence"] = sequence + 1
-	pending.append({"units": units.duplicate(), "structures": structures.duplicate(), "result": result, "mode": mode, "sequence": sequence})
+	pending.append({"units": units.duplicate(), "structures": structures.duplicate(), "result": result, "mode": mode, "sequence": sequence, "ruleset": ServerStats.ruleset_id()})
 	save["pending_reports"] = pending
 	return true
 
@@ -171,23 +171,50 @@ static func prune_daily(save: Dictionary) -> bool:
 static func flush(save: Dictionary, network) -> void:
 	if not network.client_is_online() or not sharing(save):
 		return
-	var reports: Array = save.get("pending_reports", [])
-	if not reports.is_empty():
-		var report: Dictionary = reports[0]
-		network.send_confirmed_report(install_id(save), int(report.sequence), report.units, report.structures, int(report.result), String(report.mode))
+	var report := first_current_report(save)
+	if not report.is_empty():
+		network.send_confirmed_report(install_id(save), int(report.sequence), report.units, report.structures, int(report.result), String(report.mode), String(report.ruleset))
 	var pending: Dictionary = save.get("pending_daily", {})
 	for date in pending:
 		if ServerDailyBoard.accepts_date(String(date), DailyChallenge.date_key()):
 			network.send_daily_score(String(date), install_id(save), String(save.get("nickname", "")), int(pending[date].score), float(pending[date].seconds))
 
+## Retain older/unknown results in the bounded queue, but never mix them into current statistics.
+static func first_current_report(save: Dictionary) -> Dictionary:
+	var ruleset := ServerStats.ruleset_id()
+	for report in save.get("pending_reports", []):
+		if String(report.get("ruleset", "0")) == ruleset:
+			return report
+	return {}
+
 static func acknowledge_report(save: Dictionary, id: String, sequence: int) -> bool:
 	if id != String(save.get("install_id", "")):
 		return false
 	var pending: Array = save.get("pending_reports", [])
-	if pending.is_empty() or int(pending[0].sequence) != sequence:
+	var report := first_current_report(save)
+	if report.is_empty() or int(report.sequence) != sequence:
 		return false
-	pending.pop_front()
+	pending.erase(report)
 	return true
+
+static func sharing_status(save: Dictionary, online: bool, save_pending: bool) -> String:
+	if not sharing(save):
+		return "결과 공유 꺼짐"
+	var current := 0
+	var older := 0
+	var ruleset := ServerStats.ruleset_id()
+	for report in save.get("pending_reports", []):
+		if String(report.get("ruleset", "0")) == ruleset: current += 1
+		else: older += 1
+	var count: int = current + save.get("pending_daily", {}).size()
+	var text := "전송 대기 없음"
+	if count > 0:
+		if save_pending: text = "전송 대기 %d개 · 기기 저장을 완료한 뒤 전송합니다." % count
+		elif not online: text = "전송 대기 %d개 · 서버 연결 후 자동으로 보냅니다." % count
+		else: text = "서버 저장 확인 대기 %d개 · 자동으로 재시도합니다." % count
+	if older > 0:
+		text += "\n이전 버전·버전 미상 결과 %d개는 현재 통계 전송에서 제외됩니다." % older
+	return text
 
 static func acknowledge_daily(save: Dictionary, id: String, date: String, score: int, seconds: float) -> bool:
 	if id != String(save.get("install_id", "")):

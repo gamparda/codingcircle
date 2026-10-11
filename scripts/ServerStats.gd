@@ -37,9 +37,18 @@ static func ruleset_id() -> String:
 	var file := FileAccess.open("res://build_info.json", FileAccess.READ)
 	if file != null:
 		var parsed = JSON.parse_string(file.get_as_text())
-		if parsed is Dictionary and parsed.get("content_version") is String:
-			return String(parsed.content_version)
+		# release_meta.py writes the content version as `version` in build_info.json.
+		if parsed is Dictionary and valid_ruleset(parsed.get("version")):
+			return String(parsed.version)
 	return "0"
+
+static func valid_ruleset(value: Variant) -> bool:
+	if not value is String or value.is_empty() or value.length() > 64:
+		return false
+	for character in value:
+		if not "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ._-".contains(character):
+			return false
+	return true
 
 ## Points the store at a directory (empty = memory only) and loads what is already there.
 func configure(directory: String, rule: String = "") -> void:

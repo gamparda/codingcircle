@@ -6,7 +6,9 @@ const ServerStats = preload("res://scripts/ServerStats.gd")
 const Localization = preload("res://scripts/Localization.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 
-static func share_toggle(main) -> CheckButton:
+static func share_toggle(main) -> VBoxContainer:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 3)
 	var toggle := CheckButton.new()
 	toggle.name = "ShareResultsToggle"
 	toggle.text = Localization.text("내 결과를 익명 통계와 일일 순위표에 보내기 (순위표에는 닉네임이 표시됩니다)")
@@ -18,7 +20,20 @@ static func share_toggle(main) -> CheckButton:
 			main.save_data.pending_reports = []
 			main.save_data.pending_daily = {}
 		main._save_profile())
-	return toggle
+	box.add_child(toggle)
+	var status := _label("", 12, UIKit.TEXT_MUTED)
+	status.name = "ResultSharingStatus"
+	box.add_child(status)
+	var refresh := func(): status.text = MetaStats.sharing_status(main.save_data, main.network.client_is_online(), main.profile_save_pending)
+	refresh.call()
+	# The timer leaves the tree with the card, including when an overlay is replaced.
+	var timer := Timer.new()
+	timer.wait_time = 1.0
+	timer.autostart = true
+	timer.timeout.connect(refresh)
+	box.add_child(timer)
+	toggle.toggled.connect(func(_on): refresh.call())
+	return box
 
 static func _label(text: String, size: int, color: Color) -> Label:
 	var label := Label.new()

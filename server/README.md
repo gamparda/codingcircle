@@ -24,11 +24,21 @@ atomic file replacement. It acknowledges a report only after that write succeeds
 acknowledgement, reconnect, or stale client queue after restart does not count the result twice.
 Challenge scores are also acknowledged only after their board file is saved. The client keeps
 unconfirmed queues on disk and retries every five seconds while connected; confirmed reports
-advance the next queued result after half a second. Existing request and per-connection report
-limits still apply. No nickname, IP, or individual deck history is stored in the report receipts.
+advance the next queued result after half a second. Existing request limits still apply. Each
+connection may submit 40 new reports per 60-second window; its quota renews without requiring
+a reconnect. Already counted reports can retry persistence acknowledgements even at capacity
+and do not consume the quota. No nickname, IP, or individual deck history is stored in receipts.
 Receipts are limited to 100,000 installs per ruleset. At capacity, new identities remain
 unconfirmed instead of evicting existing receipts and risking duplicate counts; online aggregate
 statistics, existing reporters, and challenge boards continue to work.
+
+The statistics ruleset comes from `build_info.json`'s `version` (the content version generated
+from `release.json`). Solo reports persist their originating version, and both report RPCs reject
+versions other than the server's active ruleset. Clients also reject foreign-ruleset snapshots.
+Old reports without a version remain marked `0`, excluded from current submissions while
+retained within the existing 20-result queue. Historical `stats_0.json` files remain untouched;
+they are not merged into a versioned store because their original rulesets cannot be recovered.
+Challenge score dates and their existing submission policy are unchanged.
 
 The server stores shared replay codes, aggregate statistics, and the challenge leaderboard in
 `CATWAR_STATE_DIR`, or `user://server_state` when that environment variable is unset. Finished
@@ -63,6 +73,8 @@ update-related `accepting_players` flag. Update draining still takes priority af
 Local match archives keep the newest 50 readable files. Unreadable originals are preserved
 for manual recovery or deletion and do not consume those slots. Archive cleanup failures log
 `REPLAY_TRIM_PENDING` and retry every 30 seconds as well as after the next archive save.
+The server's in-memory diagnostic path history also retains only the latest 50 successful
+archive paths. This history does not control pending writes or delete files.
 
 ## Assist servers and helper PCs
 

@@ -116,10 +116,40 @@ func run() -> void:
 	server.request_windows.erase(sender)
 	MetaStats.flush(queued, client)
 	check(await wait_until(func(): return queued.pending_reports.is_empty()) and server.stats.data.reported.matches == 3, "a throttled result is counted when retried")
-	for i in NetworkController.MAX_REPORTS_PER_CONNECTION + 10:
+	# Ruleset mismatch must not count, issue a receipt or consume the window quota.
+	MetaStats.queue_report(queued, deck, structures, 1, "practice")
+	var mismatch_sequence := int(queued.pending_reports[0].sequence)
+	client.send_confirmed_report(queued.install_id, mismatch_sequence, deck, structures, 1, "practice", "older")
+	client.rpc_id(1, "report_result", deck, structures, 1, "practice", "older")
+	await create_timer(0.25).timeout
+	check(server.stats.data.reported.matches == 3 and queued.pending_reports.size() == 1 and int(server.stats.report_sequences[queued.install_id]) < mismatch_sequence, "the server rejects a report from another ruleset without consuming its sequence")
+	var wrong_snapshot: Dictionary = server.stats.snapshot([deck])
+	wrong_snapshot.ruleset = "older"
+	var snapshot_count := received.size()
+	client.receive_meta_stats(wrong_snapshot)
+	check(received.size() == snapshot_count and MetaStats.current().ruleset == ServerStats.ruleset_id(), "foreign ruleset statistics are not emitted or cached")
+	# Exhaust the report quota without a flood of unrelated RPCs.
+	server.report_counts[sender] = NetworkController.MAX_REPORTS_PER_WINDOW
+	server.report_window_started[sender] = Time.get_ticks_msec()
+	MetaStats.flush(queued, client)
+	await create_timer(0.25).timeout
+	check(queued.pending_reports.size() == 1 and server.stats.data.reported.matches == 3, "a full report window retains the client queue")
+	# Move only the clock boundary; the client remains on the same ENet connection.
+	server.report_window_started[sender] -= NetworkController.REPORT_WINDOW_MSEC
+	MetaStats.flush(queued, client)
+	check(await wait_until(func(): return queued.pending_reports.is_empty()) and server.stats.data.reported.matches == 4 and int(server.report_counts[sender]) == 1, "a long-lived connection resumes confirmed reports when its quota renews")
+	# Already counted reports can still confirm their persistence even at the quota limit.
+	server.report_counts[sender] = NetworkController.MAX_REPORTS_PER_WINDOW
+	var ack_count := acknowledgements.size()
+	client.send_confirmed_report(queued.install_id, mismatch_sequence, deck, structures, 1, "practice", ServerStats.ruleset_id())
+	check(await wait_until(func(): return acknowledgements.size() == ack_count + 1) and server.stats.data.reported.matches == 4, "a duplicate can be acknowledged at the quota limit without counting again")
+	server.report_window_started[sender] -= NetworkController.REPORT_WINDOW_MSEC
+	server.request_windows.erase(sender)
+	var before_burst := int(server.stats.data.reported.matches)
+	for i in NetworkController.MAX_REPORTS_PER_WINDOW + 10:
 		client.send_result_report(deck, structures, 1, "practice")
 	await create_timer(1.1).timeout # Let the request window expire before testing leaderboard RPCs.
-	check(server.stats.data.reported.matches <= NetworkController.MAX_REPORTS_PER_CONNECTION, "one connection cannot flood the reports")
+	check(server.stats.data.reported.matches - before_burst <= NetworkController.MAX_REPORTS_PER_WINDOW, "one connection cannot flood a report window")
 
 	var today := DailyChallenge.date_key()
 	var id := "d".repeat(32)

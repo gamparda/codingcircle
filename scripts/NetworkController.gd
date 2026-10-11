@@ -92,12 +92,14 @@ var quick_queue := QuickQueue.new()
 var stats := ServerStats.new()
 var daily_board := ServerDailyBoard.new()
 var report_counts: Dictionary = {}
+var report_window_started: Dictionary = {}
 var shelf := ServerReplayShelf.new()
 var assist := AssistHub.new()
 var client_assist_mode := false # a helper program connects without joining the lobby
 var upload_counts: Dictionary = {}
 const MAX_UPLOADS_PER_CONNECTION := 10
-const MAX_REPORTS_PER_CONNECTION := 40
+const MAX_REPORTS_PER_WINDOW := 40
+const REPORT_WINDOW_MSEC := 60000
 var rematch_ready: Dictionary:
 	get: return battle.rematch_ready
 var server_mode := false
@@ -517,6 +519,7 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	if assist.is_registered(peer_id):
 		assist.peer_gone(peer_id, _assist_now())
 	report_counts.erase(peer_id)
+	report_window_started.erase(peer_id)
 	upload_counts.erase(peer_id)
 	var session_peer: bool = sessions.peer_to_room.has(peer_id)
 	if session_peer and sessions.suspend(peer_id,Time.get_ticks_msec()+int(RECONNECT_GRACE*1000)):
@@ -1170,26 +1173,35 @@ func request_meta_stats(decks: Array) -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func receive_meta_stats(data: Dictionary) -> void:
-	if not MetaStats.valid_snapshot(data): return
+	if not MetaStats.valid_snapshot(data) or String(data.ruleset) != ServerStats.ruleset_id(): return
 	MetaStats.store(data)
 	meta_stats_received.emit(MetaStats.current())
 
 func send_result_report(units: Array, structures: Array, result: int, mode: String) -> void:
 	if client_is_online():
-		report_result.rpc_id(1, units, structures, result, mode)
+		report_result.rpc_id(1, units, structures, result, mode, ServerStats.ruleset_id())
 
-func send_confirmed_report(id: String, sequence: int, units: Array, structures: Array, result: int, mode: String) -> void:
+func send_confirmed_report(id: String, sequence: int, units: Array, structures: Array, result: int, mode: String, ruleset: String) -> void:
 	if client_is_online():
-		request_confirmed_report.rpc_id(1, id, sequence, units, structures, result, mode)
+		request_confirmed_report.rpc_id(1, id, sequence, units, structures, result, mode, ruleset)
+
+## A long-lived connection can keep reporting, while bursts remain bounded.
+func _report_window_full(sender: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not report_window_started.has(sender) or now - int(report_window_started[sender]) >= REPORT_WINDOW_MSEC:
+		report_window_started[sender] = now
+		report_counts[sender] = 0
+	return int(report_counts.get(sender, 0)) >= MAX_REPORTS_PER_WINDOW
 
 @rpc("any_peer", "call_remote", "reliable")
-func request_confirmed_report(id: String, sequence: int, units: Array, structures: Array, result: int, mode: String) -> void:
+func request_confirmed_report(id: String, sequence: int, units: Array, structures: Array, result: int, mode: String, ruleset: String) -> void:
 	if not server_mode: return
 	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not MetaStats.REPORT_MODES.has(mode) or not ServerStats.valid_report_id(id) or sequence <= 0 or sequence >= ServerStats.MAX_COUNT:
+	if not can_process_request(sender) or ruleset != stats.ruleset or not MetaStats.REPORT_MODES.has(mode) or not ServerStats.valid_report_id(id) or sequence <= 0 or sequence >= ServerStats.MAX_COUNT:
 		return
 	var is_new := sequence > int(stats.report_sequences.get(id, 0))
-	if is_new and int(report_counts.get(sender, 0)) >= MAX_REPORTS_PER_CONNECTION:
+	var full := _report_window_full(sender)
+	if is_new and full:
 		return
 	var previous := int(stats.data.reported.matches)
 	var saved := stats.record_report(id, sequence, units, structures, result)
@@ -1205,11 +1217,11 @@ func receive_result_report_saved(id: String, sequence: int) -> void:
 ## Results the client reports about its own solo battles. Trusted as sent for now; they are counted
 ## in a separate "reported" bucket so they can be audited or discarded later.
 @rpc("any_peer", "call_remote", "reliable")
-func report_result(units: Array, structures: Array, result: int, mode: String) -> void:
+func report_result(units: Array, structures: Array, result: int, mode: String, ruleset: String) -> void:
 	if not server_mode: return
 	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not MetaStats.REPORT_MODES.has(mode): return
-	if int(report_counts.get(sender, 0)) >= MAX_REPORTS_PER_CONNECTION: return
+	if not can_process_request(sender) or ruleset != stats.ruleset or not MetaStats.REPORT_MODES.has(mode): return
+	if _report_window_full(sender): return
 	if stats.record("reported", units, structures, result):
 		report_counts[sender] = int(report_counts.get(sender, 0)) + 1
 		stats.flush()

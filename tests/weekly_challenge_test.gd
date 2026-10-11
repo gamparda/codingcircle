@@ -72,9 +72,28 @@ func run() -> void:
 	main.save_data = SaveData.default_data()
 	main.save_data.tutorial_completed = true
 	check(main.find_child("WeeklyButton", true, false) != null, "the main menu offers the weekly challenge")
+	var MetaStats = preload("res://scripts/MetaStats.gd")
+	var crowded := ServerDailyBoard.new()
+	var board_key := "w" + DailyChallenge.week_key()
+	for index in 10:
+		crowded.submit(board_key, "%032x" % (index + 1), "참가자 %d" % index, 1000 + index * 100, 60.0 + index)
+	MetaStats.boards[board_key] = crowded.board(board_key, "%032x" % 1)
+	main.save_data.settings.share_results = true
+	MetaStats.queue_report(main.save_data, BattleModel.DEFAULT_UNIT_DECK, BattleModel.DEFAULT_STRUCTURE_DECK, 0, "practice")
+	main.save_data.pending_reports[0].ruleset = "older"
 	main._show_daily_brief("weekly")
 	await process_frame
+	await process_frame
 	check(main.find_child("DailyModifier", true, false).text.contains("\n") and main.find_child("DailyDeck", true, false).get_child_count() == 3, "the brief shows two twists and the deck")
+	var start: Button = main.find_child("StartDailyChallenge", true, false)
+	var close: Button = main.find_child("CloseDailyBrief", true, false)
+	var status: Label = main.find_child("ResultSharingStatus", true, false)
+	var scroll: ScrollContainer = main.find_child("DailyBriefScroll", true, false)
+	check(status.text.contains("이전 버전") and status.get_global_rect().end.y <= start.get_global_rect().position.y and close.get_global_rect().end.y <= 690, "full boards and excluded-result status keep challenge actions inside the screen")
+	scroll.scroll_vertical = 10000
+	await process_frame
+	var board_rows: VBoxContainer = main.find_child("DailyBoardRows", true, false)
+	check(scroll.scroll_vertical > 0 and board_rows.get_global_rect().end.y <= scroll.get_global_rect().end.y + 1, "all leaderboard rows remain reachable by scrolling above the fixed actions")
 	main.find_child("StartDailyChallenge", true, false).pressed.emit()
 	await process_frame
 	check(DailyChallenge.is_weekly(main.daily_challenge) and main.daily_challenge.key == DailyChallenge.week_key(), "starting begins the current weekly challenge")

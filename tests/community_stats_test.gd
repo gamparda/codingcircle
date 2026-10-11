@@ -12,8 +12,8 @@ class ReportConnection:
 	var online := true
 	var sent: Array = []
 	func client_is_online() -> bool: return online
-	func send_confirmed_report(id, sequence, units, structures, result, mode) -> void:
-		sent.append([id, sequence, units, structures, result, mode])
+	func send_confirmed_report(id, sequence, units, structures, result, mode, ruleset) -> void:
+		sent.append([id, sequence, units, structures, result, mode, ruleset])
 	func send_daily_score(date, id, nickname, score, seconds) -> void:
 		sent.append([date, id, nickname, score, seconds])
 
@@ -26,6 +26,8 @@ func _init() -> void:
 	call_deferred("run")
 
 func run() -> void:
+	var build: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://build_info.json"))
+	check(ServerStats.ruleset_id() == build.version and ServerStats.ruleset_id() != "0", "statistics use the content version generated in build_info.json")
 	var dir := "user://community_stats_test"
 	DirAccess.make_dir_recursive_absolute(dir)
 	for name in DirAccess.get_files_at(dir):
@@ -66,6 +68,12 @@ func run() -> void:
 	var other_rules := ServerStats.new()
 	other_rules.configure(dir, "t2")
 	check(other_rules.data.online.matches == 0, "a new ruleset starts from zero")
+	var unversioned_path := dir.path_join("stats_0.json")
+	ServerStats.write_json(unversioned_path, stats.data)
+	var unversioned_bytes := FileAccess.get_file_as_bytes(unversioned_path)
+	var current_store := ServerStats.new()
+	current_store.configure(dir)
+	check(current_store.path == dir.path_join("stats_%s.json" % build.version) and current_store.data.online.matches == 0 and FileAccess.get_file_as_bytes(unversioned_path) == unversioned_bytes, "default configuration uses a versioned store and preserves historical stats_0 bytes without merging them")
 	check(not FileAccess.file_exists(dir.path_join("stats_t1.json.tmp")), "no temporary file is left behind")
 	# Malformed persisted fields must not abort loading, querying or recording new results.
 	var damaged_stats := stats.data.duplicate(true)
@@ -146,9 +154,28 @@ func run() -> void:
 	check(stored.pending_reports == save.pending_reports and stored.next_report_sequence == save.next_report_sequence, "pending report sequences survive JSON saving without being reissued")
 	var legacy := save.duplicate(true)
 	legacy.erase("next_report_sequence")
-	for report in legacy.pending_reports: report.erase("sequence")
+	for report in legacy.pending_reports:
+		report.erase("sequence")
+		report.erase("ruleset")
 	legacy = SaveData.sanitize(legacy)
 	check(legacy.pending_reports[0].sequence == 1 and legacy.pending_reports[-1].sequence == MetaStats.MAX_PENDING and legacy.next_report_sequence == MetaStats.MAX_PENDING + 1, "older queues receive ordered sequences and retain every valid result")
+	var unknown_connection := ReportConnection.new()
+	MetaStats.flush(legacy, unknown_connection)
+	check(legacy.pending_reports[0].ruleset == "0" and unknown_connection.sent.all(func(payload): return payload.size() == 5), "a legacy result without a recorded version is never relabelled and sent as current")
+	var versioned := save.duplicate(true)
+	versioned.pending_daily = {}
+	versioned.pending_reports[0].ruleset = "older"
+	versioned.pending_reports[1].erase("ruleset")
+	versioned.pending_reports[2].ruleset = {}
+	versioned = SaveData.sanitize(JSON.parse_string(JSON.stringify(versioned)))
+	check(versioned.pending_reports[0].ruleset == "older" and versioned.pending_reports[1].ruleset == "0" and versioned.pending_reports[2].ruleset == "0" and versioned.pending_reports[3].ruleset == build.version, "loading retains old versions and marks missing or malformed versions as unknown")
+	var version_connection := ReportConnection.new()
+	MetaStats.flush(versioned, version_connection)
+	var current_sequence := int(versioned.pending_reports[3].sequence)
+	check(version_connection.sent.size() == 1 and version_connection.sent[0][1] == current_sequence and version_connection.sent[0][6] == build.version, "older results do not mix into current statistics or block the first current result")
+	check(not MetaStats.acknowledge_report(versioned, id, int(versioned.pending_reports[0].sequence)) and not MetaStats.acknowledge_report(versioned, id, int(versioned.pending_reports[4].sequence)), "old and out-of-order confirmations cannot remove retained reports")
+	check(MetaStats.acknowledge_report(versioned, id, current_sequence) and versioned.pending_reports[0].ruleset == "older" and versioned.pending_reports[3].sequence == current_sequence + 1, "current confirmation removes its report while preserving older reports")
+	check(MetaStats.sharing_status(versioned, false, false).contains("서버 연결 후") and MetaStats.sharing_status(versioned, true, true).contains("기기 저장") and MetaStats.sharing_status(versioned, true, false).contains("버전 미상 결과 3개"), "sharing status distinguishes connection, profile writes and excluded versions")
 	var connection := ReportConnection.new()
 	var before_send := save.duplicate(true)
 	MetaStats.flush(save, connection)
@@ -195,6 +222,11 @@ func run() -> void:
 	var fresh := stats.snapshot([deck_a])
 	fresh.ruleset = ServerStats.ruleset_id()
 	MetaStats.store(fresh)
+	var old_snapshot := fresh.duplicate(true)
+	old_snapshot.ruleset = "older"
+	old_snapshot.online.matches = 999
+	MetaStats.store(old_snapshot)
+	check(MetaStats.current().online.matches == fresh.online.matches, "a different server ruleset cannot replace current statistics")
 	MetaStats.snapshot = {}
 	check(MetaStats.deck_record(deck_b).games == 3, "the cache is read back and deck order does not matter")
 	check(MetaStats.record_text(MetaStats.deck_record(deck_a)).contains("표본 부족") and MetaStats.record_text({}).contains("없음"), "small samples are labelled")
@@ -307,8 +339,11 @@ func run() -> void:
 	check(main.find_child("DailyBoardRows", true, false).get_child_count() >= 3, "the daily brief lists the board")
 	var toggle: CheckButton = main.find_child("ShareResultsToggle", true, false)
 	check(toggle != null and not toggle.button_pressed, "sharing is off by default")
+	var sharing_label: Label = main.find_child("ResultSharingStatus", true, false)
+	check(sharing_label != null and sharing_label.text == "결과 공유 꺼짐", "the sharing card shows its current transmission state")
 	toggle.button_pressed = true
 	check(main.save_data.settings.share_results, "the switch is stored")
+	check(sharing_label.text == "전송 대기 없음", "the sharing status updates when the switch changes")
 	MetaStats.queue_report(main.save_data, deck_a, structures, 0, "campaign")
 	MetaStats.queue_daily(main.save_data, DailyChallenge.date_key(), 1000, 80.0)
 	main._save_profile()
@@ -319,6 +354,9 @@ func run() -> void:
 	var confirmed_profile := SaveData.load_data()
 	check(main.save_data.pending_reports.is_empty() and main.save_data.pending_daily.is_empty() and confirmed_profile.pending_reports.is_empty() and confirmed_profile.pending_daily.is_empty(), "Main persists both acknowledgements so restart does not resend confirmed results")
 	check(main.result_sharing_elapsed == MetaStats.RETRY_SECONDS - 0.5, "a confirmed result schedules the next queued report without waiting a full retry period")
+	MetaStats.queue_report(main.save_data, deck_a, structures, 0, "practice")
+	await create_timer(1.05).timeout
+	check(sharing_label.text.contains("전송 대기 1개"), "the open sharing card refreshes its pending count")
 	main.network.daily_board_received.emit({"date": DailyChallenge.date_key(), "total": 0, "entries": [], "rank": 0, "mine": 0})
 	await process_frame
 	main._dismiss_action_overlay()

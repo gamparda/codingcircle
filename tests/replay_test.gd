@@ -269,6 +269,18 @@ func _init() -> void:
 	DirAccess.remove_absolute(shelf_root)
 	DirAccess.remove_absolute(BattleReplay.save_dir)
 	BattleReplay.save_dir = archive_dir
+	# Long-running servers retain only recent diagnostic paths, independent of retry state.
+	var history = Replays.new()
+	for index in BattleReplay.MAX_SAVED:
+		history.saved_paths.append("old_%d.json" % index)
+	history.begin(93, failed_model, {"mode": "test"})
+	history.settle(93, failed_model)
+	var latest_path: String = history.saved_paths[-1]
+	check(history.saved_paths.size() == BattleReplay.MAX_SAVED and history.saved_paths[0] == "old_1.json" and FileAccess.file_exists(latest_path) and history.pending.is_empty(), "a successful archive bounds path history while retaining the actual new file")
+	history.settle(93, failed_model)
+	history.retry_pending()
+	check(history.saved_paths.size() == BattleReplay.MAX_SAVED and history.saved_paths[-1] == latest_path, "settle and retry never duplicate the diagnostic history")
+	DirAccess.remove_absolute(latest_path)
 	for saved in hooks.saved_paths:
 		var loaded := BattleReplay.load_file(saved)
 		check(not loaded.is_empty() and bool(BattleReplay.verify(loaded).ok), "server-saved replay verifies")
