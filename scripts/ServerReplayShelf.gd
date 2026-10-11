@@ -54,11 +54,13 @@ func configure(directory: String) -> void:
 		var timestamp = data.get("created_usec")
 		if (timestamp is int or timestamp is float) and is_finite(float(timestamp)) and float(timestamp) >= 0.0 and float(timestamp) <= 9e15 and float(timestamp) == floorf(float(timestamp)):
 			created_usec = int(timestamp)
-		loaded.append({"code": code, "public": data.get("public", false), "summary": summarize(replay, code), "text": text, "created_usec": created_usec})
+		loaded.append({"code": code, "public": data.get("public", false), "summary": summarize(replay, code), "text": text, "created_usec": created_usec, "key": _share_key(replay)})
 	loaded.sort_custom(func(a, b): return int(a.created_usec) < int(b.created_usec) or (int(a.created_usec) == int(b.created_usec) and String(a.code) < String(b.code)))
 	for entry in loaded:
 		entries.append(entry)
-		by_hash[String(entry.text).sha256_text()] = entry.code
+		# Keep every existing code usable, even when old uploads encode the same content differently.
+		if not by_hash.has(entry.key):
+			by_hash[entry.key] = entry.code
 		last_created_usec = maxi(last_created_usec, int(entry.created_usec))
 	_trim()
 
@@ -83,15 +85,20 @@ static func summarize(replay: Dictionary, code: String) -> Dictionary:
 	return {"code": code, "winner": int(replay.result.get("winner", -1)), "ticks": int(replay.result.get("ticks", 0)),
 		"mode": String(meta.get("mode", "")), "units": [replay.setup.unit_decks[0].duplicate(), replay.setup.unit_decks[1].duplicate()]}
 
+static func _share_key(replay: Dictionary) -> String:
+	# Input has already been parsed: JSON numbers now have consistent types, and
+	# stringify sorts nested dictionary keys. Preserve notes, clips and all metadata.
+	return JSON.stringify(replay, "", true, true).sha256_text()
+
 ## Stores share text and returns its code ("" when it is not a valid replay or the shelf cannot take it).
 ## Persistent shelves issue codes only after a successful disk write.
-## The same normalized text always gets the same code. A public flag set once is never taken back.
+## Equivalent JSON content gets the same retained code. A public flag set once is never taken back.
 func add(text: String, is_public: bool = false) -> String:
 	text = text.strip_edges()
 	var replay := BattleReplay.from_share_text(text) if text.length() <= MAX_TEXT else {}
 	if replay.is_empty():
 		return ""
-	var key := text.sha256_text()
+	var key := _share_key(replay)
 	if by_hash.has(key):
 		var existing := _find(String(by_hash[key]))
 		if existing >= 0:
@@ -109,7 +116,7 @@ func add(text: String, is_public: bool = false) -> String:
 	if code.is_empty():
 		return ""
 	var created_usec := maxi(int(Time.get_unix_time_from_system() * 1000000.0), last_created_usec + 1)
-	var entry := {"code": code, "public": is_public, "summary": summarize(replay, code), "text": text, "created_usec": created_usec}
+	var entry := {"code": code, "public": is_public, "summary": summarize(replay, code), "text": text, "created_usec": created_usec, "key": key}
 	if not _write(entry):
 		return ""
 	entries.append(entry)
@@ -133,9 +140,14 @@ func _trim() -> void:
 				trim_failed = true
 				return
 		entries.pop_front()
-		var key := String(gone.text).sha256_text()
+		var key: String = gone.get("key", String(gone.text).sha256_text())
 		if by_hash.get(key) == gone.code:
 			by_hash.erase(key)
+			# A legacy duplicate may still be reachable by another code after pruning.
+			for entry in entries:
+				if entry.get("key", "") == key:
+					by_hash[key] = entry.code
+					break
 	trim_failed = false
 
 func text_for(code: String) -> String:

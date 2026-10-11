@@ -74,6 +74,13 @@ contents. The shelf keeps the newest 200 entries and preserves creation order ac
 A failed oldest-file deletion is logged as `REPLAY_SHELF_TRIM_PENDING` and retried periodically;
 further uploads are refused while the shelf remains over its limit.
 
+Share-code reuse is based on validated, parsed JSON content with sorted keys and full numeric
+precision. Saving and reloading a replay, JSON whitespace, key order, and compression do not
+create another code for the same content. Notes, clips, and metadata remain part of that content.
+Existing files and codes are preserved; when legacy files encode equivalent content, new uploads
+reuse the oldest retained code. If that file is pruned, the next retained equivalent code is reused.
+Public flags are kept per existing code, and promotion still requires a successful disk write.
+
 If completed replays awaiting persistence reach 16 recordings or 100,000 commands, the
 server pauses new battles (quick matches, room starts and rematches) with a retryable storage
 message. Existing battles, reconnects, spectators and room chat continue. Waiting quick-match

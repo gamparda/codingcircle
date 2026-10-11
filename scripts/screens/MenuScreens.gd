@@ -331,11 +331,18 @@ static func _build_patch_notes_screen(main) -> void:
 static func _build_records_screen(main) -> void:
 	var frame = _show_scene(main, RECORDS_SCREEN, Localization.text("개인 전적"), "이 기기에 저장된 전적")
 	frame.populate(main.save_data)
+	var footer := HBoxContainer.new()
+	footer.name = "RecordsFooter"
+	footer.add_theme_constant_override("separation", 10)
+	frame.column.add_child(footer)
 	var gallery = main._styled_button(Localization.text("업적 보기  (%d / %d)") % [Achievements.unlocked_count(main.save_data), Achievements.DEFS.size()], UIKit.GOLD_DEEP, false)
 	gallery.name = "AchievementsButton"
+	gallery.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	gallery.pressed.connect(main._build_achievements_screen)
-	frame.column.add_child(gallery)
+	footer.add_child(gallery)
 	var back = main._styled_button(Localization.text("메인 화면으로"), Color("#697386"), false)
+	back.name = "RecordsBackButton"
+	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	back.pressed.connect(main._build_connect_screen)
-	frame.column.add_child(back)
+	footer.add_child(back)
 

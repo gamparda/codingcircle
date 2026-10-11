@@ -48,6 +48,24 @@ func run() -> void:
 	check(Protocol.is_valid_room_code(code), "a replay gets a six-letter code")
 	check(shelf.add(text, false) == code and shelf.entries.size() == 1, "the same replay always gets the same code")
 	check(shelf.add(" \n" + text + "\n ", false) == code and shelf.entries.size() == 1, "whitespace shares reuse the same code")
+	var original_replay := _replay(0)
+	var roundtrip: Dictionary = JSON.parse_string(JSON.stringify(original_replay))
+	var roundtrip_text := BattleReplay.to_share_text(roundtrip)
+	check(shelf.add(roundtrip_text) == code and shelf.entries.size() == 1, "JSON number round trips reuse the original share code")
+	var reordered: Dictionary = {}
+	var keys: Array = roundtrip.keys()
+	keys.reverse()
+	for key in keys: reordered[key] = roundtrip[key]
+	var raw := JSON.stringify(reordered, "\t", false).to_utf8_buffer()
+	var formatted_text := BattleReplay.SHARE_PREFIX + Marshalls.raw_to_base64(raw.compress(FileAccess.COMPRESSION_DEFLATE)) + ":" + str(raw.size())
+	check(shelf.add(formatted_text) == code and shelf.entries.size() == 1, "JSON layout and key order do not create another code")
+	var previous_save_dir := BattleReplay.save_dir
+	BattleReplay.save_dir = dir.path_join("local")
+	var local_path := BattleReplay.save(original_replay)
+	check(not local_path.is_empty() and shelf.add(BattleReplay.to_share_text(BattleReplay.load_file(local_path))) == code and shelf.entries.size() == 1, "saving to disk and loading with local order preserves the share code")
+	DirAccess.remove_absolute(local_path)
+	DirAccess.remove_absolute(BattleReplay.save_dir)
+	BattleReplay.save_dir = previous_save_dir
 	check(shelf.text_for(code) == text.strip_edges() and shelf.text_for("ZZZZZZ") == "", "the text comes back by code only")
 	check(shelf.recent().is_empty(), "private uploads are not listed")
 	check(shelf.add(text, true) == code and shelf.recent().size() == 1 and shelf.recent()[0].code == code, "making it public lists it once")
@@ -59,6 +77,35 @@ func run() -> void:
 	reloaded.configure(dir)
 	check(reloaded.text_for(code) == text.strip_edges() and reloaded.recent().size() == 2, "the shelf survives a restart")
 	check(reloaded.recent()[0].code == second, "same-second creation order survives a restart")
+	check(reloaded.add(roundtrip_text) == code and reloaded.entries.size() == 2, "normalized content reuses the original code after restart")
+	var variants := ServerReplayShelf.new()
+	var plain := variants.add(text)
+	var note_text := BattleReplay.to_share_text(BattleReplay.with_note(original_replay, 20, "공유 메모"))
+	var note_code := variants.add(note_text)
+	check(note_code != plain and variants.text_for(note_code) == note_text, "different notes get their own code and are preserved")
+	var clip := original_replay.duplicate(true)
+	clip.clip = {"start": 10, "end": 100, "title": "명장면"}
+	check(variants.add(BattleReplay.to_share_text(clip)) != plain, "a clip stays distinct from the full replay")
+	var precise := roundtrip.duplicate(true)
+	precise.setup.resources[0] += 0.00000000001
+	check(variants.add(BattleReplay.to_share_text(precise)) != plain, "different accepted numerical content is not rounded into the same share")
+	# Existing duplicate encodings keep both codes and bytes; reuse the oldest retained one.
+	var legacy_dir := dir.path_join("legacy")
+	var legacy_path := legacy_dir.path_join("shared_replays")
+	var writer = preload("res://scripts/ServerStats.gd")
+	writer.write_json(legacy_path.path_join("ABC234.json"), {"text": text, "public": false, "created_usec": 1})
+	writer.write_json(legacy_path.path_join("ABC235.json"), {"text": roundtrip_text, "public": true, "created_usec": 2})
+	var legacy_bytes := FileAccess.get_file_as_bytes(legacy_path.path_join("ABC234.json"))
+	var legacy := ServerReplayShelf.new()
+	legacy.configure(legacy_dir)
+	check(legacy.add(formatted_text) == "ABC234" and legacy.entries.size() == 2, "existing equivalent encodings reuse the oldest retained code")
+	check(legacy.text_for("ABC234") == text and legacy.text_for("ABC235") == roundtrip_text and legacy.recent().size() == 1, "all legacy codes and public flags remain usable")
+	check(FileAccess.get_file_as_bytes(legacy_path.path_join("ABC234.json")) == legacy_bytes, "normalization does not rewrite existing files")
+	for index in ServerReplayShelf.MAX_STORED - 1:
+		legacy.entries.append({"code": "fixture%d" % index, "text": "fixture", "public": false, "summary": {}, "key": "fixture%d" % index})
+	legacy._trim()
+	check(legacy.add(text) == "ABC235" and legacy.entries.size() == ServerReplayShelf.MAX_STORED, "pruning a legacy duplicate reuses the remaining code without another upload")
+	_clear(legacy_dir)
 	# Disk failures must not issue an ephemeral code or publish a failed promotion.
 	var blocked_dir := dir.path_join("blocked")
 	DirAccess.make_dir_recursive_absolute(blocked_dir)
@@ -82,12 +129,11 @@ func run() -> void:
 	after_retry.configure(blocked_dir)
 	check(after_retry.text_for(recovered_code) == text and after_retry.recent().size() == 1, "recovered code and public flag survive restart")
 	# Load only valid share text, rebuilding display metadata from the replay itself.
-	var writer = preload("res://scripts/ServerStats.gd")
 	writer.write_json(blocked_path.path_join("ABC234.json"), {"text": "garbage", "public": true, "summary": {}})
 	writer.write_json(blocked_path.path_join("ABC235.json"), {"text": text, "public": "false", "summary": {}})
-	var raw: Dictionary = writer.read_json(stored_path)
-	raw.summary = {"winner": {}, "units": []}
-	writer.write_json(stored_path, raw)
+	var stored: Dictionary = writer.read_json(stored_path)
+	stored.summary = {"winner": {}, "units": []}
+	writer.write_json(stored_path, stored)
 	after_retry.configure(blocked_dir)
 	check(after_retry.entries.size() == 1 and after_retry.recent()[0].units[1] == ["berserker", "warlock", "necromancer"], "invalid records are excluded and malformed summary metadata is rebuilt")
 	_clear(blocked_dir)
