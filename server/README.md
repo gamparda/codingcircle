@@ -18,6 +18,18 @@ invalid entries are excluded from queries and subsequent submissions. Loading al
 rewrite the original file. Daily and weekly boards retain the highest score and, for equal
 scores, the shortest completion time, matching the client's local records and offline queue.
 
+Opt-in solo reports carry the anonymous install ID and an increasing sequence. The server
+stores only the highest sequence per install alongside the aggregate counters in the same
+atomic file replacement. It acknowledges a report only after that write succeeds, so a lost
+acknowledgement, reconnect, or stale client queue after restart does not count the result twice.
+Challenge scores are also acknowledged only after their board file is saved. The client keeps
+unconfirmed queues on disk and retries every five seconds while connected; confirmed reports
+advance the next queued result after half a second. Existing request and per-connection report
+limits still apply. No nickname, IP, or individual deck history is stored in the report receipts.
+Receipts are limited to 100,000 installs per ruleset. At capacity, new identities remain
+unconfirmed instead of evicting existing receipts and risking duplicate counts; online aggregate
+statistics, existing reporters, and challenge boards continue to work.
+
 The server stores shared replay codes, aggregate statistics, and the challenge leaderboard in
 `CATWAR_STATE_DIR`, or `user://server_state` when that environment variable is unset. Finished
 match archives remain in `user://replays`. An upload receives a code only after the shared file

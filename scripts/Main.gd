@@ -114,6 +114,7 @@ var server_status_accumulator := 0.0
 var server_draining := false
 var save_data: Dictionary = {}
 var profile_save_pending := false
+var result_sharing_elapsed := 0.0
 var profile_load_warning := ""
 var profile_load_details := ""
 var campaign_mode := false
@@ -183,6 +184,8 @@ func _ready() -> void:
 	network.session_changed.connect(_on_session_changed)
 	network.session_error.connect(_on_session_error)
 	network.server_ready.connect(_on_server_ready)
+	network.result_report_saved.connect(_on_result_report_saved)
+	network.daily_score_saved.connect(_on_daily_score_saved)
 	network.quick_match_status.connect(_on_quick_match_status)
 	network.session_chat.connect(_on_session_chat)
 	network.spectate_started.connect(_on_spectate_started)
@@ -281,6 +284,7 @@ func _arg_string(args: PackedStringArray, prefix: String, fallback: String) -> S
 	return fallback
 
 func _process(delta: float) -> void:
+	_advance_result_sharing(delta)
 	if not local_ai_mode and battle_active and not current_snapshot.is_empty():
 		var active_gate := false
 		for deadline in client_purchase_gates.values():
@@ -391,13 +395,40 @@ func _on_server_ready() -> void:
 	if running_as_assist:
 		return
 	lobby_filter = "all" # a new connection starts with the unfiltered list
-	MetaStats.flush(save_data, network)
-	_save_profile()
+	if MetaStats.sharing(save_data):
+		MetaStats.install_id(save_data)
+	MetaStats.prune_daily(save_data)
+	if _save_profile():
+		_flush_shared_results()
 	network.send_stats_request([network.client_unit_deck])
 	var identity := MetaStats.install_id(save_data) if MetaStats.sharing(save_data) else ""
 	var daily := preload("res://scripts/DailyChallenge.gd")
 	network.send_daily_board_request(daily.date_key(), identity)
 	network.send_daily_board_request("w" + daily.week_key(), identity)
+
+func _advance_result_sharing(delta: float) -> void:
+	if running_as_server or running_as_assist:
+		return
+	result_sharing_elapsed += delta
+	if result_sharing_elapsed < MetaStats.RETRY_SECONDS:
+		return
+	result_sharing_elapsed = 0.0
+	if MetaStats.prune_daily(save_data):
+		_save_profile()
+	_flush_shared_results()
+
+func _flush_shared_results() -> void:
+	if not profile_save_pending:
+		MetaStats.flush(save_data, network)
+
+func _on_result_report_saved(id: String, sequence: int) -> void:
+	if MetaStats.acknowledge_report(save_data, id, sequence):
+		_save_profile()
+		result_sharing_elapsed = MetaStats.RETRY_SECONDS - 0.5
+
+func _on_daily_score_saved(id: String, date: String, score: int, seconds: float) -> void:
+	if MetaStats.acknowledge_daily(save_data, id, date, score, seconds):
+		_save_profile()
 
 func _update_server_lifecycle(delta: float) -> void:
 	if server_state_dir.is_empty():

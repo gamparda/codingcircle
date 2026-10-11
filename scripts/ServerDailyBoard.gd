@@ -58,12 +58,7 @@ static func valid_entry(entry: Variant) -> bool:
 	return preload("res://scripts/RoomSessions.gd").safe_text(entry.nick, 16) and int(entry.score) >= MIN_SCORE and int(entry.score) <= MAX_SCORE and (seconds is int or seconds is float) and is_finite(float(seconds)) and float(seconds) >= 0.0 and float(seconds) <= MAX_SECONDS
 
 static func valid_id(value: String) -> bool:
-	if value.length() != 32:
-		return false
-	for character in value:
-		if not "0123456789abcdef".contains(character):
-			return false
-	return true
+	return ServerStats.valid_report_id(value)
 
 ## Only today's and yesterday's challenge (UTC) can still be submitted.
 static func accepts_date(date: String, today: String) -> bool:

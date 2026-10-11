@@ -10,6 +10,7 @@ const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const CACHE_PATH := "user://meta_stats.json"
 const MAX_PENDING := 20
 const REPORT_MODES := ["campaign", "practice", "daily"]
+const RETRY_SECONDS := 5.0
 
 static var snapshot: Dictionary = {}
 static var boards: Dictionary = {}
@@ -125,19 +126,25 @@ static func sharing(save: Dictionary) -> bool:
 
 ## Remembers a finished solo battle (own decks + outcome) for the next time a server is reachable.
 static func queue_report(save: Dictionary, units: Array, structures: Array, result: int, mode: String) -> bool:
-	if not sharing(save) or not REPORT_MODES.has(mode):
+	if not sharing(save) or not REPORT_MODES.has(mode) or result < 0 or result > 2 or not preload("res://scripts/NetworkProtocol.gd").validate_deck_payload(units, structures):
 		return false
 	var pending: Array = save.get("pending_reports", [])
+	install_id(save)
+	var sequence := int(save.get("next_report_sequence", 1))
+	if sequence >= ServerStats.MAX_COUNT - 1:
+		return false
 	if pending.size() >= MAX_PENDING:
 		pending.pop_front()
-	pending.append({"units": units.duplicate(), "structures": structures.duplicate(), "result": result, "mode": mode})
+	save["next_report_sequence"] = sequence + 1
+	pending.append({"units": units.duplicate(), "structures": structures.duplicate(), "result": result, "mode": mode, "sequence": sequence})
 	save["pending_reports"] = pending
 	return true
 
 ## Keeps the best unsent score for each board (a few at most: today, this week).
 static func queue_daily(save: Dictionary, date: String, score: int, seconds: float) -> bool:
-	if not sharing(save):
+	if not sharing(save) or not ServerDailyBoard.valid_date(date) or score < ServerDailyBoard.MIN_SCORE or score > ServerDailyBoard.MAX_SCORE or not is_finite(seconds) or seconds < 0.0 or seconds > ServerDailyBoard.MAX_SECONDS:
 		return false
+	install_id(save)
 	var pending: Dictionary = save.get("pending_daily", {})
 	if not DailyChallenge.better_result(score, seconds, pending.get(date, {})):
 		return false
@@ -147,18 +154,49 @@ static func queue_daily(save: Dictionary, date: String, score: int, seconds: flo
 	save["pending_daily"] = pending
 	return true
 
-## Sends everything queued over an open connection and clears it. `network` is the NetworkController.
+## These boards no longer accept submissions. Do not resend expired challenges forever.
+static func prune_daily(save: Dictionary) -> bool:
+	var pending: Dictionary = save.get("pending_daily", {})
+	var changed := false
+	var now := DailyChallenge._to_unix(DailyChallenge.date_key())
+	for date in pending.keys():
+		var cutoff := DailyChallenge.week_key(now - 7 * 86400) if String(date).begins_with("w") else DailyChallenge.date_key(now - 86400)
+		if String(date).trim_prefix("w") < cutoff:
+			pending.erase(date)
+			changed = true
+	return changed
+
+## Keep unconfirmed results on disk. Only one report is in flight so a newer
+## sequence cannot overtake a throttled older result. Scores are idempotent already.
 static func flush(save: Dictionary, network) -> void:
-	if not network.client_is_online():
+	if not network.client_is_online() or not sharing(save):
 		return
-	if sharing(save):
-		for report in save.get("pending_reports", []):
-			network.send_result_report(report.units, report.structures, int(report.result), String(report.mode))
-		var pending: Dictionary = save.get("pending_daily", {})
-		for date in pending:
+	var reports: Array = save.get("pending_reports", [])
+	if not reports.is_empty():
+		var report: Dictionary = reports[0]
+		network.send_confirmed_report(install_id(save), int(report.sequence), report.units, report.structures, int(report.result), String(report.mode))
+	var pending: Dictionary = save.get("pending_daily", {})
+	for date in pending:
+		if ServerDailyBoard.accepts_date(String(date), DailyChallenge.date_key()):
 			network.send_daily_score(String(date), install_id(save), String(save.get("nickname", "")), int(pending[date].score), float(pending[date].seconds))
-	save["pending_reports"] = []
-	save["pending_daily"] = {}
+
+static func acknowledge_report(save: Dictionary, id: String, sequence: int) -> bool:
+	if id != String(save.get("install_id", "")):
+		return false
+	var pending: Array = save.get("pending_reports", [])
+	if pending.is_empty() or int(pending[0].sequence) != sequence:
+		return false
+	pending.pop_front()
+	return true
+
+static func acknowledge_daily(save: Dictionary, id: String, date: String, score: int, seconds: float) -> bool:
+	if id != String(save.get("install_id", "")):
+		return false
+	var pending: Dictionary = save.get("pending_daily", {})
+	if not pending.has(date) or int(pending[date].score) != score or float(pending[date].seconds) != seconds:
+		return false # A faster or higher score may have been queued while this was in flight.
+	pending.erase(date)
+	return true
 
 static func valid_board(data: Variant) -> bool:
 	if not data is Dictionary or not data.get("date") is String or not ServerDailyBoard.valid_date(data.date) or not data.get("entries") is Array or data.entries.size() > ServerDailyBoard.TOP:

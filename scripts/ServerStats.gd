@@ -13,12 +13,15 @@ const MAX_LOOKUP := 12
 const MAX_COMBOS := 4000
 const SAVE_INTERVAL_MSEC := 30000
 const MAX_COUNT := 9_000_000_000_000_000 # Integers that survive JSON's floating-point round trip.
+const MAX_REPORTERS := 100000
 
 var ruleset := ""
 var path := ""
 var data: Dictionary = {}
 var dirty := false
 var last_save_msec := 0
+## Highest confirmed sequence per anonymous install. Stored atomically with the counters.
+var report_sequences: Dictionary = {}
 
 func _init() -> void:
 	data = _empty()
@@ -43,11 +46,17 @@ func configure(directory: String, rule: String = "") -> void:
 	ruleset = rule if not rule.is_empty() else ruleset_id()
 	path = "" if directory.is_empty() else directory.path_join("stats_%s.json" % ruleset)
 	data = _empty()
+	report_sequences = {}
 	var loaded = read_json(path)
 	if loaded is Dictionary:
 		for source in SOURCES:
 			if loaded.get(source) is Dictionary:
 				data[source] = _sanitize_section(loaded[source])
+		if loaded.get("report_sequences") is Dictionary:
+			for id in loaded.report_sequences:
+				var sequence = loaded.report_sequences[id]
+				if id is String and valid_report_id(id) and valid_count(sequence) and int(sequence) > 0 and report_sequences.size() < MAX_REPORTERS:
+					report_sequences[id] = int(sequence)
 	dirty = false
 
 static func _sanitize_section(raw: Dictionary) -> Dictionary:
@@ -63,6 +72,14 @@ static func _sanitize_section(raw: Dictionary) -> Dictionary:
 
 static func valid_count(value: Variant) -> bool:
 	return (value is int or value is float) and is_finite(float(value)) and float(value) >= 0.0 and float(value) <= MAX_COUNT and float(value) == floorf(float(value))
+
+static func valid_report_id(value: String) -> bool:
+	if value.length() != 32:
+		return false
+	for character in value:
+		if not "0123456789abcdef".contains(character):
+			return false
+	return true
 
 static func valid_counts(entry: Variant) -> bool:
 	return entry is Dictionary and valid_count(entry.get("games")) and valid_count(entry.get("wins")) and valid_count(entry.get("draws")) and int(entry.wins) + int(entry.draws) <= int(entry.games)
@@ -109,6 +126,19 @@ func record(source: String, units: Array, structures: Array, result: int) -> boo
 	section.matches += 1
 	dirty = true
 	return true
+
+## The client sends queued results in order, one at a time. An acknowledgement lost
+## during disconnect or a failed profile save can be retried even after server restart.
+func record_report(id: String, sequence: int, units: Array, structures: Array, result: int) -> bool:
+	if not valid_report_id(id) or sequence <= 0 or sequence >= MAX_COUNT:
+		return false
+	if sequence > int(report_sequences.get(id, 0)):
+		if not report_sequences.has(id) and report_sequences.size() >= MAX_REPORTERS:
+			return false # Never evict receipts and silently count a retry twice.
+		if not record("reported", units, structures, result):
+			return false
+		report_sequences[id] = sequence
+	return flush(true)
 
 static func _bump(group: Dictionary, key: String, result: int) -> void:
 	var entry: Dictionary = group.get(key, {"games": 0, "wins": 0, "draws": 0})
@@ -162,15 +192,18 @@ func snapshot(decks: Array = []) -> Dictionary:
 			"units": section.units.duplicate(true), "structures": section.structures.duplicate(true)}
 	return result
 
-func flush(force: bool = false) -> void:
+func flush(force: bool = false) -> bool:
 	if path.is_empty() or not dirty:
-		return
+		return true
 	var now := Time.get_ticks_msec()
 	if not force and last_save_msec != 0 and now - last_save_msec < SAVE_INTERVAL_MSEC:
-		return
+		return false
 	last_save_msec = now
-	if write_json(path, data):
+	var stored := data.duplicate()
+	stored["report_sequences"] = report_sequences
+	if write_json(path, stored):
 		dirty = false
+	return not dirty
 
 static func read_json(file_path: String) -> Variant:
 	if file_path.is_empty() or not FileAccess.file_exists(file_path):

@@ -8,6 +8,15 @@ const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 var failures := 0
 
+class ReportConnection:
+	var online := true
+	var sent: Array = []
+	func client_is_online() -> bool: return online
+	func send_confirmed_report(id, sequence, units, structures, result, mode) -> void:
+		sent.append([id, sequence, units, structures, result, mode])
+	func send_daily_score(date, id, nickname, score, seconds) -> void:
+		sent.append([date, id, nickname, score, seconds])
+
 func check(condition: bool, message: String) -> void:
 	if not condition:
 		failures += 1
@@ -134,6 +143,50 @@ func run() -> void:
 	check(stored.install_id == id and stored.pending_reports.size() == MetaStats.MAX_PENDING and stored.pending_daily[today].score == 1000 and stored.settings.share_results, "queue and opt-in survive saving")
 	var junk := SaveData.sanitize({"install_id": "nope", "pending_reports": [{"units": ["a"], "structures": [], "result": 0, "mode": "campaign"}, 5], "pending_daily": {"date": "x"}})
 	check(junk.install_id == "" and junk.pending_reports.is_empty() and junk.pending_daily.is_empty() and not junk.settings.share_results, "junk is dropped and sharing defaults to off")
+	check(stored.pending_reports == save.pending_reports and stored.next_report_sequence == save.next_report_sequence, "pending report sequences survive JSON saving without being reissued")
+	var legacy := save.duplicate(true)
+	legacy.erase("next_report_sequence")
+	for report in legacy.pending_reports: report.erase("sequence")
+	legacy = SaveData.sanitize(legacy)
+	check(legacy.pending_reports[0].sequence == 1 and legacy.pending_reports[-1].sequence == MetaStats.MAX_PENDING and legacy.next_report_sequence == MetaStats.MAX_PENDING + 1, "older queues receive ordered sequences and retain every valid result")
+	var connection := ReportConnection.new()
+	var before_send := save.duplicate(true)
+	MetaStats.flush(save, connection)
+	var expected_sends := 1 + int(ServerDailyBoard.accepts_date(today, DailyChallenge.date_key()))
+	check(save == before_send and connection.sent.size() == expected_sends, "sending retains the unconfirmed queue and sends only its oldest report")
+	connection.online = false
+	MetaStats.flush(save, connection)
+	check(connection.sent.size() == expected_sends and save == before_send, "disconnection preserves queued results")
+	var first_sequence := int(save.pending_reports[0].sequence)
+	check(not MetaStats.acknowledge_report(save, "f".repeat(32), first_sequence) and not MetaStats.acknowledge_report(save, id, first_sequence + 1), "unrelated and out-of-order acknowledgements cannot erase a result")
+	check(MetaStats.acknowledge_report(save, id, first_sequence) and not MetaStats.acknowledge_report(save, id, first_sequence) and save.pending_reports.size() == MetaStats.MAX_PENDING - 1, "only a matching acknowledgement removes a result, once")
+	check(not MetaStats.acknowledge_daily(save, id, today, 1000, 90.0) and save.pending_daily[today].seconds == 70.0, "a delayed score acknowledgement preserves the faster queued result")
+	check(MetaStats.acknowledge_daily(save, id, today, 1000, 70.0) and save.pending_daily.is_empty(), "a matching score acknowledgement clears its queue")
+	check(not MetaStats.queue_daily(save, today, 0, 70.0) and not MetaStats.queue_daily(save, today, 1000, NAN), "invalid challenge scores cannot block the retry queue")
+	MetaStats.queue_daily(save, "20000101", 1000, 70.0)
+	check(MetaStats.prune_daily(save) and save.pending_daily.is_empty(), "expired boards leave the retry queue")
+	var tomorrow := DailyChallenge.date_key(DailyChallenge._to_unix(DailyChallenge.date_key()) + 86400)
+	MetaStats.queue_daily(save, tomorrow, 1000, 70.0)
+	check(not MetaStats.prune_daily(save) and save.pending_daily.has(tomorrow), "a future score is retained until its submission window opens")
+	var receipts := ServerStats.new()
+	receipts.configure(dir, "receipts")
+	check(receipts.record_report(id, 1, deck_a, structures, 0) and receipts.data.reported.matches == 1, "confirmed reports persist their counters and sequence together")
+	check(receipts.record_report(id, 1, deck_a, structures, 0) and receipts.data.reported.matches == 1, "a duplicate report is acknowledged without counting it twice")
+	DirAccess.make_dir_absolute(receipts.path + ".tmp")
+	check(not receipts.record_report(id, 2, deck_a, structures, 1) and receipts.dirty and receipts.data.reported.matches == 2, "a disk failure counts once in memory and withholds confirmation")
+	check(not receipts.record_report(id, 2, deck_a, structures, 1) and receipts.data.reported.matches == 2, "retries during a disk failure do not duplicate counters")
+	DirAccess.remove_absolute(receipts.path + ".tmp")
+	check(receipts.record_report(id, 2, deck_a, structures, 1) and not receipts.dirty, "retries confirm the same report after storage recovers")
+	var restarted := ServerStats.new()
+	restarted.configure(dir, "receipts")
+	check(restarted.record_report(id, 1, deck_a, structures, 0) and restarted.record_report(id, 2, deck_a, structures, 1) and restarted.data.reported.matches == 2, "lost acknowledgements cannot duplicate counters after server restart")
+	check(not restarted.record_report("bad", 3, deck_a, structures, 0) and not restarted.record_report(id, 0, deck_a, structures, 0), "malformed report identities and sequences are rejected")
+	var receipt_file: Dictionary = ServerStats.read_json(restarted.path)
+	receipt_file.report_sequences["bad"] = 10
+	receipt_file.report_sequences["f".repeat(32)] = {"sequence": 10}
+	ServerStats.write_json(restarted.path, receipt_file)
+	restarted.configure(dir, "receipts")
+	check(restarted.report_sequences == {id: 2} and restarted.data.reported.matches == 2, "malformed receipt fields cannot interrupt loading valid counters and deduplication")
 
 	# Snapshot validation and cache.
 	MetaStats.cache_path = dir.path_join("cache.json")
@@ -256,6 +309,16 @@ func run() -> void:
 	check(toggle != null and not toggle.button_pressed, "sharing is off by default")
 	toggle.button_pressed = true
 	check(main.save_data.settings.share_results, "the switch is stored")
+	MetaStats.queue_report(main.save_data, deck_a, structures, 0, "campaign")
+	MetaStats.queue_daily(main.save_data, DailyChallenge.date_key(), 1000, 80.0)
+	main._save_profile()
+	var profile_id := String(main.save_data.install_id)
+	var profile_sequence := int(main.save_data.pending_reports[0].sequence)
+	main.network.result_report_saved.emit(profile_id, profile_sequence)
+	main.network.daily_score_saved.emit(profile_id, DailyChallenge.date_key(), 1000, 80.0)
+	var confirmed_profile := SaveData.load_data()
+	check(main.save_data.pending_reports.is_empty() and main.save_data.pending_daily.is_empty() and confirmed_profile.pending_reports.is_empty() and confirmed_profile.pending_daily.is_empty(), "Main persists both acknowledgements so restart does not resend confirmed results")
+	check(main.result_sharing_elapsed == MetaStats.RETRY_SECONDS - 0.5, "a confirmed result schedules the next queued report without waiting a full retry period")
 	main.network.daily_board_received.emit({"date": DailyChallenge.date_key(), "total": 0, "entries": [], "rank": 0, "mine": 0})
 	await process_frame
 	main._dismiss_action_overlay()

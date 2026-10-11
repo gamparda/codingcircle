@@ -24,6 +24,8 @@ signal connection_status(text: String)
 signal server_ready
 signal meta_stats_received(data: Dictionary)
 signal daily_board_received(data: Dictionary)
+signal result_report_saved(id: String, sequence: int)
+signal daily_score_saved(id: String, date: String, score: int, seconds: float)
 signal assist_welcomed(ok: bool, message: String)
 signal assist_assigned(job_id: int, chunk_index: int, type: String, params: Dictionary, lease: float)
 signal assist_idle_received
@@ -1176,6 +1178,30 @@ func send_result_report(units: Array, structures: Array, result: int, mode: Stri
 	if client_is_online():
 		report_result.rpc_id(1, units, structures, result, mode)
 
+func send_confirmed_report(id: String, sequence: int, units: Array, structures: Array, result: int, mode: String) -> void:
+	if client_is_online():
+		request_confirmed_report.rpc_id(1, id, sequence, units, structures, result, mode)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_confirmed_report(id: String, sequence: int, units: Array, structures: Array, result: int, mode: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not MetaStats.REPORT_MODES.has(mode) or not ServerStats.valid_report_id(id) or sequence <= 0 or sequence >= ServerStats.MAX_COUNT:
+		return
+	var is_new := sequence > int(stats.report_sequences.get(id, 0))
+	if is_new and int(report_counts.get(sender, 0)) >= MAX_REPORTS_PER_CONNECTION:
+		return
+	var previous := int(stats.data.reported.matches)
+	var saved := stats.record_report(id, sequence, units, structures, result)
+	if int(stats.data.reported.matches) > previous:
+		report_counts[sender] = int(report_counts.get(sender, 0)) + 1
+	if saved:
+		receive_result_report_saved.rpc_id(sender, id, sequence)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_result_report_saved(id: String, sequence: int) -> void:
+	result_report_saved.emit(id, sequence)
+
 ## Results the client reports about its own solo battles. Trusted as sent for now; they are counted
 ## in a separate "reported" bucket so they can be audited or discarded later.
 @rpc("any_peer", "call_remote", "reliable")
@@ -1203,6 +1229,12 @@ func submit_daily_score(date: String, install_id: String, nickname: String, scor
 	if not can_process_request(sender): return
 	if daily_board.submit(date, install_id, nickname, score, seconds):
 		receive_daily_board.rpc_id(sender, daily_board.board(date, install_id))
+		if daily_board.path.is_empty() or not daily_board.dirty:
+			receive_daily_score_saved.rpc_id(sender, install_id, date, score, seconds)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_daily_score_saved(id: String, date: String, score: int, seconds: float) -> void:
+	daily_score_saved.emit(id, date, score, seconds)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_daily_board(date: String, install_id: String) -> void:

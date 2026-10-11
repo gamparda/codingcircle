@@ -57,6 +57,7 @@ static func default_data() -> Dictionary:
 		"seen_features": [],
 		"goals": {},
 		"install_id": "",
+		"next_report_sequence": 1,
 		"pending_reports": [],
 		"pending_daily": {},
 	}
@@ -195,10 +196,21 @@ static func sanitize(raw: Variant) -> Dictionary:
 				clean.seen_features.append(id)
 	if raw.get("install_id") is String and preload("res://scripts/ServerDailyBoard.gd").valid_id(String(raw.install_id)):
 		clean.install_id = String(raw.install_id)
+	if _is_integer(raw.get("next_report_sequence")) and int(raw.next_report_sequence) > 0 and int(raw.next_report_sequence) < preload("res://scripts/ServerStats.gd").MAX_COUNT:
+		clean.next_report_sequence = int(raw.next_report_sequence)
+	var last_sequence := 0
 	if raw.get("pending_reports") is Array:
 		for report in raw.pending_reports.slice(0, 20):
 			if report is Dictionary and report.get("units") is Array and report.get("structures") is Array and _is_integer(report.get("result")) and report.get("mode") is String and preload("res://scripts/MetaStats.gd").REPORT_MODES.has(report.mode) and preload("res://scripts/NetworkProtocol.gd").validate_deck_payload(report.units, report.structures) and int(report.result) >= 0 and int(report.result) <= 2:
-				clean.pending_reports.append({"units": report.units.duplicate(), "structures": report.structures.duplicate(), "result": int(report.result), "mode": String(report.mode)})
+				var sequence := int(report.sequence) if _is_integer(report.get("sequence")) and int(report.sequence) > last_sequence and int(report.sequence) < preload("res://scripts/ServerStats.gd").MAX_COUNT - 1 else int(clean.next_report_sequence)
+				sequence = maxi(sequence, last_sequence + 1)
+				if sequence >= preload("res://scripts/ServerStats.gd").MAX_COUNT - 1:
+					break
+				clean.next_report_sequence = maxi(int(clean.next_report_sequence), sequence + 1)
+				last_sequence = sequence
+				clean.pending_reports.append({"units": report.units.duplicate(), "structures": report.structures.duplicate(), "result": int(report.result), "mode": String(report.mode), "sequence": sequence})
+	if not clean.pending_reports.is_empty() and clean.install_id.is_empty():
+		preload("res://scripts/MetaStats.gd").install_id(clean)
 	var pending = raw.get("pending_daily")
 	if pending is Dictionary:
 		for date in pending.keys().slice(0, 4):

@@ -50,7 +50,8 @@ func run() -> void:
 	server = make_controller("StatsServer")
 	if not server.start_dedicated_server(port):
 		await finish(1); return
-	server.configure_stats("")
+	var stats_root := "user://community_wire_stats"
+	server.configure_stats(stats_root)
 	var shelf_root := "user://community_wire_shelf"
 	server.shelf.configure(shelf_root)
 	var deck := ["shield", "swordsman", "archer"]
@@ -78,9 +79,46 @@ func run() -> void:
 	client.send_result_report(["bad"], structures, 0, "campaign")
 	await create_timer(0.4).timeout
 	check(server.stats.data.reported.matches == 1, "bad modes and decks are ignored")
+	# Queue removal depends on an acknowledgement of durable server storage.
+	var queued := SaveData.default_data()
+	queued.settings.share_results = true
+	MetaStats.queue_report(queued, deck, structures, 0, "campaign")
+	var persisted_queue := queued.duplicate(true)
+	var acknowledgements := []
+	client.result_report_saved.connect(func(install, sequence):
+		acknowledgements.append(sequence)
+		MetaStats.acknowledge_report(queued, install, sequence))
+	DirAccess.make_dir_absolute(server.stats.path + ".tmp")
+	MetaStats.flush(queued, client)
+	check(await wait_until(func(): return server.stats.data.reported.matches == 2) and acknowledgements.is_empty() and queued.pending_reports.size() == 1, "a disk failure withholds the RPC acknowledgement and keeps the client queue")
+	MetaStats.flush(queued, client)
+	await create_timer(0.25).timeout
+	check(server.stats.data.reported.matches == 2 and queued.pending_reports.size() == 1, "retrying an unconfirmed result counts once during the outage")
+	client.disconnect_from_server()
+	await create_timer(0.25).timeout
+	DirAccess.remove_absolute(server.stats.path + ".tmp")
+	client.connect_to_server("127.0.0.1", port)
+	check(await wait_until(func(): return client.client_connection_state == "lobby"), "the result sender reconnects after an interrupted submission")
+	MetaStats.flush(queued, client)
+	check(await wait_until(func(): return queued.pending_reports.is_empty()) and acknowledgements.size() == 1 and server.stats.data.reported.matches == 2, "reconnecting confirms the saved result without duplicating it")
+	server.stats.configure(stats_root)
+	queued.clear()
+	queued.merge(SaveData.sanitize(JSON.parse_string(JSON.stringify(persisted_queue))))
+	MetaStats.flush(queued, client)
+	check(await wait_until(func(): return queued.pending_reports.is_empty()) and acknowledgements.size() == 2 and server.stats.data.reported.matches == 2, "server restart plus a stale saved client queue still counts the report once")
+	# A rate-limited result also stays queued until a later successful attempt.
+	MetaStats.queue_report(queued, deck, structures, 1, "practice")
+	var sender: int = client.multiplayer.get_unique_id()
+	server.request_windows[sender] = {"started": Time.get_ticks_msec(), "count": NetworkController.MAX_REQUESTS_PER_SECOND}
+	MetaStats.flush(queued, client)
+	await create_timer(0.25).timeout
+	check(queued.pending_reports.size() == 1 and server.stats.data.reported.matches == 2, "request throttling does not discard a queued report")
+	server.request_windows.erase(sender)
+	MetaStats.flush(queued, client)
+	check(await wait_until(func(): return queued.pending_reports.is_empty()) and server.stats.data.reported.matches == 3, "a throttled result is counted when retried")
 	for i in NetworkController.MAX_REPORTS_PER_CONNECTION + 10:
 		client.send_result_report(deck, structures, 1, "practice")
-	await create_timer(0.8).timeout
+	await create_timer(1.1).timeout # Let the request window expire before testing leaderboard RPCs.
 	check(server.stats.data.reported.matches <= NetworkController.MAX_REPORTS_PER_CONNECTION, "one connection cannot flood the reports")
 
 	var today := DailyChallenge.date_key()
@@ -97,6 +135,17 @@ func run() -> void:
 	check(server.daily_board.board(today, id).mine == 1100, "invalid submissions change nothing")
 	client.send_daily_board_request(today, id)
 	check(await wait_until(func(): return boards.size() >= 3), "the board can be requested")
+	var score_acks := []
+	client.daily_score_saved.connect(func(install, date, score, seconds):
+		score_acks.append(score)
+		MetaStats.acknowledge_daily(queued, install, date, score, seconds))
+	MetaStats.queue_daily(queued, today, 1400, 60.0)
+	DirAccess.make_dir_absolute(server.daily_board.path + ".tmp")
+	MetaStats.flush(queued, client)
+	check(await wait_until(func(): return server.daily_board.board(today, queued.install_id).mine == 1400) and score_acks.is_empty() and queued.pending_daily.has(today), "the challenge queue remains until its board is written to disk")
+	DirAccess.remove_absolute(server.daily_board.path + ".tmp")
+	MetaStats.flush(queued, client)
+	check(await wait_until(func(): return not queued.pending_daily.has(today)) and score_acks == [1400], "a persisted challenge score acknowledges and clears its queue")
 	# Replay codes and recent online battles.
 	var BattleReplay = load("res://scripts/BattleReplay.gd")
 	var model := BattleModel.new()
@@ -152,5 +201,8 @@ func run() -> void:
 	DirAccess.remove_absolute(server.shelf.dir)
 	DirAccess.remove_absolute(shelf_root)
 	DirAccess.remove_absolute("user://community_wire_cache.json")
+	for file in DirAccess.get_files_at(stats_root):
+		DirAccess.remove_absolute(stats_root.path_join(file))
+	DirAccess.remove_absolute(stats_root)
 	await finish(1 if failures > 0 else 0)
 
