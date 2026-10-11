@@ -188,6 +188,62 @@ func _init() -> void:
 	hooks.on_tick(8)
 	hooks.settle(8, live)
 	check(not hooks.recorders.has(8) and hooks.saved_paths.size() == 1, "server discards an over-limit recording without saving a misleading replay")
+	# Each persistence destination recovers independently, after its live match is gone.
+	var archive_dir := BattleReplay.save_dir
+	BattleReplay.save_dir = archive_dir + "/blocked"
+	var blocker := FileAccess.open(BattleReplay.save_dir, FileAccess.WRITE)
+	blocker.store_string("blocked archive")
+	blocker.close()
+	var retry_hooks = Replays.new()
+	var Shelf = preload("res://scripts/ServerReplayShelf.gd")
+	var Stats = preload("res://scripts/ServerStats.gd")
+	retry_hooks.shelf = Shelf.new()
+	var shelf_root := archive_dir + "/shelf"
+	retry_hooks.shelf.configure(shelf_root)
+	retry_hooks.stats = Stats.new()
+	# Archive fails, shared copy succeeds. Retrying must not duplicate the public copy.
+	var failed_model := BattleModel.new()
+	retry_hooks.begin(91, failed_model, {"mode": "room"})
+	failed_model.tick(STEP)
+	retry_hooks.on_tick(91)
+	failed_model.winner = 0
+	retry_hooks.settle(91, failed_model)
+	check(retry_hooks.pending.size() == 1 and retry_hooks.pending[0].shared and retry_hooks.shelf.recent().size() == 1, "failed archive is retained while its shared copy is available")
+	retry_hooks.drop(91)
+	retry_hooks.settle(91, failed_model)
+	retry_hooks.retry_pending()
+	check(retry_hooks.pending.size() == 1 and retry_hooks.stats.data.online.matches == 2, "dropping, settling and failed retries preserve the record without recounting results")
+	DirAccess.remove_absolute(BattleReplay.save_dir)
+	retry_hooks.retry_pending()
+	check(retry_hooks.pending.is_empty() and retry_hooks.saved_paths.size() == 1 and retry_hooks.shelf.recent().size() == 1, "archive retry saves once without duplicating the shared copy")
+	# Archive succeeds, public shelf fails. Retry cannot produce a second archive.
+	var shelf_backup: String = retry_hooks.shelf.dir + ".backup"
+	DirAccess.rename_absolute(retry_hooks.shelf.dir, shelf_backup)
+	blocker = FileAccess.open(retry_hooks.shelf.dir, FileAccess.WRITE)
+	blocker.store_string("blocked shelf")
+	blocker.close()
+	failed_model = BattleModel.new()
+	retry_hooks.begin(92, failed_model, {"mode": "rematch"})
+	for _tick in 2:
+		failed_model.tick(STEP)
+		retry_hooks.on_tick(92)
+	failed_model.winner = 1
+	retry_hooks.settle(92, failed_model)
+	check(retry_hooks.pending.size() == 1 and retry_hooks.pending[0].archived and retry_hooks.saved_paths.size() == 2, "failed sharing retains its replay after a successful archive")
+	DirAccess.remove_absolute(retry_hooks.shelf.dir)
+	DirAccess.rename_absolute(shelf_backup, retry_hooks.shelf.dir)
+	retry_hooks.retry_pending()
+	retry_hooks.retry_pending()
+	check(retry_hooks.pending.is_empty() and retry_hooks.saved_paths.size() == 2 and retry_hooks.shelf.recent().size() == 2 and retry_hooks.stats.data.online.matches == 4, "share retry publishes once without duplicating archives or statistics")
+	for saved in retry_hooks.saved_paths:
+		check(bool(BattleReplay.verify(BattleReplay.load_file(saved)).ok), "recovered server replay verifies")
+		DirAccess.remove_absolute(saved)
+	for file in DirAccess.get_files_at(retry_hooks.shelf.dir):
+		DirAccess.remove_absolute(retry_hooks.shelf.dir.path_join(file))
+	DirAccess.remove_absolute(retry_hooks.shelf.dir)
+	DirAccess.remove_absolute(shelf_root)
+	DirAccess.remove_absolute(BattleReplay.save_dir)
+	BattleReplay.save_dir = archive_dir
 	for saved in hooks.saved_paths:
 		var loaded := BattleReplay.load_file(saved)
 		check(not loaded.is_empty() and bool(BattleReplay.verify(loaded).ok), "server-saved replay verifies")

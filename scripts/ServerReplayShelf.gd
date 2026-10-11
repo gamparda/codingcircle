@@ -16,6 +16,8 @@ var dir := ""
 var entries: Array = []
 var by_hash: Dictionary = {}
 var rng := RandomNumberGenerator.new()
+var last_created_usec := 0
+var trim_failed := false
 
 func _init() -> void:
 	rng.randomize()
@@ -24,6 +26,8 @@ func configure(directory: String) -> void:
 	dir = "" if directory.is_empty() else directory.path_join("shared_replays")
 	entries = []
 	by_hash = {}
+	last_created_usec = 0
+	trim_failed = false
 	if dir.is_empty() or not DirAccess.dir_exists_absolute(dir):
 		if not dir.is_empty():
 			DirAccess.make_dir_recursive_absolute(dir)
@@ -33,22 +37,38 @@ func configure(directory: String) -> void:
 		if not file.ends_with(".json"):
 			continue
 		var path := dir.path_join(file)
-		var data = ServerStats.read_json(path)
 		var code := file.get_basename()
-		if data is Dictionary and Protocol.is_valid_room_code(code) and data.get("text") is String and data.get("summary") is Dictionary:
-			loaded.append({"code": code, "public": bool(data.get("public", false)), "summary": data.summary, "text": data.text, "modified": FileAccess.get_modified_time(path)})
-	loaded.sort_custom(func(a, b): return int(a.modified) < int(b.modified))
+		var handle := FileAccess.open(path, FileAccess.READ)
+		if handle == null or handle.get_length() > MAX_TEXT * 2 or not Protocol.is_valid_room_code(code):
+			continue
+		var data = JSON.parse_string(handle.get_as_text())
+		handle.close()
+		if not data is Dictionary or not data.get("text") is String or not data.get("public", false) is bool:
+			continue
+		var text: String = data.text.strip_edges()
+		var replay := BattleReplay.from_share_text(text) if text.length() <= MAX_TEXT else {}
+		if replay.is_empty():
+			continue
+		# Old shelves have no creation timestamp; keep their modification order as a fallback.
+		var created_usec := int(FileAccess.get_modified_time(path)) * 1000000
+		var timestamp = data.get("created_usec")
+		if (timestamp is int or timestamp is float) and is_finite(float(timestamp)) and float(timestamp) >= 0.0 and float(timestamp) <= 9e15 and float(timestamp) == floorf(float(timestamp)):
+			created_usec = int(timestamp)
+		loaded.append({"code": code, "public": data.get("public", false), "summary": summarize(replay, code), "text": text, "created_usec": created_usec})
+	loaded.sort_custom(func(a, b): return int(a.created_usec) < int(b.created_usec) or (int(a.created_usec) == int(b.created_usec) and String(a.code) < String(b.code)))
 	for entry in loaded:
-		entry.erase("modified")
 		entries.append(entry)
-		by_hash[hash(entry.text)] = entry.code
+		by_hash[String(entry.text).sha256_text()] = entry.code
+		last_created_usec = maxi(last_created_usec, int(entry.created_usec))
+	_trim()
 
 func _new_code() -> String:
 	for _attempt in 50:
 		var code := ""
 		for _i in Protocol.ROOM_CODE_LENGTH:
 			code += Protocol.ROOM_CODE_ALPHABET[rng.randi_range(0, Protocol.ROOM_CODE_ALPHABET.length() - 1)]
-		if _find(code) < 0:
+		var path := dir.path_join(code + ".json")
+		if _find(code) < 0 and (dir.is_empty() or (not FileAccess.file_exists(path) and not DirAccess.dir_exists_absolute(path))):
 			return code
 	return ""
 
@@ -64,39 +84,59 @@ static func summarize(replay: Dictionary, code: String) -> Dictionary:
 		"mode": String(meta.get("mode", "")), "units": [replay.setup.unit_decks[0].duplicate(), replay.setup.unit_decks[1].duplicate()]}
 
 ## Stores share text and returns its code ("" when it is not a valid replay or the shelf cannot take it).
-## The same text always gets the same code. A public flag set once is never taken back.
+## Persistent shelves issue codes only after a successful disk write.
+## The same normalized text always gets the same code. A public flag set once is never taken back.
 func add(text: String, is_public: bool = false) -> String:
+	text = text.strip_edges()
 	var replay := BattleReplay.from_share_text(text) if text.length() <= MAX_TEXT else {}
 	if replay.is_empty():
 		return ""
-	var key := hash(text)
+	var key := text.sha256_text()
 	if by_hash.has(key):
 		var existing := _find(String(by_hash[key]))
 		if existing >= 0:
 			if is_public and not entries[existing].public:
-				entries[existing].public = true
-				_write(entries[existing])
+				var promoted: Dictionary = entries[existing].duplicate(true)
+				promoted.public = true
+				if not _write(promoted):
+					return ""
+				entries[existing] = promoted
 			return String(entries[existing].code)
+	_trim()
+	if entries.size() > MAX_STORED:
+		return "" # deletion failure may exceed the cap by one, but cannot grow the shelf indefinitely
 	var code := _new_code()
 	if code.is_empty():
 		return ""
-	var entry := {"code": code, "public": is_public, "summary": summarize(replay, code), "text": text.strip_edges()}
+	var created_usec := maxi(int(Time.get_unix_time_from_system() * 1000000.0), last_created_usec + 1)
+	var entry := {"code": code, "public": is_public, "summary": summarize(replay, code), "text": text, "created_usec": created_usec}
+	if not _write(entry):
+		return ""
 	entries.append(entry)
+	last_created_usec = created_usec
 	by_hash[key] = code
-	_write(entry)
 	_trim()
 	return code
 
-func _write(entry: Dictionary) -> void:
-	if not dir.is_empty():
-		ServerStats.write_json(dir.path_join(String(entry.code) + ".json"), {"public": entry.public, "summary": entry.summary, "text": entry.text})
+func _write(entry: Dictionary) -> bool:
+	return dir.is_empty() or ServerStats.write_json(dir.path_join(String(entry.code) + ".json"),
+		{"public": entry.public, "summary": entry.summary, "text": entry.text, "created_usec": entry.created_usec})
 
 func _trim() -> void:
 	while entries.size() > MAX_STORED:
-		var gone: Dictionary = entries.pop_front()
-		by_hash.erase(hash(gone.text))
+		var gone: Dictionary = entries[0]
 		if not dir.is_empty():
-			DirAccess.remove_absolute(dir.path_join(String(gone.code) + ".json"))
+			var path := dir.path_join(String(gone.code) + ".json")
+			if DirAccess.dir_exists_absolute(path) or (FileAccess.file_exists(path) and DirAccess.remove_absolute(path) != OK):
+				if not trim_failed:
+					printerr("REPLAY_SHELF_TRIM_PENDING path=%s" % path)
+				trim_failed = true
+				return
+		entries.pop_front()
+		var key := String(gone.text).sha256_text()
+		if by_hash.get(key) == gone.code:
+			by_hash.erase(key)
+	trim_failed = false
 
 func text_for(code: String) -> String:
 	var index := _find(code)

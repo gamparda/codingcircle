@@ -10,6 +10,28 @@ Run from PowerShell after exporting the project:
 
 On an installed copy, launch **Cat War Dedicated Server** from the Start menu or run `StartServer.cmd`. The server listens on UDP. Open the selected UDP port in the host firewall and cloud security group/router as required.
 
+## Persistence and storage failures
+
+The server stores shared replay codes, aggregate statistics, and the challenge leaderboard in
+`CATWAR_STATE_DIR`, or `user://server_state` when that environment variable is unset. Finished
+match archives remain in `user://replays`. An upload receives a code only after the shared file
+has been written successfully; a failed upload can be retried from the client's **코드** button
+or shared directly with **복사**.
+
+Failed match archive and public shelf writes keep the completed recording in memory. Each
+destination retries independently every 30 seconds, without counting the match or saving a
+successful destination twice. Statistics and leaderboard writes also retry when the server is
+idle. Logs mark `REPLAY_SAVE_PENDING` and `REPLAY_SAVE_RECOVERED`; `server-status.json` reports
+`pending_saves`, and automatic updates wait until these writes succeed. Stop or crash recovery
+cannot retain data that could not be written anywhere: repair disk space or permissions before
+manually restarting a server with pending writes. Replays exceeding the share size limit still
+receive a local archive and log `REPLAY_SHARE_SKIPPED` rather than retrying indefinitely.
+
+Shared replay files are validated again on startup, and summaries are rebuilt from their replay
+contents. The shelf keeps the newest 200 entries and preserves creation order across restarts.
+A failed oldest-file deletion is logged as `REPLAY_SHELF_TRIM_PENDING` and retried periodically;
+further uploads are refused while the shelf remains over its limit.
+
 ## Assist servers and helper PCs
 
 Assist servers and helper PCs may connect and take over batch work such as balance experiments. There is no token;

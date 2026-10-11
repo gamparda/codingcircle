@@ -99,6 +99,8 @@ const MAX_REPORTS_PER_CONNECTION := 40
 var rematch_ready: Dictionary:
 	get: return battle.rematch_ready
 var server_mode := false
+const PERSISTENCE_RETRY_SECONDS := 30.0
+var persistence_elapsed := 0.0
 var allow_test_room_codes := false
 var client_in_match := false
 var accepting_players := true
@@ -396,6 +398,7 @@ func _process(delta: float) -> void:
 		_advance_ping(delta)
 		return
 	_expire_recovery()
+	_advance_persistence(delta)
 	for id in join_challenges.keys():
 		if Time.get_ticks_msec()>int(join_challenges[id].deadline): join_challenges.erase(id)
 	for waiting_peer in quick_queue.expire(Time.get_ticks_msec()):
@@ -1103,6 +1106,22 @@ func receive_completed_snapshot(data: Dictionary) -> void:
 	receive_snapshot(data)
 
 # ---------- Community statistics and the daily board ----------
+
+func _advance_persistence(delta: float) -> void:
+	persistence_elapsed += delta
+	if persistence_elapsed >= PERSISTENCE_RETRY_SECONDS:
+		persistence_elapsed = 0.0
+		flush_persistence()
+
+func flush_persistence() -> void:
+	replays.retry_pending()
+	shelf._trim()
+	stats.flush(true)
+	daily_board.flush()
+
+## Memory-only stores need no disk write. Finished replay archives always do.
+func pending_persistence_count() -> int:
+	return replays.pending.size() + int(not stats.path.is_empty() and stats.dirty) + int(not daily_board.path.is_empty() and daily_board.dirty)
 
 func configure_stats(directory: String) -> void:
 	stats.configure(directory)

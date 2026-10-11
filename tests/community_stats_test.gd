@@ -124,6 +124,42 @@ func run() -> void:
 	await process_frame
 	main.save_data = SaveData.default_data()
 	main.save_data.tutorial_completed = true
+	# Idle servers flush pending stores even without another report or finished match.
+	main.network.stats = stats
+	main.network.daily_board = board
+	DirAccess.make_dir_absolute(stats.path + ".tmp")
+	DirAccess.make_dir_absolute(board.path + ".tmp")
+	var stats_original := FileAccess.get_file_as_string(stats.path)
+	var board_original := FileAccess.get_file_as_string(board.path)
+	stats.record("online", deck_a, structures, 0)
+	board.submit("20261030", me, "나", 1000, 70.0, "20261030")
+	main.network.flush_persistence()
+	check(main.network.pending_persistence_count() == 2 and not main._server_can_update(), "unsaved statistics and scores block an idle server restart")
+	check(FileAccess.get_file_as_string(stats.path) == stats_original and FileAccess.get_file_as_string(board.path) == board_original, "failed server store writes preserve both original files")
+	main.server_state_dir = dir
+	main._update_server_lifecycle(1.0)
+	var server_status: Dictionary = ServerStats.read_json(dir.path_join("server-status.json"))
+	check(server_status.pending_saves == 2 and not server_status.safe_to_update, "server status exposes pending writes and postpones updates")
+	var status_original := FileAccess.get_file_as_string(dir.path_join("server-status.json"))
+	DirAccess.make_dir_absolute(dir.path_join("server-status.json.tmp"))
+	main._update_server_lifecycle(1.0)
+	check(FileAccess.get_file_as_string(dir.path_join("server-status.json")) == status_original, "failed status replacement preserves the previous status")
+	DirAccess.remove_absolute(dir.path_join("server-status.json.tmp"))
+	DirAccess.remove_absolute(stats.path + ".tmp")
+	DirAccess.remove_absolute(board.path + ".tmp")
+	main.network.persistence_elapsed = 0.0
+	main.network._advance_persistence(NetworkController.PERSISTENCE_RETRY_SECONDS - 1.0)
+	check(main.network.pending_persistence_count() == 2, "pending writes are not retried every frame")
+	main.network._advance_persistence(1.0)
+	var retry_stats := ServerStats.new()
+	retry_stats.configure(dir, "t1")
+	var retry_board := ServerDailyBoard.new()
+	retry_board.configure(dir)
+	check(main.network.pending_persistence_count() == 0 and main._server_can_update() and retry_stats.data.online.matches == stats.data.online.matches and retry_board.board("20261030", me).mine == 1000, "periodic retries recover both stores and release the update guard without new submissions")
+	main.network.replays.pending.append({})
+	check(not main._server_can_update(), "a pending replay alone blocks an otherwise idle server restart")
+	main.network.replays.pending.clear()
+	main.server_state_dir = ""
 	var shown := ServerDailyBoard.new()
 	shown.submit(DailyChallenge.date_key(), me, "나", 900, 80.0)
 	shown.submit(DailyChallenge.date_key(), rival, "상대", 1200, 70.0)

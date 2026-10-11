@@ -215,12 +215,13 @@ func _ready() -> void:
 		if not network.start_dedicated_server(port):
 			get_tree().quit(1)
 		server_state_dir = OS.get_environment("CATWAR_STATE_DIR").strip_edges()
-		if not server_state_dir.is_empty():
-			DirAccess.make_dir_recursive_absolute(server_state_dir)
+		if server_state_dir.is_empty():
+			server_state_dir = "user://server_state"
+		DirAccess.make_dir_recursive_absolute(server_state_dir)
 		network.configure_stats(server_state_dir)
 		network.configure_assist(server_state_dir, OS.get_environment("CATWAR_ASSIST").strip_edges().to_lower() != "off")
 		_update_server_lifecycle(1.0)
-		updater.set_safe_to_update(true)
+		updater.set_safe_to_update(_server_can_update())
 		updater.check_for_update()
 		return
 	if args.has("--assist"):
@@ -368,7 +369,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func _server_can_update() -> bool:
-	return server_update_safe(network.models.values(), multiplayer.get_peers().size())
+	return network.pending_persistence_count() == 0 and server_update_safe(network.models.values(), multiplayer.get_peers().size())
 
 static func server_update_safe(models: Array, connected_peer_count: int) -> bool:
 	if connected_peer_count > 0:
@@ -406,6 +407,8 @@ func _update_server_lifecycle(delta: float) -> void:
 		server_draining = draining
 		network.set_accepting_players(not draining)
 		print("SERVER_DRAINING enabled=%s" % draining)
+		if draining:
+			network.flush_persistence()
 	server_status_accumulator += delta
 	if server_status_accumulator < 1.0:
 		return
@@ -414,17 +417,10 @@ func _update_server_lifecycle(delta: float) -> void:
 		"active_matches": _active_match_count(),
 		"accepting_players": not server_draining,
 		"safe_to_update": _server_can_update(),
+		"pending_saves": network.pending_persistence_count(),
 	}
 	var status_path := server_state_dir.path_join("server-status.json")
-	var temporary_path := status_path + ".tmp"
-	var file := FileAccess.open(temporary_path, FileAccess.WRITE)
-	if file == null:
-		return
-	file.store_string(JSON.stringify(status) + "\n")
-	file.close()
-	if FileAccess.file_exists(status_path):
-		DirAccess.remove_absolute(status_path)
-	DirAccess.rename_absolute(temporary_path, status_path)
+	preload("res://scripts/ServerStats.gd").write_json(status_path, status)
 
 func _clear_screen() -> void:
 	_cancel_binding_capture()

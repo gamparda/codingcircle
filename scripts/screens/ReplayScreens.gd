@@ -450,7 +450,8 @@ static func _share_by_code(main, replay: Dictionary, button: Button) -> void:
 		var on_code := func(code: String):
 			if not is_instance_valid(button):
 				return
-			button.text = code if not code.is_empty() else "실패"
+			button.text = code if not code.is_empty() else "재시도"
+			button.tooltip_text = Localization.text("공유 코드를 복사했습니다.") if not code.is_empty() else Localization.text("서버가 리플레이를 보관하지 못했습니다. 다시 누르거나 복사 버튼으로 공유하세요.")
 			if not code.is_empty():
 				DisplayServer.clipboard_set(code)
 		main.network.replay_code_received.connect(on_code, CONNECT_ONE_SHOT)

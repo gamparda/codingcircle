@@ -51,6 +51,8 @@ func run() -> void:
 	if not server.start_dedicated_server(port):
 		await finish(1); return
 	server.configure_stats("")
+	var shelf_root := "user://community_wire_shelf"
+	server.shelf.configure(shelf_root)
 	var deck := ["shield", "swordsman", "archer"]
 	var structures := ["wall", "swamp", "turret"]
 	for i in ServerStats.MIN_SAMPLES + 5:
@@ -127,6 +129,26 @@ func run() -> void:
 	check(await wait_until(func(): return codes.size() == 2) and codes[1] == "", "bad uploads are refused")
 	client.send_replay_fetch("ZZZZZZ")
 	check(await wait_until(func(): return fetched.size() == 2) and fetched[1][1] == "", "unknown codes answer with nothing")
+	# A storage outage must be reported over RPC instead of issuing a code lost on restart.
+	var backup: String = server.shelf.dir + ".backup"
+	DirAccess.rename_absolute(server.shelf.dir, backup)
+	var blocker := FileAccess.open(server.shelf.dir, FileAccess.WRITE)
+	blocker.store_string("blocked shared storage")
+	blocker.close()
+	var retry_text: String = BattleReplay.to_share_text(BattleReplay.with_note(BattleReplay.from_share_text(fetched[0][1]), 0, "저장 재시도"))
+	client.send_replay_upload(retry_text)
+	check(await wait_until(func(): return codes.size() == 3) and codes[2] == "", "a disk failure reaches the client as a failed upload")
+	DirAccess.remove_absolute(server.shelf.dir)
+	DirAccess.rename_absolute(backup, server.shelf.dir)
+	client.send_replay_upload(retry_text)
+	check(await wait_until(func(): return codes.size() == 4) and codes[3].length() == 6, "upload retries succeed once shared storage is restored")
+	var reloaded_shelf = preload("res://scripts/ServerReplayShelf.gd").new()
+	reloaded_shelf.configure(shelf_root)
+	check(codes.size() == 4 and reloaded_shelf.text_for(codes[3]) == retry_text and reloaded_shelf.recent().size() == 1, "codes returned over RPC survive restart and uploads remain private")
+	for file in DirAccess.get_files_at(server.shelf.dir):
+		DirAccess.remove_absolute(server.shelf.dir.path_join(file))
+	DirAccess.remove_absolute(server.shelf.dir)
+	DirAccess.remove_absolute(shelf_root)
 	DirAccess.remove_absolute("user://community_wire_cache.json")
 	await finish(1 if failures > 0 else 0)
 

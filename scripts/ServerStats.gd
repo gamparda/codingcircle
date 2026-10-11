@@ -153,10 +153,17 @@ static func read_json(file_path: String) -> Variant:
 
 ## Writes next to the target and renames, so a crash never leaves a half-written file.
 static func write_json(file_path: String, value: Variant) -> bool:
+	if DirAccess.make_dir_recursive_absolute(file_path.get_base_dir()) != OK:
+		return false
 	var temp := file_path + ".tmp"
 	var file := FileAccess.open(temp, FileAccess.WRITE)
 	if file == null:
 		return false
 	file.store_string(JSON.stringify(value))
+	file.flush()
+	var error := file.get_error()
 	file.close()
-	return DirAccess.rename_absolute(temp, file_path) == OK
+	if error != OK or DirAccess.rename_absolute(temp, file_path) != OK:
+		DirAccess.remove_absolute(temp)
+		return false
+	return true
