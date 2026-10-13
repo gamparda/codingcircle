@@ -14,6 +14,11 @@ const MIN_STAGE := 2
 const MAX_BASE_STAGE := 6
 const WEEKLY_MIN_STAGE := 4
 const WEEKLY_MAX_STAGE := 6
+const SCORE_BASE := 1000.0
+const SCORE_HEALTH_FACTOR := 2.0
+const SCORE_TIME_FACTOR := 2.0
+const SCORE_MIN := 100
+const SCORE_MAX := 3000
 
 ## "YYYYMMDD" in UTC. `unix < 0` means now.
 static func date_key(unix: int = -1) -> String:
@@ -107,9 +112,20 @@ static func build(challenge: Dictionary) -> Dictionary:
 
 ## Winners score 100..3000: remaining base health and speed both pay.
 static func score(won: bool, own_base: float, seconds: float) -> int:
+	return int(score_breakdown(won, own_base, seconds).score)
+
+## Round the combined value once, then apply the bounds. Displayed components
+## must not be rounded separately and summed as though they were the actual score.
+static func score_breakdown(won: bool, own_base: float, seconds: float) -> Dictionary:
 	if not won:
-		return 0
-	return clampi(roundi(1000.0 + own_base * 2.0 - seconds * 2.0), 100, 3000)
+		return {"score": 0, "health_bonus": 0.0, "time_penalty": 0.0, "raw": 0.0, "rounded": 0, "adjustment": 0}
+	var health_bonus := own_base * SCORE_HEALTH_FACTOR
+	var time_penalty := seconds * SCORE_TIME_FACTOR
+	var raw := SCORE_BASE + health_bonus - time_penalty
+	var rounded := roundi(raw)
+	var points := clampi(rounded, SCORE_MIN, SCORE_MAX)
+	return {"score": points, "health_bonus": health_bonus, "time_penalty": time_penalty,
+		"raw": raw, "rounded": rounded, "adjustment": points - rounded}
 
 ## The same ordering is used by local records, the offline queue and the server.
 static func better_result(points: int, seconds: float, previous: Dictionary) -> bool:

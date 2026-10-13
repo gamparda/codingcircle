@@ -3,6 +3,7 @@ extends RefCounted
 
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const ServerStats = preload("res://scripts/ServerStats.gd")
+const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 
 static func ruleset_of(replay: Dictionary) -> String:
 	var value = replay.get("meta", {}).get("ruleset", "0")
@@ -42,3 +43,21 @@ static func same_time_and_outcome(replay: Dictionary, record: Dictionary) -> boo
 	var winner := int(result.get("winner", -1))
 	var outcome_matches := winner == 0 if bool(record.get("won", false)) else winner in [1, 2]
 	return outcome_matches and absf(float(result.get("elapsed", 0.0)) - float(record.get("seconds", 0.0))) < 0.001
+
+## Only a reproduced terminal state can supply the missing final base health.
+## A matching hash does not establish which scoring rules an old file used.
+static func score_analysis(replay: Dictionary, player: BattleReplay.Player, record: Dictionary, record_ruleset: String) -> Dictionary:
+	var played := player.summary()
+	var result: Dictionary = replay.result
+	if int(played.winner) not in [0, 1, 2] or String(played.state_hash) != String(result.state_hash) or int(played.winner) != int(result.winner) or int(played.ticks) != int(result.ticks) or absf(float(played.elapsed) - float(result.elapsed)) >= 0.001:
+		return {"ok": false}
+	var current := ServerStats.ruleset_id()
+	var known_current := current != "0" and ruleset_of(replay) == current
+	var comparable := known_current and record_ruleset == current
+	var won := int(played.winner) == 0
+	var health := float(player.model.base_hp[0])
+	var breakdown := DailyChallenge.score_breakdown(won, health, float(played.elapsed))
+	return {"ok": true, "won": won, "health": health, "seconds": float(played.elapsed),
+		"breakdown": breakdown, "known_current": known_current, "comparable": comparable,
+		"difference": int(breakdown.score) - int(record.get("score", 0)),
+		"record_matches": comparable and same_time_and_outcome(replay, record) and int(breakdown.score) == int(record.get("score", 0))}

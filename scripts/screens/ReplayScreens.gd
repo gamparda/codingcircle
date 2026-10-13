@@ -5,6 +5,7 @@ const Localization = preload("res://scripts/Localization.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const ChallengeReplays = preload("res://scripts/ChallengeReplays.gd")
+const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const ReplayViewer = preload("res://scripts/ui/ReplayViewer.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
 const DeckAnalysis = preload("res://scripts/DeckAnalysis.gd")
@@ -944,7 +945,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	var heading := MultiplayerUI.label("%s %s (UTC) · %s\n보관 기록: %s · %d점 · %.1f초" % [title, date_text, rule_text, "성공" if bool(record.get("won", false)) else "실패", int(record.get("score", 0)), float(record.get("seconds", 0.0))], 16, UIKit.TEXT)
 	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(heading)
-	var hint := MultiplayerUI.label("같은 날짜의 전투·클립입니다. 버전 미상 전투는 기록의 버전과 다를 수 있습니다. 결과·완료 시간이 같아도 최고 점수를 낸 전투인지는 확인이 필요합니다.", 14, UIKit.TEXT_MUTED)
+	var hint := MultiplayerUI.label("점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(hint)
 	var status := MultiplayerUI.label("보관 전투 %d개 · 버전 확인된 전투 우선" % entries.size(), 14, UIKit.GOLD)
@@ -966,6 +967,8 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	rows.add_theme_constant_override("separation", 10)
 	scroll.add_child(rows)
 	var controls: Array[Control] = [scroll]
+	# A new analysis cancels the previous one. State belongs only to this dialog.
+	var analysis_job := {"serial": 0}
 	# Confirmed versions come first; unknown versions remain visible in a separate group.
 	for unknown in [false, true]:
 		var group: Array = entries.filter(func(entry): return (ChallengeReplays.ruleset_of(entry.replay) == "0") == unknown)
@@ -987,9 +990,13 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			content.add_child(details)
 			if ChallengeReplays.same_time_and_outcome(replay, record):
-				var match_hint := MultiplayerUI.label("기록과 결과·완료 시간 일치 · 점수는 확인 필요", 14, UIKit.TEAL)
+				var match_hint := MultiplayerUI.label("기록과 결과·완료 시간 일치 · 점수 분석으로 비교할 수 있습니다.", 14, UIKit.TEAL)
 				match_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 				content.add_child(match_hint)
+			var score_detail := MultiplayerUI.label("점수 분석 전 · 종료 상태를 재현해 확인합니다.", 14, UIKit.TEXT_MUTED)
+			score_detail.name = "ChallengeReplayScore"
+			score_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			content.add_child(score_detail)
 			var actions := HBoxContainer.new()
 			actions.add_theme_constant_override("separation", 10)
 			content.add_child(actions)
@@ -1000,6 +1007,24 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			stamp.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			stamp.tooltip_text = ProjectSettings.globalize_path(path)
 			actions.add_child(stamp)
+			var analyze := UIKit.style_button(Button.new(), UIKit.TEAL, false, 16)
+			analyze.name = "AnalyzeChallengeScore"
+			analyze.text = "점수 분석"
+			analyze.custom_minimum_size = Vector2(130, UIKit.TOUCH_MIN_HEIGHT)
+			analyze.tooltip_text = "선택한 전투만 분석합니다. 다시 누르면 취소하며, 다른 전투를 분석하면 이전 분석은 중단됩니다."
+			actions.add_child(analyze)
+			controls.append(analyze)
+			analyze.pressed.connect(func():
+				if not _dialog_alive(dialog): return
+				if bool(analyze.get_meta("analyzing", false)):
+					if int(analyze.get_meta("analysis_serial", -1)) == int(analysis_job.serial):
+						analysis_job.serial = int(analysis_job.serial) + 1
+					analyze.set_meta("analyzing", false)
+					analyze.text = "점수 분석"
+					score_detail.text = "점수 분석을 취소했습니다. 다시 분석할 수 있습니다."
+					return
+				analysis_job.serial = int(analysis_job.serial) + 1
+				_analyze_challenge_score(dialog, analyze, score_detail, analysis_job, int(analysis_job.serial), path, fingerprint, period, date, ruleset, record))
 			var watch := UIKit.style_button(Button.new(), UIKit.ACCENT, true, 16)
 			watch.name = "WatchChallengeReplay"
 			watch.text = "재생"
@@ -1073,6 +1098,82 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			_: return
 		scroll.accept_event())
 	scroll.grab_focus.call_deferred()
+
+## Yield between short batches so long battles leave the dialog responsive.
+## Never write the replay, profile, leaderboard or a score calculated here.
+static func _analyze_challenge_score(dialog: Control, button: Button, detail: Label, job: Dictionary, serial: int, path: String, fingerprint: String, period: String, date: String, ruleset: String, record: Dictionary) -> void:
+	button.set_meta("analyzing", true)
+	button.set_meta("analysis_serial", serial)
+	button.text = "분석 취소"
+	detail.tooltip_text = ""
+	detail.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	var replay := BattleReplay.load_file(path)
+	if replay.is_empty() or not ChallengeReplays.belongs_to(replay, period, date, ruleset) or ChallengeReplays.fingerprint(replay) != fingerprint:
+		detail.text = "전투를 읽을 수 없거나 파일 내용이 바뀌었습니다. 새로고침 후 다시 분석하세요."
+		button.text = "점수 분석"
+		button.set_meta("analyzing", false)
+		return
+	var player := BattleReplay.Player.new(replay)
+	var total := int(replay.result.ticks)
+	var tree := dialog.get_tree()
+	var running := true
+	while running and not player.is_finished() and player.ticks <= total:
+		detail.text = "점수 분석 중 · %d%% · 다른 전투 분석 또는 분석 취소로 중단" % mini(100, int(float(player.ticks) * 100.0 / float(maxi(1, total))))
+		await tree.process_frame
+		if not _dialog_alive(dialog): return
+		if int(job.serial) != serial:
+			# Cancel/restart can happen before this suspended job resumes.
+			# An older job must not reset the same button's new analysis.
+			if int(button.get_meta("analysis_serial", -1)) == serial:
+				button.set_meta("analyzing", false)
+				button.text = "점수 분석"
+				detail.text = "점수 분석을 취소했습니다. 다시 분석할 수 있습니다."
+			return
+		var started := Time.get_ticks_usec()
+		for _step in 120:
+			# Forced endings may need one final step at the recorded tick, but
+			# an incomplete file must never trigger simulation past that point.
+			if player.ticks == total and replay.get("forced_end", {}).is_empty():
+				running = false
+				break
+			running = player.step()
+			if not running or player.ticks >= total or Time.get_ticks_usec() - started >= 5000:
+				break
+	var analysis := ChallengeReplays.score_analysis(replay, player, record, ruleset)
+	button.set_meta("analyzing", false)
+	button.text = "다시 분석"
+	if not bool(analysis.ok):
+		detail.text = "저장된 종료 상태와 재현 결과가 달라 점수를 확인할 수 없습니다. 규칙 변경·파일 손상 가능성이 있으며 보관 기록은 유지됩니다."
+		detail.add_theme_color_override("font_color", UIKit.DANGER)
+		return
+	var points: Dictionary = analysis.breakdown
+	var lines := PackedStringArray()
+	lines.append(("재현 점수 %d점" if bool(analysis.known_current) else "현재 규칙의 참고 점수 %d점") % int(points.score))
+	lines.append("종료 기지 체력 %.2f · 전체 전투 %.2f초" % [float(analysis.health), float(analysis.seconds)])
+	if bool(analysis.won):
+		lines.append("기본 %d + 체력 가점 %.2f − 시간 감점 %.2f = %.2f → 반올림 %d점" % [int(DailyChallenge.SCORE_BASE), float(points.health_bonus), float(points.time_penalty), float(points.raw), int(points.rounded)])
+		if int(points.adjustment) != 0:
+			lines.append("승리 점수의 최솟값 %d·최댓값 %d 적용 → %d점" % [DailyChallenge.SCORE_MIN, DailyChallenge.SCORE_MAX, int(points.score)])
+	else:
+		lines.append("패배·무승부는 체력과 시간에 관계없이 0점입니다.")
+	if bool(analysis.comparable):
+		var difference := int(analysis.difference)
+		lines.append("보관 최고 기록보다 %d점 높음" % difference if difference > 0 else ("보관 최고 기록보다 %d점 낮음" % -difference if difference < 0 else "보관 기록과 점수 같음"))
+		if bool(analysis.won) and bool(record.get("won", false)):
+			var time_difference := float(analysis.seconds) - float(record.get("seconds", 0.0))
+			if absf(time_difference) >= 0.001:
+				lines.append(("보관 기록보다 %.2f초 빠름" if time_difference < 0.0 else "보관 기록보다 %.2f초 느림") % absf(time_difference))
+		if bool(analysis.record_matches):
+			lines.append("기록과 결과·완료 시간·점수 일치 · 같은 전투인지는 확정할 수 없습니다.")
+		elif difference == 0:
+			lines.append("결과 또는 완료 시간이 기록과 다릅니다. 동점이면 더 빠른 성공 기록을 보관합니다.")
+	else:
+		lines.append("이전·미상 버전의 원래 점수는 확정할 수 없어 최고 기록과 비교하지 않습니다.")
+	if not BattleReplay.clip_of(replay).is_empty():
+		lines.append("클립 구간의 점수가 아닌 전체 전투의 종료 점수입니다.")
+	detail.text = "\n".join(lines)
+	detail.tooltip_text = "기지 체력에 %.1f를 곱해 가점, 전투 시간(초)에 %.1f를 곱해 감점합니다. 표시 소수는 반올림하며, 점수는 원래 값으로 합산 후 한 번 반올림합니다. 분석은 기록을 변경하거나 서버로 전송하지 않습니다." % [DailyChallenge.SCORE_HEALTH_FACTOR, DailyChallenge.SCORE_TIME_FACTOR]
+	detail.add_theme_color_override("font_color", UIKit.TEAL if bool(analysis.comparable) else UIKit.TEXT_MUTED)
 
 static func _dialog_alive(dialog: Control) -> bool:
 	if not is_instance_valid(dialog) or not dialog.is_inside_tree(): return false
