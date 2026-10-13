@@ -43,14 +43,17 @@ func _remember_focus(control: Control) -> void:
 func _usable(control: Control) -> bool:
 	return is_instance_valid(control) and control.is_visible_in_tree() and control.focus_mode != Control.FOCUS_NONE and not (control is BaseButton and control.disabled)
 
-func _collapsed_section_toggle(control: Control) -> Control:
-	# A dialog may have changed the shared fold bookmark since this control was focused.
+func _comparison_focus_fallback(control: Control) -> Control:
+	# A dialog may have changed shared fold/filter bookmarks since this control was focused.
 	var node: Node = control
 	while is_instance_valid(node) and node != _root:
 		if String(node.name).ends_with("SectionDetails") and node is Control and not node.is_visible_in_tree():
 			var prefix := String(node.name).trim_suffix("SectionDetails")
 			var toggle := node.get_parent().get_node_or_null(NodePath(prefix + "Toggle")) as Control
 			if _usable(toggle): return toggle
+		if node is Control and node.has_meta("comparison_changed") and not node.is_visible_in_tree():
+			var filter := node.get_parent().get_node_or_null("ProfileComparisonNavigation/ProfileComparisonChangedOnly") as Control
+			if _usable(filter): return filter
 		node = node.get_parent()
 	return null
 
@@ -67,8 +70,8 @@ func _restore(position: int, path: String, revision: int) -> void:
 	# Never focus a different restore/delete action or select a replacement file.
 	var fallback := not path.is_empty() and not _usable(target)
 	if fallback:
-		var toggle := _collapsed_section_toggle(target)
-		target = toggle if _usable(toggle) else _choice if _usable(_choice) else _search
+		var comparison_control := _comparison_focus_fallback(target)
+		target = comparison_control if _usable(comparison_control) else _choice if _usable(_choice) else _search
 	if path.is_empty(): target = _scroll
 	if _usable(target): target.grab_focus()
 	# Focus following is deferred by ScrollContainer. Restore the bookmark after it.

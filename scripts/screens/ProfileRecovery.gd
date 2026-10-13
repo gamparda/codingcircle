@@ -392,6 +392,7 @@ static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionar
 	if not String(features.warning).is_empty(): warnings.append(String(features.warning))
 	return {"summary": summary, "warning": "\n".join(warnings),
 		"campaign": "\n\n".join(campaign) if not campaign.is_empty() else "단계별 기록 변경 없음",
+		"campaign_changed": not campaign.is_empty() or int(live.campaign_unlocked) != int(restored.campaign_unlocked) or int(live.stats.total_stars) != int(restored.stats.total_stars) or before_growth != after_growth,
 		"campaign_summary": "변경된 기록 %d단계 · 개방 단계 %d → %d · 총 별 %d → %d" % [campaign.size(), int(live.campaign_unlocked), int(restored.campaign_unlocked), int(live.stats.total_stars), int(restored.stats.total_stars)],
 		"decks": String(decks.text), "deck_slots": decks,
 		"challenges": challenges, "stats": stats, "achievements": achievements, "goals": goals, "tutorial": tutorial,
@@ -413,7 +414,11 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 		var warning := _label(String(comparison.warning), UIKit.DANGER)
 		warning.name = "ProfileComparisonWarning"
 		parent.add_child(warning)
-	parent.add_child(_label("항목별 요약부터 확인하고 필요한 상세를 펼치세요. 접어도 위의 변경·손실 경고는 계속 표시됩니다."))
+	parent.add_child(_label("변경된 항목만 보거나 바로가기로 필요한 상세를 펼쳐 이동하세요. 필터·접기와 관계없이 위의 변경·손실 경고는 계속 표시됩니다."))
+	var navigation := VBoxContainer.new()
+	navigation.name = "ProfileComparisonNavigation"
+	navigation.add_theme_constant_override("separation", 10)
+	parent.add_child(navigation)
 	var actions := HFlowContainer.new()
 	actions.name = "ProfileComparisonActions"
 	actions.add_theme_constant_override("h_separation", 10)
@@ -424,6 +429,7 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 		var button := UIKit.style_button(Button.new(), UIKit.ACCENT, false, 15)
 		button.name = "ExpandProfileComparison" if expanded else "CollapseProfileComparison"
 		button.text = "모두 펼치기" if expanded else "모두 접기"
+		button.tooltip_text = "현재 표시 중인 항목에만 적용합니다. 필터로 숨긴 항목의 접기 상태는 유지합니다."
 		button.custom_minimum_size = Vector2(160, UIKit.TOUCH_MIN_HEIGHT)
 		button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
 		actions.add_child(button)
@@ -440,17 +446,20 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 	_add_record_comparison(parent, "시작 목표 · 완료 상태·다음 추천", "ProfileGoal", comparison.goals, view_state, setters,
 		"첫 승리·일일 도전·온라인 대전 목표는 누적 전적으로, 내 덱 만들기·드래프트·리플레이 보기 목표는 저장된 완료 기록으로 판정합니다. 오늘의 도전 기록이나 업적 개수로 완료 여부를 추정하지 않습니다.")
 	_add_record_comparison(parent, "튜토리얼 · 첫 전투 안내", "ProfileTutorial", comparison.tutorial, view_state, setters)
-	var campaign_details := _comparison_section(parent, "캠페인 · 변경된 단계", "ProfileCampaign", String(comparison.campaign_summary), view_state, setters)
+	var campaign_details := _comparison_section(parent, "캠페인 · 변경된 단계", "ProfileCampaign", String(comparison.campaign_summary), view_state, setters, bool(comparison.campaign_changed))
 	var campaign := _label(String(comparison.campaign), UIKit.TEXT)
 	campaign.name = "ProfileCampaignChanges"
 	campaign_details.add_child(campaign)
 	_add_deck_comparison(parent, comparison.deck_slots, view_state, setters)
 	_add_challenge_comparison(parent, comparison.challenges, view_state, setters)
+	_add_comparison_navigation(parent, navigation, view_state)
 	parent.add_child(_label("기록을 합치거나 더 높은 기록을 고르는 복구가 아닙니다. 닉네임·새 기능 확인 상태·전적·업적·시작 목표·튜토리얼·도전 기록을 포함한 진행도 전체가 사본으로 바뀝니다. 현재 설정·익명 ID·전송 대기 기록은 유지합니다."))
 
-static func _comparison_section(parent: VBoxContainer, title: String, prefix: String, summary_text: String, view_state: Dictionary, setters: Array[Callable]) -> VBoxContainer:
+static func _comparison_section(parent: VBoxContainer, title: String, prefix: String, summary_text: String, view_state: Dictionary, setters: Array[Callable], changed: bool = true) -> VBoxContainer:
 	var section := VBoxContainer.new()
 	section.name = prefix + "Section"
+	section.set_meta("comparison_changed", changed)
+	section.set_meta("comparison_title", title)
 	section.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	section.add_theme_constant_override("separation", 8)
 	parent.add_child(section)
@@ -481,14 +490,76 @@ static func _comparison_section(parent: VBoxContainer, title: String, prefix: St
 		expanded_sections[prefix] = expanded
 		details.visible = expanded
 		toggle.set_pressed_no_signal(expanded)
-		toggle.text = "%s · %s" % [title, "상세 접기" if expanded else "상세 펼치기"]
+		toggle.text = "%s · %s · %s" % [title, "변경" if changed else "동일", "상세 접기" if expanded else "상세 펼치기"]
 		toggle.tooltip_text = "상세만 %s. 항목 요약과 상단의 변경·손실 경고는 유지합니다." % ("접습니다" if expanded else "펼칩니다")
-	setters.append(apply)
+	section.set_meta("comparison_expand", apply)
+	section.set_meta("comparison_toggle", toggle)
+	# Bulk actions affect displayed sections only, preserving hidden bookmarks.
+	setters.append(func(expanded: bool):
+		if section.visible: apply.call(expanded))
 	apply.call(bool(expanded_sections.get(prefix, false)))
 	toggle.toggled.connect(func(expanded: bool):
 		apply.call(expanded)
 		_keep_comparison_control_visible(toggle))
 	return details
+
+static func _add_comparison_navigation(parent: VBoxContainer, navigation: VBoxContainer, view_state: Dictionary) -> void:
+	var sections: Array[Control] = []
+	var changed_count := 0
+	for child in parent.get_children():
+		if child is Control and child.has_meta("comparison_changed"):
+			sections.append(child)
+			if bool(child.get_meta("comparison_changed")): changed_count += 1
+	var changed_only := CheckBox.new()
+	changed_only.name = "ProfileComparisonChangedOnly"
+	changed_only.text = "변경된 항목만"
+	changed_only.tooltip_text = "같은 항목의 요약과 상세를 숨깁니다. 상단 경고는 유지하며 실제 복구 범위는 바뀌지 않습니다."
+	changed_only.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	changed_only.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	changed_only.focus_mode = Control.FOCUS_ALL
+	changed_only.add_theme_stylebox_override("focus", UIKit.button_styles(UIKit.ACCENT, false)["focus"])
+	changed_only.set_pressed_no_signal(bool(view_state.get("comparison_changed_only", false)))
+	navigation.add_child(changed_only)
+	var count := _label("변경 %d항목 · 동일 %d항목 / 비교 %d항목" % [changed_count, sections.size() - changed_count, sections.size()], UIKit.TEXT)
+	count.name = "ProfileComparisonSectionCount"
+	navigation.add_child(count)
+	navigation.add_child(_label("개수는 아래 비교 항목 기준입니다. 과거 기능 ID 등 안내 범위 밖의 저장 내용까지 동일하다는 뜻은 아닙니다."))
+	var shortcuts := HFlowContainer.new()
+	shortcuts.name = "ProfileComparisonShortcuts"
+	shortcuts.add_theme_constant_override("h_separation", 10)
+	shortcuts.add_theme_constant_override("v_separation", 10)
+	navigation.add_child(shortcuts)
+	for section in sections:
+		if not bool(section.get_meta("comparison_changed")): continue
+		var title := String(section.get_meta("comparison_title")).split(" · ")[0]
+		var button := UIKit.style_button(Button.new(), UIKit.TEAL, false, 15)
+		button.name = String(section.name).trim_suffix("Section") + "Shortcut"
+		button.text = title + " 변경 보기"
+		button.tooltip_text = "이 항목의 상세를 펼치고 이동합니다. 다른 항목의 접기 상태는 유지합니다."
+		button.custom_minimum_size = Vector2(160, UIKit.TOUCH_MIN_HEIGHT)
+		button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+		shortcuts.add_child(button)
+		var expand: Callable = section.get_meta("comparison_expand")
+		var toggle: Button = section.get_meta("comparison_toggle")
+		button.pressed.connect(func():
+			expand.call(true)
+			toggle.grab_focus()
+			_keep_comparison_control_visible(toggle))
+	var empty := _label("아홉 비교 항목에서 변경된 내용이 없습니다. 전체 항목을 보려면 조건을 해제하세요.")
+	empty.name = "ProfileComparisonNoChanges"
+	navigation.add_child(empty)
+	var apply_filter := func(only_changed: bool):
+		view_state.comparison_changed_only = only_changed
+		var focus: Control = parent.get_viewport().gui_get_focus_owner() if parent.is_inside_tree() else null
+		for section in sections:
+			var show_section := not only_changed or bool(section.get_meta("comparison_changed"))
+			if not show_section and is_instance_valid(focus) and section.is_ancestor_of(focus): changed_only.grab_focus()
+			section.visible = show_section
+		empty.visible = only_changed and changed_count == 0
+	apply_filter.call(changed_only.button_pressed)
+	changed_only.toggled.connect(func(only_changed: bool):
+		apply_filter.call(only_changed)
+		_keep_comparison_control_visible(changed_only))
 
 static func _keep_comparison_control_visible(control: Control) -> void:
 	var ancestor := control.get_parent()
@@ -500,7 +571,8 @@ static func _keep_comparison_control_visible(control: Control) -> void:
 
 static func _add_deck_comparison(parent: VBoxContainer, comparison: Dictionary, view_state: Dictionary, setters: Array[Callable] = []) -> void:
 	parent = _comparison_section(parent, "덱 · 슬롯을 골라 구성·버튼 순서 비교", "ProfileDeck",
-		"세 덱 중 변경 %d개 · 최근 선택 덱: 슬롯 %d → 슬롯 %d" % [int(comparison.changed), int(comparison.before_selected) + 1, int(comparison.after_selected) + 1], view_state, setters)
+		"세 덱 중 변경 %d개 · 최근 선택 덱: 슬롯 %d → 슬롯 %d" % [int(comparison.changed), int(comparison.before_selected) + 1, int(comparison.after_selected) + 1], view_state, setters,
+		int(comparison.changed) > 0 or int(comparison.before_selected) != int(comparison.after_selected))
 	parent.add_child(_label("슬롯 버튼은 비교할 덱만 고릅니다. 복구는 세 덱을 모두 사본으로 되돌립니다.\n병력·구조물 번호는 전투 버튼 순서이며 [키]는 복구 후에도 유지되는 이 기기의 현재 단축키입니다."))
 	var selectors := HFlowContainer.new()
 	selectors.name = "ProfileDeckComparisonSlots"
@@ -553,7 +625,7 @@ static func _add_deck_comparison(parent: VBoxContainer, comparison: Dictionary, 
 	select_slot.call(selected if selected >= 0 and selected < buttons.size() else int(comparison.default_slot))
 
 static func _add_record_comparison(parent: VBoxContainer, title: String, prefix: String, comparison: Dictionary, view_state: Dictionary = {}, setters: Array[Callable] = [], note: String = "") -> void:
-	parent = _comparison_section(parent, title, prefix, String(comparison.summary), view_state, setters)
+	parent = _comparison_section(parent, title, prefix, String(comparison.summary), view_state, setters, not comparison.rows.is_empty())
 	if not note.is_empty(): parent.add_child(_label(note))
 	var details := VBoxContainer.new()
 	details.name = prefix + "Changes"
@@ -567,7 +639,7 @@ static func _add_record_comparison(parent: VBoxContainer, title: String, prefix:
 			details.add_child(_label(String(row.text), UIKit.DANGER if bool(row.risk) else UIKit.TEXT))
 
 static func _add_challenge_comparison(parent: VBoxContainer, comparison: Dictionary, view_state: Dictionary = {}, setters: Array[Callable] = []) -> void:
-	parent = _comparison_section(parent, "도전 · 날짜·버전별 변경", "ProfileChallenge", String(comparison.summary), view_state, setters)
+	parent = _comparison_section(parent, "도전 · 날짜·버전별 변경", "ProfileChallenge", String(comparison.summary), view_state, setters, not comparison.rows.is_empty())
 	parent.add_child(_label("기기에 보관된 날짜·버전별 최고 기록을 비교합니다. 주간은 월요일 날짜이며 버전 미상은 동일한 규칙의 기록이라고 확정할 수 없습니다. 실패 전투의 시간 변화는 성공 기록 하락으로 세지 않습니다."))
 	var rows: Array = comparison.rows
 	if rows.is_empty():
@@ -798,6 +870,7 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		"scroll": maxi(0, int(browser_state.get("scroll", 0))),
 		"focus_path": String(browser_state.get("focus_path", "")),
 		"comparison_sections": browser_state.get("comparison_sections", {}).duplicate(),
+		"comparison_changed_only": bool(browser_state.get("comparison_changed_only", false)),
 	}
 	state.challenge_query = String(browser_state.get("challenge_query", ""))
 	state.challenge_filter = clampi(int(browser_state.get("challenge_filter", 0)), 0, 3)
