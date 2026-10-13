@@ -1233,6 +1233,17 @@ static func _challenge_deck_preview(parent: VBoxContainer, replay: Dictionary) -
 		preview.add_child(structures)
 
 ## Build once from the saved decks; filtering never reloads files or simulates battles.
+static func _challenge_deck_search_text(replay: Dictionary, side: int) -> String:
+	var setup: Dictionary = replay.get("setup", {})
+	if not setup.has_all(["unit_decks", "structure_decks"]): return ""
+	var parts := PackedStringArray()
+	for kind in setup.unit_decks[side]:
+		parts.append("%s %s" % [kind, BattleModel.UNIT_NAMES.get(kind, kind)])
+	for kind in setup.structure_decks[side]:
+		var definition: Resource = load("res://data/structures/%s.tres" % kind)
+		parts.append("%s %s" % [kind, definition.get("display_name")])
+	return " ".join(parts).to_lower()
+
 static func _challenge_search_text(entry: Dictionary) -> String:
 	var replay: Dictionary = entry.replay
 	var info := describe(replay)
@@ -1240,20 +1251,24 @@ static func _challenge_search_text(entry: Dictionary) -> String:
 	parts.append("클립" if not replay.clip.is_empty() else "전체 전투")
 	var rule := ChallengeReplays.ruleset_of(replay)
 	parts.append("버전 미상" if rule == "0" else "버전 " + rule)
+	var deck_search: PackedStringArray = entry.get("deck_search", PackedStringArray())
 	for side in 2:
-		for kind in replay.setup.unit_decks[side]:
-			parts.append("%s %s" % [kind, BattleModel.UNIT_NAMES.get(kind, kind)])
-		for kind in replay.setup.structure_decks[side]:
-			var definition: Resource = load("res://data/structures/%s.tres" % kind)
-			parts.append("%s %s" % [kind, definition.get("display_name")])
+		parts.append(deck_search[side] if deck_search.size() == 2 else _challenge_deck_search_text(replay, side))
 	return " ".join(parts).to_lower()
 
-static func _challenge_matches(entry: Dictionary, query: String, outcome: int, scope: int) -> bool:
+static func _challenge_query_matches(text: String, query: String) -> bool:
+	for term in query.to_lower().replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ", false):
+		if not text.contains(term): return false
+	return true
+
+static func _challenge_matches(entry: Dictionary, query: String, outcome: int, scope: int, my_query: String = "", opponent_query: String = "") -> bool:
 	if outcome > 0 and int(entry.replay.result.winner) != outcome - 1: return false
 	if scope > 0 and (not entry.replay.clip.is_empty()) != (scope == 2): return false
-	for term in query.to_lower().replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ", false):
-		if not String(entry.search).contains(term): return false
-	return true
+	if not _challenge_query_matches(String(entry.search), query): return false
+	var deck_search: PackedStringArray = entry.get("deck_search", PackedStringArray())
+	var mine := deck_search[0] if deck_search.size() == 2 else ""
+	var opponent := deck_search[1] if deck_search.size() == 2 else ""
+	return _challenge_query_matches(mine, my_query) and _challenge_query_matches(opponent, opponent_query)
 
 ## Filtering changes the reachable cards without adding another input handler.
 static func _bind_challenge_navigation(controls: Array[Control]) -> void:
@@ -1299,7 +1314,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	var heading := MultiplayerUI.label("%s %s (UTC) · %s\n보관 기록: %s · %d점 · %.1f초" % [title, date_text, rule_text, "성공" if bool(record.get("won", false)) else "실패", int(record.get("score", 0)), float(record.get("seconds", 0.0))], 16, UIKit.TEXT)
 	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(heading)
-	var hint := MultiplayerUI.label("덱은 저장된 전투의 출전 구성이며 실제 생산·설치 수가 아닙니다. 점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
+	var hint := MultiplayerUI.label("내 덱·상대 덱 검색은 각 진영의 출전 구성만 찾고, 입력한 검색·결과·클립 조건을 모두 적용합니다. 빈 검색칸은 제한하지 않습니다. 덱은 저장된 전투의 출전 구성이며 실제 생산·설치 수가 아닙니다. 점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var status := MultiplayerUI.label("보관 전투 %d개 · 버전 확인된 전투 우선" % entries.size(), 14, UIKit.GOLD)
 	status.name = "ChallengeReplayStatus"
@@ -1313,8 +1328,8 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	dialog.add_child(search_tools)
 	var search := LineEdit.new()
 	search.name = "ChallengeReplaySearch"
-	search.placeholder_text = "병력·구조물·파일·클립 구간 검색"
-	search.tooltip_text = "이 도전의 보관 전투 안에서 양쪽 덱을 검색합니다. 공백으로 나눈 검색어를 모두 포함해야 합니다. 예: 방패병 포탑 / archer wall / 버전 미상"
+	search.placeholder_text = "전체 검색: 병력·구조물·파일·클립 구간"
+	search.tooltip_text = "이 도전의 보관 전투 안에서 양쪽 덱과 파일·클립 정보를 함께 검색합니다. 공백으로 나눈 검색어를 모두 포함해야 합니다. 예: 탱커 포탑 / archer wall / 버전 미상. 아래 내 덱·상대 덱 검색으로 진영별 조건을 함께 지정할 수 있습니다."
 	search.max_length = 160
 	search.clear_button_enabled = true
 	search.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
@@ -1324,11 +1339,38 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	var reset := UIKit.style_button(Button.new(), UIKit.TEAL, false, 16)
 	reset.name = "ResetChallengeReplayFilters"
 	reset.text = "초기화"
+	reset.tooltip_text = "전체 검색·내 덱·상대 덱·결과·클립 조건을 모두 해제합니다."
 	reset.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
 	search_tools.add_child(reset)
 	var filters := HBoxContainer.new()
 	filters.add_theme_constant_override("separation", 8)
 	dialog.add_child(filters)
+	var deck_tools := HBoxContainer.new()
+	deck_tools.add_theme_constant_override("separation", 12)
+	deck_tools.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	filters.add_child(deck_tools)
+	var deck_queries: Array[LineEdit] = []
+	for side in 2:
+		var field := HBoxContainer.new()
+		field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		field.add_theme_constant_override("separation", 8)
+		deck_tools.add_child(field)
+		var side_name := "내 덱 (블루)" if side == 0 else "상대 덱 (레드)"
+		var tone := UIKit.TEAM_BLUE if side == 0 else UIKit.TEAM_RED
+		var label := MultiplayerUI.label(side_name, 14, tone.lightened(0.3))
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		field.add_child(label)
+		var deck_query := LineEdit.new()
+		deck_query.name = "ChallengeReplayMyDeckSearch" if side == 0 else "ChallengeReplayOpponentDeckSearch"
+		deck_query.placeholder_text = "예: 탱커 포탑" if side == 0 else "예: 궁수 방벽"
+		deck_query.tooltip_text = "%s에 저장된 병력·구조물의 한글 이름과 영문 ID만 검색합니다. 공백으로 나눈 검색어를 모두 포함해야 하며, 빈칸은 제한하지 않습니다. 두 덱 조건과 위 검색·결과·클립 조건을 함께 적용합니다." % side_name
+		deck_query.max_length = 160
+		deck_query.clear_button_enabled = true
+		deck_query.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+		deck_query.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		deck_query.text = String(view_state.get("my_query" if side == 0 else "opponent_query", ""))
+		field.add_child(deck_query)
+		deck_queries.append(deck_query)
 	var outcome := OptionButton.new()
 	outcome.name = "ChallengeReplayOutcomeFilter"
 	outcome.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
@@ -1344,7 +1386,6 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	filters.add_child(scope)
 	var count := MultiplayerUI.label("", 14, UIKit.TEXT_MUTED)
 	count.name = "ChallengeReplayMatchCount"
-	count.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	filters.add_child(count)
@@ -1364,7 +1405,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	scroll.add_child(rows)
 	# Let the longer explanation scroll so touch-sized filters leave room for cards.
 	rows.add_child(hint)
-	var controls: Array[Control] = [search, reset, outcome, scope, scroll]
+	var controls: Array[Control] = [search, reset, deck_queries[0], deck_queries[1], outcome, scope, scroll]
 	var groups: Array = []
 	# A new analysis cancels the previous one. State belongs only to this dialog.
 	var analysis_job := {"serial": 0}
@@ -1380,6 +1421,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE, UIKit.EDGE_SOFT, 12), 14, 10))
 			rows.add_child(card)
 			entry["card"] = card
+			entry["deck_search"] = PackedStringArray([_challenge_deck_search_text(entry.replay, 0), _challenge_deck_search_text(entry.replay, 1)])
 			entry["search"] = _challenge_search_text(entry)
 			var content := VBoxContainer.new()
 			card.add_child(content)
@@ -1436,7 +1478,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			watch.name = "WatchChallengeReplay"
 			watch.set_meta("ChallengeReplayPath", path)
 			watch.text = "재생"
-			watch.tooltip_text = "나가기로 이 보관 전투 목록에 돌아옵니다. 검색·결과·클립 조건, 내용이 같은 전투의 완료된 분석과 스크롤·선택 카드 초점을 유지합니다."
+			watch.tooltip_text = "나가기로 이 보관 전투 목록에 돌아옵니다. 공통 검색·내 덱·상대 덱·결과·클립 조건, 내용이 같은 전투의 완료된 분석과 스크롤·선택 카드 초점을 유지합니다."
 			watch.custom_minimum_size = Vector2(110, UIKit.TOUCH_MIN_HEIGHT)
 			actions.add_child(watch)
 			controls.append(watch)
@@ -1455,12 +1497,12 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 				view_state["focus_path"] = path
 				analysis_job.serial = int(analysis_job.serial) + 1
 				watch.disabled = true
-				_open_viewer(main, current, path, _return_to_challenge_replays.bind(main, period, date, ruleset, record.duplicate(true), view_state), "도전의 보관 전투 목록으로 돌아갑니다. 검색·결과·클립 조건과 완료된 점수 분석·스크롤·선택 카드 초점을 유지합니다. 도전 기록으로는 목록을 닫아 돌아갑니다."))
+				_open_viewer(main, current, path, _return_to_challenge_replays.bind(main, period, date, ruleset, record.duplicate(true), view_state), "도전의 보관 전투 목록으로 돌아갑니다. 공통 검색·내 덱·상대 덱·결과·클립 조건과 완료된 점수 분석·스크롤·선택 카드 초점을 유지합니다. 도전 기록으로는 목록을 닫아 돌아갑니다."))
 	if entries.is_empty():
 		var empty := MultiplayerUI.label("읽을 수 있는 보관 전투가 없습니다. 저장 실패·자동 정리·삭제로 점수 기록만 남을 수 있습니다. 다른 버전으로 확인된 전투는 포함하지 않습니다.", 16, UIKit.TEXT_MUTED)
 		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		rows.add_child(empty)
-	var no_matches := MultiplayerUI.label("검색 조건에 맞는 보관 전투가 없습니다. 검색어·결과·클립 조건을 바꾸거나 초기화를 누르세요.", 16, UIKit.TEXT_MUTED)
+	var no_matches := MultiplayerUI.label("검색 조건에 맞는 보관 전투가 없습니다. 내 덱은 블루, 상대 덱은 레드의 출전 구성에서 찾습니다. 공통 검색·덱별 검색어·결과·클립 조건을 바꾸거나 초기화로 모두 해제하세요.", 16, UIKit.TEXT_MUTED)
 	no_matches.name = "NoChallengeReplayMatches"
 	no_matches.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	no_matches.visible = false
@@ -1473,7 +1515,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	refresh.text = "새로고침"
 	refresh.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	refresh.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-	refresh.tooltip_text = "파일을 다시 조회합니다. 검색·결과·클립 조건, 내용이 같은 전투의 분석과 스크롤 위치를 유지하며 진행 중인 분석은 중단합니다."
+	refresh.tooltip_text = "파일을 다시 조회합니다. 공통 검색·내 덱·상대 덱·결과·클립 조건, 내용이 같은 전투의 분석과 스크롤 위치를 유지하며 진행 중인 분석은 중단합니다."
 	refresh.pressed.connect(func():
 		if _dialog_alive(dialog):
 			if not bool(layout.restoring): view_state["scroll"] = scroll.scroll_vertical
@@ -1508,15 +1550,17 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	var apply_filters := func(reset_scroll: bool):
 		if not _dialog_alive(dialog): return
 		view_state["query"] = search.text
+		view_state["my_query"] = deck_queries[0].text
+		view_state["opponent_query"] = deck_queries[1].text
 		view_state["outcome"] = outcome.selected
 		view_state["scope"] = scope.selected
-		reset.disabled = search.text.is_empty() and outcome.selected == 0 and scope.selected == 0
+		reset.disabled = search.text.is_empty() and deck_queries[0].text.is_empty() and deck_queries[1].text.is_empty() and outcome.selected == 0 and scope.selected == 0
 		var focused: Control = main.get_viewport().gui_get_focus_owner()
 		var shown := 0
 		for group in groups:
 			var group_shown := 0
 			for entry in group.entries:
-				entry.card.visible = _challenge_matches(entry, search.text, outcome.selected, scope.selected)
+				entry.card.visible = _challenge_matches(entry, search.text, outcome.selected, scope.selected, deck_queries[0].text, deck_queries[1].text)
 				if entry.card.visible:
 					group_shown += 1
 				else:
@@ -1545,10 +1589,13 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			layout.restoring = false
 		dialog.get_tree().process_frame.connect(reset_position, CONNECT_ONE_SHOT)
 	search.text_changed.connect(func(_text): apply_filters.call(true))
+	for deck_query in deck_queries:
+		deck_query.text_changed.connect(func(_text): apply_filters.call(true))
 	outcome.item_selected.connect(func(_index): apply_filters.call(true))
 	scope.item_selected.connect(func(_index): apply_filters.call(true))
 	reset.pressed.connect(func():
 		search.text = ""
+		for deck_query in deck_queries: deck_query.text = ""
 		outcome.select(0)
 		scope.select(0)
 		apply_filters.call(true)
