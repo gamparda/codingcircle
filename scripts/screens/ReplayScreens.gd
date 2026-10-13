@@ -40,7 +40,50 @@ static func describe(replay: Dictionary) -> Dictionary:
 	if not clip.is_empty():
 		title = "클립 ▸ %s" % String(clip.get("title", title))
 	var seconds := int(float(result.get("elapsed", 0.0)))
-	return {"title": title, "outcome": outcome, "winner": winner, "duration": "%02d:%02d" % [seconds / 60, seconds % 60], "notes": BattleReplay.notes_of(replay).size()}
+	var range_text := ""
+	var length_text := ""
+	if not clip.is_empty():
+		var hz := int(replay.get("hz", BattleReplay.DEFAULT_HZ))
+		range_text = "%s–%s" % [_tick_time(int(clip.start), hz), _tick_time(int(clip.end), hz)]
+		length_text = _tick_time(int(clip.end) - int(clip.start), hz)
+	return {"title": title, "outcome": outcome, "winner": winner, "duration": "%02d:%02d" % [seconds / 60, seconds % 60], "notes": BattleReplay.notes_of(replay).size(), "clip_range": range_text, "clip_length": length_text}
+
+static func _tick_time(tick: int, hz: int) -> String:
+	var seconds := float(tick) / float(maxi(1, hz))
+	return "%02d:%05.2f" % [int(seconds) / 60, fmod(seconds, 60.0)]
+
+static func _shelf_entry(path: String, replay: Dictionary) -> Dictionary:
+	var entry := {"path": path, "replay": replay, "order": BattleReplay._storage_order(replay), "mode": "unreadable", "winner": -1, "clip": false, "search": (_stamp(path) + " " + path.get_file()).to_lower()}
+	if replay.is_empty():
+		entry.search += " 읽기 실패 손상"
+		return entry
+	var meta: Dictionary = replay.get("meta", {})
+	var mode := String(meta.get("mode", ""))
+	entry.mode = ("weekly" if String(meta.get("period", "daily")) == "weekly" else "daily") if mode == "daily" else (mode if mode in ["campaign", "practice", "draft"] else "online")
+	var info := describe(replay)
+	entry.winner = int(info.winner) if int(info.winner) in [0, 1] else 2
+	entry.clip = not BattleReplay.clip_of(replay).is_empty()
+	var whole := replay.duplicate()
+	whole.erase("clip")
+	var base_info := describe(whole)
+	var parts := PackedStringArray([_stamp(path), path.get_file(), String(info.title), String(base_info.title), String(info.outcome), String(info.duration), mode, String(entry.mode)])
+	var date := String(meta.get("date", ""))
+	if date.length() == 8:
+		parts.append("%s-%s-%s" % [date.substr(0, 4), date.substr(4, 2), date.substr(6, 2)])
+	if entry.clip:
+		parts.append("클립 구간 %s 길이 %s" % [info.clip_range, info.clip_length])
+	else:
+		parts.append("전체 전투")
+	for side in 2:
+		for kind in replay.setup.unit_decks[side]:
+			parts.append("%s %s" % [kind, BattleModel.UNIT_NAMES.get(kind, kind)])
+		for kind in replay.setup.structure_decks[side]:
+			var definition: Resource = load("res://data/structures/%s.tres" % kind)
+			parts.append("%s %s" % [kind, definition.get("display_name")])
+	for note in BattleReplay.notes_of(replay):
+		parts.append(String(note.text))
+	entry.search = " ".join(parts).to_lower()
+	return entry
 
 static func _stamp(path: String) -> String:
 	var file := path.get_file()
@@ -51,19 +94,21 @@ static func _stamp(path: String) -> String:
 static func _build_replay_list(main) -> void:
 	var frame = MenuScreens._show_scene(main, REPLAY_LIST_SCREEN, "리플레이", "저장된 전투를 다시 보고 분석합니다 (최근 %d개)" % BattleReplay.MAX_SAVED)
 	var column: VBoxContainer = frame.column
-	var rows: VBoxContainer = column.get_node("ReplayScroll/ReplayRows")
 	var status: Label = column.get_node("ReplayStatus")
-	var paths: Array = BattleReplay.list_saved()
+	# Load once per visit, preserving the existing persisted order and path tie-break.
+	var entries: Array = []
 	var shown := 0
 	var unreadable := 0
-	for path in paths:
+	for path in BattleReplay.list_saved(false):
 		var replay := BattleReplay.load_file(path)
+		entries.append(_shelf_entry(String(path), replay))
 		if replay.is_empty():
 			unreadable += 1
-			rows.add_child(_unreadable_replay_card(main, String(path)))
-			continue
-		shown += 1
-		rows.add_child(_replay_card(main, String(path), replay))
+		else:
+			shown += 1
+	entries.sort_custom(func(a, b): return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
+	frame.populate(entries, func(entry): return _unreadable_replay_card(main, String(entry.path)) if entry.replay.is_empty() else _replay_card(main, String(entry.path), entry.replay), main.replay_list_state)
+	frame.refresh_requested.connect(main._build_replay_list)
 	var notices := PackedStringArray()
 	if unreadable > 0:
 		notices.append("읽을 수 없는 리플레이 %d개가 있습니다. 자동 정리에서 제외하며, 파일을 보관하거나 목록에서 삭제할 수 있습니다." % unreadable)
@@ -77,27 +122,6 @@ static func _build_replay_list(main) -> void:
 			BattleReplay._prune()
 			main._build_replay_list())
 	status.text = "\n".join(notices)
-	if shown == 0 and unreadable == 0:
-		var empty := VBoxContainer.new()
-		empty.name = "NoReplays"
-		empty.custom_minimum_size.y = 260
-		empty.add_theme_constant_override("separation", 10)
-		rows.add_child(empty)
-		var icon := Label.new()
-		icon.text = "▶"
-		icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		UIKit.display(icon, 56, UIKit.GOLD)
-		empty.add_child(icon)
-		var message := Label.new()
-		message.text = Localization.text("아직 저장된 리플레이가 없습니다")
-		message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		UIKit.display(message, 22, UIKit.TEXT)
-		empty.add_child(message)
-		var hint := Label.new()
-		hint.text = Localization.text("캠페인이나 온라인 전투를 끝까지 치르면 자동으로 저장됩니다.")
-		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
-		empty.add_child(hint)
 	var back: Button = column.get_node("Footer/ReplayBack")
 	UIKit.style_button(back, Color("#697386"), false, 16)
 	back.text = Localization.text("메인 화면으로")
@@ -105,7 +129,12 @@ static func _build_replay_list(main) -> void:
 	var import_button: Button = column.get_node("Footer/ImportReplayButton")
 	UIKit.style_button(import_button, UIKit.TEAL, false, 16)
 	import_button.text = Localization.text("클립보드에서 가져오기")
-	import_button.pressed.connect(func(): status.text = import_text(main, DisplayServer.clipboard_get()))
+	import_button.pressed.connect(func():
+		var message := import_text(main, DisplayServer.clipboard_get())
+		# import_text may have rebuilt the shelf; the previous frame is queued for deletion.
+		var current_status := main.root_background.find_child("ReplayStatus", true, false) as Label
+		if current_status != null and not current_status.text.begins_with(message):
+			current_status.text = message + ("\n" + current_status.text if not current_status.text.is_empty() else ""))
 	var analysis_button := Button.new()
 	analysis_button.name = "DeckAnalysisButton"
 	analysis_button.text = Localization.text("덱 분석")
@@ -141,7 +170,7 @@ static func _delete_replay(main, path: String) -> void:
 static func _delete_button(main, path: String) -> Button:
 	var button: Button = main._styled_button("삭제", UIKit.DANGER, false)
 	button.name = "DeleteReplayButton"
-	button.custom_minimum_size = Vector2(80, 46)
+	button.custom_minimum_size = Vector2(80, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 46)
 	button.pressed.connect(func(): _delete_replay(main, path))
 	return button
 
@@ -270,9 +299,12 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	card.name = "ReplayCard"
 	card.custom_minimum_size.y = 84
 	card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE, Color(tone.r, tone.g, tone.b, 0.45), 12, 1.0, 0.3, Color(0, 0, 0, 0), 0.08), 16, 10))
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 8)
+	card.add_child(content)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
-	card.add_child(row)
+	content.add_child(row)
 	var chip := PanelContainer.new()
 	chip.custom_minimum_size = Vector2(86, 0)
 	chip.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(Color(tone.r, tone.g, tone.b, 0.22), Color(tone.r, tone.g, tone.b, 0.08), Color(tone.r, tone.g, tone.b, 0.8), 10, 1.0, 0.0, Color(0, 0, 0, 0), 0.0), 8, 6))
@@ -288,13 +320,27 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	text.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_child(text)
 	var title := Label.new()
-	title.text = "%s  ·  %s" % [Localization.text(String(info.title)), info.duration]
+	title.text = String(info.title)
+	if String(info.clip_range).is_empty():
+		title.text += "  ·  %s" % info.duration
 	if int(info.notes) > 0:
 		title.text += Localization.text("  ·  메모 %d개") % int(info.notes)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title.add_theme_font_size_override("font_size", 18)
 	text.add_child(title)
+	if not String(info.clip_range).is_empty():
+		var range_label := Label.new()
+		range_label.name = "ReplayClipRange"
+		range_label.text = "구간 %s · 길이 %s" % [info.clip_range, info.clip_length]
+		range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		range_label.add_theme_font_size_override("font_size", 14)
+		range_label.add_theme_color_override("font_color", UIKit.GOLD)
+		range_label.tooltip_text = "전체 전투 %s 중의 공유 구간입니다. 클립의 승패·덱·메모는 전체 전투 기준이며 끝에서 재생을 누르면 이어서 볼 수 있습니다." % info.duration
+		text.add_child(range_label)
 	var stamp := Label.new()
 	stamp.text = _stamp(path)
+	stamp.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	stamp.tooltip_text = ProjectSettings.globalize_path(path)
 	stamp.add_theme_font_size_override("font_size", 12)
 	stamp.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	text.add_child(stamp)
@@ -316,33 +362,40 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 			versus.text = "VS"
 			versus.add_theme_color_override("font_color", UIKit.TEXT_DIM)
 			row.add_child(versus)
+	# Keep all actions reachable within the shelf width, including on touch devices.
+	var actions := HBoxContainer.new()
+	actions.name = "ReplayCardActions"
+	actions.alignment = BoxContainer.ALIGNMENT_END
+	actions.add_theme_constant_override("separation", 8)
+	content.add_child(actions)
+	var action_height := UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 46.0
 	var play = main._styled_button("재생", UIKit.ACCENT, true)
 	play.name = "PlayReplayButton"
-	play.custom_minimum_size = Vector2(100, 46)
+	play.custom_minimum_size = Vector2(100, action_height)
 	play.pressed.connect(main._play_replay.bind(path))
-	row.add_child(play)
+	actions.add_child(play)
 	if GhostOpponent.playable(replay):
 		var ghost = main._styled_button("고스트 도전", UIKit.ACCENT, false)
 		ghost.name = "GhostReplayButton"
-		ghost.custom_minimum_size = Vector2(120, 46)
+		ghost.custom_minimum_size = Vector2(120, action_height)
 		ghost.tooltip_text = Localization.text("이 리플레이의 상대 플레이어를 고스트로 두고 직접 싸워 봅니다")
 		ghost.pressed.connect(main._start_ghost_battle.bind(replay))
-		row.add_child(ghost)
+		actions.add_child(ghost)
 	var code_share = main._styled_button("코드", UIKit.ACCENT, false)
 	code_share.name = "ShareCodeButton"
-	code_share.custom_minimum_size = Vector2(80, 46)
+	code_share.custom_minimum_size = Vector2(80, action_height)
 	code_share.tooltip_text = Localization.text("서버에 올리고 6자리 코드로 공유합니다 (필요하면 자동으로 접속합니다)")
 	code_share.pressed.connect(func(): _share_by_code(main, replay, code_share))
-	row.add_child(code_share)
+	actions.add_child(code_share)
 	var share = main._styled_button("복사", UIKit.TEAL, false)
 	share.name = "ShareReplayButton"
-	share.custom_minimum_size = Vector2(80, 46)
+	share.custom_minimum_size = Vector2(80, action_height)
 	share.tooltip_text = Localization.text("공유용 텍스트를 클립보드에 복사합니다")
 	share.pressed.connect(func():
 		DisplayServer.clipboard_set(BattleReplay.to_share_text(replay))
 		share.text = "복사됨 ✓")
-	row.add_child(share)
-	row.add_child(_delete_button(main, path))
+	actions.add_child(share)
+	actions.add_child(_delete_button(main, path))
 	return card
 
 ## Asks for a six-letter code and plays the replay it names.
@@ -483,12 +536,14 @@ static func import_text(main, text: String) -> String:
 	var path := BattleReplay.save(replay, "imported")
 	if path == "":
 		return Localization.text("저장하지 못했습니다.")
+	# A successful import should reveal the new record even if a filter hid its kind.
+	main.replay_list_state.clear()
 	main._build_replay_list()
-	var status = main.find_child("ReplayStatus", true, false)
+	var status = main.root_background.find_child("ReplayStatus", true, false)
 	var verdict := BattleReplay.verify(replay)
 	var message := Localization.text("리플레이를 가져왔습니다.") if bool(verdict.ok) else Localization.text("가져왔지만 현재 규칙에서는 기록과 결과가 달라질 수 있습니다.")
 	if status is Label:
-		status.text = message
+		status.text = message + ("\n" + status.text if not status.text.is_empty() else "")
 	return message
 
 ## Shared replays are kept locally on request or when the first note is made.

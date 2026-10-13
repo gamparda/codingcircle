@@ -80,6 +80,7 @@ var last_replay_path := ""
 var pending_battle_replays: Array = [] # finished battles awaiting a successful disk write
 var replay_recording_error := ""
 var replay_viewer = null
+var replay_list_state: Dictionary = {} # Shelf filters and scroll; session only, never saved.
 var quick_wait_started_msec := 0
 var battle_curve: Array = []
 var battle_curve_samples: Array = [] # timestamped observations for the report; never saved or sent
