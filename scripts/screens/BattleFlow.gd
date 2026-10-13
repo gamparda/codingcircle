@@ -465,10 +465,10 @@ static func _update_base_warning(main, data: Dictionary) -> void:
 		main.base_warning_fired = true; main._play_battle_sound("warning")
 
 static func _toggle_practice_pause(main) -> void:
-	if not main.local_ai_mode or main.campaign_mode or main.result_shown: return
-	main.practice.paused = not main.practice.paused
-	if is_instance_valid(main.practice_pause_button): main.practice_pause_button.text="계속" if main.practice.paused else "일시정지"
-	main._refresh_purchase_buttons(main.latest_resources)
+	if is_instance_valid(main.local_pause_overlay):
+		main._resume_local_battle()
+	else:
+		preload("res://scripts/screens/LocalBattlePause.gd").pause(main)
 
 static func _restart_practice(main) -> void:
 	if not main.local_ai_mode or main.campaign_mode: return

@@ -16,6 +16,7 @@ const ResultScreens = preload("res://scripts/screens/ResultScreens.gd")
 const UpdateOverlay = preload("res://scripts/screens/UpdateOverlay.gd")
 const Tutorial = preload("res://scripts/screens/Tutorial.gd")
 const PracticeUI = preload("res://scripts/screens/PracticeUI.gd")
+const LocalBattlePause = preload("res://scripts/screens/LocalBattlePause.gd")
 const PatchNotes = preload("res://scripts/PatchNotes.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 
@@ -76,6 +77,10 @@ var local_model: BattleModel
 var local_ai # ServerAI or GhostOpponent (anything with update(model, delta))
 var local_recorder = null # BattleReplay.Recorder for campaign battles
 var local_step_accumulator := 0.0
+var local_battle_skip_delta := false
+var local_pause_overlay: Control
+var local_pause_focus: Control
+var local_battle_backgrounded := false
 var last_replay_path := ""
 var pending_battle_replays: Array = [] # finished battles awaiting a successful disk write
 var replay_recording_error := ""
@@ -291,6 +296,14 @@ func _arg_string(args: PackedStringArray, prefix: String, fallback: String) -> S
 			return arg.trim_prefix(prefix)
 	return fallback
 
+func _notification(what: int) -> void:
+	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED]:
+		local_battle_backgrounded = true
+		if DisplayServer.get_name() != "headless": LocalBattlePause.pause(self, true)
+	elif what in [NOTIFICATION_APPLICATION_FOCUS_IN, NOTIFICATION_APPLICATION_RESUMED]:
+		# Returning to the app never resumes the battle without player input.
+		local_battle_backgrounded = false
+
 func _process(delta: float) -> void:
 	_advance_result_sharing(delta)
 	if not local_ai_mode and battle_active and not current_snapshot.is_empty():
@@ -308,17 +321,24 @@ func _process(delta: float) -> void:
 	if running_as_server:
 		_update_server_lifecycle(delta)
 		updater.set_safe_to_update(_server_can_update())
-	if local_ai_mode and battle_active and is_instance_valid(local_model) and not is_instance_valid(action_overlay):
+	if local_ai_mode and battle_active and is_instance_valid(battle_view):
+		var paused := LocalBattlePause.is_paused(self)
+		battle_view.set_process(not paused or finale_active)
+		if paused: local_battle_skip_delta = true
+	if local_ai_mode and battle_active and is_instance_valid(local_model) and not LocalBattlePause.is_paused(self):
+		# The first resumed frame can include time spent in the background or a
+		# modal. Discard that delta without discarding the recorded tick remainder.
+		var battle_delta := 0.0 if local_battle_skip_delta else delta
+		local_battle_skip_delta = false
 		if campaign_mode or not ghost_context.is_empty() or not daily_challenge.is_empty() or (local_recorder != null and practice.speed == 1.0 and not practice.unlimited):
 			# Fixed 30 Hz steps keep recorded battles deterministic, so their replays reproduce exactly.
-			if not campaign_mode and practice.paused: delta = 0.0
-			local_step_accumulator += minf(delta, 0.25)
+			local_step_accumulator += minf(battle_delta, 0.25)
 			var step := 1.0 / float(BattleReplay.DEFAULT_HZ)
 			while local_step_accumulator >= step and local_model.winner == -1:
 				local_ai.update(local_model, step); local_model.tick(step)
 				if local_recorder != null: local_recorder.on_tick()
 				local_step_accumulator -= step
-		else: practice.advance(local_model,local_ai,delta,own_side)
+		else: practice.advance(local_model,local_ai,battle_delta,own_side)
 		_on_combat_events(local_model.drain_combat_events())
 		_on_snapshot(local_model.snapshot())
 	if smoke_mode or ai_smoke_mode:
@@ -371,6 +391,8 @@ func _input(event: InputEvent) -> void:
 			if battle_view.finish_build_touch(event.index, local_position, event.canceled):
 				get_viewport().set_input_as_handled()
 				return
+	if event is InputEventKey and LocalBattlePause.handle_key(self, event):
+		get_viewport().set_input_as_handled(); return
 	if event is InputEventKey and _battle_text_has_focus(): return
 	if event is InputEventKey and _handle_battle_hotkey(event):
 		get_viewport().set_input_as_handled(); return
@@ -473,6 +495,8 @@ func _exit_tree() -> void:
 
 func _clear_screen() -> void:
 	BattleFlow._cancel_finale(self)
+	LocalBattlePause.dismiss(self)
+	local_battle_skip_delta = false
 	awaiting_battle_snapshot = false
 	_cancel_binding_capture()
 	binding_buttons.clear(); binding_hint=null; binding_draft.clear()
@@ -887,9 +911,17 @@ func _toggle_stats_panel() -> void:
 		_show_stats_panel()
 
 func _dismiss_stats_panel() -> void:
-	if is_instance_valid(stats_overlay):
+	var was_open := is_instance_valid(stats_overlay)
+	if was_open:
+		stats_overlay.hide()
 		stats_overlay.queue_free()
 	stats_overlay = null
+	if was_open and local_ai_mode and battle_active and is_instance_valid(battle_view):
+		battle_view.set_process(not LocalBattlePause.is_paused(self) or finale_active)
+		_refresh_purchase_buttons(latest_resources)
+		if not LocalBattlePause.is_paused(self):
+			var stats_button := root_background.find_child("UnitStatsButton", true, false) as Button
+			if stats_button != null: stats_button.grab_focus()
 
 func _show_stats_panel() -> void:
 	BattleHud._show_stats_panel(self)
@@ -1099,6 +1131,9 @@ func _add_practice_controls() -> void:
 
 func _toggle_practice_pause() -> void:
 	BattleFlow._toggle_practice_pause(self)
+
+func _resume_local_battle() -> void:
+	LocalBattlePause.resume(self)
 
 func _restart_practice() -> void:
 	BattleFlow._restart_practice(self)

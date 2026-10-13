@@ -185,6 +185,16 @@ static func _build_battle_screen(main) -> void:
 	if main.local_ai_mode and not main.campaign_mode: main._add_practice_controls()
 	if main.campaign_mode and main.local_ai_mode:
 		var goal := Label.new(); goal.name = "CampaignBattleGoal"; goal.text = CampaignBrief.goal(main.current_ai_stage); goal.position = Vector2(160,98); goal.size = Vector2(340,48); goal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; goal.add_theme_font_size_override("font_size",12); goal.mouse_filter = Control.MOUSE_FILTER_IGNORE; main.root_background.add_child(goal)
+		main.practice_pause_button = main._styled_button("일시정지", Color("#3d647d"))
+		main.practice_pause_button.name = "CampaignPauseButton"
+		main.practice_pause_button.position = Vector2(970, 98)
+		main.practice_pause_button.size = Vector2(146, 58)
+		main.practice_pause_button.z_index = 10
+		main.practice_pause_button.pressed.connect(main._toggle_practice_pause)
+		main.root_background.add_child(main.practice_pause_button)
+	if main.local_ai_mode and is_instance_valid(main.practice_pause_button):
+		main.practice_pause_button.tooltip_text = "전투 일시정지 · Space로도 조작할 수 있습니다."
+		main.practice_pause_button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
 	if not main.local_ai_mode:
 		for side in 2:
 			var name_label := ToastLabel.new(); name_label.name = "BattlePlayerName%d"%side; name_label.text = main._report_side_name(side)
@@ -207,6 +217,8 @@ static func _build_battle_screen(main) -> void:
 	main.cancel_build_button = main._styled_button("설치 취소 · Esc",Color("#697386")); main.cancel_build_button.name = "CancelBuildButton"; main.cancel_build_button.position = Vector2(536,480); main.cancel_build_button.size = Vector2(208,58); main.cancel_build_button.visible = false; main.cancel_build_button.z_index = 10; main.cancel_build_button.pressed.connect(main._cancel_build_selection); main.root_background.add_child(main.cancel_build_button)
 	main._refresh_purchase_buttons(main.latest_resources)
 	_battle_intro(main)
+	if main.local_ai_mode and main.local_battle_backgrounded and DisplayServer.get_name() != "headless":
+		preload("res://scripts/screens/LocalBattlePause.gd").pause(main, true)
 
 ## "STAGE 03 · 전진" style band that slides in, holds, and leaves. Purely decorative (ignores input).
 static func _battle_intro(main) -> void:
@@ -517,7 +529,8 @@ static func _show_stats_panel(main) -> void:
 	title.add_theme_color_override("font_color", Color("#f5f7fb"))
 	content.add_child(title)
 	var subtitle := Label.new()
-	subtitle.text = Localization.text("현재 전투 수치 · DPS는 공격력 ÷ 공격 간격")
+	subtitle.text = Localization.text("현재 전투 수치 · DPS는 공격력 ÷ 공격 간격") + (" · 전투 일시정지 중" if main.local_ai_mode else " · 온라인 전투는 계속 진행됩니다")
+	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
 	content.add_child(subtitle)
 	var grid := GridContainer.new()
@@ -561,9 +574,17 @@ static func _show_stats_panel(main) -> void:
 	world_stats.add_theme_color_override("font_color", Color("#9ba5b8"))
 	content.add_child(world_stats)
 	var close = main._styled_button(Localization.text("닫기"), Color("#3d8f83"), true)
-	close.custom_minimum_size = Vector2(160, 44)
+	close.name = "CloseUnitStatsButton"
+	close.custom_minimum_size = Vector2(160, 58)
+	close.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	close.tooltip_text = "닫으면 전투가 이어집니다. Esc로도 닫을 수 있습니다." if main.local_ai_mode else "온라인 전투는 계속 진행됩니다."
 	close.pressed.connect(main._dismiss_stats_panel)
 	content.add_child(close)
+	close.grab_focus()
+	if main.local_ai_mode:
+		main.local_battle_skip_delta = true
+		main.battle_view.set_process(false)
+		main._refresh_purchase_buttons(main.latest_resources)
 
 static func _add_battle_chat(main) -> void:
 	var toggle = main._styled_button("방 채팅",Color("#3d647d")); toggle.name = "BattleChatButton"; toggle.position = Vector2(970,190); toggle.size = Vector2(144,44); toggle.z_index = 10; main.root_background.add_child(toggle)
@@ -608,7 +629,7 @@ static func _purchase_block_reason(main) -> String:
 		if main.network.client_reconnecting: return "연결 복구 중"
 		if main.awaiting_battle_snapshot: return "상태 수신 중"
 		if main.network_paused: return "복구 대기"
-	elif not main.campaign_mode and main.practice.paused:
+	elif preload("res://scripts/screens/LocalBattlePause.gd").is_paused(main):
 		return "일시정지"
 	return ""
 
@@ -619,7 +640,7 @@ static func _purchase_block_hint(reason: String) -> String:
 		"연결 복구 중": "서버 연결을 복구하고 있습니다. 복구 후 전투 상태를 받으면 자원과 생산 대기에 맞춰 구매 카드가 갱신됩니다.",
 		"상태 수신 중": "최신 전투 상태를 기다리고 있습니다. 자원·생산 대기·설치 개수를 받은 뒤 구매할 수 있습니다.",
 		"복구 대기": "전투 상태를 복구하고 있습니다. 전투가 재개되면 자원과 생산 대기에 맞춰 구매 카드가 갱신됩니다.",
-		"일시정지": "전투가 일시정지되어 있습니다. 상단의 계속 버튼으로 재개하세요.",
+		"일시정지": "전투가 일시정지되어 있습니다. 계속하기 또는 Space로 재개하거나 열려 있는 안내 창을 닫으세요.",
 	}.get(reason, "")
 
 static func _refresh_purchase_buttons(main, resources: float) -> void:
@@ -695,7 +716,7 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			button.disabled = unavailable
 			button.modulate = Color(0.4, 0.4, 0.4, 1.0) if unavailable else Color.WHITE
 		if state_label: state_label.modulate = Color(2.5,2.5,2.5,1.0) if unavailable else Color.WHITE
-		if unavailable and not waiting and button.has_meta("structure_kind") and is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")):
+		if unavailable and block_reason != "일시정지" and not waiting and button.has_meta("structure_kind") and is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")):
 			if not block_reason.is_empty(): main._show_placement_status(block_hint)
 			elif not limit_error.is_empty(): main._show_placement_status(limit_error)
 			main.battle_view.selected_structure = ""
