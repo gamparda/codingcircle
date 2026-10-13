@@ -29,7 +29,12 @@ static func load_saved(with_analysis: bool = false) -> Array:
 		var entry := {"path": String(path), "order": BattleReplay._storage_order(replay), "fingerprint": fingerprint(replay),
 			"replay": {"meta": replay.get("meta", {}).duplicate(true), "result": replay.result.duplicate(true),
 				"clip": BattleReplay.clip_of(replay), "hz": replay.hz}}
-		if with_analysis: entry["analysis_fingerprint"] = analysis_fingerprint(replay)
+		if with_analysis:
+			entry["analysis_fingerprint"] = analysis_fingerprint(replay)
+			# The picker needs the original decks, but not commands or simulation state.
+			# Count-only records queries keep their existing lightweight metadata.
+			entry.replay["setup"] = {"unit_decks": replay.setup.unit_decks.duplicate(true),
+				"structure_decks": replay.setup.structure_decks.duplicate(true)}
 		entries.append(entry)
 	entries.sort_custom(func(a, b): return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
 	return entries

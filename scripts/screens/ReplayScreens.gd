@@ -1024,6 +1024,54 @@ static func _return_to_challenge_replays(main, period: String, date: String, rul
 		_show_challenge_replays(main, period, date, ruleset, record, target, view_state)
 	background.get_tree().process_frame.connect(reopen, CONNECT_ONE_SHOT)
 
+## Read the decks recorded for this battle, including clips and older versions.
+## Do not regenerate a challenge from the date or substitute the player's current deck.
+static func _challenge_deck_preview(parent: VBoxContainer, replay: Dictionary) -> void:
+	var setup: Dictionary = replay.get("setup", {})
+	if not setup.has_all(["unit_decks", "structure_decks"]):
+		return
+	var preview := VBoxContainer.new()
+	preview.name = "ChallengeReplayDecks"
+	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preview.add_theme_constant_override("separation", 6)
+	parent.add_child(preview)
+	for side in 2:
+		var tone := UIKit.TEAM_BLUE if side == 0 else UIKit.TEAM_RED
+		var heading := MultiplayerUI.label("내 덱 (블루)" if side == 0 else "상대 덱 (레드)", 14, tone.lightened(0.3))
+		preview.add_child(heading)
+		var units := HFlowContainer.new()
+		units.name = "ChallengeUnitDeck%d" % side
+		units.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		units.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		units.add_theme_constant_override("h_separation", 12)
+		units.add_theme_constant_override("v_separation", 4)
+		preview.add_child(units)
+		for kind in setup.unit_decks[side]:
+			var item := HBoxContainer.new()
+			item.add_theme_constant_override("separation", 4)
+			# Decorative children must let touch drags reach the enclosing scroll.
+			item.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			units.add_child(item)
+			var portrait := TextureRect.new()
+			portrait.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
+			portrait.custom_minimum_size = Vector2(28, 34)
+			portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			item.add_child(portrait)
+			var name_label := MultiplayerUI.label(String(BattleModel.UNIT_NAMES.get(kind, kind)), 14, UIKit.TEXT)
+			name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			item.add_child(name_label)
+		var names := PackedStringArray()
+		for kind in setup.structure_decks[side]:
+			var definition: Resource = load("res://data/structures/%s.tres" % kind)
+			names.append(String(definition.get("display_name")))
+		var structures := MultiplayerUI.label("구조물: " + " · ".join(names), 14, UIKit.TEXT_MUTED)
+		structures.name = "ChallengeStructureDeck%d" % side
+		structures.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		preview.add_child(structures)
+
 ## Find candidates without treating matching dates, rounded times or legacy versions as a battle ID.
 static func _show_challenge_replays(main, period: String, date: String, ruleset: String, record: Dictionary, return_focus: Control = null, view_state: Dictionary = {}) -> void:
 	if view_state.is_empty():
@@ -1053,7 +1101,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	var heading := MultiplayerUI.label("%s %s (UTC) · %s\n보관 기록: %s · %d점 · %.1f초" % [title, date_text, rule_text, "성공" if bool(record.get("won", false)) else "실패", int(record.get("score", 0)), float(record.get("seconds", 0.0))], 16, UIKit.TEXT)
 	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(heading)
-	var hint := MultiplayerUI.label("점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
+	var hint := MultiplayerUI.label("덱은 저장된 전투의 출전 구성이며 실제 생산·설치 수가 아닙니다. 점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(hint)
 	var status := MultiplayerUI.label("보관 전투 %d개 · 버전 확인된 전투 우선" % entries.size(), 14, UIKit.GOLD)
@@ -1100,6 +1148,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			var details := MultiplayerUI.label(caption, 16, UIKit.TEXT)
 			details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			content.add_child(details)
+			_challenge_deck_preview(content, replay)
 			if ChallengeReplays.same_time_and_outcome(replay, record):
 				var match_hint := MultiplayerUI.label("기록과 결과·완료 시간 일치 · 점수 분석으로 비교할 수 있습니다.", 14, UIKit.TEAL)
 				match_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
