@@ -1602,7 +1602,7 @@ static func _return_to_challenge_replays(main, period: String, date: String, rul
 
 ## Read the decks recorded for this battle, including clips and older versions.
 ## Do not regenerate a challenge from the date or substitute the player's current deck.
-static func _challenge_deck_preview(parent: VBoxContainer, replay: Dictionary, choose: Callable) -> Array[Button]:
+static func _challenge_deck_preview(parent: VBoxContainer, replay: Dictionary, choose: Callable, choose_full_deck: Callable = Callable()) -> Array[Button]:
 	var buttons: Array[Button] = []
 	var setup: Dictionary = replay.get("setup", {})
 	if not setup.has_all(["unit_decks", "structure_decks"]):
@@ -1612,10 +1612,21 @@ static func _challenge_deck_preview(parent: VBoxContainer, replay: Dictionary, c
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview.add_theme_constant_override("separation", 6)
 	parent.add_child(preview)
+	var deck_queries := PackedStringArray([_challenge_full_deck_query(replay, 0), _challenge_full_deck_query(replay, 1)])
 	for side in 2:
 		var tone := UIKit.TEAM_BLUE if side == 0 else UIKit.TEAM_RED
+		var heading_row := HFlowContainer.new()
+		heading_row.add_theme_constant_override("h_separation", 12)
+		heading_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		preview.add_child(heading_row)
 		var heading := MultiplayerUI.label("내 덱 (블루)" if side == 0 else "상대 덱 (레드)", 14, tone.lightened(0.3))
-		preview.add_child(heading)
+		heading.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if choose_full_deck.is_valid() else 0.0
+		heading.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		heading_row.add_child(heading)
+		if choose_full_deck.is_valid():
+			var whole := _challenge_full_deck_button(deck_queries, side, choose_full_deck)
+			heading_row.add_child(whole)
+			buttons.append(whole)
 		var units := HFlowContainer.new()
 		units.name = "ChallengeUnitDeck%d" % side
 		units.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1650,7 +1661,62 @@ static func _challenge_deck_preview(parent: VBoxContainer, replay: Dictionary, c
 			item.name = "ChallengeStructureFilter%d_%s" % [side, kind]
 			structures.add_child(item)
 			buttons.append(item)
+	if choose_full_deck.is_valid():
+		var actions := HFlowContainer.new()
+		actions.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		preview.add_child(actions)
+		var pair := _challenge_full_deck_button(deck_queries, -1, choose_full_deck)
+		actions.add_child(pair)
+		buttons.append(pair)
 	return buttons
+
+## IDs describe composition, not button order or the units actually produced.
+static func _challenge_full_deck_query(replay: Dictionary, side: int) -> String:
+	var setup: Dictionary = replay.get("setup", {})
+	if not setup.has_all(["unit_decks", "structure_decks"]): return ""
+	var terms := PackedStringArray()
+	for deck in [setup.unit_decks[side], setup.structure_decks[side]]:
+		for kind in deck:
+			if not terms.has(String(kind)): terms.append(String(kind))
+	return " ".join(terms)
+
+static func _challenge_full_deck_button(queries: PackedStringArray, side: int, choose: Callable) -> Button:
+	var tone := UIKit.TEAL if side < 0 else (UIKit.TEAM_BLUE if side == 0 else UIKit.TEAM_RED)
+	var button := UIKit.style_button(Button.new(), tone, false, 14)
+	button.name = "ChallengeBothDeckFilter" if side < 0 else "ChallengeFullDeckFilter%d" % side
+	button.custom_minimum_size = Vector2(180, UIKit.TOUCH_MIN_HEIGHT)
+	button.toggle_mode = true
+	button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	button.mouse_filter = Control.MOUSE_FILTER_PASS
+	button.set_meta("full_deck_queries", queries)
+	button.set_meta("deck_side", side)
+	var chosen_styles := UIKit.button_styles(tone, true)
+	button.add_theme_stylebox_override("pressed", chosen_styles.normal)
+	button.add_theme_stylebox_override("hover_pressed", chosen_styles.hover)
+	button.pressed.connect(choose.bind(button))
+	return button
+
+## A whole-deck toggle is selected only when it owns all terms in the target field.
+## Extra manual conditions must not be silently erased by treating a superset as selected.
+static func _challenge_full_deck_selected(button: Button, queries: PackedStringArray) -> bool:
+	var expected: PackedStringArray = button.get_meta("full_deck_queries")
+	var side := int(button.get_meta("deck_side"))
+	for target in 2:
+		if side >= 0 and target != side: continue
+		var wanted := _challenge_deck_terms(expected[target].to_lower())
+		var actual := _challenge_deck_terms(queries[target].to_lower())
+		if wanted.is_empty() or actual.size() != wanted.size(): return false
+		for term in wanted:
+			if not actual.has(term): return false
+	return true
+
+static func _refresh_challenge_full_deck_button(button: Button, queries: PackedStringArray) -> void:
+	var selected := _challenge_full_deck_selected(button, queries)
+	var side := int(button.get_meta("deck_side"))
+	var title := "양쪽 덱" if side < 0 else ("내 덱" if side == 0 else "상대 덱")
+	button.set_pressed_no_signal(selected)
+	button.text = ("✓ %s 검색 해제" if selected else "%s 전체 검색") % title
+	button.tooltip_text = ("%s 검색칸만 비웁니다. 전체 검색·결과·클립 조건은 유지합니다." if selected else "%s 검색칸을 이 카드의 병력·구조물 전체 영문 ID로 교체합니다. 해당 칸의 기존 검색어는 대체하고 다른 조건은 유지합니다. 출전 순서는 구분하지 않으며 클립도 전체 전투의 덱을 사용합니다.") % title
 
 static func _challenge_deck_button(kind: String, title: String, side: int, choose: Callable) -> Button:
 	var tone := UIKit.TEAM_BLUE if side == 0 else UIKit.TEAM_RED
@@ -1780,7 +1846,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	var heading := MultiplayerUI.label("%s %s (UTC) · %s\n보관 기록: %s · %d점 · %.1f초" % [title, date_text, rule_text, "성공" if bool(record.get("won", false)) else "실패", int(record.get("score", 0)), float(record.get("seconds", 0.0))], 16, UIKit.TEXT)
 	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(heading)
-	var hint := MultiplayerUI.label("카드의 병력·구조물을 누르면 해당 진영의 검색 조건에 추가합니다. 검색칸에는 종류를 구분하는 영문 ID가 들어갑니다. ✓ 항목은 다시 눌러 해제합니다. 직접 입력한 전체 검색·다른 덱·결과·클립 조건은 유지합니다. 내 덱·상대 덱 검색은 각 진영의 출전 구성만 찾으며, 빈 검색칸은 제한하지 않습니다. 덱은 저장된 전투의 출전 구성이며 실제 생산·설치 수가 아닙니다. 점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
+	var hint := MultiplayerUI.label("카드의 병력·구조물을 누르면 해당 진영의 검색 조건에 추가합니다. 검색칸에는 종류를 구분하는 영문 ID가 들어갑니다. ✓ 항목은 다시 눌러 해제합니다. 내 덱·상대 덱의 전체 검색은 해당 검색칸을 카드의 전체 구성으로 교체하며, 양쪽 덱 전체 검색은 두 칸을 함께 교체합니다. ✓ 덱 검색 해제는 해당 칸만 비웁니다. 전체 검색·결과·클립 조건은 유지합니다. 내 덱·상대 덱 검색은 각 진영의 출전 구성만 찾으며, 빈 검색칸은 제한하지 않습니다. 덱은 저장된 전투의 출전 구성이며 순서나 실제 생산·설치 수는 구분하지 않습니다. 점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var status := MultiplayerUI.label("보관 전투 %d개 · 버전 확인된 전투 우선" % entries.size(), 14, UIKit.GOLD)
 	status.name = "ChallengeReplayStatus"
@@ -1872,28 +1938,29 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	# Let the longer explanation scroll so touch-sized filters leave room for cards.
 	rows.add_child(hint)
 	var controls: Array[Control] = [search, reset, deck_queries[0], deck_queries[1], outcome, scope, scroll]
-	var choose_deck_term := func(button: Button):
+	# Validate both fields before assigning either. Emit once after the entire update
+	# so a two-deck search never exposes an intermediate filter or cancels its analysis.
+	var apply_deck_queries := func(button: Button, next_queries: PackedStringArray, message: String):
 		if not _dialog_alive(dialog) or not button.is_visible_in_tree(): return
-		var side := int(button.get_meta("deck_side"))
-		var query: LineEdit = deck_queries[side]
-		var title_text := String(button.get_meta("deck_title"))
-		var kind := String(button.get_meta("deck_kind"))
-		var removing := _challenge_deck_term_selected(query.text, kind, title_text)
-		var next_query := _challenge_toggle_deck_term(query.text, kind, title_text)
-		if next_query.length() > query.max_length:
-			_refresh_challenge_deck_button(button, query.text)
-			status.text = "검색어가 길어 %s을(를) 추가하지 못했습니다. 해당 덱 검색칸의 조건을 줄인 뒤 다시 누르세요. 기존 검색 조건은 유지했습니다." % title_text
-			query.grab_focus()
-			return
+		for side in 2:
+			if next_queries[side].length() > deck_queries[side].max_length:
+				if button.has_meta("full_deck_queries"):
+					_refresh_challenge_full_deck_button(button, PackedStringArray([deck_queries[0].text, deck_queries[1].text]))
+				else:
+					_refresh_challenge_deck_button(button, deck_queries[int(button.get_meta("deck_side"))].text)
+				status.text = "검색어가 길어 조건을 적용하지 못했습니다. 해당 덱 검색칸의 조건을 줄인 뒤 다시 누르세요. 기존 검색 조건은 유지했습니다."
+				deck_queries[side].grab_focus()
+				return
 		# Keep the clicked card reachable for composing more conditions without opening a keyboard.
 		layout.revision = int(layout.revision) + 1
 		layout.restoring = true
 		layout.deck_filtering = true
 		# Programmatic text assignment does not emit LineEdit.text_changed.
-		query.text = next_query
-		query.text_changed.emit(next_query)
+		for side in 2:
+			if deck_queries[side].text != next_queries[side]: deck_queries[side].text = next_queries[side]
+		deck_queries[0].text_changed.emit(deck_queries[0].text)
 		layout.deck_filtering = false
-		status.text = "%s 검색: %s %s · 다른 조건은 유지합니다." % ["내 덱 (블루)" if side == 0 else "상대 덱 (레드)", title_text, "해제" if removing else "추가"]
+		status.text = message
 		button.grab_focus()
 		view_state["focus_name"] = String(button.name)
 		view_state["focus_path"] = String(button.get_meta("ChallengeReplayPath", ""))
@@ -1904,6 +1971,25 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			view_state["scroll"] = scroll.scroll_vertical
 			layout.restoring = false
 		dialog.get_tree().process_frame.connect(keep_card_visible, CONNECT_ONE_SHOT)
+	var choose_deck_term := func(button: Button):
+		if not _dialog_alive(dialog) or not button.is_visible_in_tree(): return
+		var side := int(button.get_meta("deck_side"))
+		var title_text := String(button.get_meta("deck_title"))
+		var kind := String(button.get_meta("deck_kind"))
+		var removing := _challenge_deck_term_selected(deck_queries[side].text, kind, title_text)
+		var next_queries := PackedStringArray([deck_queries[0].text, deck_queries[1].text])
+		next_queries[side] = _challenge_toggle_deck_term(next_queries[side], kind, title_text)
+		apply_deck_queries.call(button, next_queries, "%s 검색: %s %s · 다른 조건은 유지합니다." % ["내 덱 (블루)" if side == 0 else "상대 덱 (레드)", title_text, "해제" if removing else "추가"])
+	var choose_full_deck := func(button: Button):
+		if not _dialog_alive(dialog) or not button.is_visible_in_tree(): return
+		var side := int(button.get_meta("deck_side"))
+		var next_queries := PackedStringArray([deck_queries[0].text, deck_queries[1].text])
+		var removing := _challenge_full_deck_selected(button, next_queries)
+		var expected: PackedStringArray = button.get_meta("full_deck_queries")
+		for target in 2:
+			if side < 0 or side == target: next_queries[target] = "" if removing else expected[target]
+		var title_text := "양쪽 덱" if side < 0 else ("내 덱 (블루)" if side == 0 else "상대 덱 (레드)")
+		apply_deck_queries.call(button, next_queries, "%s 검색 %s · 전체 검색·결과·클립%s 조건은 유지합니다." % [title_text, "해제" if removing else "조건을 이 카드의 전체 구성으로 교체했습니다", "·다른 덱" if side >= 0 else ""])
 	var groups: Array = []
 	# A new analysis cancels the previous one. State belongs only to this dialog.
 	var analysis_job := {"serial": 0}
@@ -1931,7 +2017,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			var details := MultiplayerUI.label(caption, 16, UIKit.TEXT)
 			details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			content.add_child(details)
-			entry["deck_buttons"] = _challenge_deck_preview(content, replay, choose_deck_term)
+			entry["deck_buttons"] = _challenge_deck_preview(content, replay, choose_deck_term, choose_full_deck)
 			for button in entry.deck_buttons:
 				button.set_meta("ChallengeReplayPath", String(entry.path))
 				controls.append(button)
@@ -2058,12 +2144,16 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 		reset.disabled = search.text.is_empty() and deck_queries[0].text.is_empty() and deck_queries[1].text.is_empty() and outcome.selected == 0 and scope.selected == 0
 		var focused: Control = main.get_viewport().gui_get_focus_owner()
 		var shown := 0
+		var current_deck_queries := PackedStringArray([deck_queries[0].text, deck_queries[1].text])
 		for group in groups:
 			var group_shown := 0
 			for entry in group.entries:
 				entry.card.visible = _challenge_matches(entry, search.text, outcome.selected, scope.selected, deck_queries[0].text, deck_queries[1].text)
 				for button in entry.deck_buttons:
-					_refresh_challenge_deck_button(button, deck_queries[int(button.get_meta("deck_side"))].text)
+					if button.has_meta("full_deck_queries"):
+						_refresh_challenge_full_deck_button(button, current_deck_queries)
+					else:
+						_refresh_challenge_deck_button(button, deck_queries[int(button.get_meta("deck_side"))].text)
 				if entry.card.visible:
 					group_shown += 1
 				else:
