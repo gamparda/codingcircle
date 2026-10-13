@@ -648,17 +648,50 @@ static func _dialog_navigation(scroll: ScrollContainer, confirm: Button, cancel:
 		scroll.accept_event())
 	scroll.grab_focus.call_deferred()
 
-static func _filtered_entries(source: Array, query: String, order: int) -> Array:
-	var entries: Array = []
-	var terms := query.to_lower().replace("\t", " ").replace("\n", " ").split(" ", false)
-	for entry in source:
-		var searchable := (_stamp(int(entry.modified)) + " " + String(entry.path).get_file() + " " + _summary(entry.data)).to_lower()
+static func _matching_deck_slots(entry: Dictionary, query: String, scope: int = 0) -> Array:
+	var slots: Array = []
+	var terms := query.to_lower().replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ", false)
+	var data: Dictionary = entry.data
+	var common := _stamp(int(entry.modified)) + " " + String(entry.path).get_file() + " " + _summary(data)
+	var presets: Array = data.deck_presets
+	for index in presets.size():
+		if scope == 1 and index != int(data.last_deck):
+			continue
+		if scope >= 2 and index != scope - 2:
+			continue
+		var deck: Dictionary = presets[index]
+		var parts: PackedStringArray = [common, "덱 슬롯 %d" % (index + 1), String(deck.name)]
+		if index == int(data.last_deck): parts.append("최근 선택 덱")
+		for kind in deck.units: parts.append(_deck_item(String(kind), true))
+		for kind in deck.structures: parts.append(_deck_item(String(kind), false))
+		# All deck terms must occur in one slot, never across different presets.
+		var searchable := " ".join(parts).to_lower()
 		var matches := true
 		for term in terms:
 			if not searchable.contains(term):
 				matches = false
 				break
-		if matches:
+		if matches: slots.append(index)
+	return slots
+
+static func _matching_decks_text(entry: Dictionary, slots: Array, details: bool = false) -> String:
+	var lines: PackedStringArray = []
+	for index in slots:
+		var deck: Dictionary = entry.data.deck_presets[index]
+		var text := "슬롯 %d · %s%s" % [int(index) + 1, String(deck.name), " · 최근 선택 덱" if int(index) == int(entry.data.last_deck) else ""]
+		if details:
+			var units: PackedStringArray = []
+			var structures: PackedStringArray = []
+			for kind in deck.units: units.append(_deck_item(String(kind), true))
+			for kind in deck.structures: structures.append(_deck_item(String(kind), false))
+			text += "\n병력: %s\n구조물: %s" % [" / ".join(units), " / ".join(structures)]
+		lines.append(text)
+	return ("\n\n" if details else " / ").join(lines)
+
+static func _filtered_entries(source: Array, query: String, order: int, scope: int = 0) -> Array:
+	var entries: Array = []
+	for entry in source:
+		if not _matching_deck_slots(entry, query, scope).is_empty():
 			entries.append(entry)
 	entries.sort_custom(func(a: Dictionary, b: Dictionary):
 		if order == 1 and int(a.modified) != int(b.modified):
@@ -672,7 +705,7 @@ static func _filtered_entries(source: Array, query: String, order: int) -> Array
 
 static func show(main, message: String = "", selected_path: String = "", browser_state: Dictionary = {}) -> void:
 	# Screen-local state survives refresh/import/cleanup, without changing the save.
-	var state := {"query": String(browser_state.get("query", "")), "order": clampi(int(browser_state.get("order", 0)), 0, 3), "selected_path": selected_path if not selected_path.is_empty() else String(browser_state.get("selected_path", "")), "deck_slot": clampi(int(browser_state.get("deck_slot", -1)), -1, 2)}
+	var state := {"query": String(browser_state.get("query", "")), "order": clampi(int(browser_state.get("order", 0)), 0, 3), "deck_scope": clampi(int(browser_state.get("deck_scope", 0)), 0, 4), "selected_path": selected_path if not selected_path.is_empty() else String(browser_state.get("selected_path", "")), "deck_slot": clampi(int(browser_state.get("deck_slot", -1)), -1, 2)}
 	var outer: VBoxContainer = main._submenu("진행도 보관·복구", "현재 진행도를 보관하거나, 읽을 수 있는 사본을 골라 복구합니다.")
 	var scroll := ScrollContainer.new()
 	scroll.name = "ProfileRecoveryScroll"
@@ -697,31 +730,45 @@ static func show(main, message: String = "", selected_path: String = "", browser
 	var candidates := SaveData.recovery_candidates()
 	var entries: Array = []
 	column.add_child(_label("복구할 사본 · 검색·정렬", UIKit.GOLD))
-	var filters := HBoxContainer.new()
+	var filters := VBoxContainer.new()
 	filters.name = "ProfileRecoveryFilters"
 	filters.add_theme_constant_override("separation", 10)
 	column.add_child(filters)
 	var search := LineEdit.new()
 	search.name = "ProfileRecoverySearch"
-	search.placeholder_text = "닉네임 · 보관 날짜 · 파일명 검색"
-	search.tooltip_text = "UTC 보관 날짜(예: 2026-10)·닉네임·파일명·진행도 요약을 검색합니다. 공백으로 나눈 검색어를 모두 포함한 사본을 표시합니다."
+	search.placeholder_text = "덱 이름 · 병력 · 구조물 · 닉네임 · 날짜 검색"
+	search.tooltip_text = "덱 이름·병력/구조물의 한글 이름 또는 영문 ID, UTC 날짜·닉네임·파일명·진행도 요약을 검색합니다. 예: 방패병 궁수 발전기 / shield archer / 2026-10 수비. 공백으로 나눈 검색어를 모두 포함해야 하며 덱 구성은 같은 슬롯 안에서 찾습니다."
 	search.max_length = 120
 	search.text = String(state.query)
 	search.clear_button_enabled = true
 	search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	search.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44
 	filters.add_child(search)
+	var options := HFlowContainer.new()
+	options.name = "ProfileRecoveryFilterOptions"
+	options.add_theme_constant_override("h_separation", 10)
+	options.add_theme_constant_override("v_separation", 10)
+	filters.add_child(options)
+	var scope := OptionButton.new()
+	scope.name = "ProfileRecoveryDeckScope"
+	scope.custom_minimum_size = Vector2(190, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44)
+	scope.tooltip_text = "사본에 저장된 덱 중 검색할 슬롯을 고릅니다. 최근 선택 덱은 각 사본의 마지막 선택 슬롯입니다. 현재 기기의 선택 덱과 다를 수 있습니다. 복구는 검색 범위와 관계없이 진행도와 세 덱 전체를 되돌립니다."
+	for title in ["모든 덱 슬롯", "사본의 최근 선택 덱", "덱 슬롯 1", "덱 슬롯 2", "덱 슬롯 3"]:
+		scope.add_item(title)
+	scope.select(int(state.deck_scope))
+	options.add_child(scope)
 	var order := OptionButton.new()
 	order.name = "ProfileRecoveryOrder"
 	order.custom_minimum_size = Vector2(180, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44)
 	for title in ["최근 보관순", "오래된 보관순", "별 많은 순", "캠페인 진행순"]:
 		order.add_item(title)
 	order.select(int(state.order))
-	filters.add_child(order)
+	options.add_child(order)
 	var reset: Button = main._styled_button("초기화", UIKit.ACCENT, false)
 	reset.name = "ResetProfileRecoveryFilters"
 	reset.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44
-	filters.add_child(reset)
+	options.add_child(reset)
+	column.add_child(_label("덱 이름·병력·구조물은 같은 슬롯에서 모두 일치해야 합니다. 닉네임·날짜 조건도 함께 쓸 수 있습니다.\n검색 범위는 사본을 찾는 조건이며, 복구는 진행도와 세 덱 전체를 되돌립니다."))
 	var count := _label("")
 	count.name = "ProfileRecoveryCount"
 	column.add_child(count)
@@ -734,6 +781,9 @@ static func show(main, message: String = "", selected_path: String = "", browser
 	var preview := _label("", UIKit.TEXT)
 	preview.name = "ProfileRecoveryPreview"
 	column.add_child(preview)
+	var matched_decks := _label("", UIKit.TEAL)
+	matched_decks.name = "ProfileRecoveryMatchingDecks"
+	column.add_child(matched_decks)
 	var comparison := VBoxContainer.new()
 	comparison.name = "ProfileRecoveryComparison"
 	comparison.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -803,9 +853,10 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		export_selected.disabled = not valid
 		delete_selected.disabled = not valid or candidates.entries.size() < 2
 		comparison.visible = valid
+		matched_decks.visible = valid
 		preview.tooltip_text = ""
 		if not valid:
-			preview.text = "검색 조건에 맞는 사본이 없습니다. 검색어를 바꾸거나 초기화하세요." if not candidates.entries.is_empty() else "현재 진행도를 사본으로 보관하거나, 아래에서 외부 사본을 가져오세요. 손상된 원본은 수정하지 않고 보관합니다."
+			preview.text = "검색 조건에 맞는 사본이 없습니다. 검색어·덱 슬롯 범위를 바꾸거나 초기화하세요." if not candidates.entries.is_empty() else "현재 진행도를 사본으로 보관하거나, 아래에서 외부 사본을 가져오세요. 손상된 원본은 수정하지 않고 보관합니다."
 			if not entries.is_empty():
 				preview.text = "선택했던 사본이 검색 결과에 없거나 더 이상 존재하지 않습니다. 복구·내보내기·삭제할 사본을 목록에서 직접 선택하세요."
 			return
@@ -814,16 +865,26 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		if int(entries[index].get("excluded", 0)) > 0:
 			preview.text += "\n잘못된 도전 기록 %d개는 복구에서 제외합니다. 사본 원본은 그대로 보관합니다." % int(entries[index].excluded)
 		preview.tooltip_text = ProjectSettings.globalize_path(String(entries[index].path))
+		var slots := _matching_deck_slots(entries[index], String(state.query), int(state.deck_scope))
+		matched_decks.text = "검색에 맞는 덱 · 사본에 저장된 구성\n" + _matching_decks_text(entries[index], slots, true)
+		# Start the existing comparison on a matching slot when a deck is sought.
+		if (not String(state.query).strip_edges().is_empty() or int(state.deck_scope) != 0) and not slots.has(int(state.deck_slot)) and not slots.is_empty():
+			state.deck_slot = int(slots[0])
 		_fill_comparison(comparison, main.save_data, entries[index].data, state)
 	var rebuild := func():
 		entries.clear()
-		entries.append_array(_filtered_entries(candidates.entries, String(state.query), int(state.order)))
+		entries.append_array(_filtered_entries(candidates.entries, String(state.query), int(state.order), int(state.deck_scope)))
 		choice.clear()
 		var selected := -1
 		for index in entries.size():
 			var entry: Dictionary = entries[index]
 			choice.add_item("%s · %s · 별 %d개 · 캠페인 %d단계" % [_stamp(int(entry.modified)), String(entry.data.nickname), int(entry.data.stats.total_stars), int(entry.data.campaign_unlocked)])
-			choice.set_item_tooltip(index, ProjectSettings.globalize_path(String(entry.path)))
+			var slots := _matching_deck_slots(entry, String(state.query), int(state.deck_scope))
+			# Keep the popup row compact; the preview and tooltip show every match.
+			var deck_title := _matching_decks_text(entry, slots.slice(0, 1))
+			if slots.size() > 1: deck_title += " 외 %d개" % (slots.size() - 1)
+			choice.set_item_text(index, choice.get_item_text(index) + " · " + deck_title)
+			choice.set_item_tooltip(index, _matching_decks_text(entry, slots, true) + "\n\n" + ProjectSettings.globalize_path(String(entry.path)))
 			if String(entry.path) == String(state.selected_path): selected = index
 		if selected < 0 and String(state.selected_path).is_empty() and not entries.is_empty(): selected = 0
 		choice.select(selected)
@@ -831,14 +892,15 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		if selected < 0:
 			choice.text = "복구할 사본을 선택하세요" if not entries.is_empty() else "검색 결과가 없습니다" if not candidates.entries.is_empty() else "복구할 수 있는 사본이 없습니다"
 		count.text = "표시 %d개 / 읽을 수 있는 사본 %d개 · 마지막 사본은 삭제하지 않습니다." % [entries.size(), candidates.entries.size()]
-		reset.disabled = String(state.query).is_empty() and int(state.order) == 0
+		reset.disabled = String(state.query).is_empty() and int(state.order) == 0 and int(state.deck_scope) == 0
 		update_preview.call(selected)
 	choice.item_selected.connect(update_preview)
 	search.text_changed.connect(func(value: String): state.query = value; rebuild.call())
+	scope.item_selected.connect(func(index: int): state.deck_scope = index; rebuild.call())
 	order.item_selected.connect(func(index: int): state.order = index; rebuild.call())
 	reset.pressed.connect(func():
-		state.query = ""; state.order = 0
-		search.set_text(""); order.select(0)
+		state.query = ""; state.order = 0; state.deck_scope = 0
+		search.set_text(""); order.select(0); scope.select(0)
 		rebuild.call(); search.grab_focus())
 	rebuild.call()
 	if not message.is_empty():
