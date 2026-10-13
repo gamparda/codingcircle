@@ -5,6 +5,7 @@ const UIKit = preload("res://scripts/ui/UIKit.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const Achievements = preload("res://scripts/Achievements.gd")
 const Goals = preload("res://scripts/Goals.gd")
+const NewFeatures = preload("res://scripts/NewFeatures.gd")
 const CHALLENGE_PAGE_SIZE := 8
 const RECORD_FIELDS := [
 	["ai_matches", "AI 경기", "판"], ["ai_wins", "AI 승리", "승"], ["ai_losses", "AI 패배", "패"],
@@ -209,6 +210,66 @@ static func _tutorial_comparison(live: Dictionary, restored: Dictionary) -> Dict
 			warning = "첫 전투 안내의 완료 기록이 미완료로 바뀌어 다음 캠페인·AI 연습 전투에서 안내가 다시 표시됩니다."
 	return {"rows": rows, "summary": "첫 전투 안내: %s → %s\n완료는 안내를 마치거나 건너뛴 상태를 뜻하며, 전투 승리 여부와는 별개입니다." % ["완료" if before else "미완료", "완료" if after else "미완료"], "warning": warning, "empty": "첫 전투 안내 완료 상태 변경 없음"}
 
+static func _nickname_comparison(live: Dictionary, restored: Dictionary) -> Dictionary:
+	var before := String(live.nickname)
+	var after := String(restored.nickname)
+	var rows: Array = []
+	var warning := ""
+	if before != after:
+		warning = "닉네임이 「%s」에서 「%s」로 바뀝니다." % [before, after]
+		rows.append({"text": "복구 후 멀티플레이의 닉네임 입력에 사본의 이름이 표시됩니다. 멀티플레이 화면에서 다시 수정할 수 있습니다. 서버에 이미 보관된 기록을 바꾸는 복구는 아닙니다.", "risk": true})
+	return {"rows": rows, "summary": "닉네임: 「%s」 → 「%s」" % [before, after], "warning": warning, "empty": "닉네임 변경 없음"}
+
+static func _features_comparison(live: Dictionary, restored: Dictionary) -> Dictionary:
+	var reset: Array = []
+	var seen: Array = []
+	var reset_names: PackedStringArray = []
+	var unchanged := 0
+	for feature in NewFeatures.FEATURES:
+		var id := String(feature.id)
+		# Match the guide's membership check; order and retired IDs do not affect NEW tags.
+		var before := NewFeatures.is_seen(live, id)
+		var after := NewFeatures.is_seen(restored, id)
+		if before == after:
+			unchanged += 1
+			continue
+		var title := String(feature.title)
+		var row := {"text": "%s · %s\n현재: %s → 사본: %s" % [title, "다시 미확인" if before else "확인함으로 변경", "확인함" if before else "미확인 (NEW)", "확인함" if after else "미확인 (NEW)"], "risk": before}
+		if before:
+			reset_names.append(title)
+			reset.append(row)
+		else:
+			seen.append(row)
+	var rows: Array = []
+	rows.append_array(reset)
+	rows.append_array(seen)
+	var before_unseen := NewFeatures.unseen(live).size()
+	var after_unseen := NewFeatures.unseen(restored).size()
+	var summary := "현재 안내의 미확인 기능 %d → %d개 / %d개\n다시 미확인 %d개 · 확인함으로 변경 %d개 · 상태 유지 %d개" % [before_unseen, after_unseen, NewFeatures.FEATURES.size(), reset.size(), seen.size(), unchanged]
+	if before_unseen == 0 and after_unseen > 0:
+		summary += "\n복구 후 메인 메뉴에 새 기능 %d개 버튼이 다시 표시됩니다." % after_unseen
+	elif before_unseen > 0 and after_unseen == 0:
+		summary += "\n복구 후 현재 안내의 모든 기능이 확인 상태가 되어 메인 메뉴의 새 기능 버튼이 숨겨집니다."
+	# A shared button keeps NEW until all of its features have been seen.
+	var buttons: PackedStringArray = []
+	for feature in NewFeatures.FEATURES:
+		var button := String(feature.button)
+		if buttons.has(button): continue
+		buttons.append(button)
+		var before_new := false
+		var after_new := false
+		var titles: PackedStringArray = []
+		for item in NewFeatures.features_for(button):
+			titles.append(String(item.title))
+			before_new = before_new or not NewFeatures.is_seen(live, String(item.id))
+			after_new = after_new or not NewFeatures.is_seen(restored, String(item.id))
+		if before_new != after_new:
+			rows.append({"text": "메뉴 NEW 표시 (%s): %s → %s" % [" / ".join(titles), "표시" if before_new else "숨김", "표시" if after_new else "숨김"], "risk": after_new})
+	var warning := ""
+	if not reset.is_empty():
+		warning = "확인한 새 기능 %d개가 다시 미확인으로 바뀝니다: %s. 다른 기능의 확인 증가와 별도로 표시합니다." % [reset.size(), " / ".join(reset_names)]
+	return {"rows": rows, "summary": summary, "warning": warning, "empty": "현재 안내의 기능별 확인 상태 변경 없음"}
+
 static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionary:
 	# Compare the normalized values restore_backup actually applies, without touching either profile.
 	var live := SaveData.sanitize(current)
@@ -272,10 +333,15 @@ static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionar
 	if not String(goals.warning).is_empty(): warnings.append(String(goals.warning))
 	var tutorial := _tutorial_comparison(live, restored)
 	if not String(tutorial.warning).is_empty(): warnings.append(String(tutorial.warning))
+	var nickname := _nickname_comparison(live, restored)
+	if not String(nickname.warning).is_empty(): warnings.append(String(nickname.warning))
+	var features := _features_comparison(live, restored)
+	if not String(features.warning).is_empty(): warnings.append(String(features.warning))
 	return {"summary": summary, "warning": "\n".join(warnings),
 		"campaign": "\n\n".join(campaign) if not campaign.is_empty() else "단계별 기록 변경 없음",
 		"decks": "\n\n".join(decks) if not decks.is_empty() else "세 덱의 이름·병력·구조물·배치 순서 변경 없음",
-		"challenges": challenges, "stats": stats, "achievements": achievements, "goals": goals, "tutorial": tutorial}
+		"challenges": challenges, "stats": stats, "achievements": achievements, "goals": goals, "tutorial": tutorial,
+		"nickname": nickname, "features": features}
 
 static func _win_time(record: Dictionary) -> String:
 	return str(record.fastest_win) + "초" if float(record.fastest_win) > 0.0 else "미기록 또는 0초"
@@ -293,6 +359,9 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 		var warning := _label(String(comparison.warning), UIKit.DANGER)
 		warning.name = "ProfileComparisonWarning"
 		parent.add_child(warning)
+	_add_record_comparison(parent, "프로필 · 닉네임", "ProfileNickname", comparison.nickname)
+	_add_record_comparison(parent, "새 기능 · 확인 상태·메뉴 NEW 표시", "ProfileFeature", comparison.features)
+	parent.add_child(_label("현재 새 기능 안내에 있는 기능만 비교합니다. 과거 기능의 확인 ID는 사본의 저장 내용대로 복구하지만 이 개수에 포함하지 않습니다. 같은 메뉴로 연결되는 기능이 하나라도 미확인이면 그 메뉴에 NEW가 표시됩니다. 확인 상태는 기능의 잠금이나 전투 진행도와 별개입니다."))
 	_add_record_comparison(parent, "전적 · 항목별 변경", "ProfileStats", comparison.stats)
 	parent.add_child(_label("감소는 기기에 저장된 횟수·최고 단계·연승 기록이 줄어든다는 뜻입니다. 패배·중단 횟수의 감소도 표시하며 실력이 낮아졌다는 뜻은 아닙니다. 총 별은 아래 캠페인 비교에 표시합니다."))
 	_add_record_comparison(parent, "업적 · 사라짐·추가·달성 시각", "ProfileAchievement", comparison.achievements)
@@ -308,7 +377,7 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 	decks.name = "ProfileDeckChanges"
 	parent.add_child(decks)
 	_add_challenge_comparison(parent, comparison.challenges)
-	parent.add_child(_label("기록을 합치거나 더 높은 기록을 고르는 복구가 아닙니다. 전적·업적·시작 목표·튜토리얼·도전 기록을 포함한 진행도 전체가 사본으로 바뀝니다. 현재 설정·익명 ID·전송 대기 기록은 유지합니다."))
+	parent.add_child(_label("기록을 합치거나 더 높은 기록을 고르는 복구가 아닙니다. 닉네임·새 기능 확인 상태·전적·업적·시작 목표·튜토리얼·도전 기록을 포함한 진행도 전체가 사본으로 바뀝니다. 현재 설정·익명 ID·전송 대기 기록은 유지합니다."))
 
 static func _add_record_comparison(parent: VBoxContainer, title: String, prefix: String, comparison: Dictionary) -> void:
 	parent.add_child(_label(title, UIKit.GOLD))
