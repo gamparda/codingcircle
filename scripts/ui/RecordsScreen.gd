@@ -11,12 +11,13 @@ const HISTORY_PAGE_DATES := 10
 var _history: Dictionary = {}
 var _history_panels: Dictionary = {}
 var _history_state := {
-	"daily": {"filter": 0, "query": "", "page": 0, "scroll": 0},
-	"weekly": {"filter": 0, "query": "", "page": 0, "scroll": 0}}
+	"daily": {"filter": 0, "outcome": 0, "query": "", "page": 0, "scroll": 0},
+	"weekly": {"filter": 0, "outcome": 0, "query": "", "page": 0, "scroll": 0}}
 var _active_period := "campaign"
 var _records_summary: HBoxContainer
 var _history_tools: HBoxContainer
 var _history_filter: OptionButton
+var _history_outcome: OptionButton
 var _history_search: LineEdit
 var _history_reset: Button
 var _history_navigation: HBoxContainer
@@ -58,6 +59,15 @@ func populate(save_data: Dictionary) -> void:
 	filter.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 40
 	tools.add_child(filter)
 	_history_filter = filter
+	var outcome := OptionButton.new()
+	outcome.name = "ChallengeHistoryOutcome"
+	outcome.add_item("결과 전체", 0)
+	outcome.add_item("성공만", 1)
+	outcome.add_item("실패만", 2)
+	outcome.tooltip_text = "날짜·버전별 보관된 최고 기록을 성공/실패로 필터링합니다. 성공 기록이 있는 날짜·버전의 실패 시도는 별도로 표시하지 않습니다."
+	outcome.custom_minimum_size.y = filter.custom_minimum_size.y
+	tools.add_child(outcome)
+	_history_outcome = outcome
 	var search := LineEdit.new()
 	search.name = "ChallengeHistorySearch"
 	search.placeholder_text = "날짜 검색 · 2026-10 / 20261011"
@@ -108,6 +118,7 @@ func populate(save_data: Dictionary) -> void:
 	# Keep a read-only snapshot so filtering does not modify best scores or pending submissions.
 	_history = {"daily": save_data.daily.duplicate(true), "weekly": save_data.weekly.duplicate(true)}
 	filter.item_selected.connect(_on_history_filter_changed)
+	outcome.item_selected.connect(_on_history_outcome_changed)
 	search.text_changed.connect(_on_history_search_changed)
 	_history_reset.pressed.connect(_reset_history_search)
 	_populate_campaign(_history_panels.campaign, save_data)
@@ -163,12 +174,18 @@ func _select_records_tab(period: String) -> void:
 	else:
 		var state: Dictionary = _history_state[period]
 		_history_filter.select(int(state.filter))
+		_history_outcome.select(int(state.outcome))
 		_history_search.text = String(state.query)
 		_refresh_history()
 
 func _on_history_filter_changed(index: int) -> void:
 	if _active_period == "campaign": return
 	_history_state[_active_period].filter = index
+	_restart_history_page()
+
+func _on_history_outcome_changed(index: int) -> void:
+	if _active_period == "campaign": return
+	_history_state[_active_period].outcome = index
 	_restart_history_page()
 
 func _on_history_search_changed(query: String) -> void:
@@ -179,8 +196,10 @@ func _on_history_search_changed(query: String) -> void:
 func _reset_history_search() -> void:
 	if _active_period == "campaign": return
 	_history_state[_active_period].filter = 0
+	_history_state[_active_period].outcome = 0
 	_history_state[_active_period].query = ""
 	_history_filter.select(0)
+	_history_outcome.select(0)
 	_history_search.text = ""
 	_restart_history_page()
 
@@ -191,16 +210,16 @@ func _restart_history_page() -> void:
 
 func _refresh_history() -> void:
 	var state: Dictionary = _history_state[_active_period]
-	var result := _populate_history(_history_panels[_active_period], _history[_active_period], _active_period, int(state.filter), String(state.query), int(state.page))
+	var result := _populate_history(_history_panels[_active_period], _history[_active_period], _active_period, int(state.filter), String(state.query), int(state.page), int(state.outcome))
 	state.page = result.page
 	_history_page_count = result.pages
 	var first := int(result.page) * HISTORY_PAGE_DATES + 1 if int(result.dates) > 0 else 0
 	var last := mini((int(result.page) + 1) * HISTORY_PAGE_DATES, int(result.dates))
 	_history_page_label.text = "%d–%d / %d%s · %d개 기록" % [first, last, int(result.dates), "주" if _active_period == "weekly" else "일", int(result.records)]
-	_history_page_label.tooltip_text = "검색과 버전 필터에 맞는 날짜 수와 전체 기록 수입니다. 같은 날짜의 버전별 기록은 한 페이지에 표시합니다."
+	_history_page_label.tooltip_text = "날짜·버전·결과 조건에 맞는 날짜 수와 전체 기록 수입니다. 같은 날짜에서 조건에 맞는 버전별 기록은 한 페이지에 표시합니다."
 	for index in _history_page_buttons.size():
 		_history_page_buttons[index].disabled = int(state.page) == (0 if index < 2 else _history_page_count - 1)
-	_history_reset.disabled = int(state.filter) == 0 and String(state.query).is_empty() and int(state.page) == 0
+	_history_reset.disabled = int(state.filter) == 0 and int(state.outcome) == 0 and String(state.query).is_empty() and int(state.page) == 0
 	_records_scroll.set_deferred("scroll_vertical", int(state.scroll))
 
 func _on_records_scroll_input(event: InputEvent) -> void:
@@ -249,7 +268,7 @@ func _populate_campaign(page: VBoxContainer, save_data: Dictionary) -> void:
 				color = UIKit.GOLD if stars > 0 else UIKit.TEXT_DIM
 			table.add_child(_cell(String(cells[index]), index, color, 16))
 
-func _populate_history(page: VBoxContainer, history: Dictionary, period: String, filter: int, query: String = "", page_index: int = 0) -> Dictionary:
+func _populate_history(page: VBoxContainer, history: Dictionary, period: String, filter: int, query: String = "", page_index: int = 0, outcome: int = 0) -> Dictionary:
 	for child in page.get_children():
 		page.remove_child(child)
 		child.queue_free()
@@ -257,7 +276,20 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 	var valid_query := prefix.length() <= 8
 	for character in prefix:
 		if not "0123456789".contains(character): valid_query = false
-	var rows := _history_rows(history, filter, prefix) if valid_query else []
+	# Count the date/version selection before applying outcome, then paginate the
+	# matching dates. Versions with different outcomes must be filtered separately.
+	var matching_rows := _history_rows(history, filter, prefix) if valid_query else []
+	var successes := 0
+	var failures := 0
+	var rows: Array = []
+	for row in matching_rows:
+		var won := bool(row.record.get("won", false))
+		if won:
+			successes += 1
+		else:
+			failures += 1
+		if (outcome == 1 and not won) or (outcome == 2 and won): continue
+		rows.append(row)
 	var dates: Array = []
 	for row in rows:
 		if dates.is_empty() or dates.back() != row.date:
@@ -268,10 +300,20 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 	var hint := Label.new()
 	hint.text = "기기에 보관된 최고 기록 · %s · 버전이 다른 점수는 따로 표시합니다." % ("최근 %d주, 주 시작일 기준" % SaveData.WEEKLY_HISTORY if period == "weekly" else "최근 %d일" % SaveData.DAILY_HISTORY)
 	hint.text += "\n완료 시간은 해당 최고 점수를 낸 전투의 시간입니다. 같은 점수라면 더 빠른 성공 기록을 보관합니다."
+	hint.text += "\n성공이 보관된 날짜·버전의 실패 시도는 별도로 표시하지 않습니다."
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 14)
 	hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	page.add_child(hint)
+	if valid_query and not history.is_empty():
+		var summary := Label.new()
+		summary.name = "ChallengeHistorySummary_" + period
+		summary.text = "날짜·버전 조건: 성공 %d개 · 실패 %d개  |  %s %d개" % [successes, failures, "전체 표시" if outcome == 0 else ("성공만 표시" if outcome == 1 else "실패만 표시"), rows.size()]
+		summary.tooltip_text = "모든 페이지에 걸친 날짜·버전별 보관 기록 수입니다. 전체 도전 횟수나 승률이 아닙니다. 결과 필터를 바꿔도 왼쪽의 성공·실패 수는 유지됩니다."
+		summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		summary.add_theme_font_size_override("font_size", 14)
+		summary.add_theme_color_override("font_color", UIKit.TEXT)
+		page.add_child(summary)
 	var table := GridContainer.new()
 	table.name = "ChallengeHistoryTable_" + period
 	table.columns = HISTORY_HEADERS.size()
@@ -305,6 +347,8 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 			empty.text = "날짜를 2026-10 또는 20261011처럼 입력하세요."
 		elif history.is_empty():
 			empty.text = "저장된 %s 도전 기록이 없습니다." % ("주간" if period == "weekly" else "일일")
+		elif not matching_rows.is_empty():
+			empty.text = "날짜·버전 조건에 맞는 %s 기록이 없습니다. '결과 전체'를 선택하면 %s 기록 %d개를 볼 수 있습니다." % ["성공" if outcome == 1 else "실패", "실패" if outcome == 1 else "성공", matching_rows.size()]
 		elif not prefix.is_empty():
 			empty.text = "날짜와 버전 조건에 맞는 기록이 없습니다. 주간 기록은 월요일 날짜로 검색하세요." if period == "weekly" else "날짜와 버전 조건에 맞는 기록이 없습니다. 검색 날짜나 버전을 바꿔 보세요."
 		else:
