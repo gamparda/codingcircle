@@ -393,6 +393,12 @@ func _input(event: InputEvent) -> void:
 				return
 	if event is InputEventKey and LocalBattlePause.handle_key(self, event):
 		get_viewport().set_input_as_handled(); return
+	if event is InputEventKey and is_instance_valid(stats_overlay) and not is_instance_valid(local_pause_overlay) and not is_instance_valid(action_overlay) and not is_instance_valid(report_overlay):
+		var browser = stats_overlay.get_node_or_null("BattleStatsBrowser")
+		if browser != null and browser.handle_key(event):
+			get_viewport().set_input_as_handled()
+		# Unhandled keys go to the reference controls, never to battle hotkeys.
+		return
 	if event is InputEventKey and _battle_text_has_focus(): return
 	if event is InputEventKey and _handle_battle_hotkey(event):
 		get_viewport().set_input_as_handled(); return
@@ -916,10 +922,11 @@ func _dismiss_stats_panel() -> void:
 		stats_overlay.hide()
 		stats_overlay.queue_free()
 	stats_overlay = null
-	if was_open and local_ai_mode and battle_active and is_instance_valid(battle_view):
-		battle_view.set_process(not LocalBattlePause.is_paused(self) or finale_active)
-		_refresh_purchase_buttons(latest_resources)
-		if not LocalBattlePause.is_paused(self):
+	if was_open and battle_active and is_instance_valid(battle_view):
+		if local_ai_mode:
+			battle_view.set_process(not LocalBattlePause.is_paused(self) or finale_active)
+			_refresh_purchase_buttons(latest_resources)
+		if not LocalBattlePause.is_paused(self) and not is_instance_valid(action_overlay) and not is_instance_valid(report_overlay) and is_instance_valid(root_background):
 			var stats_button := root_background.find_child("UnitStatsButton", true, false) as Button
 			if stats_button != null: stats_button.grab_focus()
 

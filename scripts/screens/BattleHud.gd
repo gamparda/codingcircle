@@ -508,79 +508,16 @@ static func _show_stats_panel(main) -> void:
 	main.stats_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	main.stats_overlay.z_index = 120
 	main.root_background.add_child(main.stats_overlay)
-	var panel := PanelContainer.new()
-	panel.position = Vector2(145, 72)
-	panel.size = Vector2(990, 576)
-	panel.add_theme_stylebox_override("panel", UIKit.panel_box(UIKit.TEAL, 16, 1.0))
+	var panel := preload("res://scripts/ui/BattleStatsBrowser.gd").new()
 	main.stats_overlay.add_child(panel)
-	UIKit.reveal(panel, 0.25, 12.0)
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 28)
-	margin.add_theme_constant_override("margin_right", 28)
-	margin.add_theme_constant_override("margin_top", 22)
-	margin.add_theme_constant_override("margin_bottom", 22)
-	panel.add_child(margin)
-	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 10)
-	margin.add_child(content)
-	var title := Label.new()
-	title.text = Localization.text("유닛 상세 스탯")
-	title.add_theme_font_size_override("font_size", 28)
-	title.add_theme_color_override("font_color", Color("#f5f7fb"))
-	content.add_child(title)
-	var subtitle := Label.new()
-	subtitle.text = Localization.text("현재 전투 수치 · DPS는 공격력 ÷ 공격 간격") + (" · 전투 일시정지 중" if main.local_ai_mode else " · 온라인 전투는 계속 진행됩니다")
-	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
-	content.add_child(subtitle)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 12)
-	grid.add_theme_constant_override("v_separation", 10)
-	var scroll := ScrollContainer.new()
-	scroll.name = "UnitStatsScroll"
-	scroll.custom_minimum_size = Vector2(0, 300)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	content.add_child(scroll)
-	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(grid)
-	var names := BattleModel.UNIT_NAMES
-	for kind in names.keys():
-		var unit_color: Color = UIKit.UNIT_COLORS.get(kind, UIKit.ACCENT)
-		var card := PanelContainer.new()
-		card.custom_minimum_size = Vector2(455, 126)
-		card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI.lerp(unit_color, 0.08), UIKit.SURFACE.darkened(0.12), Color(unit_color.r, unit_color.g, unit_color.b, 0.5), 12, 1.0, 0.0, Color(0, 0, 0, 0), 0.08), 14, 10))
-		grid.add_child(card)
-		var card_row := HBoxContainer.new()
-		card_row.add_theme_constant_override("separation", 14)
-		card.add_child(card_row)
-		var portrait := TextureRect.new()
-		portrait.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
-		portrait.custom_minimum_size = Vector2(78, 100)
-		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		card_row.add_child(portrait)
-		var label := Label.new()
-		label.text = "%s\n%s" % [names[kind], BattleModel.unit_stat_summary(kind, int(main.local_model.campaign_levels[main.own_side]) if main.local_ai_mode and is_instance_valid(main.local_model) else 0)]
-		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		label.add_theme_font_size_override("font_size", 14)
-		label.add_theme_color_override("font_color", UIKit.TEXT)
-		card_row.add_child(label)
-	var world_stats := Label.new()
-	world_stats.text = BattleModel.battle_stat_summary()
-	world_stats.add_theme_font_size_override("font_size", 13)
-	world_stats.add_theme_color_override("font_color", Color("#9ba5b8"))
-	content.add_child(world_stats)
-	var close = main._styled_button(Localization.text("닫기"), Color("#3d8f83"), true)
-	close.name = "CloseUnitStatsButton"
-	close.custom_minimum_size = Vector2(160, 58)
-	close.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
-	close.tooltip_text = "닫으면 전투가 이어집니다. Esc로도 닫을 수 있습니다." if main.local_ai_mode else "온라인 전투는 계속 진행됩니다."
-	close.pressed.connect(main._dismiss_stats_panel)
-	content.add_child(close)
-	close.grab_focus()
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.offset_left = 90
+	panel.offset_right = -90
+	panel.offset_top = 36
+	panel.offset_bottom = -36
+	var growth_level := int(main.local_model.campaign_levels[main.own_side]) if main.local_ai_mode and is_instance_valid(main.local_model) else 0
+	panel.setup(main, growth_level)
+	UIKit.reveal(panel, 0.25, 0.0)
 	if main.local_ai_mode:
 		main.local_battle_skip_delta = true
 		main.battle_view.set_process(false)
