@@ -468,6 +468,13 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(status)
 	var state: Dictionary = main.recent_battles_state
+	# The fetch belongs to the dialog, so replacing/filtering cards cannot abandon it.
+	var watch_state := {"active": false, "code": "", "message": "", "failed": false}
+	var watch_status := MultiplayerUI.label("", 14, UIKit.TEXT_MUTED)
+	watch_status.name = "RecentBattleRequestStatus"
+	watch_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	watch_status.visible = false
+	dialog.add_child(watch_status)
 	var search_tools := HBoxContainer.new()
 	search_tools.add_theme_constant_override("separation", 8)
 	dialog.add_child(search_tools)
@@ -530,7 +537,7 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 	refresh.name = "RefreshRecentBattles"
 	refresh.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	refresh.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-	refresh.tooltip_text = "서버에서 최신 공개 목록을 다시 조회합니다. 검색 조건과 스크롤 위치는 유지합니다."
+	refresh.tooltip_text = "서버에서 최신 공개 목록을 다시 조회합니다. 검색 조건·스크롤 위치와 진행 중인 전투 보기 요청은 유지합니다."
 	footer.add_child(refresh)
 	var close_dialog := func():
 		if not _dialog_alive(dialog): return
@@ -566,6 +573,7 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 		count.text = "%d / %d개 표시" % [shown, pending.entries.size()] if bool(pending.loaded) else "목록 수신 대기"
 		empty.visible = bool(pending.loaded) and shown == 0
 		empty.text = "현재 공개 목록에 보관된 전투가 없습니다. 미저장·정리된 전투는 표시되지 않습니다." if pending.entries.is_empty() else "검색 조건에 맞는 전투가 없습니다. 검색어·종류·결과를 바꾸거나 초기화하세요. 검색은 조회된 최근 공개 전투 안에서만 수행합니다."
+		_update_recent_watch(rows, watch_state, watch_status)
 		_bind_recent_navigation(scroll, rows, refresh, close, close_dialog, filter_controls)
 		if hidden_focus: search.grab_focus()
 		if reset_scroll: state["scroll"] = 0
@@ -596,7 +604,38 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 		if not bool(pending.restoring): state["scroll"] = scroll.scroll_vertical
 		pending.revision = int(pending.revision) + 1
 		_open_viewer(main, replay, "", _return_to_recent_battles.bind(main, code), "최근 온라인 전투 목록으로 돌아갑니다. 검색·종류·결과·스크롤과 선택 카드 초점을 유지합니다.")
+	var update_watch := func():
+		if not _dialog_alive(dialog): return
+		_update_recent_watch(rows, watch_state, watch_status)
+		_bind_recent_navigation(scroll, rows, refresh, close, close_dialog, filter_controls)
+	var watch_request := func(code: String):
+		if not _dialog_alive(dialog) or bool(watch_state.active): return
+		watch_state.active = true
+		watch_state.code = code
+		watch_state.failed = false
+		watch_state.message = "요청 준비 중..."
+		update_watch.call()
+		var fail := func(message: String):
+			if not _dialog_alive(dialog): return
+			watch_state.active = false
+			watch_state.failed = true
+			watch_state.message = Localization.text(message)
+			update_watch.call()
+		var result := func(replay_text: String):
+			if not _dialog_alive(dialog): return
+			var replay := BattleReplay.from_share_text(replay_text)
+			if replay.is_empty():
+				fail.call("리플레이를 찾을 수 없습니다. 서버에서 정리되었거나 읽을 수 없는 전투입니다. 목록을 새로고침하거나 다른 전투를 선택하세요.")
+				return
+			watch_state.active = false
+			play.call(replay, code)
+		var progress := func(message: String):
+			if not _dialog_alive(dialog): return
+			watch_state.message = Localization.text(message)
+			update_watch.call()
+		ReplayRequest.start(main, dialog, "fetch", code, result, fail, progress)
 	var show_list := func(list: Array, from_cache: bool = false):
+		if not _dialog_alive(dialog): return
 		pending.active = false
 		refresh.disabled = false
 		var focus: Control = main.get_viewport().gui_get_focus_owner()
@@ -621,7 +660,7 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 		status.text = ("재생 전 조회 목록 · 최신 목록은 새로고침\n" if from_cache else "") + "공개 전투 %d개 · 최신 보관순 · 조회 %s UTC" % [list.size(), Time.get_datetime_string_from_unix_time(now).replace("T", " ")]
 		var next_focus: Control = null
 		for entry in list:
-			var row := _recent_row(main, entry, now, play)
+			var row := _recent_row(main, entry, now, play, watch_request)
 			rows.add_child(row)
 			pending.entries.append({"entry": entry, "search": _recent_search_text(entry), "card": row})
 			if String(entry.code) == focused_code:
@@ -634,7 +673,7 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 			if not _dialog_alive(dialog) or revision != int(pending.revision): return
 			var position := int(state.get("scroll", 0))
 			pending.restoring = true
-			if is_instance_valid(next_focus) and next_focus.is_visible_in_tree(): next_focus.grab_focus()
+			if is_instance_valid(next_focus) and next_focus.is_visible_in_tree() and not (next_focus is BaseButton and next_focus.disabled): next_focus.grab_focus()
 			elif not focused_code.is_empty(): scroll.grab_focus()
 			scroll.scroll_vertical = position
 			state["scroll"] = scroll.scroll_vertical
@@ -649,7 +688,9 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 			pending.active = false
 			refresh.disabled = false
 			status.text = ("목록 갱신 실패 · 이전 조회 목록과 검색 조건을 유지합니다.\n" if bool(pending.loaded) else "") + Localization.text(text)
+			update_watch.call()
 		ReplayRequest.start(main, dialog, "recent", "", show_list, fail, func(text): status.text = Localization.text(text))
+		update_watch.call()
 	refresh.pressed.connect(request)
 	apply_filters.call(false)
 	if not return_code.is_empty() and state.has("snapshot"):
@@ -720,7 +761,36 @@ static func _recent_time_info(entry: Dictionary, now: int) -> Dictionary:
 	var explanation := "확인된 보관 시각이 아닙니다. 이전 서버 파일의 수정 시각 등을 사용한 추정값이며 원래 보관 시각과 다를 수 있습니다." if prefix == "보관 시각 추정" else "서버에서 코드가 처음 보관된 시각입니다. 전투 시작·종료 시각과 다를 수 있습니다."
 	return {"text": "%s %s · %s" % [prefix, stamp, age], "tooltip": explanation + " 경과 시간은 목록 조회 당시 기기 시계로 계산하며 만료 시간은 아닙니다. 새로고침하면 다시 계산합니다."}
 
-static func _recent_row(main, entry: Dictionary, now: int = -1, on_watch: Callable = Callable()) -> Control:
+## Keep progress visible even when the requested code is filtered out or leaves the latest list.
+static func _update_recent_watch(rows: VBoxContainer, state: Dictionary, status: Label) -> void:
+	var active := bool(state.active)
+	var failed := bool(state.failed)
+	var selected_code := String(state.code)
+	var selected_visible := false
+	for row in rows.get_children():
+		var watch := row.find_child("WatchRecentBattle", true, false) as Button
+		if watch == null: continue
+		var selected := String(watch.get_meta("ReplayCode", "")) == selected_code
+		if selected and row.visible: selected_visible = true
+		watch.disabled = active
+		watch.text = "불러오는 중" if active and selected else ("재시도" if failed and selected else "보기")
+		watch.tooltip_text = String(state.message) if selected else ("선택한 전투의 응답을 기다려 주세요. 코드 복사·검색·새로고침·닫기는 사용할 수 있습니다." if active else "전투를 불러와 재생합니다.")
+		var detail := row.find_child("RecentBattleWatchStatus", true, false) as Label
+		if detail != null:
+			detail.visible = selected and (active or failed)
+			detail.text = String(state.message)
+			detail.add_theme_color_override("font_color", UIKit.DANGER if failed else UIKit.TEXT_MUTED)
+	status.visible = active or failed
+	status.add_theme_color_override("font_color", UIKit.DANGER if failed else UIKit.TEXT_MUTED)
+	status.text = "%s · %s" % [selected_code, String(state.message)]
+	if active:
+		status.text += "\n검색·새로고침 중에도 이 전투를 계속 불러옵니다. 창을 닫으면 재생하지 않습니다."
+	elif failed:
+		status.text += "\n해당 카드의 재시도를 누르거나 다른 전투를 선택하세요."
+	if not selected_visible and (active or failed):
+		status.text += "\n선택한 코드는 현재 표시 목록에 없습니다." + (" 검색 조건을 초기화하거나 목록을 새로고침해 확인하세요." if failed else "")
+
+static func _recent_row(main, entry: Dictionary, now: int = -1, on_watch: Callable = Callable(), on_request: Callable = Callable()) -> Control:
 	var card := PanelContainer.new()
 	card.name = "RecentBattleRow"
 	card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE, UIKit.EDGE_SOFT, 12, 1.0, 0.3, Color(0, 0, 0, 0), 0.08), 14, 8))
@@ -768,6 +838,9 @@ static func _recent_row(main, entry: Dictionary, now: int = -1, on_watch: Callab
 	watch.pressed.connect(func():
 		if not _dialog_alive(card) or watch.disabled:
 			return
+		if on_request.is_valid():
+			on_request.call(String(entry.code))
+			return
 		watch.disabled = true
 		var fail := func(message: String):
 			watch.disabled = false
@@ -788,6 +861,11 @@ static func _recent_row(main, entry: Dictionary, now: int = -1, on_watch: Callab
 				_play_replay_data(main, replay)
 		ReplayRequest.start(main, watch, "fetch", String(entry.code), result, fail, func(_text): watch.text = "불러오는 중"))
 	line.add_child(watch)
+	var detail := MultiplayerUI.label("", 14, UIKit.TEXT_MUTED)
+	detail.name = "RecentBattleWatchStatus"
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.visible = false
+	content.add_child(detail)
 	return card
 
 static func _bind_recent_navigation(scroll: ScrollContainer, rows: VBoxContainer, refresh: Button, close: Button, close_dialog: Callable, filter_controls: Array[Control] = []) -> void:
@@ -800,8 +878,8 @@ static func _bind_recent_navigation(scroll: ScrollContainer, rows: VBoxContainer
 		if not row.visible: continue
 		for button_name in ["CopyRecentBattleCode", "WatchRecentBattle"]:
 			var button := row.find_child(button_name, true, false) as Control
-			if button != null: controls.append(button)
-	controls.append(refresh)
+			if button != null and not (button is BaseButton and button.disabled): controls.append(button)
+	if not refresh.disabled: controls.append(refresh)
 	controls.append(close)
 	for index in controls.size():
 		var control := controls[index]
