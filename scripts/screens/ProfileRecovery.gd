@@ -3,6 +3,7 @@ extends RefCounted
 
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
+const CHALLENGE_PAGE_SIZE := 8
 
 static func _label(text: String, color: Color = UIKit.TEXT_MUTED) -> Label:
 	var label := MultiplayerUI.label(text, 15, color)
@@ -19,6 +20,79 @@ static func _deck_names(kinds: Array, units: bool) -> String:
 	for kind in kinds:
 		names.append(String(BattleModel.UNIT_NAMES.get(kind, kind) if units else structures.get(kind, kind)))
 	return " / ".join(names)
+
+static func _challenge_versions(history: Dictionary, date: String) -> Dictionary:
+	if not history.has(date): return {}
+	var record: Dictionary = history[date]
+	var versions: Dictionary = record.get("previous", {}).duplicate()
+	# Main/previous placement is storage bookkeeping, not a change of the result.
+	versions[String(record.ruleset)] = record
+	return versions
+
+static func _challenge_value(record: Dictionary) -> String:
+	if record.is_empty(): return "기록 없음"
+	return "%s · %d점 · %s초" % ["성공" if bool(record.won) else "실패", int(record.score), str(record.seconds)]
+
+static func _challenge_comparison(live: Dictionary, restored: Dictionary) -> Dictionary:
+	var rows: Array = []
+	var summaries: PackedStringArray = []
+	var lost := 0
+	var lowered := 0
+	for period in ["daily", "weekly"]:
+		var before_history: Dictionary = live[period]
+		var after_history: Dictionary = restored[period]
+		var dates: Array = before_history.keys()
+		for date in after_history:
+			if not dates.has(date): dates.append(date)
+		dates.sort()
+		dates.reverse()
+		var added := 0
+		var removed := 0
+		var changed := 0
+		var unchanged := 0
+		for date in dates:
+			var before_versions := _challenge_versions(before_history, String(date))
+			var after_versions := _challenge_versions(after_history, String(date))
+			var rules: Array = before_versions.keys()
+			for rule in after_versions:
+				if not rules.has(rule): rules.append(rule)
+			rules.sort()
+			for rule in rules:
+				var before: Dictionary = before_versions.get(rule, {})
+				var after: Dictionary = after_versions.get(rule, {})
+				# Ignore nested history and compare only the result restored for this date/version.
+				if not before.is_empty() and not after.is_empty() and before.won == after.won and int(before.score) == int(after.score) and float(before.seconds) == float(after.seconds):
+					unchanged += 1
+					continue
+				var risk := false
+				var kind := "변경"
+				if before.is_empty():
+					kind = "추가"
+					added += 1
+				elif after.is_empty():
+					kind = "사라짐"
+					risk = true
+					removed += 1
+					lost += 1
+				else:
+					changed += 1
+					# The best successful score uses time only to break a tied score.
+					risk = bool(before.won) and (not bool(after.won) or int(after.score) < int(before.score) or (int(after.score) == int(before.score) and float(after.seconds) > float(before.seconds)))
+					if risk:
+						kind = "낮아짐"
+						lowered += 1
+				var day := String(date)
+				var date_label := "%s-%s-%s" % [day.substr(0, 4), day.substr(4, 2), day.substr(6, 2)]
+				var period_label := "일일" if period == "daily" else "주간 (주 시작일)"
+				var version_label := "버전 미상" if rule == "0" else String(rule)
+				var text := "%s · %s · %s · %s\n현재: %s\n사본: %s" % [period_label, date_label, version_label, kind, _challenge_value(before), _challenge_value(after)]
+				rows.append({"text": text, "search": (text + " " + day + " " + String(rule)).to_lower(), "kind": kind, "risk": risk})
+		var title := "일일" if period == "daily" else "주간"
+		summaries.append("%s: 추가 %d개 · 변경 %d개 · 사라짐 %d개 · 동일 %d개" % [title, added, changed, removed, unchanged])
+	var warning := ""
+	if lost > 0 or lowered > 0:
+		warning = "도전 기록 %d개가 사라지고 성공 기록 %d개가 실패·낮은 점수·동점의 느린 시간으로 바뀝니다. 다른 날짜·버전의 증가로 상쇄하지 않았습니다." % [lost, lowered]
+	return {"rows": rows, "summary": "\n".join(summaries), "warning": warning}
 
 static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionary:
 	# Compare the normalized values restore_backup actually applies, without touching either profile.
@@ -73,9 +147,12 @@ static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionar
 		summary += "\n성장 보상 %d → %d단계 · 병력 강화 +%d%% → +%d%%\n자원 수입 %s → %s/초 · 보유 한도 %d → %d · 시작 자원 %d → %d" % [before_growth, after_growth, roundi((float(before_bonus.stat_scale) - 1.0) * 100), roundi((float(after_bonus.stat_scale) - 1.0) * 100), str(before_bonus.income), str(after_bonus.income), int(before_bonus.capacity), int(after_bonus.capacity), int(before_bonus.starting_resources), int(after_bonus.starting_resources)]
 	if int(live.last_deck) != int(restored.last_deck):
 		summary += "\n최근 선택 덱: 슬롯 %d → 슬롯 %d" % [int(live.last_deck) + 1, int(restored.last_deck) + 1]
+	var challenges := _challenge_comparison(live, restored)
+	if not String(challenges.warning).is_empty(): warnings.append(String(challenges.warning))
 	return {"summary": summary, "warning": "\n".join(warnings),
 		"campaign": "\n\n".join(campaign) if not campaign.is_empty() else "단계별 기록 변경 없음",
-		"decks": "\n\n".join(decks) if not decks.is_empty() else "세 덱의 이름·병력·구조물·배치 순서 변경 없음"}
+		"decks": "\n\n".join(decks) if not decks.is_empty() else "세 덱의 이름·병력·구조물·배치 순서 변경 없음",
+		"challenges": challenges}
 
 static func _win_time(record: Dictionary) -> String:
 	return str(record.fastest_win) + "초" if float(record.fastest_win) > 0.0 else "미기록 또는 0초"
@@ -101,7 +178,85 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 	var decks := _label(String(comparison.decks), UIKit.TEXT)
 	decks.name = "ProfileDeckChanges"
 	parent.add_child(decks)
+	_add_challenge_comparison(parent, comparison.challenges)
 	parent.add_child(_label("기록을 합치거나 더 높은 기록을 고르는 복구가 아닙니다. 전적·업적·도전 기록을 포함한 진행도 전체가 사본으로 바뀝니다. 현재 설정·익명 ID·전송 대기 기록은 유지합니다."))
+
+static func _add_challenge_comparison(parent: VBoxContainer, comparison: Dictionary) -> void:
+	parent.add_child(_label("도전 · 날짜·버전별 변경", UIKit.GOLD))
+	var summary := _label(String(comparison.summary), UIKit.TEXT)
+	summary.name = "ProfileChallengeComparisonSummary"
+	parent.add_child(summary)
+	parent.add_child(_label("기기에 보관된 날짜·버전별 최고 기록을 비교합니다. 주간은 월요일 날짜이며 버전 미상은 동일한 규칙의 기록이라고 확정할 수 없습니다. 실패 전투의 시간 변화는 성공 기록 하락으로 세지 않습니다."))
+	var rows: Array = comparison.rows
+	if rows.is_empty():
+		parent.add_child(_label("일일·주간 도전 기록 변경 없음", UIKit.TEXT))
+		return
+	var filters := HFlowContainer.new()
+	filters.name = "ProfileChallengeComparisonFilters"
+	filters.add_theme_constant_override("h_separation", 10)
+	filters.add_theme_constant_override("v_separation", 10)
+	parent.add_child(filters)
+	var search := LineEdit.new()
+	search.name = "ProfileChallengeComparisonSearch"
+	search.placeholder_text = "도전 날짜 · 버전 검색"
+	search.tooltip_text = "2026-10 또는 20261013, 버전, 일일·주간, 성공·실패로 변경된 기록을 검색합니다. 공백으로 나눈 검색어를 모두 포함한 기록을 표시합니다."
+	search.max_length = 120
+	search.clear_button_enabled = true
+	search.custom_minimum_size = Vector2(280, UIKit.TOUCH_MIN_HEIGHT)
+	filters.add_child(search)
+	var filter := OptionButton.new()
+	filter.name = "ProfileChallengeComparisonFilter"
+	filter.custom_minimum_size = Vector2(190, UIKit.TOUCH_MIN_HEIGHT)
+	for title in ["전체 변경", "사라짐·낮아짐", "추가만", "변경만"]: filter.add_item(title)
+	filters.add_child(filter)
+	var count := _label("")
+	count.name = "ProfileChallengeComparisonCount"
+	parent.add_child(count)
+	var details := _label("", UIKit.TEXT)
+	details.name = "ProfileChallengeChanges"
+	parent.add_child(details)
+	var pages := HFlowContainer.new()
+	pages.add_theme_constant_override("h_separation", 10)
+	pages.add_theme_constant_override("v_separation", 10)
+	parent.add_child(pages)
+	var previous := UIKit.style_button(Button.new(), UIKit.ACCENT, false, 15)
+	previous.name = "ProfileChallengePreviousPage"
+	previous.text = "이전 기록"
+	previous.custom_minimum_size = Vector2(140, UIKit.TOUCH_MIN_HEIGHT)
+	pages.add_child(previous)
+	var next := UIKit.style_button(Button.new(), UIKit.ACCENT, false, 15)
+	next.name = "ProfileChallengeNextPage"
+	next.text = "다음 기록"
+	next.custom_minimum_size = Vector2(140, UIKit.TOUCH_MIN_HEIGHT)
+	pages.add_child(next)
+	var state := {"page": 0}
+	var refresh := func():
+		var terms := search.text.strip_edges().to_lower().split(" ", false)
+		var selected: Array = []
+		for row in rows:
+			if filter.selected == 1 and not bool(row.risk): continue
+			if filter.selected == 2 and row.kind != "추가": continue
+			if filter.selected == 3 and row.kind not in ["변경", "낮아짐"]: continue
+			var matches := true
+			for term in terms:
+				if not String(row.search).contains(term):
+					matches = false
+					break
+			if matches: selected.append(row)
+		var total_pages := maxi(1, ceili(float(selected.size()) / CHALLENGE_PAGE_SIZE))
+		state.page = clampi(int(state.page), 0, total_pages - 1)
+		var lines: PackedStringArray = []
+		for row in selected.slice(int(state.page) * CHALLENGE_PAGE_SIZE, (int(state.page) + 1) * CHALLENGE_PAGE_SIZE):
+			lines.append(String(row.text))
+		details.text = "\n\n".join(lines) if not lines.is_empty() else "조건에 맞는 변경 기록이 없습니다. 검색어를 지우거나 전체 변경을 선택하세요."
+		count.text = "표시 조건 %d개 / 전체 변경 %d개 · %d / %d페이지" % [selected.size(), rows.size(), int(state.page) + 1, total_pages]
+		previous.disabled = int(state.page) == 0
+		next.disabled = int(state.page) >= total_pages - 1
+	search.text_changed.connect(func(_value: String): state.page = 0; refresh.call())
+	filter.item_selected.connect(func(_index: int): state.page = 0; refresh.call())
+	previous.pressed.connect(func(): state.page = int(state.page) - 1; refresh.call())
+	next.pressed.connect(func(): state.page = int(state.page) + 1; refresh.call())
+	refresh.call()
 
 static func _add_comparison(parent: Node, current: Dictionary, candidate: Dictionary) -> void:
 	var comparison := VBoxContainer.new()
@@ -132,19 +287,30 @@ static func _copy_text(status: Label, scroll: ScrollContainer, text: String) -> 
 			status.text = "클립보드 복사를 확인하지 못했습니다. 다시 시도하거나 보관 폴더에서 사본을 복사하세요."
 	scroll.ensure_control_visible.call_deferred(status)
 
+static func _comparison_controls(parent: Node, controls: Array[Control]) -> void:
+	for child in parent.get_children():
+		if child is Control and child.focus_mode != Control.FOCUS_NONE:
+			controls.append(child)
+		_comparison_controls(child, controls)
+
 static func _dialog_navigation(scroll: ScrollContainer, confirm: Button, cancel: Button, close: Callable) -> void:
 	scroll.focus_mode = Control.FOCUS_ALL
-	var controls: Array[Control] = [scroll, confirm, cancel]
+	var controls: Array[Control] = [scroll]
+	_comparison_controls(scroll, controls)
+	controls.append(confirm)
+	controls.append(cancel)
 	for index in controls.size():
 		var control := controls[index]
 		var previous := control.get_path_to(controls[(index + controls.size() - 1) % controls.size()])
 		var next := control.get_path_to(controls[(index + 1) % controls.size()])
 		control.focus_previous = previous
 		control.focus_next = next
-		control.focus_neighbor_top = previous
-		control.focus_neighbor_left = previous
-		control.focus_neighbor_bottom = next
-		control.focus_neighbor_right = next
+		# Preserve editing keys and the OptionButton's own arrow-key behavior.
+		if control == scroll or (control is Button and not control is OptionButton):
+			control.focus_neighbor_top = previous
+			control.focus_neighbor_left = previous
+			control.focus_neighbor_bottom = next
+			control.focus_neighbor_right = next
 		control.gui_input.connect(func(event: InputEvent):
 			if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 				control.accept_event()
