@@ -153,7 +153,9 @@ static func _build_replay_list(main) -> void:
 	code_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	UIKit.style_button(code_button, UIKit.TEAL, false, 16)
 	column.get_node("Footer").add_child(code_button)
-	code_button.pressed.connect(func(): _show_code_dialog(main))
+	code_button.pressed.connect(func():
+		code_button.grab_focus()
+		_show_code_dialog(main))
 	var recent_button := Button.new()
 	recent_button.name = "RecentBattlesButton"
 	recent_button.text = Localization.text("최근 온라인 전투")
@@ -404,7 +406,10 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	return card
 
 ## Asks for a six-letter code and plays the replay it names.
-static func _show_code_dialog(main) -> void:
+static func _show_code_dialog(main, return_code: String = "") -> void:
+	var background: Control = main.root_background
+	var return_focus: Control = main.get_viewport().gui_get_focus_owner()
+	var focus_ref: WeakRef = weakref(return_focus) if return_focus != null else null
 	var dialog = main._action_panel("코드로 열기", Rect2(340, 150, 600, 420))
 	dialog.add_child(MultiplayerUI.label("공유받은 6자리 코드를 입력하세요. 필요하면 자동으로 서버에 접속합니다.", 14, MultiplayerUI.MUTED))
 	var input := LineEdit.new()
@@ -414,11 +419,17 @@ static func _show_code_dialog(main) -> void:
 	input.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	input.add_theme_font_size_override("font_size", 28)
 	input.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-	input.text_changed.connect(func(text): input.text = text.to_upper(); input.caret_column = input.text.length())
+	input.text = return_code
+	input.text_changed.connect(func(text):
+		var caret := input.caret_column
+		input.text = text.to_upper()
+		input.caret_column = caret)
 	dialog.add_child(input)
 	var status := MultiplayerUI.label("", 14, MultiplayerUI.GOLD)
 	status.name = "ReplayCodeStatus"
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if not return_code.is_empty():
+		status.text = "%s 코드의 재생에서 돌아왔습니다. 열기로 다시 보거나 다른 코드를 입력하세요." % return_code
 	dialog.add_child(status)
 	var actions := HBoxContainer.new()
 	actions.name = "ReplayCodeActions"
@@ -437,9 +448,15 @@ static func _show_code_dialog(main) -> void:
 	cancel.visible = false
 	cancel.disabled = true
 	actions.add_child(cancel)
-	var close := MultiplayerUI.button(main, dialog, "닫기", "CloseReplayCode", main._dismiss_action_overlay)
+	var close_dialog := func():
+		if not _dialog_alive(dialog): return
+		# Dispose immediately so a response in the closing frame cannot open a viewer.
+		ReplayRequest.cancel_fetch(main, dialog)
+		main._dismiss_action_overlay()
+		background.get_tree().process_frame.connect(_restore_code_entry_focus.bind(main, background, focus_ref), CONNECT_ONE_SHOT)
+	var close := MultiplayerUI.button(main, dialog, "닫기", "CloseReplayCode", close_dialog)
 	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-	var update_navigation := func(): _bind_code_navigation([input, open_button, cancel, close], main._dismiss_action_overlay)
+	var update_navigation := func(): _bind_code_navigation([input, open_button, cancel, close], close_dialog)
 	var pending := {"active": false}
 	cancel.pressed.connect(func():
 		if not _dialog_alive(dialog) or not bool(pending.active): return
@@ -483,14 +500,34 @@ static func _show_code_dialog(main) -> void:
 			if replay.is_empty():
 				fail.call(Localization.text("%s 코드의 리플레이를 찾을 수 없습니다.") % code)
 				return
-			main._dismiss_action_overlay()
-			_play_replay_data(main, replay)
+			# Retain only the code; the viewer must not keep this dialog's controls alive.
+			_open_viewer(main, replay, "", _return_to_code_dialog.bind(main, code), "코드 입력 창으로 돌아갑니다. 입력한 코드를 유지하며 다시 보거나 다른 코드를 입력할 수 있습니다.")
 		ReplayRequest.start(main, dialog, "fetch", code, result, fail, func(text): status.text = Localization.text(text))
 		if _dialog_alive(dialog) and bool(pending.active): cancel.grab_focus()
 	open_button.pressed.connect(open_code)
 	input.text_submitted.connect(func(_text): open_code.call())
 	update_navigation.call()
 	input.grab_focus()
+	if not return_code.is_empty(): input.select_all()
+
+## Restore after the shelf's layout, without reconnecting or downloading on return.
+static func _return_to_code_dialog(main, code: String) -> void:
+	main._build_replay_list()
+	var background: Control = main.root_background
+	var reopen := func():
+		if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return
+		var entry := background.find_child("OpenByCodeButton", true, false) as Button
+		if entry != null: entry.grab_focus()
+		_show_code_dialog(main, code)
+	background.get_tree().process_frame.connect(reopen, CONNECT_ONE_SHOT)
+
+static func _restore_code_entry_focus(main, background: Control, focus_ref: WeakRef) -> void:
+	if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return
+	var target: Control = focus_ref.get_ref() if focus_ref != null else null
+	if not is_instance_valid(target) or not target.is_visible_in_tree() or not background.is_ancestor_of(target):
+		target = background.find_child("OpenByCodeButton", true, false) as Control
+	if target == null or (target is BaseButton and target.disabled): return
+	target.grab_focus()
 
 ## Keep Tab inside this dialog while the input/open action is locked for a download.
 static func _bind_code_navigation(candidates: Array[Control], close_dialog: Callable) -> void:
