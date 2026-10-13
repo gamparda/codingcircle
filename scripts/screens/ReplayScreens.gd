@@ -103,60 +103,20 @@ static func _shelf_file_bytes(path: String, directory: DirAccess) -> int:
 	file.close()
 	return bytes
 
+static func _read_shelf_entry(path: String, directory: DirAccess) -> Dictionary:
+	# Recheck links/folders at read time; the scan and this read can span frames.
+	var replay := {} if directory.is_link(path.get_file()) or DirAccess.dir_exists_absolute(path) else BattleReplay.load_file(path)
+	var entry := _shelf_entry(path, replay)
+	entry["file_bytes"] = _shelf_file_bytes(path, directory)
+	return entry
+
 static func _build_replay_list(main) -> void:
 	var frame = MenuScreens._show_scene(main, REPLAY_LIST_SCREEN, "리플레이", "최근 %d개와 정리 제외한 전투를 다시 보고 분석합니다" % BattleReplay.MAX_SAVED)
 	var column: VBoxContainer = frame.column
-	var status: Label = column.get_node("ReplayStatus")
-	# Load once per visit, preserving the existing persisted order and path tie-break.
-	var entries: Array = []
-	var shown := 0
-	var unreadable := 0
-	var preserved := 0
-	var directory := DirAccess.open(BattleReplay.save_dir)
-	for path in BattleReplay.list_saved(false):
-		var replay := BattleReplay.load_file(path)
-		var entry := _shelf_entry(String(path), replay)
-		entry["file_bytes"] = _shelf_file_bytes(String(path), directory)
-		entries.append(entry)
-		if replay.is_empty():
-			unreadable += 1
-		else:
-			shown += 1
-			if BattleReplay.is_protected(replay): preserved += 1
-	entries.sort_custom(func(a, b): return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
 	frame.deck_filters_changed.connect(_refresh_shelf_deck_buttons.bind(frame))
-	frame.populate(entries, func(entry): return _unreadable_replay_card(main, String(entry.path), int(entry.file_bytes)) if entry.replay.is_empty() else _replay_card(main, String(entry.path), entry.replay, int(entry.file_bytes), frame), main.replay_list_state)
 	frame.refresh_requested.connect(main._build_replay_list)
-	var storage_help := UIKit.style_button(Button.new(), UIKit.TEAL)
-	storage_help.name = "ReplayStorageHelp"
-	storage_help.text = "보관 안내"
-	storage_help.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-	storage_help.tooltip_text = "서버 코드 보관 정책과 이 기기의 저장 경로·백업 방법을 확인합니다."
-	frame.column.get_node("ReplaySearchTools").add_child(storage_help)
-	storage_help.pressed.connect(func():
-		storage_help.grab_focus()
-		var background: Control = main.root_background
-		var focus_ref := weakref(storage_help)
-		var return_to := func():
-			if not _dialog_alive(background) or main.root_background != background: return
-			main._dismiss_action_overlay()
-			background.get_tree().process_frame.connect(_restore_code_entry_focus.bind(main, background, focus_ref), CONNECT_ONE_SHOT)
-		_show_replay_storage_help(main, return_to))
-	var notices := PackedStringArray()
-	if preserved > 0:
-		notices.append("정리 제외 %d개 · 일반 리플레이 %d개. 정리 제외한 전투는 최근 %d개와 별도로 보존합니다. 직접 삭제·데이터 초기화는 적용됩니다." % [preserved, shown - preserved, BattleReplay.MAX_SAVED])
-	if unreadable > 0:
-		notices.append("읽을 수 없는 리플레이 %d개가 있습니다. 자동 정리에서 제외하며, 파일을 보관하거나 목록에서 삭제할 수 있습니다." % unreadable)
-	if shown - preserved > BattleReplay.MAX_SAVED:
-		notices.append("일반 리플레이 %d개를 보관 중입니다. 자동 정리를 완료하지 못했습니다. 파일 권한을 확인하고 정리를 다시 시도하세요." % (shown - preserved))
-		var retry := main._styled_button("오래된 리플레이 정리 재시도", UIKit.GOLD_DEEP, false) as Button
-		retry.name = "RetryReplayCleanup"
-		retry.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-		retry.tooltip_text = "전체 보관함에서 삭제할 오래된 전투·클립·메모를 먼저 확인합니다."
-		column.add_child(retry)
-		column.move_child(retry, column.get_node("Footer").get_index())
-		retry.pressed.connect(func(): _confirm_replay_cleanup(main, retry))
-	status.text = "\n".join(notices)
+	frame.loading_completed.connect(func(entries: Array, error: String): _complete_replay_list(main, frame, entries, error))
+	# Footer actions are usable while the frame scans/reads its snapshot.
 	var back: Button = column.get_node("Footer/ReplayBack")
 	UIKit.style_button(back, Color("#697386"), false, 16)
 	back.text = Localization.text("메인 화면으로")
@@ -174,6 +134,8 @@ static func _build_replay_list(main) -> void:
 	analysis_button.name = "DeckAnalysisButton"
 	analysis_button.text = Localization.text("덱 분석")
 	analysis_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	analysis_button.disabled = true
+	analysis_button.tooltip_text = "보관함 읽기를 마치면 전체 기록을 분석할 수 있습니다."
 	UIKit.style_button(analysis_button, UIKit.GOLD_DEEP, false, 16)
 	column.get_node("Footer").add_child(analysis_button)
 	analysis_button.pressed.connect(func(): _show_deck_analysis(main))
@@ -193,6 +155,57 @@ static func _build_replay_list(main) -> void:
 	UIKit.style_button(recent_button, UIKit.ACCENT, false, 16)
 	column.get_node("Footer").add_child(recent_button)
 	recent_button.pressed.connect(func(): _show_recent_battles(main))
+	frame.begin_loading(BattleReplay.save_dir, _read_shelf_entry, func(entry): return _unreadable_replay_card(main, String(entry.path), int(entry.file_bytes)) if entry.replay.is_empty() else _replay_card(main, String(entry.path), entry.replay, int(entry.file_bytes), frame), main.replay_list_state)
+
+static func _complete_replay_list(main, frame, entries: Array, error: String) -> void:
+	if not _dialog_alive(frame) or not main.root_background.is_ancestor_of(frame): return
+	var column: VBoxContainer = frame.column
+	var status: Label = column.get_node("ReplayStatus")
+	var analysis_button: Button = column.get_node("Footer/DeckAnalysisButton")
+	analysis_button.disabled = not error.is_empty()
+	analysis_button.tooltip_text = "보관 폴더를 읽지 못했습니다. 새로고침 후 다시 시도하세요." if not error.is_empty() else "전체 보관함의 내 덱 전적을 분석합니다. 검색·페이지 조건과 관계없이 집계합니다."
+	var shown := 0
+	var unreadable := 0
+	var preserved := 0
+	for entry in entries:
+		if entry.replay.is_empty():
+			unreadable += 1
+		else:
+			shown += 1
+			if bool(entry.protected): preserved += 1
+	var storage_help := UIKit.style_button(Button.new(), UIKit.TEAL)
+	storage_help.name = "ReplayStorageHelp"
+	storage_help.text = "보관 안내"
+	storage_help.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	storage_help.tooltip_text = "서버 코드 보관 정책과 이 기기의 저장 경로·백업 방법을 확인합니다."
+	frame.column.get_node("ReplaySearchTools").add_child(storage_help)
+	storage_help.pressed.connect(func():
+		storage_help.grab_focus()
+		var background: Control = main.root_background
+		var focus_ref := weakref(storage_help)
+		var return_to := func():
+			if not _dialog_alive(background) or main.root_background != background: return
+			main._dismiss_action_overlay()
+			background.get_tree().process_frame.connect(_restore_code_entry_focus.bind(main, background, focus_ref), CONNECT_ONE_SHOT)
+		_show_replay_storage_help(main, return_to))
+	var notices := PackedStringArray()
+	if not error.is_empty(): notices.append(error)
+	if preserved > 0:
+		notices.append("정리 제외 %d개 · 일반 리플레이 %d개. 정리 제외한 전투는 최근 %d개와 별도로 보존합니다. 직접 삭제·데이터 초기화는 적용됩니다." % [preserved, shown - preserved, BattleReplay.MAX_SAVED])
+	if unreadable > 0:
+		notices.append("읽을 수 없는 리플레이 %d개가 있습니다. 자동 정리에서 제외하며, 파일을 보관하거나 목록에서 삭제할 수 있습니다." % unreadable)
+	if shown - preserved > BattleReplay.MAX_SAVED:
+		notices.append("일반 리플레이 %d개를 보관 중입니다. 자동 정리를 완료하지 못했습니다. 파일 권한을 확인하고 정리를 다시 시도하세요." % (shown - preserved))
+		var retry := main._styled_button("오래된 리플레이 정리 재시도", UIKit.GOLD_DEEP, false) as Button
+		retry.name = "RetryReplayCleanup"
+		retry.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+		retry.tooltip_text = "전체 보관함에서 삭제할 오래된 전투·클립·메모를 먼저 확인합니다."
+		column.add_child(retry)
+		column.move_child(retry, column.get_node("Footer").get_index())
+		retry.pressed.connect(func(): _confirm_replay_cleanup(main, retry))
+	# Imports and failed playback may have posted a message before loading finished.
+	var summary := "\n".join(notices)
+	if not summary.is_empty(): status.text += ("\n" if not status.text.is_empty() else "") + summary
 
 static func _confirm_replay_cleanup(main, entry_button: Button) -> void:
 	var background: Control = main.root_background
@@ -273,18 +286,19 @@ static func _confirm_replay_cleanup(main, entry_button: Button) -> void:
 			# newly protected badge, counts and retention-filter membership.
 			main._build_replay_list()
 			var current_background: Control = main.root_background
-			var retry := current_background.find_child("RetryReplayCleanup", true, false) as Button
-			if retry != null:
-				_confirm_replay_cleanup(main, retry)
-				var current_status := main.action_overlay.find_child("ReplayCleanupStatus", true, false) as Label
-				if current_status != null and current_status.text.is_empty():
-					current_status.text = "이 전투를 정리 대상에서 보존했습니다. 남은 삭제 대상을 다시 확인하세요."
-					current_status.add_theme_color_override("font_color", UIKit.TEAL)
-			else:
-				var shelf_status := current_background.find_child("ReplayStatus", true, false) as Label
-				if shelf_status != null:
-					shelf_status.text = "이 전투를 정리 대상에서 보존했습니다. 남은 정리 대상이 없습니다." + ("\n" + shelf_status.text if not shelf_status.text.is_empty() else "")
-				current_background.get_tree().process_frame.connect(_restore_protection_focus.bind(main, current_background, String(entry.path)), CONNECT_ONE_SHOT))
+			var shelf_status := current_background.find_child("ReplayStatus", true, false) as Label
+			if shelf_status != null: shelf_status.text = "이 전투를 정리 대상에서 보존했습니다. 보관함을 다시 읽고 있습니다."
+			_after_replay_list_loaded(current_background, func():
+				if not _dialog_alive(current_background) or main.root_background != current_background or is_instance_valid(main.action_overlay): return
+				var retry := current_background.find_child("RetryReplayCleanup", true, false) as Button
+				if retry != null:
+					_confirm_replay_cleanup(main, retry)
+					var current_status := main.action_overlay.find_child("ReplayCleanupStatus", true, false) as Label
+					if current_status != null and current_status.text.is_empty():
+						current_status.text = "이 전투를 정리 대상에서 보존했습니다. 남은 삭제 대상을 다시 확인하세요."
+						current_status.add_theme_color_override("font_color", UIKit.TEAL)
+				else:
+					_restore_protection_focus(main, current_background, String(entry.path))))
 		protect.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
 		protect.tooltip_text = "이 파일과 메모를 정리 대상에서 보존합니다. 새 사본을 저장하거나 보관 순서를 바꾸지 않습니다."
 		controls.append(protect)
@@ -339,7 +353,7 @@ static func _confirm_replay_cleanup(main, entry_button: Button) -> void:
 			if remaining > 0:
 				notice += " 정리 대상 %d개가 남았습니다.\n%s\n남은 파일은 보존했습니다. 정리 재시도로 삭제 대상을 다시 확인하세요." % [remaining, result.error]
 			shelf_status.text = notice + ("\n" + shelf_status.text if not shelf_status.text.is_empty() else "")
-		current_background.get_tree().process_frame.connect(_restore_cleanup_focus.bind(main, current_background), CONNECT_ONE_SHOT))
+		_after_replay_list_loaded(current_background, _restore_cleanup_focus.bind(main, current_background)))
 	for control in controls:
 		control.gui_input.connect(func(event: InputEvent):
 			if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
@@ -368,6 +382,11 @@ static func _restore_shelf_focus(background: Control, target: Control) -> void:
 	var frame = background.find_child("ReplayListScreen", true, false)
 	if frame != null:
 		frame.restore_focus(target)
+
+static func _after_replay_list_loaded(background: Control, action: Callable) -> void:
+	if not _dialog_alive(background): return
+	var frame := background.find_child("ReplayListScreen", true, false) as ReplayListScreen
+	if frame != null: frame.after_loading(action)
 
 static func _confirm_replay_delete(main, path: String, entry_button: Button) -> void:
 	var background: Control = main.root_background
@@ -473,7 +492,7 @@ static func _confirm_replay_delete(main, path: String, entry_button: Button) -> 
 		if shelf_status != null:
 			var notice := "리플레이 1개를 삭제했습니다: %s" % path.get_file()
 			shelf_status.text = notice + ("\n" + shelf_status.text if not shelf_status.text.is_empty() else "")
-		current_background.get_tree().process_frame.connect(_restore_deleted_replay_focus.bind(main, current_background, selected_index), CONNECT_ONE_SHOT))
+		_after_replay_list_loaded(current_background, _restore_deleted_replay_focus.bind(main, current_background, selected_index)))
 	for control in controls:
 		control.gui_input.connect(func(event: InputEvent):
 			if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
@@ -713,7 +732,7 @@ static func _confirm_replay_protection(main, path: String, entry_button: Button)
 		if shelf_status != null:
 			var notice := "정리 제외했습니다. 이 파일과 메모를 보존합니다." if enabled else "보존을 해제했습니다. 지금 삭제하지 않으며 다음 정리 때 대상이 될 수 있습니다."
 			shelf_status.text = notice + ("\n" + shelf_status.text if not shelf_status.text.is_empty() else "")
-		current_background.get_tree().process_frame.connect(_restore_protection_focus.bind(main, current_background, path), CONNECT_ONE_SHOT))
+		_after_replay_list_loaded(current_background, _restore_protection_focus.bind(main, current_background, path)))
 	for control in controls:
 		control.gui_input.connect(func(event: InputEvent):
 			if not event is InputEventKey or not event.pressed or event.alt_pressed or event.ctrl_pressed or event.meta_pressed: return
@@ -1040,7 +1059,7 @@ static func _show_replay_storage_help(main, return_to: Callable) -> void:
 			if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return
 			var search := background.find_child("ReplaySearch", true, false) as Control
 			if search != null: search.grab_focus()
-		background.get_tree().process_frame.connect(focus_search, CONNECT_ONE_SHOT))
+		_after_replay_list_loaded(background, focus_search))
 	footer.add_child(find_local)
 	var close_dialog := func():
 		if _dialog_alive(dialog): return_to.call()
@@ -1242,7 +1261,7 @@ static func _return_to_code_dialog(main, code: String) -> void:
 		var entry := background.find_child("OpenByCodeButton", true, false) as Button
 		if entry != null: entry.grab_focus()
 		_show_code_dialog(main, code)
-	background.get_tree().process_frame.connect(reopen, CONNECT_ONE_SHOT)
+	_after_replay_list_loaded(background, reopen)
 
 static func _restore_code_entry_focus(main, background: Control, focus_ref: WeakRef) -> void:
 	if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return

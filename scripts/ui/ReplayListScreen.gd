@@ -3,9 +3,28 @@ extends "res://scripts/ui/SubMenuFrame.gd"
 
 signal refresh_requested
 signal deck_filters_changed(queries: PackedStringArray)
+signal loading_completed(entries: Array, error: String)
 
 const MODES := ["", "campaign", "practice", "daily", "weekly", "draft", "online", "unreadable"]
 const PAGE_SIZE := 8
+const LOAD_BATCH_FILES := 4
+const SCAN_BATCH_NAMES := 64
+const LOAD_BUDGET_USEC := 4000
+
+var _loading := false
+var _load_scanning := false
+var _load_directory: DirAccess
+var _load_directory_path := ""
+var _load_paths: Array[String] = []
+var _load_entries: Array = []
+var _load_reader: Callable
+var _load_factory: Callable
+var _load_index := 0
+var _load_panel: VBoxContainer
+var _load_progress: Label
+var _load_refresh: Button
+var _load_error := ""
+var _load_input_revision := 0
 
 var _entries: Array = []
 var _page_entries: Array = []
@@ -35,6 +54,136 @@ var _refresh_revision := 0
 var _restoring := false
 @onready var _scroll: ScrollContainer = $Column/ReplayScroll
 @onready var _rows: VBoxContainer = $Column/ReplayScroll/ReplayRows
+
+## The frame owns the scan so a queued ancestor cancels work before the next file.
+## Keep the saved card/page bookmark untouched until the entire snapshot is ready.
+func begin_loading(directory_path: String, entry_reader: Callable, card_factory: Callable, state: Dictionary) -> void:
+	_state = state
+	_load_directory_path = directory_path
+	_load_reader = entry_reader
+	_load_factory = card_factory
+	_loading = true
+	_load_scanning = true
+	_load_panel = VBoxContainer.new()
+	_load_panel.name = "ReplayShelfLoading"
+	_load_panel.custom_minimum_size.y = 180
+	_load_panel.alignment = BoxContainer.ALIGNMENT_CENTER
+	_load_panel.add_theme_constant_override("separation", 12)
+	_rows.add_child(_load_panel)
+	_load_progress = Label.new()
+	_load_progress.name = "ReplayShelfLoadProgress"
+	_load_progress.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_load_progress.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UIKit.display(_load_progress, 22, UIKit.TEXT)
+	_load_progress.text = "보관함 파일을 찾고 있습니다"
+	_load_panel.add_child(_load_progress)
+	var hint := Label.new()
+	hint.text = "읽기를 마치면 전체 검색·용량·페이지와 덱 분석을 사용할 수 있습니다. 지금 메인 화면·가져오기·코드·온라인 전투 메뉴로 이동할 수 있으며, 화면을 떠나면 남은 읽기를 중단합니다."
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	_load_panel.add_child(hint)
+	_load_refresh = UIKit.style_button(Button.new(), UIKit.TEAL)
+	_load_refresh.name = "ReloadReplayShelf"
+	_load_refresh.text = "읽기 다시 시작"
+	_load_refresh.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	_load_refresh.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	_load_refresh.tooltip_text = "현재 읽기를 중단하고 파일을 다시 찾습니다. 기존 검색 조건·정렬·카드 위치는 유지합니다."
+	_load_panel.add_child(_load_refresh)
+	_load_refresh.pressed.connect(func():
+		_load_refresh.grab_focus()
+		refresh_requested.emit())
+	get_viewport().gui_focus_changed.connect(_remember_focus)
+	_load_directory = DirAccess.open(directory_path)
+	if _load_directory == null:
+		# A shelf that has never been created is empty; an inaccessible one is not.
+		var error := "보관 폴더를 열지 못했습니다. 파일 권한과 저장 장치 연결을 확인한 뒤 새로고침하세요." if DirAccess.dir_exists_absolute(directory_path) or FileAccess.file_exists(directory_path) else ""
+		_finish_loading(error)
+		return
+	if _load_directory.list_dir_begin() != OK:
+		_finish_loading("보관 폴더의 파일 목록을 읽지 못했습니다. 파일 권한과 저장 장치 연결을 확인한 뒤 새로고침하세요.")
+		return
+	set_process(true)
+	# Small shelves finish immediately, but even this first pass has the same budget.
+	_load_batch()
+
+func _process(_delta: float) -> void:
+	if _loading: _load_batch()
+
+func _load_batch() -> void:
+	if not _alive():
+		_cancel_loading()
+		return
+	var deadline := Time.get_ticks_usec() + LOAD_BUDGET_USEC
+	if _load_scanning:
+		for _name_index in SCAN_BATCH_NAMES:
+			var file := _load_directory.get_next()
+			if file.is_empty():
+				_load_directory.list_dir_end()
+				_load_scanning = false
+				break
+			if not _load_directory.current_is_dir() and file.ends_with(".json"):
+				_load_paths.append(_load_directory_path.path_join(file))
+			if Time.get_ticks_usec() >= deadline: break
+		if _load_scanning:
+			_load_progress.text = "보관함 파일을 찾고 있습니다 · %d개 발견" % _load_paths.size()
+			return
+	for _file_index in LOAD_BATCH_FILES:
+		if _load_index >= _load_paths.size(): break
+		if Time.get_ticks_usec() >= deadline: break
+		if not _alive():
+			_cancel_loading()
+			return
+		_load_entries.append(_load_reader.call(_load_paths[_load_index], _load_directory))
+		_load_index += 1
+	if _load_index == _load_paths.size():
+		_finish_loading("")
+	else:
+		_load_progress.text = "보관함 읽는 중 · %d / %d개\n검색·용량 집계를 준비하고 있습니다" % [_load_index, _load_paths.size()]
+
+func _finish_loading(error: String) -> void:
+	if not _alive():
+		_cancel_loading()
+		return
+	var entries := _load_entries
+	var factory := _load_factory
+	_load_error = error
+	_cancel_loading()
+	_rows.remove_child(_load_panel)
+	_load_panel.queue_free()
+	_load_panel = null
+	populate(entries, factory, _state)
+	loading_completed.emit(entries, error)
+
+## Existing post-action focus/reopen callbacks must wait for cards to exist.
+## A new user action while waiting cancels automatic navigation.
+func after_loading(action: Callable) -> void:
+	var revision := _load_input_revision
+	if _loading:
+		loading_completed.connect(func(_loaded: Array, _error: String): _queue_loaded_action(action, revision), CONNECT_ONE_SHOT)
+	else:
+		_queue_loaded_action(action, revision)
+
+func _queue_loaded_action(action: Callable, revision: int) -> void:
+	if _alive():
+		get_tree().process_frame.connect(_run_loaded_action.bind(action, revision), CONNECT_ONE_SHOT)
+
+func _run_loaded_action(action: Callable, revision: int) -> void:
+	if _alive() and revision == _load_input_revision: action.call()
+
+func _cancel_loading() -> void:
+	set_process(false)
+	if _load_directory != null: _load_directory.list_dir_end()
+	_load_directory = null
+	_load_paths = []
+	_load_entries = []
+	_load_reader = Callable()
+	_load_factory = Callable()
+	_loading = false
+	_load_scanning = false
+
+func _exit_tree() -> void:
+	_cancel_loading()
 
 func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void:
 	_entries = entries
@@ -135,6 +284,9 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	var totals := storage_totals(_entries)
 	storage.text = "전체 보관 %d개 · %s\n일반 %s · 정리 제외 %s · 읽기 실패 %s" % [_entries.size(), storage_size_text(int(totals.bytes), int(totals.unknown)), _storage_group_text(totals.normal), _storage_group_text(totals.protected), _storage_group_text(totals.unreadable)]
 	storage.tooltip_text = "검색 조건과 관계없는 이 기기의 전체 보관함입니다. 새로고침할 때 JSON 파일 크기를 다시 확인합니다. 용량은 파일 내용의 크기이며 디스크 사용량·남은 저장 공간과는 다릅니다. 클립도 전체 전투 기록을 포함합니다. 정리 제외·읽기 실패 파일은 자동 정리로 줄어들지 않습니다."
+	if not _load_error.is_empty():
+		storage.text = "전체 보관 개수·용량을 확인하지 못했습니다."
+		storage.tooltip_text = _load_error
 	column.add_child(storage)
 	column.move_child(storage, _scroll.get_index())
 	var pages := HFlowContainer.new()
@@ -171,7 +323,8 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	# Capture the requested position before the initial layout updates its scrollbar.
 	_refresh(false)
 	_scroll.get_v_scroll_bar().value_changed.connect(_remember_scroll)
-	get_viewport().gui_focus_changed.connect(_remember_focus)
+	if not get_viewport().gui_focus_changed.is_connected(_remember_focus):
+		get_viewport().gui_focus_changed.connect(_remember_focus)
 
 func _alive() -> bool:
 	if not is_inside_tree(): return false
@@ -193,6 +346,10 @@ func _remember_focus(control: Control) -> void:
 	if not _alive() or _restoring or not is_instance_valid(control): return
 	# Dialogs are siblings of this frame. They must not replace the shelf bookmark.
 	if not is_ancestor_of(control): return
+	if _loading and control == _load_refresh:
+		_state["focus_file"] = ""
+		_state["focus_control"] = "Column/ReplaySearchTools/RefreshReplayList"
+		return
 	_store_focus(control)
 
 func _store_focus(control: Control) -> void:
@@ -394,6 +551,9 @@ func _refresh(reset_scroll: bool) -> void:
 	var visible_storage := storage_totals(visible_entries)
 	_count.text += " · " + storage_size_text(int(visible_storage.bytes), int(visible_storage.unknown))
 	_count.tooltip_text = "현재 페이지뿐 아니라 검색 조건에 맞는 전체 파일의 개수와 용량입니다. 읽기 실패 파일도 포함합니다. 검색·필터·정렬·페이지는 자동 정리와 덱 분석의 대상에 영향을 주지 않습니다."
+	if not _load_error.is_empty():
+		_count.text = "목록 읽기 실패"
+		_count.tooltip_text = _load_error
 	_reset.disabled = _search.text.is_empty() and _deck_queries[0].text.is_empty() and _deck_queries[1].text.is_empty() and _mode.selected == 0 and _scope.selected == 0 and _outcome.selected == 0 and _retention.selected == 0 and _sort.selected == 0
 	if is_instance_valid(_empty):
 		_rows.remove_child(_empty)
@@ -434,12 +594,14 @@ func _refresh(reset_scroll: bool) -> void:
 		_rows.add_child(_empty)
 		var message := Label.new()
 		message.text = "아직 저장된 리플레이가 없습니다" if _entries.is_empty() else "검색 조건에 맞는 리플레이가 없습니다"
+		if not _load_error.is_empty(): message.text = "보관함을 읽지 못했습니다"
 		message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		UIKit.display(message, 22, UIKit.TEXT)
 		_empty.add_child(message)
 		var hint := Label.new()
 		hint.text = "전투를 끝까지 치르면 자동 저장됩니다. 공유받은 텍스트는 클립보드에서 가져올 수 있습니다." if _entries.is_empty() else "전체 검색·양쪽 덱 검색·종류·결과·보존 조건을 바꾸거나 초기화를 눌러 전체 목록을 확인하세요. 읽기 실패 파일은 덱 조건을 해제해야 볼 수 있습니다."
+		if not _load_error.is_empty(): hint.text = _load_error
 		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
@@ -507,8 +669,10 @@ func _finish_restore(bookmark: Dictionary, target: Control, revision: int) -> vo
 	_remember_focus(owner if target == null else target)
 
 func _input(event: InputEvent) -> void:
-	if not _restoring or not _alive(): return
+	if not _alive(): return
 	if (event is InputEventKey and event.pressed) or (event is InputEventMouseButton and event.pressed) or (event is InputEventScreenTouch and event.pressed) or event is InputEventScreenDrag:
+		_load_input_revision += 1
+		if not _restoring: return
 		_refresh_revision += 1
 		_restoring = false
 		_remember_scroll(_scroll.scroll_vertical)
