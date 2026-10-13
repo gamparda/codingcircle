@@ -179,21 +179,151 @@ static func _build_replay_list(main) -> void:
 	column.get_node("Footer").add_child(recent_button)
 	recent_button.pressed.connect(func(): _show_recent_battles(main))
 
-static func _delete_replay(main, path: String) -> void:
-	# Keep the existing card (and its retry button) when removal fails.
-	if DirAccess.dir_exists_absolute(path) or (FileAccess.file_exists(path) and DirAccess.remove_absolute(path) != OK):
-		var status := main.find_child("ReplayStatus", true, false) as Label
-		if status != null:
-			status.text = "리플레이를 삭제하지 못했습니다. 파일 권한을 확인하고 삭제를 다시 시도하세요."
-			status.tooltip_text = ProjectSettings.globalize_path(path)
-		return
-	main._build_replay_list()
+static func _confirm_replay_delete(main, path: String, entry_button: Button) -> void:
+	var background: Control = main.root_background
+	if not _dialog_alive(background) or not _dialog_alive(entry_button): return
+	entry_button.grab_focus()
+	var focus_ref := weakref(entry_button)
+	var rows := background.find_child("ReplayRows", true, false) as VBoxContainer
+	var selected_index := 0
+	if rows != null:
+		for card in rows.get_children():
+			if not card.visible: continue
+			if card.is_ancestor_of(entry_button): break
+			selected_index += 1
+	var snapshot := BattleReplay.deletion_snapshot(path)
+	var dialog: VBoxContainer = main._action_panel("리플레이 삭제 확인", Rect2(230, 70, 820, 580))
+	dialog.name = "ReplayDeleteDialog"
+	var scroll := ScrollContainer.new()
+	scroll.name = "ReplayDeleteScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.focus_mode = Control.FOCUS_ALL
+	scroll.follow_focus = true
+	dialog.add_child(scroll)
+	var details := VBoxContainer.new()
+	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.add_theme_constant_override("separation", 12)
+	scroll.add_child(details)
+	var replay: Dictionary = snapshot.replay
+	var summary := "읽을 수 없는 리플레이\n복구할 수 있는 내용이 남아 있을 수 있습니다. 필요하면 먼저 JSON 파일을 다른 곳에 보관하세요."
+	if not replay.is_empty():
+		var info := describe(replay)
+		summary = "%s · %s · 전체 전투 %s\n보관 파일명 기준 시각: %s\n함께 삭제되는 메모: %d개" % [info.title, info.outcome, info.duration, _stamp(path), int(info.notes)]
+		if not String(info.clip_range).is_empty():
+			summary += "\n클립 구간 %s · 길이 %s" % [info.clip_range, info.clip_length]
+	var headline := MultiplayerUI.label(summary, 18, UIKit.TEXT)
+	headline.name = "ReplayDeleteSummary"
+	headline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	details.add_child(headline)
+	var warning := MultiplayerUI.label("선택한 로컬 파일 하나와 그 안의 메모를 영구 삭제합니다. 되돌릴 수 없습니다.\n필요한 전투는 먼저 공유 텍스트나 JSON 파일을 게임 밖에 보관하세요. 서버 코드만으로는 계속 보관되지 않습니다.\n전적·도전 점수·다른 리플레이·서버에 보관된 전투는 유지됩니다.", 15, UIKit.DANGER)
+	warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	details.add_child(warning)
+	var path_label := MultiplayerUI.label("삭제할 파일의 실제 경로", 14, UIKit.TEXT_MUTED)
+	dialog.add_child(path_label)
+	var path_input := LineEdit.new()
+	path_input.name = "ReplayDeletePath"
+	path_input.text = ProjectSettings.globalize_path(path)
+	path_input.editable = false
+	path_input.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	path_input.tooltip_text = path_input.text
+	dialog.add_child(path_input)
+	var status := MultiplayerUI.label(String(snapshot.error), 15, UIKit.DANGER)
+	status.name = "ReplayDeleteStatus"
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	details.add_child(status)
+	var close := func():
+		if not _dialog_alive(dialog) or main.root_background != background: return
+		main._dismiss_action_overlay()
+		background.get_tree().process_frame.connect(_restore_code_entry_focus.bind(main, background, focus_ref), CONNECT_ONE_SHOT)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 10)
+	dialog.add_child(actions)
+	var copy := MultiplayerUI.button(main, actions, "먼저 텍스트 복사", "CopyReplayBeforeDelete", func():
+		if not _dialog_alive(dialog) or main.root_background != background: return
+		var text := BattleReplay.to_share_text(replay)
+		if text.length() > BattleReplay.MAX_SHARE_CHARS:
+			status.text = "공유 텍스트가 가져오기 한도를 넘습니다. 취소하고 표시된 JSON 파일을 게임 밖에 복사해 보관하세요."
+			status.add_theme_color_override("font_color", UIKit.DANGER)
+			scroll.ensure_control_visible.call_deferred(status)
+			return
+		DisplayServer.clipboard_set(text)
+		status.text = "리플레이 텍스트를 복사했습니다. 삭제하기 전에 메모장 등 게임 밖에 붙여넣어 보관하세요."
+		status.add_theme_color_override("font_color", UIKit.TEAL)
+		scroll.ensure_control_visible.call_deferred(status))
+	copy.disabled = replay.is_empty() or not DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD)
+	copy.tooltip_text = "이 확인창에 표시한 전투와 메모를 복사합니다. 복사만으로 백업이 완료되지는 않습니다."
+	var confirm := UIKit.style_button(Button.new(), UIKit.DANGER)
+	confirm.name = "ConfirmReplayDelete"
+	confirm.text = "이 파일만 영구 삭제"
+	confirm.disabled = not String(snapshot.error).is_empty()
+	actions.add_child(confirm)
+	var cancel := MultiplayerUI.button(main, actions, "취소", "CancelReplayDelete", close)
+	for button in [copy, confirm, cancel]:
+		button.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var controls: Array[Control] = [scroll, path_input, copy, confirm, cancel]
+	_bind_challenge_navigation(controls)
+	confirm.pressed.connect(func():
+		if not _dialog_alive(dialog) or main.root_background != background or confirm.disabled: return
+		var result := BattleReplay.delete_saved(path, String(snapshot.fingerprint))
+		if not result.ok:
+			status.text = String(result.error)
+			status.add_theme_color_override("font_color", UIKit.DANGER)
+			confirm.disabled = not bool(result.retryable)
+			_bind_challenge_navigation(controls)
+			scroll.ensure_control_visible.call_deferred(status)
+			cancel.grab_focus()
+			return
+		main._build_replay_list()
+		var current_background: Control = main.root_background
+		var shelf_status := current_background.find_child("ReplayStatus", true, false) as Label
+		if shelf_status != null:
+			var notice := "리플레이 1개를 삭제했습니다: %s" % path.get_file()
+			shelf_status.text = notice + ("\n" + shelf_status.text if not shelf_status.text.is_empty() else "")
+		current_background.get_tree().process_frame.connect(_restore_deleted_replay_focus.bind(main, current_background, selected_index), CONNECT_ONE_SHOT))
+	for control in controls:
+		control.gui_input.connect(func(event: InputEvent):
+			if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+				control.accept_event()
+				close.call())
+	scroll.gui_input.connect(func(event: InputEvent):
+		if not event is InputEventKey or not event.pressed or event.alt_pressed or event.ctrl_pressed or event.meta_pressed: return
+		match event.keycode:
+			KEY_UP: scroll.scroll_vertical -= 48
+			KEY_DOWN: scroll.scroll_vertical += 48
+			KEY_PAGEUP: scroll.scroll_vertical -= maxi(48, int(scroll.size.y))
+			KEY_PAGEDOWN: scroll.scroll_vertical += maxi(48, int(scroll.size.y))
+			KEY_HOME: scroll.scroll_vertical = 0
+			KEY_END: scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+			_: return
+		scroll.accept_event())
+	# Opening with Enter must never make permanent deletion the default action.
+	cancel.grab_focus()
+
+static func _restore_deleted_replay_focus(main, background: Control, selected_index: int) -> void:
+	if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return
+	var rows := background.find_child("ReplayRows", true, false) as VBoxContainer
+	var visible_cards: Array[Control] = []
+	if rows != null:
+		for card in rows.get_children():
+			if card.visible and card.find_child("DeleteReplayButton", true, false) != null: visible_cards.append(card)
+	if not visible_cards.is_empty():
+		var card := visible_cards[clampi(selected_index, 0, visible_cards.size() - 1)]
+		var target := card.find_child("PlayReplayButton", true, false) as Button
+		if target == null: target = card.find_child("DeleteReplayButton", true, false) as Button
+		if target != null:
+			target.grab_focus()
+			return
+	var search := background.find_child("ReplaySearch", true, false) as LineEdit
+	if search != null: search.grab_focus()
 
 static func _delete_button(main, path: String) -> Button:
 	var button: Button = main._styled_button("삭제", UIKit.DANGER, false)
 	button.name = "DeleteReplayButton"
 	button.custom_minimum_size = Vector2(80, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 46)
-	button.pressed.connect(func(): _delete_replay(main, path))
+	button.tooltip_text = "전투·메모·파일 경로를 확인한 뒤 선택한 로컬 파일 하나만 삭제합니다."
+	button.pressed.connect(func(): _confirm_replay_delete(main, path, button))
 	return button
 
 static func _unreadable_replay_card(main, path: String) -> PanelContainer:

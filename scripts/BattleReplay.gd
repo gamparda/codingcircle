@@ -421,6 +421,50 @@ static func load_file(path: String) -> Dictionary:
 		return {}
 	return json.data if valid(json.data) else {}
 
+## Explicit shelf deletion uses the exact file bytes, including notes and local order.
+## Unreadable JSON can still be selected, but links, folders and outside paths cannot.
+static func _deletion_target_error(path: String) -> String:
+	if path.get_base_dir() != save_dir or path.simplify_path() != path or not path.ends_with(".json"):
+		return "리플레이 보관 폴더의 파일만 삭제할 수 있습니다."
+	var directory := DirAccess.open(save_dir)
+	if directory == null or directory.is_link(path.get_file()) or DirAccess.dir_exists_absolute(path):
+		return "선택한 파일에 접근할 수 없거나 폴더·링크로 바뀌었습니다. 취소하고 목록을 새로고침하세요."
+	if not FileAccess.file_exists(path):
+		return "선택한 파일이 더 이상 존재하지 않습니다. 취소하고 목록을 새로고침하세요."
+	return ""
+
+static func deletion_snapshot(path: String) -> Dictionary:
+	var result := {"fingerprint": "", "replay": {}, "error": _deletion_target_error(path)}
+	if not String(result.error).is_empty(): return result
+	var fingerprint := FileAccess.get_sha256(path)
+	if fingerprint.is_empty():
+		result.error = "파일 내용을 확인하지 못했습니다. 파일 권한을 확인하고 다시 선택하세요."
+		return result
+	var replay := load_file(path)
+	# Do not display one version and authorize deletion of another during a rewrite.
+	if not _deletion_target_error(path).is_empty() or FileAccess.get_sha256(path) != fingerprint:
+		result.error = "확인 중 파일 내용이 바뀌었습니다. 취소하고 목록을 새로고침하세요."
+		return result
+	result.fingerprint = fingerprint
+	result.replay = replay
+	return result
+
+static func delete_saved(path: String, fingerprint: String) -> Dictionary:
+	var result := {"ok": false, "error": _deletion_target_error(path), "retryable": false}
+	if not String(result.error).is_empty(): return result
+	if fingerprint.is_empty() or FileAccess.get_sha256(path) != fingerprint:
+		result.error = "확인창을 연 뒤 파일 내용이 바뀌었거나 읽을 수 없게 되었습니다. 삭제하지 않았습니다. 취소하고 목록을 새로고침해 다시 확인하세요."
+		return result
+	# Recheck the target after hashing; never recursively remove a folder or follow a link.
+	result.error = _deletion_target_error(path)
+	if not String(result.error).is_empty(): return result
+	if DirAccess.remove_absolute(path) != OK:
+		result.error = "리플레이를 삭제하지 못했습니다. 파일 권한을 확인하고 삭제를 다시 시도하세요."
+		result.retryable = true
+		return result
+	result.ok = true
+	return result
+
 static func _storage_order(replay: Dictionary) -> int:
 	var value = replay.get("_local_order")
 	return int(value) if _is_integer(value) and float(value) > 0.0 else 0
