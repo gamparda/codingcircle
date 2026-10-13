@@ -13,6 +13,10 @@ static func pause(main, automatic: bool = false) -> void:
 	if not can_pause(main) or is_instance_valid(main.local_pause_overlay):
 		return
 	main.local_pause_focus = main.get_viewport().gui_get_focus_owner()
+	# An open reference dropdown must not float above the interruption panel.
+	if is_instance_valid(main.stats_overlay):
+		var scope := main.stats_overlay.find_child("StatsSideScope", true, false) as OptionButton
+		if scope != null: scope.get_popup().hide()
 	main.practice.paused = true
 	main.local_battle_skip_delta = true
 	if is_instance_valid(main.practice_pause_button):
@@ -80,9 +84,8 @@ static func handle_key(main, event: InputEventKey) -> bool:
 		return true
 	if not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed or event.shift_pressed or not can_pause(main) or main._battle_text_has_focus():
 		return false
-	if is_instance_valid(main.stats_overlay) and event.keycode == KEY_ESCAPE and not is_instance_valid(main.action_overlay) and not is_instance_valid(main.report_overlay):
-		main._dismiss_stats_panel()
-		return true
+	# Main routes reference-window keys to BattleStatsBrowser, whose dropdown
+	# must receive Esc before the entire reference window is dismissed.
 	if event.keycode != KEY_SPACE or is_instance_valid(main.stats_overlay) or is_instance_valid(main.action_overlay) or is_instance_valid(main.report_overlay):
 		return false
 	pause(main)
