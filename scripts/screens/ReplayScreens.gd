@@ -933,11 +933,22 @@ static func _open_viewer(main, replay: Dictionary, path: String, return_to: Call
 	main.replay_viewer = viewer
 
 ## Find candidates without treating matching dates, rounded times or legacy versions as a battle ID.
-static func _show_challenge_replays(main, period: String, date: String, ruleset: String, record: Dictionary, return_focus: Control = null) -> void:
+static func _show_challenge_replays(main, period: String, date: String, ruleset: String, record: Dictionary, return_focus: Control = null, view_state: Dictionary = {}) -> void:
+	if view_state.is_empty():
+		view_state = {"completed": {}}
 	if return_focus == null:
 		return_focus = main.get_viewport().gui_get_focus_owner()
 	var focus_target := return_focus
 	var entries := ChallengeReplays.matching(ChallengeReplays.load_saved(), period, date, ruleset)
+	# Retain only small, completed summaries while this selection dialog is open.
+	# A changed or removed file must never inherit a previous analysis.
+	var completed: Dictionary = view_state.get("completed", {})
+	view_state["completed"] = completed
+	var fingerprints := {}
+	for entry in entries:
+		fingerprints[String(entry.fingerprint)] = true
+	for key in completed.keys():
+		if not fingerprints.has(key): completed.erase(key)
 	var dialog: VBoxContainer = main._action_panel("도전의 보관 전투", Rect2(190, 60, 900, 600))
 	var title := "주간 도전" if period == "weekly" else "일일 도전"
 	var date_text := "%s-%s-%s" % [date.substr(0, 4), date.substr(4, 2), date.substr(6, 2)]
@@ -1002,6 +1013,8 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			content.add_child(actions)
 			var path := String(entry.path)
 			var fingerprint := String(entry.fingerprint)
+			if completed.has(fingerprint):
+				_show_challenge_score(score_detail, completed[fingerprint], replay, record)
 			var stamp := MultiplayerUI.label(_stamp(path) + " · " + path.get_file(), 13, UIKit.TEXT_MUTED)
 			stamp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			stamp.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -1009,7 +1022,8 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			actions.add_child(stamp)
 			var analyze := UIKit.style_button(Button.new(), UIKit.TEAL, false, 16)
 			analyze.name = "AnalyzeChallengeScore"
-			analyze.text = "점수 분석"
+			analyze.set_meta("ChallengeReplayPath", path)
+			analyze.text = "다시 분석" if completed.has(fingerprint) else "점수 분석"
 			analyze.custom_minimum_size = Vector2(130, UIKit.TOUCH_MIN_HEIGHT)
 			analyze.tooltip_text = "선택한 전투만 분석합니다. 다시 누르면 취소하며, 다른 전투를 분석하면 이전 분석은 중단됩니다."
 			actions.add_child(analyze)
@@ -1024,9 +1038,10 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 					score_detail.text = "점수 분석을 취소했습니다. 다시 분석할 수 있습니다."
 					return
 				analysis_job.serial = int(analysis_job.serial) + 1
-				_analyze_challenge_score(dialog, analyze, score_detail, analysis_job, int(analysis_job.serial), path, fingerprint, period, date, ruleset, record))
+				_analyze_challenge_score(dialog, analyze, score_detail, analysis_job, int(analysis_job.serial), path, fingerprint, period, date, ruleset, record, completed))
 			var watch := UIKit.style_button(Button.new(), UIKit.ACCENT, true, 16)
 			watch.name = "WatchChallengeReplay"
+			watch.set_meta("ChallengeReplayPath", path)
 			watch.text = "재생"
 			watch.custom_minimum_size = Vector2(110, UIKit.TOUCH_MIN_HEIGHT)
 			actions.add_child(watch)
@@ -1055,9 +1070,14 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	refresh.text = "새로고침"
 	refresh.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	refresh.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	refresh.tooltip_text = "파일을 다시 조회합니다. 내용이 같은 전투의 분석 결과와 스크롤 위치를 유지하며, 진행 중인 분석은 중단합니다."
 	refresh.pressed.connect(func():
 		if _dialog_alive(dialog):
-			_show_challenge_replays(main, period, date, ruleset, record, focus_target))
+			view_state["scroll"] = scroll.scroll_vertical
+			var focused: Control = main.get_viewport().gui_get_focus_owner()
+			view_state["focus_name"] = String(focused.name) if focused in controls else String(scroll.name)
+			view_state["focus_path"] = String(focused.get_meta("ChallengeReplayPath", "")) if focused in controls else ""
+			_show_challenge_replays(main, period, date, ruleset, record, focus_target, view_state))
 	footer.add_child(refresh)
 	var close := func():
 		if not _dialog_alive(dialog): return
@@ -1097,11 +1117,20 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			KEY_END: scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
 			_: return
 		scroll.accept_event())
-	scroll.grab_focus.call_deferred()
+	var restore := func():
+		if not _dialog_alive(dialog): return
+		var target: Control = scroll
+		for control in controls:
+			if String(control.name) == String(view_state.get("focus_name", "")) and String(control.get_meta("ChallengeReplayPath", "")) == String(view_state.get("focus_path", "")):
+				if not (control is Button and control.disabled): target = control
+				break
+		target.grab_focus()
+		scroll.scroll_vertical = int(view_state.get("scroll", 0))
+	dialog.get_tree().process_frame.connect(restore, CONNECT_ONE_SHOT)
 
 ## Yield between short batches so long battles leave the dialog responsive.
 ## Never write the replay, profile, leaderboard or a score calculated here.
-static func _analyze_challenge_score(dialog: Control, button: Button, detail: Label, job: Dictionary, serial: int, path: String, fingerprint: String, period: String, date: String, ruleset: String, record: Dictionary) -> void:
+static func _analyze_challenge_score(dialog: Control, button: Button, detail: Label, job: Dictionary, serial: int, path: String, fingerprint: String, period: String, date: String, ruleset: String, record: Dictionary, completed: Dictionary) -> void:
 	button.set_meta("analyzing", true)
 	button.set_meta("analysis_serial", serial)
 	button.text = "분석 취소"
@@ -1137,11 +1166,19 @@ static func _analyze_challenge_score(dialog: Control, button: Button, detail: La
 				running = false
 				break
 			running = player.step()
+			# This silent analysis consumes no animations or sounds. Discard transient
+			# events each tick instead of accumulating a long battle's entire history.
+			player.model.combat_events.clear()
 			if not running or player.ticks >= total or Time.get_ticks_usec() - started >= 5000:
 				break
 	var analysis := ChallengeReplays.score_analysis(replay, player, record, ruleset)
+	completed[fingerprint] = analysis
 	button.set_meta("analyzing", false)
 	button.text = "다시 분석"
+	_show_challenge_score(detail, analysis, replay, record)
+
+## Reuse completed summaries after refresh without re-simulating every battle.
+static func _show_challenge_score(detail: Label, analysis: Dictionary, replay: Dictionary, record: Dictionary) -> void:
 	if not bool(analysis.ok):
 		detail.text = "저장된 종료 상태와 재현 결과가 달라 점수를 확인할 수 없습니다. 규칙 변경·파일 손상 가능성이 있으며 보관 기록은 유지됩니다."
 		detail.add_theme_color_override("font_color", UIKit.DANGER)
