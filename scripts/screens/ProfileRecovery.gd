@@ -3,7 +3,17 @@ extends RefCounted
 
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
+const Achievements = preload("res://scripts/Achievements.gd")
 const CHALLENGE_PAGE_SIZE := 8
+const RECORD_FIELDS := [
+	["ai_matches", "AI 경기", "판"], ["ai_wins", "AI 승리", "승"], ["ai_losses", "AI 패배", "패"],
+	["highest_campaign", "최고 캠페인", "단계"],
+	["online_completed", "온라인 완료", "판"], ["online_wins", "온라인 승리", "승"],
+	["online_losses", "온라인 패배", "패"], ["online_draws", "온라인 무승부", "판"],
+	["online_interrupted", "온라인 중단", "판"],
+	["win_streak", "현재 연승", "연승"], ["best_streak", "최고 연승", "연승"],
+	["daily_completed", "일일 도전 누적 성공", "회"], ["weekly_completed", "주간 도전 누적 성공", "회"],
+]
 
 static func _label(text: String, color: Color = UIKit.TEXT_MUTED) -> Label:
 	var label := MultiplayerUI.label(text, 15, color)
@@ -94,6 +104,66 @@ static func _challenge_comparison(live: Dictionary, restored: Dictionary) -> Dic
 		warning = "도전 기록 %d개가 사라지고 성공 기록 %d개가 실패·낮은 점수·동점의 느린 시간으로 바뀝니다. 다른 날짜·버전의 증가로 상쇄하지 않았습니다." % [lost, lowered]
 	return {"rows": rows, "summary": "\n".join(summaries), "warning": warning}
 
+static func _stats_comparison(live: Dictionary, restored: Dictionary) -> Dictionary:
+	var rows: Array = []
+	var decreased: PackedStringArray = []
+	var increased := 0
+	for field in RECORD_FIELDS:
+		var before := int(live.stats[field[0]])
+		var after := int(restored.stats[field[0]])
+		if before == after: continue
+		var risk := after < before
+		var delta := before - after if risk else after - before
+		var change := "%d%s %s" % [delta, field[2], "감소" if risk else "증가"]
+		rows.append({"text": "%s: %d%s → %d%s · %s" % [field[1], before, field[2], after, field[2], change], "risk": risk})
+		if risk:
+			decreased.append("%s %d%s" % [field[1], delta, field[2]])
+		else:
+			increased += 1
+	var warning := ""
+	if not decreased.is_empty():
+		warning = "줄어드는 전적: %s. 각 항목의 감소를 따로 표시하며 다른 기록의 증가로 상쇄하지 않습니다." % " / ".join(decreased)
+	return {"rows": rows, "summary": "전적: 감소 %d항목 · 증가 %d항목 · 동일 %d항목" % [decreased.size(), increased, RECORD_FIELDS.size() - rows.size()], "warning": warning,
+		"empty": "전적 항목 변경 없음"}
+
+static func _achievement_time(stamp: int) -> String:
+	return _stamp(stamp) if stamp > 0 else "달성 시각 미상"
+
+static func _achievements_comparison(live: Dictionary, restored: Dictionary) -> Dictionary:
+	var removed: Array = []
+	var added: Array = []
+	var changed: Array = []
+	var missing_names: PackedStringArray = []
+	var unchanged := 0
+	for definition in Achievements.DEFS:
+		var id := String(definition.id)
+		# A zero timestamp still means unlocked; compare membership before timestamps.
+		var before := live.achievements.has(id)
+		var after := restored.achievements.has(id)
+		var title := String(definition.name)
+		if before and not after:
+			missing_names.append(title)
+			removed.append({"text": "%s · 사라짐\n현재: 달성 (%s)\n사본: 미달성\n조건: %s" % [title, _achievement_time(int(live.achievements[id])), String(definition.desc)], "risk": true})
+		elif not before and after:
+			added.append({"text": "%s · 추가\n현재: 미달성\n사본: 달성 (%s)" % [title, _achievement_time(int(restored.achievements[id]))], "risk": false})
+		elif before and after:
+			var before_stamp := int(live.achievements[id])
+			var after_stamp := int(restored.achievements[id])
+			if before_stamp != after_stamp:
+				changed.append({"text": "%s · 달성 시각 변경 (달성 유지)\n현재: %s\n사본: %s" % [title, _achievement_time(before_stamp), _achievement_time(after_stamp)], "risk": false})
+			else:
+				unchanged += 1
+	var rows: Array = []
+	# Put losses first, even when the total unlocked count stays the same or grows.
+	rows.append_array(removed)
+	rows.append_array(added)
+	rows.append_array(changed)
+	var warning := ""
+	if not removed.is_empty():
+		warning = "현재 달성한 업적 %d개가 미달성으로 바뀝니다: %s. 사본에서 추가되는 업적과 별도로 확인하세요." % [removed.size(), " / ".join(missing_names)]
+	return {"rows": rows, "summary": "달성 업적 %d → %d개 · 사라짐 %d개 · 추가 %d개\n달성 시각 변경 %d개 · 같은 달성 기록 %d개" % [live.achievements.size(), restored.achievements.size(), removed.size(), added.size(), changed.size(), unchanged], "warning": warning,
+		"empty": "업적 달성 여부·달성 시각 변경 없음"}
+
 static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionary:
 	# Compare the normalized values restore_backup actually applies, without touching either profile.
 	var live := SaveData.sanitize(current)
@@ -149,10 +219,14 @@ static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionar
 		summary += "\n최근 선택 덱: 슬롯 %d → 슬롯 %d" % [int(live.last_deck) + 1, int(restored.last_deck) + 1]
 	var challenges := _challenge_comparison(live, restored)
 	if not String(challenges.warning).is_empty(): warnings.append(String(challenges.warning))
+	var stats := _stats_comparison(live, restored)
+	if not String(stats.warning).is_empty(): warnings.append(String(stats.warning))
+	var achievements := _achievements_comparison(live, restored)
+	if not String(achievements.warning).is_empty(): warnings.append(String(achievements.warning))
 	return {"summary": summary, "warning": "\n".join(warnings),
 		"campaign": "\n\n".join(campaign) if not campaign.is_empty() else "단계별 기록 변경 없음",
 		"decks": "\n\n".join(decks) if not decks.is_empty() else "세 덱의 이름·병력·구조물·배치 순서 변경 없음",
-		"challenges": challenges}
+		"challenges": challenges, "stats": stats, "achievements": achievements}
 
 static func _win_time(record: Dictionary) -> String:
 	return str(record.fastest_win) + "초" if float(record.fastest_win) > 0.0 else "미기록 또는 0초"
@@ -170,6 +244,9 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 		var warning := _label(String(comparison.warning), UIKit.DANGER)
 		warning.name = "ProfileComparisonWarning"
 		parent.add_child(warning)
+	_add_record_comparison(parent, "전적 · 항목별 변경", "ProfileStats", comparison.stats)
+	parent.add_child(_label("감소는 기기에 저장된 횟수·최고 단계·연승 기록이 줄어든다는 뜻입니다. 패배·중단 횟수의 감소도 표시하며 실력이 낮아졌다는 뜻은 아닙니다. 총 별은 아래 캠페인 비교에 표시합니다."))
+	_add_record_comparison(parent, "업적 · 사라짐·추가·달성 시각", "ProfileAchievement", comparison.achievements)
 	parent.add_child(_label("캠페인 · 변경된 단계", UIKit.GOLD))
 	var campaign := _label(String(comparison.campaign), UIKit.TEXT)
 	campaign.name = "ProfileCampaignChanges"
@@ -180,6 +257,22 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 	parent.add_child(decks)
 	_add_challenge_comparison(parent, comparison.challenges)
 	parent.add_child(_label("기록을 합치거나 더 높은 기록을 고르는 복구가 아닙니다. 전적·업적·도전 기록을 포함한 진행도 전체가 사본으로 바뀝니다. 현재 설정·익명 ID·전송 대기 기록은 유지합니다."))
+
+static func _add_record_comparison(parent: VBoxContainer, title: String, prefix: String, comparison: Dictionary) -> void:
+	parent.add_child(_label(title, UIKit.GOLD))
+	var summary := _label(String(comparison.summary), UIKit.TEXT)
+	summary.name = prefix + "ComparisonSummary"
+	parent.add_child(summary)
+	var details := VBoxContainer.new()
+	details.name = prefix + "Changes"
+	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.add_theme_constant_override("separation", 10)
+	parent.add_child(details)
+	if comparison.rows.is_empty():
+		details.add_child(_label(String(comparison.empty), UIKit.TEXT))
+	else:
+		for row in comparison.rows:
+			details.add_child(_label(String(row.text), UIKit.DANGER if bool(row.risk) else UIKit.TEXT))
 
 static func _add_challenge_comparison(parent: VBoxContainer, comparison: Dictionary) -> void:
 	parent.add_child(_label("도전 · 날짜·버전별 변경", UIKit.GOLD))
