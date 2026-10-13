@@ -19,21 +19,30 @@ static func belongs_to(replay: Dictionary, period: String, date: String, ruleset
 	# Legacy metadata cannot establish a version. Never include a known different version.
 	return rule == "0" or rule == ruleset
 
-static func load_saved() -> Array:
+static func load_saved(with_analysis: bool = false) -> Array:
 	var entries: Array = []
 	for path in BattleReplay.list_saved(false):
 		var replay := BattleReplay.load_file(String(path))
 		if replay.is_empty() or String(replay.get("meta", {}).get("mode", "")) != "daily":
 			continue
 		# Keep only display/matching metadata, rather than every battle's command log.
-		entries.append({"path": String(path), "order": BattleReplay._storage_order(replay), "fingerprint": fingerprint(replay),
+		var entry := {"path": String(path), "order": BattleReplay._storage_order(replay), "fingerprint": fingerprint(replay),
 			"replay": {"meta": replay.get("meta", {}).duplicate(true), "result": replay.result.duplicate(true),
-				"clip": BattleReplay.clip_of(replay), "hz": replay.hz}})
+				"clip": BattleReplay.clip_of(replay), "hz": replay.hz}}
+		if with_analysis: entry["analysis_fingerprint"] = analysis_fingerprint(replay)
+		entries.append(entry)
 	entries.sort_custom(func(a, b): return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
 	return entries
 
 static func fingerprint(replay: Dictionary) -> String:
 	return JSON.stringify(replay, "", true).sha256_text()
+
+## Notes do not affect replay simulation or scoring. Keep strict full-file checks for
+## starting playback/analysis, but reuse completed scores after saving only notes.
+static func analysis_fingerprint(replay: Dictionary) -> String:
+	var battle := replay.duplicate()
+	battle.erase("notes")
+	return fingerprint(battle)
 
 static func matching(entries: Array, period: String, date: String, ruleset: String) -> Array:
 	return entries.filter(func(entry): return belongs_to(entry.replay, period, date, ruleset))

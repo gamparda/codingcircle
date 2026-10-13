@@ -932,6 +932,20 @@ static func _open_viewer(main, replay: Dictionary, path: String, return_to: Call
 	main.root_background.add_child(viewer)
 	main.replay_viewer = viewer
 
+## Rebuild records first, then reopen the selection after its navigation has settled.
+## The viewer's return callback keeps summaries and strings, never the old dialog's nodes.
+static func _return_to_challenge_replays(main, period: String, date: String, ruleset: String, record: Dictionary, view_state: Dictionary) -> void:
+	main.records_state["focus"] = String(view_state.get("records_focus", ""))
+	main._build_records_screen()
+	var background: Control = main.root_background
+	var reopen := func():
+		if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return
+		var target: Control = main.get_viewport().gui_get_focus_owner()
+		if target == null or not background.is_ancestor_of(target):
+			target = background.find_child("RecordsScroll", true, false) as Control
+		_show_challenge_replays(main, period, date, ruleset, record, target, view_state)
+	background.get_tree().process_frame.connect(reopen, CONNECT_ONE_SHOT)
+
 ## Find candidates without treating matching dates, rounded times or legacy versions as a battle ID.
 static func _show_challenge_replays(main, period: String, date: String, ruleset: String, record: Dictionary, return_focus: Control = null, view_state: Dictionary = {}) -> void:
 	if view_state.is_empty():
@@ -939,16 +953,21 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	if return_focus == null:
 		return_focus = main.get_viewport().gui_get_focus_owner()
 	var focus_target := return_focus
-	var entries := ChallengeReplays.matching(ChallengeReplays.load_saved(), period, date, ruleset)
-	# Retain only small, completed summaries while this selection dialog is open.
+	if not view_state.has("records_focus"):
+		view_state["records_focus"] = String(focus_target.name) if is_instance_valid(focus_target) else String(main.records_state.get("focus", ""))
+	var entries := ChallengeReplays.matching(ChallengeReplays.load_saved(true), period, date, ruleset)
+	# Retain only small, completed summaries through selection and replay navigation.
 	# A changed or removed file must never inherit a previous analysis.
 	var completed: Dictionary = view_state.get("completed", {})
 	view_state["completed"] = completed
 	var fingerprints := {}
 	for entry in entries:
-		fingerprints[String(entry.fingerprint)] = true
+		fingerprints[String(entry.analysis_fingerprint)] = true
+	var discarded := 0
 	for key in completed.keys():
-		if not fingerprints.has(key): completed.erase(key)
+		if not fingerprints.has(key):
+			completed.erase(key)
+			discarded += 1
 	var dialog: VBoxContainer = main._action_panel("도전의 보관 전투", Rect2(190, 60, 900, 600))
 	var title := "주간 도전" if period == "weekly" else "일일 도전"
 	var date_text := "%s-%s-%s" % [date.substr(0, 4), date.substr(4, 2), date.substr(6, 2)]
@@ -961,6 +980,8 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	dialog.add_child(hint)
 	var status := MultiplayerUI.label("보관 전투 %d개 · 버전 확인된 전투 우선" % entries.size(), 14, UIKit.GOLD)
 	status.name = "ChallengeReplayStatus"
+	if discarded > 0:
+		status.text += "\n전투 내용이 바뀌거나 삭제되어 이전 분석 %d개를 해제했습니다. 남아 있는 전투는 다시 분석할 수 있습니다." % discarded
 	status.tooltip_text = "버전이 확인된 전투를 먼저 표시하며, 각 그룹 안에서는 최신 보관순입니다."
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(status)
@@ -972,6 +993,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	scroll.scroll_deadzone = 16
 	scroll.focus_mode = Control.FOCUS_ALL
 	dialog.add_child(scroll)
+	var layout := {"restoring": true}
 	var rows := VBoxContainer.new()
 	rows.name = "ChallengeReplayRows"
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1013,8 +1035,9 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			content.add_child(actions)
 			var path := String(entry.path)
 			var fingerprint := String(entry.fingerprint)
-			if completed.has(fingerprint):
-				_show_challenge_score(score_detail, completed[fingerprint], replay, record)
+			var analysis_fingerprint := String(entry.analysis_fingerprint)
+			if completed.has(analysis_fingerprint):
+				_show_challenge_score(score_detail, completed[analysis_fingerprint], replay, record)
 			var stamp := MultiplayerUI.label(_stamp(path) + " · " + path.get_file(), 13, UIKit.TEXT_MUTED)
 			stamp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			stamp.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -1023,7 +1046,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			var analyze := UIKit.style_button(Button.new(), UIKit.TEAL, false, 16)
 			analyze.name = "AnalyzeChallengeScore"
 			analyze.set_meta("ChallengeReplayPath", path)
-			analyze.text = "다시 분석" if completed.has(fingerprint) else "점수 분석"
+			analyze.text = "다시 분석" if completed.has(analysis_fingerprint) else "점수 분석"
 			analyze.custom_minimum_size = Vector2(130, UIKit.TOUCH_MIN_HEIGHT)
 			analyze.tooltip_text = "선택한 전투만 분석합니다. 다시 누르면 취소하며, 다른 전투를 분석하면 이전 분석은 중단됩니다."
 			actions.add_child(analyze)
@@ -1043,6 +1066,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			watch.name = "WatchChallengeReplay"
 			watch.set_meta("ChallengeReplayPath", path)
 			watch.text = "재생"
+			watch.tooltip_text = "나가기로 이 보관 전투 목록에 돌아옵니다. 내용이 같은 전투의 완료된 점수 분석과 스크롤·선택 카드 초점을 유지합니다."
 			watch.custom_minimum_size = Vector2(110, UIKit.TOUCH_MIN_HEIGHT)
 			actions.add_child(watch)
 			controls.append(watch)
@@ -1055,9 +1079,12 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 					status.text = "선택한 전투를 읽을 수 없거나 파일 내용이 바뀌었습니다. 새로고침 후 다시 선택하세요."
 					watch.disabled = true
 					return
-				main._dismiss_action_overlay()
+				if not bool(layout.restoring): view_state["scroll"] = scroll.scroll_vertical
+				view_state["focus_name"] = String(watch.name)
+				view_state["focus_path"] = path
+				analysis_job.serial = int(analysis_job.serial) + 1
 				watch.disabled = true
-				_open_viewer(main, current, path, main._build_records_screen, "도전 기록으로 돌아갑니다. 날짜·버전·결과 조건과 페이지·스크롤을 유지합니다."))
+				_open_viewer(main, current, path, _return_to_challenge_replays.bind(main, period, date, ruleset, record.duplicate(true), view_state), "도전의 보관 전투 목록으로 돌아갑니다. 완료된 점수 분석·스크롤·선택 카드 초점을 유지합니다. 도전 기록으로는 목록을 닫아 돌아갑니다."))
 	if entries.is_empty():
 		var empty := MultiplayerUI.label("읽을 수 있는 보관 전투가 없습니다. 저장 실패·자동 정리·삭제로 점수 기록만 남을 수 있습니다. 다른 버전으로 확인된 전투는 포함하지 않습니다.", 16, UIKit.TEXT_MUTED)
 		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1073,7 +1100,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	refresh.tooltip_text = "파일을 다시 조회합니다. 내용이 같은 전투의 분석 결과와 스크롤 위치를 유지하며, 진행 중인 분석은 중단합니다."
 	refresh.pressed.connect(func():
 		if _dialog_alive(dialog):
-			view_state["scroll"] = scroll.scroll_vertical
+			if not bool(layout.restoring): view_state["scroll"] = scroll.scroll_vertical
 			var focused: Control = main.get_viewport().gui_get_focus_owner()
 			view_state["focus_name"] = String(focused.name) if focused in controls else String(scroll.name)
 			view_state["focus_path"] = String(focused.get_meta("ChallengeReplayPath", "")) if focused in controls else ""
@@ -1083,8 +1110,11 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 		if not _dialog_alive(dialog): return
 		main._dismiss_action_overlay()
 		main.records_state.erase("focus")
-		if is_instance_valid(focus_target) and focus_target.is_inside_tree():
+		if _dialog_alive(focus_target) and focus_target.is_visible_in_tree() and not (focus_target is Button and focus_target.disabled):
 			focus_target.grab_focus.call_deferred()
+		else:
+			var records_scroll := main.root_background.find_child("RecordsScroll", true, false) as Control
+			if _dialog_alive(records_scroll): records_scroll.grab_focus.call_deferred()
 	var back := UIKit.style_button(Button.new(), UIKit.ACCENT)
 	back.name = "CloseChallengeReplays"
 	back.text = "도전 기록으로"
@@ -1120,12 +1150,17 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	var restore := func():
 		if not _dialog_alive(dialog): return
 		var target: Control = scroll
+		var selected_path := String(view_state.get("focus_path", ""))
 		for control in controls:
 			if String(control.name) == String(view_state.get("focus_name", "")) and String(control.get_meta("ChallengeReplayPath", "")) == String(view_state.get("focus_path", "")):
 				if not (control is Button and control.disabled): target = control
 				break
+		if not selected_path.is_empty() and target == scroll:
+			status.text += "\n선택했던 전투가 삭제되었거나 이 날짜·버전 목록에서 제외되어 목록으로 초점을 옮겼습니다."
 		target.grab_focus()
 		scroll.scroll_vertical = int(view_state.get("scroll", 0))
+		view_state["scroll"] = scroll.scroll_vertical
+		layout.restoring = false
 	dialog.get_tree().process_frame.connect(restore, CONNECT_ONE_SHOT)
 
 ## Yield between short batches so long battles leave the dialog responsive.
@@ -1172,7 +1207,7 @@ static func _analyze_challenge_score(dialog: Control, button: Button, detail: La
 			if not running or player.ticks >= total or Time.get_ticks_usec() - started >= 5000:
 				break
 	var analysis := ChallengeReplays.score_analysis(replay, player, record, ruleset)
-	completed[fingerprint] = analysis
+	completed[ChallengeReplays.analysis_fingerprint(replay)] = analysis
 	button.set_meta("analyzing", false)
 	button.text = "다시 분석"
 	_show_challenge_score(detail, analysis, replay, record)
