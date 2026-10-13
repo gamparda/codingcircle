@@ -70,8 +70,7 @@ static func decorate(main, scope: Node) -> void:
 		button.pressed.connect(func():
 			mark_button_seen(main.save_data, name_of_button)
 			main._save_profile()
-			if is_instance_valid(tag):
-				tag.queue_free()
+			_refresh_menu(main)
 		, CONNECT_ONE_SHOT)
 
 ## Top-right chip with the number of unseen features; opens the list.
@@ -89,16 +88,38 @@ static func add_chip(main) -> void:
 	main.root_background.add_child(chip)
 
 static func open_feature(main, id: String) -> void:
-	main._dismiss_action_overlay()
-	match id:
-		"weekly": main._show_daily_brief("weekly")
-		"draft": main._build_draft_screen()
-		"replay_share": main._build_replay_list()
-		"deck_stats": main._build_deck_screen()
 	var feature := _find(id)
-	if not feature.is_empty():
-		mark_button_seen(main.save_data, String(feature.button))
-		main._save_profile()
+	if feature.is_empty(): return
+	# Features sharing a menu button must also share its destination and seen state.
+	var destination: Callable
+	match String(feature.button):
+		"WeeklyButton": destination = main._show_daily_brief.bind("weekly")
+		"DraftButton": destination = main._build_draft_screen
+		"ReplaysButton": destination = main._build_replay_list
+		"DeckButton": destination = main._build_deck_screen
+		"MultiplayerButton": destination = main._open_multiplayer
+		_: return
+	main._dismiss_action_overlay()
+	destination.call()
+	mark_button_seen(main.save_data, String(feature.button))
+	main._save_profile()
+	_refresh_menu(main)
+
+## Weekly briefings keep the menu alive, so refresh its tags and count without rebuilding it.
+static func _refresh_menu(main) -> void:
+	var background: Control = main.root_background
+	if not is_instance_valid(background) or background.is_queued_for_deletion(): return
+	var chip := background.find_child("NewFeaturesChip", true, false) as Button
+	if chip != null:
+		var count := unseen(main.save_data).size()
+		chip.text = Localization.text("새 기능 %d개") % count
+		chip.visible = count > 0
+	for feature in FEATURES:
+		if not features_for(String(feature.button)).all(func(item): return is_seen(main.save_data, String(item.id))): continue
+		var button := background.find_child(String(feature.button), true, false) as Button
+		if button == null: continue
+		var tag := button.find_child("NewTag", false, false)
+		if tag != null: tag.queue_free()
 
 static func _find(id: String) -> Dictionary:
 	for feature in FEATURES:
@@ -107,13 +128,30 @@ static func _find(id: String) -> Dictionary:
 	return {}
 
 static func show_list(main) -> void:
-	var dialog = main._action_panel("새 기능", Rect2(240, 70, 800, 580))
-	dialog.add_child(MultiplayerUI.label("눌러서 바로 써 볼 수 있습니다.", 14, MultiplayerUI.MUTED))
+	var background: Control = main.root_background
+	var return_focus: Control = main.get_viewport().gui_get_focus_owner()
+	var focus_ref: WeakRef = weakref(return_focus) if return_focus != null else null
+	var dialog = main._action_panel("새 기능", Rect2(220, 48, 840, 624))
+	var summary := MultiplayerUI.label("아직 확인하지 않은 기능 %d개 / %d개 · 열기를 눌러 바로 써 보세요." % [unseen(main.save_data).size(), FEATURES.size()], 14, MultiplayerUI.MUTED)
+	summary.name = "NewFeatureSummary"
+	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dialog.add_child(summary)
+	var scroll := ScrollContainer.new()
+	scroll.name = "NewFeatureScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size.y = 120
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.scroll_deadzone = 16
+	scroll.follow_focus = true
+	scroll.focus_mode = Control.FOCUS_ALL
+	dialog.add_child(scroll)
 	var list := VBoxContainer.new()
 	list.name = "NewFeatureList"
-	list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 10)
-	dialog.add_child(list)
+	scroll.add_child(list)
+	var controls: Array[Control] = [scroll]
+	var first_unseen: Button = null
 	for feature in FEATURES:
 		var card := PanelContainer.new()
 		card.name = "NewFeatureRow"
@@ -126,7 +164,8 @@ static func show_list(main) -> void:
 		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		line.add_child(text)
 		var title := Label.new()
-		title.text = Localization.text(String(feature.title)) + ("   NEW" if fresh else "")
+		title.text = Localization.text(String(feature.title)) + ("   NEW" if fresh else Localization.text("   ✓ 확인함"))
+		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		title.add_theme_font_size_override("font_size", 18)
 		title.add_theme_color_override("font_color", UIKit.GOLD if fresh else UIKit.TEXT)
 		text.add_child(title)
@@ -138,9 +177,72 @@ static func show_list(main) -> void:
 		text.add_child(desc)
 		var open = main._styled_button(Localization.text("열기"), UIKit.ACCENT, fresh)
 		open.name = "OpenFeature_" + String(feature.id)
-		open.custom_minimum_size = Vector2(100, 44)
+		open.custom_minimum_size = Vector2(100, UIKit.TOUCH_MIN_HEIGHT)
+		open.tooltip_text = Localization.text(String(feature.desc))
 		var feature_id := String(feature.id)
-		open.pressed.connect(func(): open_feature(main, feature_id))
+		open.pressed.connect(func():
+			if _list_active(main, background, dialog): open_feature(main, feature_id))
 		line.add_child(open)
 		list.add_child(card)
-	MultiplayerUI.button(main, dialog, "닫기", "CloseNewFeatures", main._dismiss_action_overlay)
+		controls.append(open)
+		if fresh and first_unseen == null: first_unseen = open
+	var close_dialog := func():
+		if not _list_active(main, background, dialog): return
+		main._dismiss_action_overlay()
+		background.get_tree().process_frame.connect(_restore_menu_focus.bind(main, background, focus_ref), CONNECT_ONE_SHOT)
+	var close := MultiplayerUI.button(main, dialog, "닫기", "CloseNewFeatures", close_dialog)
+	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	controls.append(close)
+	for index in controls.size():
+		var control := controls[index]
+		var previous := control.get_path_to(controls[(index + controls.size() - 1) % controls.size()])
+		var next := control.get_path_to(controls[(index + 1) % controls.size()])
+		control.focus_previous = previous
+		control.focus_next = next
+		control.focus_neighbor_top = previous
+		control.focus_neighbor_left = previous
+		control.focus_neighbor_bottom = next
+		control.focus_neighbor_right = next
+		control.gui_input.connect(func(event: InputEvent):
+			if not _list_active(main, background, dialog): return
+			if not event is InputEventKey or not event.pressed: return
+			if control == scroll and event.keycode in [KEY_UP, KEY_DOWN]:
+				control.accept_event()
+				scroll.scroll_vertical += 40 if event.keycode == KEY_DOWN else -40
+				return
+			match event.keycode:
+				KEY_ESCAPE:
+					control.accept_event()
+					close_dialog.call()
+				KEY_PAGEUP, KEY_PAGEDOWN, KEY_HOME, KEY_END:
+					control.accept_event()
+					scroll.grab_focus()
+					match event.keycode:
+						KEY_PAGEUP: scroll.scroll_vertical -= int(scroll.size.y)
+						KEY_PAGEDOWN: scroll.scroll_vertical += int(scroll.size.y)
+						KEY_HOME: scroll.scroll_vertical = 0
+						KEY_END: scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value))
+	var initial: Control = first_unseen if first_unseen != null else controls[1]
+	initial.grab_focus()
+	# Wait for container layout so the first unseen row can be brought into view.
+	dialog.get_tree().process_frame.connect(func():
+		if not _list_active(main, background, dialog): return
+		var focused: Control = main.get_viewport().gui_get_focus_owner()
+		if is_instance_valid(focused) and list.is_ancestor_of(focused): scroll.ensure_control_visible(focused)
+	, CONNECT_ONE_SHOT)
+
+static func _list_active(main, background: Control, dialog: Control) -> bool:
+	return is_instance_valid(background) and not background.is_queued_for_deletion() \
+		and main.root_background == background and is_instance_valid(dialog) and not dialog.is_queued_for_deletion() \
+		and is_instance_valid(main.action_overlay) and not main.action_overlay.is_queued_for_deletion() \
+		and main.action_overlay.is_ancestor_of(dialog)
+
+static func _restore_menu_focus(main, background: Control, focus_ref: WeakRef) -> void:
+	if not is_instance_valid(background) or background.is_queued_for_deletion() or main.root_background != background or is_instance_valid(main.action_overlay): return
+	var target: Control = focus_ref.get_ref() if focus_ref != null else null
+	if not is_instance_valid(target) or not target.is_visible_in_tree() or not background.is_ancestor_of(target):
+		target = background.find_child("NewFeaturesChip", true, false) as Control
+	if target == null or not target.is_visible_in_tree():
+		target = background.find_child("MultiplayerButton", true, false) as Control
+	if target == null or not target.is_visible_in_tree() or (target is BaseButton and target.disabled): return
+	target.grab_focus()
