@@ -4,6 +4,7 @@ extends RefCounted
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const Achievements = preload("res://scripts/Achievements.gd")
+const Goals = preload("res://scripts/Goals.gd")
 const CHALLENGE_PAGE_SIZE := 8
 const RECORD_FIELDS := [
 	["ai_matches", "AI 경기", "판"], ["ai_wins", "AI 승리", "승"], ["ai_losses", "AI 패배", "패"],
@@ -164,6 +165,50 @@ static func _achievements_comparison(live: Dictionary, restored: Dictionary) -> 
 	return {"rows": rows, "summary": "달성 업적 %d → %d개 · 사라짐 %d개 · 추가 %d개\n달성 시각 변경 %d개 · 같은 달성 기록 %d개" % [live.achievements.size(), restored.achievements.size(), removed.size(), added.size(), changed.size(), unchanged], "warning": warning,
 		"empty": "업적 달성 여부·달성 시각 변경 없음"}
 
+static func _goals_comparison(live: Dictionary, restored: Dictionary) -> Dictionary:
+	var removed: Array = []
+	var added: Array = []
+	var missing_names: PackedStringArray = []
+	for definition in Goals.DEFS:
+		var id := String(definition.id)
+		# Use the menu's completion rules: some goals come from statistics, not flags.
+		var before := Goals.is_done(live, id)
+		var after := Goals.is_done(restored, id)
+		if before == after: continue
+		var title := String(definition.title)
+		var row := {"text": "%s · %s\n현재: %s → 사본: %s\n목표 안내: %s" % [title, "다시 완료 필요" if before else "완료로 변경", "완료" if before else "미완료", "완료" if after else "미완료", String(definition.desc)], "risk": before}
+		if before:
+			missing_names.append(title)
+			removed.append(row)
+		else:
+			added.append(row)
+	var rows: Array = []
+	rows.append_array(removed)
+	rows.append_array(added)
+	var before_next := Goals.next_goal(live)
+	var after_next := Goals.next_goal(restored)
+	var summary := "시작 목표 완료 %d / %d → %d / %d · 다시 미완료 %d개 · 새로 완료 %d개 · 상태 유지 %d개\n다음 추천: %s → %s" % [Goals.done_count(live), Goals.DEFS.size(), Goals.done_count(restored), Goals.DEFS.size(), removed.size(), added.size(), Goals.DEFS.size() - rows.size(), String(before_next.get("title", "모든 목표 완료")), String(after_next.get("title", "모든 목표 완료"))]
+	if Goals.all_done(live) and not Goals.all_done(restored):
+		summary += "\n복구 후 메인 메뉴에 시작 목표 버튼이 다시 표시됩니다."
+	elif not Goals.all_done(live) and Goals.all_done(restored):
+		summary += "\n복구 후 모든 목표가 완료되어 메인 메뉴의 시작 목표 버튼이 숨겨집니다."
+	var warning := ""
+	if not removed.is_empty():
+		warning = "완료한 시작 목표 %d개가 다시 미완료로 바뀝니다: %s. 다른 목표의 완료 증가와 별도로 확인하세요." % [removed.size(), " / ".join(missing_names)]
+	return {"rows": rows, "summary": summary, "warning": warning, "empty": "시작 목표별 완료 상태 변경 없음"}
+
+static func _tutorial_comparison(live: Dictionary, restored: Dictionary) -> Dictionary:
+	var before := bool(live.tutorial_completed)
+	var after := bool(restored.tutorial_completed)
+	var rows: Array = []
+	var warning := ""
+	if before != after:
+		var effect := "복구 후 다음 캠페인·AI 연습 전투에서 소환·구조물 설치·자원 회복 안내가 다시 표시됩니다. 안내에서 건너뛰기를 선택할 수 있습니다." if before else "복구 후 캠페인·AI 연습 전투의 첫 전투 안내를 자동으로 표시하지 않습니다."
+		rows.append({"text": effect, "risk": before})
+		if before:
+			warning = "첫 전투 안내의 완료 기록이 미완료로 바뀌어 다음 캠페인·AI 연습 전투에서 안내가 다시 표시됩니다."
+	return {"rows": rows, "summary": "첫 전투 안내: %s → %s\n완료는 안내를 마치거나 건너뛴 상태를 뜻하며, 전투 승리 여부와는 별개입니다." % ["완료" if before else "미완료", "완료" if after else "미완료"], "warning": warning, "empty": "첫 전투 안내 완료 상태 변경 없음"}
+
 static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionary:
 	# Compare the normalized values restore_backup actually applies, without touching either profile.
 	var live := SaveData.sanitize(current)
@@ -223,10 +268,14 @@ static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionar
 	if not String(stats.warning).is_empty(): warnings.append(String(stats.warning))
 	var achievements := _achievements_comparison(live, restored)
 	if not String(achievements.warning).is_empty(): warnings.append(String(achievements.warning))
+	var goals := _goals_comparison(live, restored)
+	if not String(goals.warning).is_empty(): warnings.append(String(goals.warning))
+	var tutorial := _tutorial_comparison(live, restored)
+	if not String(tutorial.warning).is_empty(): warnings.append(String(tutorial.warning))
 	return {"summary": summary, "warning": "\n".join(warnings),
 		"campaign": "\n\n".join(campaign) if not campaign.is_empty() else "단계별 기록 변경 없음",
 		"decks": "\n\n".join(decks) if not decks.is_empty() else "세 덱의 이름·병력·구조물·배치 순서 변경 없음",
-		"challenges": challenges, "stats": stats, "achievements": achievements}
+		"challenges": challenges, "stats": stats, "achievements": achievements, "goals": goals, "tutorial": tutorial}
 
 static func _win_time(record: Dictionary) -> String:
 	return str(record.fastest_win) + "초" if float(record.fastest_win) > 0.0 else "미기록 또는 0초"
@@ -247,6 +296,9 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 	_add_record_comparison(parent, "전적 · 항목별 변경", "ProfileStats", comparison.stats)
 	parent.add_child(_label("감소는 기기에 저장된 횟수·최고 단계·연승 기록이 줄어든다는 뜻입니다. 패배·중단 횟수의 감소도 표시하며 실력이 낮아졌다는 뜻은 아닙니다. 총 별은 아래 캠페인 비교에 표시합니다."))
 	_add_record_comparison(parent, "업적 · 사라짐·추가·달성 시각", "ProfileAchievement", comparison.achievements)
+	_add_record_comparison(parent, "시작 목표 · 완료 상태·다음 추천", "ProfileGoal", comparison.goals)
+	parent.add_child(_label("첫 승리·일일 도전·온라인 대전 목표는 누적 전적으로, 내 덱 만들기·드래프트·리플레이 보기 목표는 저장된 완료 기록으로 판정합니다. 오늘의 도전 기록이나 업적 개수로 완료 여부를 추정하지 않습니다."))
+	_add_record_comparison(parent, "튜토리얼 · 첫 전투 안내", "ProfileTutorial", comparison.tutorial)
 	parent.add_child(_label("캠페인 · 변경된 단계", UIKit.GOLD))
 	var campaign := _label(String(comparison.campaign), UIKit.TEXT)
 	campaign.name = "ProfileCampaignChanges"
@@ -256,7 +308,7 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 	decks.name = "ProfileDeckChanges"
 	parent.add_child(decks)
 	_add_challenge_comparison(parent, comparison.challenges)
-	parent.add_child(_label("기록을 합치거나 더 높은 기록을 고르는 복구가 아닙니다. 전적·업적·도전 기록을 포함한 진행도 전체가 사본으로 바뀝니다. 현재 설정·익명 ID·전송 대기 기록은 유지합니다."))
+	parent.add_child(_label("기록을 합치거나 더 높은 기록을 고르는 복구가 아닙니다. 전적·업적·시작 목표·튜토리얼·도전 기록을 포함한 진행도 전체가 사본으로 바뀝니다. 현재 설정·익명 ID·전송 대기 기록은 유지합니다."))
 
 static func _add_record_comparison(parent: VBoxContainer, title: String, prefix: String, comparison: Dictionary) -> void:
 	parent.add_child(_label(title, UIKit.GOLD))
