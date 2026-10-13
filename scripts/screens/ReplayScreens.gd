@@ -114,6 +114,21 @@ static func _build_replay_list(main) -> void:
 	entries.sort_custom(func(a, b): return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
 	frame.populate(entries, func(entry): return _unreadable_replay_card(main, String(entry.path)) if entry.replay.is_empty() else _replay_card(main, String(entry.path), entry.replay), main.replay_list_state)
 	frame.refresh_requested.connect(main._build_replay_list)
+	var storage_help := UIKit.style_button(Button.new(), UIKit.TEAL)
+	storage_help.name = "ReplayStorageHelp"
+	storage_help.text = "보관 안내"
+	storage_help.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	storage_help.tooltip_text = "서버 코드 보관 정책과 이 기기의 저장 경로·백업 방법을 확인합니다."
+	frame.column.get_node("ReplaySearchTools").add_child(storage_help)
+	storage_help.pressed.connect(func():
+		storage_help.grab_focus()
+		var background: Control = main.root_background
+		var focus_ref := weakref(storage_help)
+		var return_to := func():
+			if not _dialog_alive(background) or main.root_background != background: return
+			main._dismiss_action_overlay()
+			background.get_tree().process_frame.connect(_restore_code_entry_focus.bind(main, background, focus_ref), CONNECT_ONE_SHOT)
+		_show_replay_storage_help(main, return_to))
 	var notices := PackedStringArray()
 	if unreadable > 0:
 		notices.append("읽을 수 없는 리플레이 %d개가 있습니다. 자동 정리에서 제외하며, 파일을 보관하거나 목록에서 삭제할 수 있습니다." % unreadable)
@@ -405,18 +420,121 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	actions.add_child(_delete_button(main, path))
 	return card
 
-## Validate the entire clipboard/input before putting a code into a request.
-## Never extract a valid-looking prefix from a longer message or replay payload.
+## An empty reply identifies no reason: do not assert that a code expired or was deleted.
+static func _replay_fetch_error(code: String, text: String) -> String:
+	if text.strip_edges().is_empty():
+		return "%s 코드의 리플레이를 현재 서버에서 찾을 수 없습니다. 코드·서버 주소를 확인하세요. 이미 저장했다면 리플레이 보관함에서 찾을 수 있습니다." % code
+	return "%s 코드의 응답을 리플레이로 읽을 수 없습니다. 지원하지 않는 형식이거나 내용이 손상되었을 수 있습니다. 보낸 사람에게 리플레이 텍스트를 요청하세요." % code
+
+## Read-only guidance. Opening it never fetches, saves, prunes or creates a directory.
+static func _show_replay_storage_help(main, return_to: Callable) -> void:
+	var dialog: VBoxContainer = main._action_panel("리플레이 보관·복구 도움말", Rect2(230, 50, 820, 620))
+	var scroll := ScrollContainer.new()
+	scroll.name = "ReplayStorageHelpScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.focus_mode = Control.FOCUS_ALL
+	scroll.follow_focus = true
+	dialog.add_child(scroll)
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 14)
+	scroll.add_child(content)
+	var paragraphs := [
+		["코드를 찾을 수 없을 때", "코드와 멀티플레이 설정의 서버 주소를 확인하세요. 코드는 발급한 서버에서 열어야 합니다. 서버에서 전투를 찾지 못해도 정리된 코드라고 확정할 수는 없습니다. 오타·다른 서버 접속·서버의 파일 읽기 실패로도 열리지 않을 수 있습니다."],
+		["서버 보관은 영구적이지 않습니다", "서버는 공유 코드와 공개 전투를 합쳐 최근 %d개를 보관합니다. 새 전투·공유 업로드로 오래된 코드가 정리될 수 있으며 고정 만료 시간은 없습니다. 최근 공개 목록은 최대 %d개라 목록에 없어도 코드로 열릴 수 있습니다. 코드 복사·재조회는 전투를 백업하거나 보관 순서를 갱신하지 않습니다." % [ServerReplayShelf.MAX_STORED, ServerReplayShelf.RECENT_LIMIT]],
+		["이미 저장한 전투 찾기", "코드·최근 온라인 전투로 본 리플레이는 로컬 보관을 눌렀거나 메모 저장에 성공했을 때 이 기기에 남습니다. 아래 보관함에서 찾기는 검색·필터를 해제해 전체 목록을 보여 줍니다. 날짜·병력·메모로 찾으세요. 이 기기에 저장하지 않은 전투는 목록에 나타나지 않습니다."],
+		["다른 사람에게 다시 받거나 백업하기", "저장한 사본이 없다면 보낸 사람에게 보관한 전투의 복사 버튼으로 리플레이 텍스트를 요청하세요. 리플레이 → 클립보드에서 가져오기로 저장할 수 있습니다. 이 기기도 읽을 수 있는 최근 %d개를 유지하므로 계속 보관할 전투는 카드의 복사 버튼으로 텍스트를 따로 보관하거나 아래 폴더의 JSON 파일을 다른 곳에 복사하세요. 모바일의 앱 전용 폴더는 파일 앱에서 접근하지 못할 수 있으니 텍스트 복사를 이용하세요. 경로 복사만으로 파일이 백업되지는 않습니다." % BattleReplay.MAX_SAVED]
+	]
+	for paragraph in paragraphs:
+		var heading := MultiplayerUI.label(String(paragraph[0]), 18, UIKit.GOLD)
+		heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		content.add_child(heading)
+		var explanation := MultiplayerUI.label(String(paragraph[1]), 15, UIKit.TEXT)
+		explanation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		content.add_child(explanation)
+	var path := ProjectSettings.globalize_path(BattleReplay.save_dir)
+	var path_label := MultiplayerUI.label("이 기기의 실제 보관 경로 (저장 전에는 폴더가 없을 수 있습니다)", 14, UIKit.TEXT_MUTED)
+	path_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dialog.add_child(path_label)
+	var path_row := HBoxContainer.new()
+	path_row.add_theme_constant_override("separation", 10)
+	dialog.add_child(path_row)
+	var path_input := LineEdit.new()
+	path_input.name = "ReplayStoragePath"
+	path_input.text = path
+	path_input.editable = false
+	path_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	path_input.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	path_input.tooltip_text = "이 기기의 실제 저장 경로입니다. 모바일에서는 앱 전용 폴더라 파일 앱에서 접근하지 못할 수 있습니다. 전투 카드의 복사로 텍스트를 백업할 수 있습니다."
+	path_row.add_child(path_input)
+	var copy_path := UIKit.style_button(Button.new(), UIKit.TEAL)
+	copy_path.name = "CopyReplayStoragePath"
+	copy_path.text = "경로 복사"
+	copy_path.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	copy_path.disabled = not DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD)
+	copy_path.tooltip_text = "경로만 복사하며 리플레이 파일을 복사하거나 백업하지 않습니다." if not copy_path.disabled else "이 환경에서는 클립보드를 사용할 수 없습니다. 표시된 경로를 직접 확인하세요."
+	copy_path.pressed.connect(func():
+		if not _dialog_alive(dialog): return
+		DisplayServer.clipboard_set(path)
+		copy_path.text = "경로 복사됨")
+	path_row.add_child(copy_path)
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 12)
+	dialog.add_child(footer)
+	var find_local := UIKit.style_button(Button.new(), UIKit.ACCENT)
+	find_local.name = "FindLocalReplays"
+	find_local.text = "보관함에서 찾기"
+	find_local.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	find_local.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	find_local.tooltip_text = "보관함의 검색·종류·결과·클립 조건을 해제하고 이 기기의 전체 목록으로 이동합니다. 서버 요청은 하지 않습니다."
+	find_local.pressed.connect(func():
+		if not _dialog_alive(dialog): return
+		main.replay_list_state.clear()
+		main._build_replay_list()
+		var background: Control = main.root_background
+		var focus_search := func():
+			if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return
+			var search := background.find_child("ReplaySearch", true, false) as Control
+			if search != null: search.grab_focus()
+		background.get_tree().process_frame.connect(focus_search, CONNECT_ONE_SHOT))
+	footer.add_child(find_local)
+	var close_dialog := func():
+		if _dialog_alive(dialog): return_to.call()
+	var close := MultiplayerUI.button(main, footer, "돌아가기", "CloseReplayStorageHelp", close_dialog)
+	close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	var controls: Array[Control] = [scroll, path_input, copy_path, find_local, close]
+	_bind_challenge_navigation(controls)
+	for control in controls:
+		control.gui_input.connect(func(event: InputEvent):
+			if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+				control.accept_event()
+				close_dialog.call())
+	scroll.gui_input.connect(func(event: InputEvent):
+		if not event is InputEventKey or not event.pressed or event.alt_pressed or event.ctrl_pressed or event.meta_pressed: return
+		match event.keycode:
+			KEY_UP: scroll.scroll_vertical -= 48
+			KEY_DOWN: scroll.scroll_vertical += 48
+			KEY_PAGEUP: scroll.scroll_vertical -= maxi(48, int(scroll.size.y))
+			KEY_PAGEDOWN: scroll.scroll_vertical += maxi(48, int(scroll.size.y))
+			KEY_HOME: scroll.scroll_vertical = 0
+			KEY_END: scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+			_: return
+		scroll.accept_event())
+	scroll.grab_focus()
+
+## Validate the entire clipboard/input. Never extract a prefix from a longer message.
 static func _replay_code_from_text(text: String) -> String:
 	var code := text.strip_edges().to_upper()
 	return code if NetworkProtocol.is_valid_room_code(code) else ""
 
 ## Asks for a six-character code and plays the replay it names.
-static func _show_code_dialog(main, return_code: String = "") -> void:
+static func _show_code_dialog(main, return_code: String = "", return_notice: String = "") -> void:
 	var background: Control = main.root_background
 	var return_focus: Control = main.get_viewport().gui_get_focus_owner()
 	var focus_ref: WeakRef = weakref(return_focus) if return_focus != null else null
-	var dialog = main._action_panel("코드로 열기", Rect2(340, 150, 600, 420))
+	var dialog = main._action_panel("코드로 열기", Rect2(320, 100, 640, 520))
 	var hint := MultiplayerUI.label("공유받은 6자리 코드를 입력하거나 붙여넣으세요. 열기를 누르면 필요에 따라 서버에 접속합니다.", 14, MultiplayerUI.MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(hint)
@@ -447,7 +565,9 @@ static func _show_code_dialog(main, return_code: String = "") -> void:
 	var status := MultiplayerUI.label("", 14, MultiplayerUI.GOLD)
 	status.name = "ReplayCodeStatus"
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	if not return_code.is_empty():
+	if not return_notice.is_empty():
+		status.text = return_notice
+	elif not return_code.is_empty():
 		status.text = "%s 코드의 재생에서 돌아왔습니다. 열기로 다시 보거나 다른 코드를 입력하세요." % return_code
 	dialog.add_child(status)
 	var actions := HBoxContainer.new()
@@ -473,9 +593,30 @@ static func _show_code_dialog(main, return_code: String = "") -> void:
 		ReplayRequest.cancel_fetch(main, dialog)
 		main._dismiss_action_overlay()
 		background.get_tree().process_frame.connect(_restore_code_entry_focus.bind(main, background, focus_ref), CONNECT_ONE_SHOT)
-	var close := MultiplayerUI.button(main, dialog, "닫기", "CloseReplayCode", close_dialog)
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 12)
+	dialog.add_child(footer)
+	var help := UIKit.style_button(Button.new(), UIKit.TEAL)
+	help.name = "ReplayCodeStorageHelp"
+	help.text = "보관·복구 도움말"
+	help.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	help.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	help.pressed.connect(func():
+		if not _dialog_alive(dialog) or open_button.disabled: return
+		var code := input.text
+		var notice := status.text if not status.text.is_empty() else "보관·복구 도움말에서 돌아왔습니다. 코드를 입력하고 열기를 눌러 불러오세요."
+		# Retain strings and the original entry's weak reference, never this dialog's controls.
+		var resume := func():
+			if not _dialog_alive(background) or main.root_background != background: return
+			main._dismiss_action_overlay()
+			_restore_code_entry_focus(main, background, focus_ref)
+			_show_code_dialog(main, code, notice)
+		_show_replay_storage_help(main, resume))
+	footer.add_child(help)
+	var close := MultiplayerUI.button(main, footer, "닫기", "CloseReplayCode", close_dialog)
+	close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-	var update_navigation := func(): _bind_code_navigation([input, paste, open_button, cancel, close], close_dialog)
+	var update_navigation := func(): _bind_code_navigation([input, paste, open_button, cancel, help, close], close_dialog)
 	var pending := {"active": false}
 	paste.pressed.connect(func():
 		if not _dialog_alive(dialog) or bool(pending.active): return
@@ -498,6 +639,7 @@ static func _show_code_dialog(main, return_code: String = "") -> void:
 		cancel.disabled = true
 		open_button.disabled = false
 		paste.disabled = false
+		help.disabled = false
 		input.editable = true
 		status.text = "불러오기를 취소했습니다. 코드를 수정하거나 열기를 눌러 다시 시도하세요."
 		update_navigation.call()
@@ -514,6 +656,7 @@ static func _show_code_dialog(main, return_code: String = "") -> void:
 		pending.active = true
 		open_button.disabled = true
 		paste.disabled = true
+		help.disabled = true
 		input.editable = false
 		cancel.visible = true
 		cancel.disabled = false
@@ -526,6 +669,7 @@ static func _show_code_dialog(main, return_code: String = "") -> void:
 			cancel.disabled = true
 			open_button.disabled = false
 			paste.disabled = false
+			help.disabled = false
 			input.editable = true
 			status.text = Localization.text(text)
 			update_navigation.call()
@@ -534,7 +678,7 @@ static func _show_code_dialog(main, return_code: String = "") -> void:
 			if not _dialog_alive(dialog): return
 			var replay := BattleReplay.from_share_text(text)
 			if replay.is_empty():
-				fail.call(Localization.text("%s 코드의 리플레이를 찾을 수 없습니다.") % code)
+				fail.call(_replay_fetch_error(code, text) + "\n보관·복구 도움말에서 보관 정책과 복구 방법을 확인하세요.")
 				return
 			# Retain only the code; the viewer must not keep this dialog's controls alive.
 			_open_viewer(main, replay, "", _return_to_code_dialog.bind(main, code), "코드 입력 창으로 돌아갑니다. 입력한 코드를 유지하며 다시 보거나 다른 코드를 입력할 수 있습니다.")
@@ -779,7 +923,7 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 			if not _dialog_alive(dialog): return
 			var replay := BattleReplay.from_share_text(replay_text)
 			if replay.is_empty():
-				fail.call("리플레이를 찾을 수 없습니다. 서버에서 정리되었거나 읽을 수 없는 전투입니다. 목록을 새로고침하거나 다른 전투를 선택하세요.")
+				fail.call(_replay_fetch_error(code, replay_text) + " 목록을 새로고침하거나 다른 전투를 선택하세요.")
 				return
 			watch_state.active = false
 			play.call(replay, code)
@@ -1011,7 +1155,7 @@ static func _recent_row(main, entry: Dictionary, now: int = -1, on_watch: Callab
 		var result := func(replay_text: String):
 			var replay := BattleReplay.from_share_text(replay_text)
 			if replay.is_empty():
-				fail.call("리플레이를 찾을 수 없습니다. 서버에서 정리되었거나 읽을 수 없는 전투입니다. 목록을 새로고침하거나 다른 전투를 선택하세요.")
+				fail.call(_replay_fetch_error(String(entry.code), replay_text) + " 목록을 새로고침하거나 다른 전투를 선택하세요.")
 				return
 			if on_watch.is_valid():
 				on_watch.call(replay, String(entry.code))
