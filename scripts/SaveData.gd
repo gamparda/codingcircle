@@ -405,6 +405,39 @@ static func recovery_candidates(path: String = SAVE_PATH) -> Dictionary:
 		return int(a.modified) > int(b.modified) if int(a.modified) != int(b.modified) else String(a.path) < String(b.path))
 	return result
 
+## Explicit cleanup only: recheck the preview and retain a usable recovery point.
+static func delete_backup(candidate: String, fingerprint: String, path: String = SAVE_PATH) -> Dictionary:
+	var result := {"ok": false, "error": ""}
+	var folder := recovery_dir(path)
+	if candidate.get_base_dir() != folder or not candidate.ends_with(".json") or candidate.simplify_path() != candidate:
+		result.error = "이 저장 파일의 복구 폴더에 있는 사본만 삭제할 수 있습니다."
+		return result
+	var directory := DirAccess.open(folder)
+	if directory == null or directory.is_link(candidate.get_file()):
+		result.error = "선택한 사본에 접근할 수 없습니다. 목록을 새로고침하세요."
+		return result
+	var candidates := recovery_candidates(path)
+	var matched := false
+	for entry in candidates.entries:
+		if String(entry.path) == candidate and String(entry.fingerprint) == fingerprint:
+			matched = true
+	if not String(candidates.error).is_empty() or not matched:
+		result.error = "선택한 사본을 읽을 수 없거나 내용이 바뀌었습니다. 목록을 새로고침해 다시 확인하세요."
+		return result
+	if candidates.entries.size() < 2:
+		result.error = "마지막으로 읽을 수 있는 사본은 삭제할 수 없습니다. 현재 진행도를 다른 사본으로 보관한 뒤 다시 시도하세요."
+		return result
+	# The directory scan may take time; verify the selected bytes again just before removal.
+	var source := _read_profile(candidate)
+	if source.status != "ok" or not _recoverable(source.raw) or _fingerprint(source.bytes) != fingerprint or directory.is_link(candidate.get_file()):
+		result.error = "확인 중 사본의 내용이 바뀌었습니다. 목록을 새로고침해 다시 확인하세요."
+		return result
+	if directory.remove(candidate.get_file()) != OK:
+		result.error = "사본을 삭제하지 못했습니다. 파일 권한을 확인하고 다시 시도하세요."
+		return result
+	result.ok = true
+	return result
+
 ## Preserve both the current in-memory progress and exact on-disk original before
 ## replacing anything. Return the new profile only after the atomic write succeeds.
 static func restore_backup(current: Dictionary, candidate: String, fingerprint: String, path: String = SAVE_PATH) -> Dictionary:
