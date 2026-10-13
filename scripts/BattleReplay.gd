@@ -239,9 +239,18 @@ static func verify(replay: Dictionary) -> Dictionary:
 ## a 20-second moment costs no more than sharing the replay (and still verifies like any other).
 static func make_clip(replay: Dictionary, center_tick: int, title: String, before: int = 300, after: int = 300) -> Dictionary:
 	var total := int(replay.get("result", {}).get("ticks", 0))
-	var clip: Dictionary = replay.duplicate(true)
+	if total <= 0 or before < 0 or after < 0:
+		return {}
 	var start := clampi(center_tick - before, 0, maxi(0, total - 1))
 	var end := clampi(center_tick + after, start + 1, maxi(start + 1, total))
+	return make_range_clip(replay, start, end, title)
+
+## Keeps the full command log to reproduce the state at the exact selected boundaries.
+## Invalid boundaries are refused instead of silently sharing a different window.
+static func make_range_clip(replay: Dictionary, start: int, end: int, title: String) -> Dictionary:
+	if not valid(replay) or start < 0 or end <= start or end > int(replay.result.ticks):
+		return {}
+	var clip: Dictionary = replay.duplicate(true)
 	clip["clip"] = {"start": start, "end": end, "title": title.left(80)}
 	return clip
 

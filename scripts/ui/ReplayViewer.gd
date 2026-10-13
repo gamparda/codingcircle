@@ -61,6 +61,9 @@ var loop_start_report: Array = []
 var loop_end_report: Array = []
 var loop_enabled := false
 var loop_button: Button
+var clip_button: Button
+var selection_panel: PanelContainer
+var selection_label: Label
 var zoom_reset_button: Button
 var unit_panel: PanelContainer
 var inspected_id := -1
@@ -87,6 +90,7 @@ func open(replay_data: Dictionary, title: String = "") -> void:
 	var clip := BattleReplay.clip_of(replay)
 	if not clip.is_empty():
 		moment_toast.text = "클립 ▸ %s" % String(clip.get("title", ""))
+		headline.tooltip_text = "클립 %s–%s · 길이 %s · 끝에서 멈춘 뒤 재생을 누르면 전체 전투를 이어서 봅니다." % [_report_time(int(clip.start)), _report_time(int(clip.end)), _report_time(int(clip.end) - int(clip.start))]
 
 func _build() -> void:
 	var background := ColorRect.new()
@@ -124,8 +128,11 @@ func _build() -> void:
 	moment_toast.name = "MomentToast"
 	moment_toast.tone = UIKit.GOLD
 	add_child(moment_toast)
-	moment_toast.place_center(640.0, 100.0)
+	# Keep notifications below the storage and selection panels.
+	moment_toast.place_center(640.0, 232.0)
 	_build_storage_controls()
+	_build_selection_controls()
+	_refresh_loop()
 	for i in 4:
 		var voice := AudioStreamPlayer.new()
 		voice.bus = "SFX" if AudioServer.get_bus_index("SFX") >= 0 else "Master"
@@ -153,6 +160,28 @@ func _build_storage_controls() -> void:
 	panel.add_child(row)
 	add_child(panel)
 	set_storage_state("", false)
+
+func _build_selection_controls() -> void:
+	selection_panel = PanelContainer.new()
+	selection_panel.name = "ReplaySelectionPanel"
+	selection_panel.position = Vector2(544, 96)
+	selection_panel.size = Vector2(548, 58)
+	selection_panel.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE, UIKit.SURFACE, UIKit.TEAL, 10), 10, 0))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	selection_label = Label.new()
+	selection_label.name = "ReplaySelectionStatus"
+	selection_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	selection_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	selection_label.add_theme_font_size_override("font_size", 13)
+	selection_label.add_theme_color_override("font_color", UIKit.TEXT)
+	row.add_child(selection_label)
+	var clear := _control_button(row, "ReplaySelectionClear", "구간 해제", UIKit.TEAL, false)
+	clear.custom_minimum_size = Vector2(100, 58)
+	clear.tooltip_text = "시작·끝 지점과 반복을 해제합니다. 클립 복사는 다시 주변 장면을 공유합니다."
+	clear.pressed.connect(clear_loop)
+	selection_panel.add_child(row)
+	add_child(selection_panel)
 
 func set_storage_state(path: String, dirty: bool) -> void:
 	storage_path = path
@@ -261,12 +290,12 @@ func _build_bottom_bar() -> void:
 	var mark_start := _control_button(loop_row, "ReplayLoopStart", "시작 [", UIKit.TEAL, false)
 	mark_start.custom_minimum_size = Vector2(74, 34)
 	mark_start.add_theme_font_size_override("font_size", 13)
-	mark_start.tooltip_text = "지금 위치를 반복 구간의 시작으로 정합니다 ( [ 키 )"
+	mark_start.tooltip_text = "지금 위치를 비교·공유·반복 구간의 시작으로 정합니다 ( [ 키 )"
 	mark_start.pressed.connect(set_loop_start)
 	var mark_end := _control_button(loop_row, "ReplayLoopEnd", "끝 ]", UIKit.TEAL, false)
 	mark_end.custom_minimum_size = Vector2(74, 34)
 	mark_end.add_theme_font_size_override("font_size", 13)
-	mark_end.tooltip_text = "지금 위치를 반복 구간의 끝으로 정합니다 ( ] 키 )"
+	mark_end.tooltip_text = "지금 위치를 비교·공유·반복 구간의 끝으로 정합니다 ( ] 키 )"
 	mark_end.pressed.connect(set_loop_end)
 	loop_button = _control_button(loop_row, "ReplayLoopToggle", "반복 L", UIKit.GOLD_DEEP, false)
 	loop_button.custom_minimum_size = Vector2(74, 34)
@@ -320,7 +349,7 @@ func _build_bottom_bar() -> void:
 	note_delete.custom_minimum_size.x = 64
 	note_delete.tooltip_text = "재생 위치에서 가장 가까운 메모를 지웁니다"
 	note_delete.pressed.connect(delete_note)
-	var clip_button := _control_button(row, "ReplayClipButton", "클립 복사", UIKit.GOLD_DEEP, false)
+	clip_button = _control_button(row, "ReplayClipButton", "클립 복사", UIKit.GOLD_DEEP, false)
 	clip_button.custom_minimum_size.x = 96
 	clip_button.tooltip_text = "지금 장면 전후 10초를 공유용 텍스트로 복사합니다"
 	clip_button.pressed.connect(copy_clip)
@@ -368,7 +397,7 @@ func _restart() -> void:
 
 ## The loop only runs between two marks with start before end.
 func loop_ready() -> bool:
-	return loop_start >= 0 and loop_end > loop_start
+	return loop_start >= 0 and loop_end > loop_start and loop_end <= int(replay.get("result", {}).get("ticks", 0))
 
 func _refresh_loop() -> void:
 	graph.set_loop(loop_start, loop_end, loop_enabled and loop_ready())
@@ -376,10 +405,37 @@ func _refresh_loop() -> void:
 		loop_button.set_pressed_no_signal(loop_enabled and loop_ready())
 	if is_instance_valid(report_button):
 		report_button.tooltip_text = "전투 요약 (R 키) · 선택 구간 %s–%s와 누적 집계를 비교합니다. 반복을 켜지 않아도 사용할 수 있습니다." % [_report_time(loop_start), _report_time(loop_end)] if loop_ready() else "누적 생산·건설·피해·처치를 비교합니다 (R 키). 시작 [ · 끝 ] 지점을 정하면 해당 구간도 비교할 수 있습니다."
+	if is_instance_valid(clip_button):
+		clip_button.text = "구간 복사" if loop_start >= 0 else "클립 복사"
+		clip_button.disabled = (loop_start >= 0 and not loop_ready()) or int(replay.get("result", {}).get("ticks", 0)) <= 0
+		if loop_ready():
+			clip_button.tooltip_text = "선택 구간 %s–%s를 공유용 텍스트로 복사합니다. 가져오면 시작 지점부터 재생하고 끝에서 멈춥니다. 전체 전투와 메모도 포함됩니다." % [_report_time(loop_start), _report_time(loop_end)]
+		else:
+			clip_button.tooltip_text = "끝 ] 지점을 정하거나 구간 해제를 누르세요." if loop_start >= 0 else "가까운 주요 장면(없으면 현재 위치) 전후 10초를 공유용 텍스트로 복사합니다. 시작 [ · 끝 ]으로 정확한 구간을 정할 수도 있습니다."
+		if int(replay.get("result", {}).get("ticks", 0)) <= 0:
+			clip_button.tooltip_text = "기록된 재생 구간이 없어 클립을 복사할 수 없습니다."
+	if is_instance_valid(selection_panel):
+		selection_panel.visible = loop_start >= 0
+		selection_label.text = "선택 %s–%s · 길이 %s\n구간 복사로 공유 · 반복을 켤 필요가 없습니다" % [_report_time(loop_start), _report_time(loop_end), _report_time(loop_end - loop_start)] if loop_ready() else "구간 시작 %s\n뒤의 장면에서 끝 ]을 정하면 공유할 수 있습니다" % _report_time(loop_start)
+
+func clear_loop() -> void:
+	if is_instance_valid(report_overlay):
+		return
+	loop_start = -1
+	loop_end = -1
+	loop_start_report = []
+	loop_end_report = []
+	loop_enabled = false
+	_refresh_loop()
+	clip_button.grab_focus()
+	_toast("구간을 해제했습니다 · 클립 복사는 주변 장면을 공유합니다")
 
 ## Marks the current moment as the start of the repeat segment (an end that is no longer after it is dropped).
 func set_loop_start() -> void:
 	if player == null or is_instance_valid(report_overlay):
+		return
+	if player.ticks >= int(replay.get("result", {}).get("ticks", 0)):
+		_toast("구간 시작은 기록된 전투 끝보다 앞이어야 합니다")
 		return
 	loop_start = player.ticks
 	loop_start_report = player.model.battle_report.duplicate(true)
@@ -396,10 +452,13 @@ func set_loop_end() -> bool:
 	if player == null or loop_start < 0 or player.ticks <= loop_start:
 		_toast("끝 지점은 시작 지점보다 뒤여야 합니다")
 		return false
+	if player.ticks > int(replay.get("result", {}).get("ticks", 0)):
+		_toast("끝 지점은 기록된 전투 범위 안에서 정하세요")
+		return false
 	loop_end = player.ticks
 	loop_end_report = player.model.battle_report.duplicate(true)
 	_refresh_loop()
-	_toast("선택 구간 ▸ %s–%s · 전투 요약에서 기여도를 비교하세요" % [_report_time(loop_start), _report_time(loop_end)])
+	_toast("선택 구간 ▸ %s–%s · 구간 복사로 공유하거나 전투 요약에서 비교하세요" % [_report_time(loop_start), _report_time(loop_end)])
 	return true
 
 ## Turns repeating on or off; it only turns on once both marks exist.
@@ -503,6 +562,10 @@ func seek(tick: int) -> void:
 	player = BattleReplay.Player.new(replay)
 	while player.ticks < tick and player.step():
 		pass
+	accumulator = 0.0
+	var clip := BattleReplay.clip_of(replay)
+	# Seeking back into a clip arms its end again; seeking past it lets the viewer continue.
+	clip_finished = not clip.is_empty() and player.ticks >= int(clip.end)
 	player.model.drain_combat_events()
 	view.visual_events.clear()
 	finished_shown = false
@@ -515,16 +578,13 @@ func seek(tick: int) -> void:
 func _process(delta: float) -> void:
 	if player == null or paused or is_instance_valid(report_overlay):
 		return
+	if _pause_at_clip_end():
+		return
 	if player.is_finished():
 		_show_end()
 		return
 	var clip := BattleReplay.clip_of(replay)
-	if not clip.is_empty() and not clip_finished and player.ticks >= int(clip.end):
-		clip_finished = true
-		paused = true
-		play_button.text = "재생"
-		moment_toast.text = "클립 끝 ▸ 재생을 누르면 이어서 봅니다"
-		return
+	var stop_at_clip := not clip.is_empty() and not clip_finished and not (loop_enabled and loop_ready())
 	accumulator += minf(delta, 0.25) * float(SPEEDS[speed_index])
 	var steps := 0
 	var events: Array = []
@@ -537,6 +597,8 @@ func _process(delta: float) -> void:
 			seek(loop_start)
 			accumulator = 0.0
 			return
+		if stop_at_clip and player.ticks >= int(clip.end):
+			break
 	if steps > 0:
 		_announce_between(last_announced_tick, player.ticks)
 		view.set_snapshot(player.model.snapshot())
@@ -544,6 +606,18 @@ func _process(delta: float) -> void:
 			view.push_combat_events(events)
 			_play_sounds(events)
 		_refresh_hud()
+	_pause_at_clip_end()
+
+func _pause_at_clip_end() -> bool:
+	var clip := BattleReplay.clip_of(replay)
+	if clip.is_empty() or clip_finished or (loop_enabled and loop_ready()) or player.ticks < int(clip.end):
+		return false
+	clip_finished = true
+	paused = true
+	accumulator = 0.0
+	play_button.text = "재생"
+	moment_toast.text = "클립 끝 ▸ %s · 재생을 누르면 이어서 봅니다" % _report_time(int(clip.end))
+	return true
 
 ## Shows a toast for every highlight the playhead just passed.
 func _announce_between(from_tick: int, to_tick: int) -> void:
@@ -591,24 +665,38 @@ func delete_note() -> bool:
 	notes_changed.emit(replay)
 	return true
 
-## Copies a shareable clip around the highlight nearest to the playhead (or the playhead itself).
+## A completed selection takes priority over the nearby-highlight clip, even outside the selection.
 func copy_clip() -> String:
+	if player == null or is_instance_valid(report_overlay):
+		return ""
+	if loop_start >= 0 and not loop_ready():
+		_toast("끝 ] 지점을 정하거나 구간 해제를 누른 뒤 복사하세요")
+		return ""
+	var clip: Dictionary = {}
+	if loop_ready():
+		clip = BattleReplay.make_range_clip(replay, loop_start, loop_end, "%s–%s 선택 구간" % [_report_time(loop_start), _report_time(loop_end)])
+	else:
+		clip = _nearby_clip()
+	if clip.is_empty():
+		_toast("공유할 구간이 없습니다. 기록된 전투 범위 안에서 시작·끝을 정하세요.")
+		return ""
+	var text := BattleReplay.to_share_text(clip)
+	DisplayServer.clipboard_set(text)
+	_toast("클립을 복사했습니다 ▸ %s–%s · 가져오면 이 구간부터 재생합니다" % [_report_time(int(clip.clip.start)), _report_time(int(clip.clip.end))])
+	return text
+
+func _nearby_clip() -> Dictionary:
 	var center: int = player.ticks
 	var title := "%d:%02d 부근" % [int(player.model.elapsed) / 60, int(player.model.elapsed) % 60]
-	var best := 600
+	var hz := int(replay.get("hz", BattleReplay.DEFAULT_HZ))
+	var best := hz * 20
 	for item in analysis.get("highlights", []):
 		var distance := absi(int(item.tick) - player.ticks)
 		if distance < best:
 			best = distance
 			center = int(item.tick)
 			title = String(item.text)
-	var text := BattleReplay.to_share_text(BattleReplay.make_clip(replay, center, title))
-	DisplayServer.clipboard_set(text)
-	moment_toast.text = "클립을 복사했습니다 ▸ %s" % title
-	get_tree().create_timer(3.0).timeout.connect(func():
-		if is_instance_valid(moment_toast) and moment_toast.text.begins_with("클립을 복사했습니다"):
-			moment_toast.text = "")
-	return text
+	return BattleReplay.make_clip(replay, center, title, hz * 10, hz * 10)
 
 func jump_next_moment() -> void:
 	var item := ReplayAnalysis.next_after(analysis.get("highlights", []), player.ticks + JUMP_LEAD_TICKS)
