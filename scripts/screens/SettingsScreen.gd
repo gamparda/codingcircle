@@ -236,7 +236,7 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	pages.data.add_child(data_note)
 	var recovery_button = main._styled_button("진행도 보관·복구", Color("#3d647d"), false)
 	recovery_button.name = "ProfileRecoveryButton"
-	recovery_button.tooltip_text = "현재 진행도 사본을 보관하고 복구할 사본을 확인합니다. 저장하지 않은 설정 편집은 포함되지 않습니다."
+	recovery_button.tooltip_text = "현재 진행도 사본을 보관·내보내거나 외부 사본을 가져와 복구합니다. 저장하지 않은 설정 편집은 포함되지 않습니다."
 	recovery_button.pressed.connect(func():
 		main._apply_settings()
 		preload("res://scripts/screens/ProfileRecovery.gd").show(main))

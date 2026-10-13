@@ -5,6 +5,7 @@ const Localization = preload("res://scripts/Localization.gd")
 
 const SAVE_VERSION := 1
 const SAVE_PATH := "user://catwar_save.json"
+const MAX_BACKUP_TRANSFER_BYTES := 2 * 1024 * 1024
 const WINDOW_SIZES := ["1280x720", "1600x900", "1920x1080"]
 const FPS_LIMITS := [30, 60, 120, 144, 240]
 const GRAPHICS_QUALITIES := ["auto", "high", "medium", "low"]
@@ -306,6 +307,78 @@ static func _fingerprint(bytes: PackedByteArray) -> String:
 static func create_backup(data: Dictionary, path: String = SAVE_PATH) -> String:
 	return _preserve_original(JSON.stringify(sanitize(data), "\t").to_utf8_buffer(), path)
 
+## Portable progress uses the existing profile format, without an installation's
+## identity or queued submissions. Importing must never resend another device's results.
+static func to_backup_text(data: Dictionary) -> String:
+	var portable := data.duplicate(true)
+	portable.install_id = ""
+	portable.next_report_sequence = 1
+	portable.pending_reports = []
+	portable.pending_daily = {}
+	return JSON.stringify(sanitize(portable), "\t")
+
+static func backup_export(candidate: String, fingerprint: String, path: String = SAVE_PATH) -> Dictionary:
+	var result := {"ok": false, "text": "", "error": ""}
+	if candidate.get_base_dir() != recovery_dir(path):
+		result.error = "이 저장 파일의 복구 폴더에 있는 사본만 내보낼 수 있습니다."
+		return result
+	var source := _read_profile(candidate)
+	if source.status != "ok" or not _recoverable(source.raw):
+		result.error = "선택한 사본을 읽을 수 없습니다. 목록을 새로고침하세요."
+		return result
+	if _fingerprint(source.bytes) != fingerprint:
+		result.error = "선택한 사본의 내용이 바뀌었습니다. 목록을 새로고침해 다시 확인하세요."
+		return result
+	result.text = to_backup_text(source.raw)
+	result.ok = true
+	return result
+
+## Preview is read-only. Keep the exact input for the later explicit import,
+## rather than silently discarding damaged records from the recovery original.
+static func preview_backup_text(text: String) -> Dictionary:
+	var result := {"ok": false, "data": {}, "bytes": PackedByteArray(), "excluded": 0, "error": ""}
+	if text.length() > MAX_BACKUP_TRANSFER_BYTES:
+		result.error = "사본이 너무 큽니다. 진행도 JSON 사본만 복사하세요."
+		return result
+	if text.strip_edges().is_empty():
+		result.error = "클립보드가 비어 있습니다. 내보낸 진행도 JSON 전체를 복사하세요."
+		return result
+	var bytes := text.to_utf8_buffer()
+	if bytes.size() > MAX_BACKUP_TRANSFER_BYTES:
+		result.error = "사본이 너무 큽니다. 진행도 JSON 사본만 복사하세요."
+		return result
+	var json := JSON.new()
+	if json.parse(text.trim_prefix("\ufeff")) != OK or not json.data is Dictionary:
+		result.error = "진행도 JSON을 읽을 수 없습니다. 중간에 빠진 내용 없이 전체를 복사하세요."
+		return result
+	if _is_integer(json.data.get("save_version")) and int(json.data.save_version) > SAVE_VERSION:
+		result.error = "더 새로운 저장 형식의 사본입니다. 게임을 업데이트한 뒤 가져오세요."
+		return result
+	if not _recoverable(json.data):
+		result.error = "진행도 사본이 아닙니다. 리플레이나 일부 내용 대신 진행도 JSON 전체를 복사하세요."
+		return result
+	var diagnostics := {}
+	result.data = sanitize(json.data, diagnostics)
+	result.excluded = int(diagnostics.challenge_excluded)
+	result.bytes = bytes
+	result.ok = true
+	return result
+
+## This only adds a recovery point. Replacing live progress still goes through
+## restore_backup's preview, original preservation and device-local queue policy.
+static func import_backup_text(text: String, path: String = SAVE_PATH) -> Dictionary:
+	var result := {"ok": false, "path": "", "error": ""}
+	var preview := preview_backup_text(text)
+	if not preview.ok:
+		result.error = preview.error
+		return result
+	result.path = _preserve_original(preview.bytes, path)
+	if String(result.path).is_empty():
+		result.error = "사본을 보관하지 못했습니다. 저장 공간과 파일 권한을 확인하고 다시 시도하세요. 현재 진행도는 유지됩니다."
+		return result
+	result.ok = true
+	return result
+
 static func recovery_candidates(path: String = SAVE_PATH) -> Dictionary:
 	var result := {"entries": [], "excluded": 0, "error": ""}
 	var folder := recovery_dir(path)
@@ -321,7 +394,9 @@ static func recovery_candidates(path: String = SAVE_PATH) -> Dictionary:
 			var candidate := folder.path_join(name)
 			var source := _read_profile(candidate)
 			if source.status == "ok" and _recoverable(source.raw):
-				result.entries.append({"path": candidate, "data": sanitize(source.raw), "fingerprint": _fingerprint(source.bytes), "modified": FileAccess.get_modified_time(candidate)})
+				var diagnostics := {}
+				var data := sanitize(source.raw, diagnostics)
+				result.entries.append({"path": candidate, "data": data, "fingerprint": _fingerprint(source.bytes), "modified": FileAccess.get_modified_time(candidate), "excluded": int(diagnostics.challenge_excluded)})
 			else:
 				result.excluded += 1
 		name = directory.get_next()
@@ -390,7 +465,7 @@ static func _read_profile(path: String) -> Dictionary:
 	if bytes.size() != length or error not in [OK, ERR_FILE_EOF]:
 		return {"status": "unreadable"}
 	var json := JSON.new()
-	if json.parse(bytes.get_string_from_utf8()) != OK or not json.data is Dictionary:
+	if json.parse(bytes.get_string_from_utf8().trim_prefix("\ufeff")) != OK or not json.data is Dictionary:
 		return {"status": "invalid", "bytes": bytes}
 	if _is_integer(json.data.get("save_version")) and int(json.data.save_version) > SAVE_VERSION:
 		return {"status": "newer"}
