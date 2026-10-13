@@ -1,11 +1,22 @@
 extends "res://scripts/ui/SubMenuFrame.gd"
-## Filter a snapshot of the shelf without reloading files or rebuilding cards on each keystroke.
+## Search the complete shelf snapshot; create cards only for the current page.
 
 signal refresh_requested
 
 const MODES := ["", "campaign", "practice", "daily", "weekly", "draft", "online", "unreadable"]
+const PAGE_SIZE := 8
 
 var _entries: Array = []
+var _page_entries: Array = []
+var _card_factory: Callable
+var _page := 0
+var _page_count := 1
+var _first: Button
+var _previous: Button
+var _next: Button
+var _last: Button
+var _page_label: Label
+var _pages: HFlowContainer
 var _state: Dictionary = {}
 var _search: LineEdit
 var _deck_queries: Array[LineEdit] = []
@@ -26,6 +37,8 @@ var _restoring := false
 func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void:
 	_entries = entries
 	_state = state
+	_card_factory = card_factory
+	_page = maxi(0, int(state.get("page", 0)))
 	var search_row := HBoxContainer.new()
 	search_row.name = "ReplaySearchTools"
 	search_row.add_theme_constant_override("separation", 8)
@@ -114,11 +127,25 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	storage.tooltip_text = "검색 조건과 관계없는 이 기기의 전체 보관함입니다. 새로고침할 때 JSON 파일 크기를 다시 확인합니다. 용량은 파일 내용의 크기이며 디스크 사용량·남은 저장 공간과는 다릅니다. 클립도 전체 전투 기록을 포함합니다. 정리 제외·읽기 실패 파일은 자동 정리로 줄어들지 않습니다."
 	column.add_child(storage)
 	column.move_child(storage, _scroll.get_index())
-	for entry in _entries:
-		var card: Control = card_factory.call(entry)
-		_rows.add_child(card)
-		card.set_meta("replay_path", String(entry.path))
-		entry["card"] = card
+	var pages := HFlowContainer.new()
+	_pages = pages
+	pages.name = "ReplayPages"
+	pages.add_theme_constant_override("h_separation", 8)
+	pages.add_theme_constant_override("v_separation", 4)
+	column.add_child(pages)
+	column.move_child(pages, _scroll.get_index() + 1)
+	_first = _page_button(pages, "FirstReplayPage", "처음", 0)
+	_previous = _page_button(pages, "PreviousReplayPage", "이전", -1)
+	_page_label = Label.new()
+	_page_label.name = "ReplayPageSummary"
+	_page_label.custom_minimum_size = Vector2(210, UIKit.TOUCH_MIN_HEIGHT)
+	_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_page_label.add_theme_font_size_override("font_size", 14)
+	_page_label.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	pages.add_child(_page_label)
+	_next = _page_button(pages, "NextReplayPage", "다음", 1)
+	_last = _page_button(pages, "LastReplayPage", "마지막", 2)
 	_search.text_changed.connect(func(_text): _refresh(true))
 	for query in _deck_queries:
 		query.text_changed.connect(func(_text): _refresh(true))
@@ -148,7 +175,7 @@ func _usable(control: Control) -> bool:
 	return is_instance_valid(control) and control.is_visible_in_tree() and control.focus_mode != Control.FOCUS_NONE and not (control is BaseButton and control.disabled)
 
 func _card_for(path: String) -> Control:
-	for entry in _entries:
+	for entry in _page_entries:
 		if String(entry.path) == path and entry.card.visible: return entry.card
 	return null
 
@@ -161,7 +188,7 @@ func _remember_focus(control: Control) -> void:
 func _store_focus(control: Control) -> void:
 	_state["focus_file"] = ""
 	_state["focus_control"] = String(get_path_to(control))
-	for entry in _entries:
+	for entry in _page_entries:
 		if entry.card.is_ancestor_of(control):
 			_state["focus_file"] = String(entry.path)
 			_state["focus_control"] = String(control.name)
@@ -173,7 +200,7 @@ func _remember_scroll(value: float) -> void:
 	_state["anchor_file"] = ""
 	# Keep the first visible card at the same viewport offset even if newer files
 	# have been inserted above it. Never identify cards by their generated node names.
-	for entry in _entries:
+	for entry in _page_entries:
 		var card: Control = entry.card
 		if card.visible and card.position.y + card.size.y > value:
 			_state["anchor_file"] = String(entry.path)
@@ -195,6 +222,63 @@ func _option(parent: Control, node_name: String, labels: Array, selected: int) -
 	option.select(clampi(selected, 0, labels.size() - 1))
 	parent.add_child(option)
 	return option
+
+func _page_button(parent: Control, node_name: String, text: String, action: int) -> Button:
+	var button := UIKit.style_button(Button.new(), UIKit.TEAL)
+	button.name = node_name
+	button.text = text
+	button.custom_minimum_size = Vector2(78, UIKit.TOUCH_MIN_HEIGHT)
+	button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	button.tooltip_text = "검색 결과를 %d개씩 탐색합니다. 검색·정렬·전체 용량 집계와 보관 파일은 유지합니다." % PAGE_SIZE
+	parent.add_child(button)
+	button.pressed.connect(func():
+		var target := 0 if action == 0 else (_page_count - 1 if action == 2 else _page + action)
+		_change_page(target, button))
+	return button
+
+func _change_page(page: int, button: Button) -> void:
+	if not _alive() or button.disabled: return
+	_page = clampi(page, 0, _page_count - 1)
+	_state["page"] = _page
+	_state["scroll"] = 0
+	_state["anchor_file"] = ""
+	button.grab_focus()
+	_store_focus(button)
+	_refresh(false)
+	_scroll.scroll_vertical = 0
+	# Boundary buttons become disabled on the destination page. Keep a usable
+	# paging control focused so repeated keyboard navigation cannot lose its place.
+	if button.disabled:
+		var target := _previous if _page > 0 else _next
+		restore_focus(target)
+
+func _render_page(visible_entries: Array) -> void:
+	var start := _page * PAGE_SIZE
+	var current: Array = visible_entries.slice(start, mini(start + PAGE_SIZE, visible_entries.size()))
+	var paths := {}
+	for entry in current: paths[String(entry.path)] = true
+	for entry in _page_entries:
+		if paths.has(String(entry.path)): continue
+		var card: Control = entry.card
+		_rows.remove_child(card)
+		card.queue_free()
+		entry.erase("card")
+	_page_entries = current
+	for index in _page_entries.size():
+		var entry: Dictionary = _page_entries[index]
+		if not entry.has("card"):
+			var card: Control = _card_factory.call(entry)
+			card.set_meta("replay_path", String(entry.path))
+			_rows.add_child(card)
+			entry["card"] = card
+		_rows.move_child(entry.card, index)
+	_first.disabled = _page == 0
+	_previous.disabled = _page == 0
+	_next.disabled = _page + 1 >= _page_count
+	_last.disabled = _page + 1 >= _page_count
+	_pages.visible = _page_count > 1
+	_page_label.text = "%d / %d쪽 · %d–%d / %d개" % [_page + 1, _page_count, start + 1 if not current.is_empty() else 0, start + current.size(), visible_entries.size()]
+	_page_label.tooltip_text = "조건에 맞는 전체 결과 중 현재 페이지의 범위입니다. 새로고침·재생 복귀 시 보던 전투가 있는 페이지를 복원합니다."
 
 static func matches(entry: Dictionary, query: String, mode: int, scope: int, outcome: int, retention: int = 0, blue_query: String = "", red_query: String = "") -> bool:
 	if mode > 0 and String(entry.mode) != String(MODES[mode]): return false
@@ -252,8 +336,6 @@ func _apply_sort() -> void:
 		if a_order != b_order:
 			return a_order < b_order if _applied_sort == 1 else a_order > b_order
 		return String(a.path) < String(b.path) if _applied_sort == 1 else String(a.path) > String(b.path))
-	for index in _entries.size():
-		_rows.move_child(_entries[index].card, index)
 
 func _refresh(reset_scroll: bool) -> void:
 	_refresh_revision += 1
@@ -266,22 +348,46 @@ func _refresh(reset_scroll: bool) -> void:
 	_state["retention"] = _retention.selected
 	_state["sort"] = _sort.selected
 	_apply_sort()
-	var shown := 0
 	var visible_entries: Array = []
 	for entry in _entries:
-		entry.card.visible = matches(entry, _search.text, _mode.selected, _scope.selected, _outcome.selected, _retention.selected, _deck_queries[0].text, _deck_queries[1].text)
-		if entry.card.visible:
-			shown += 1
+		if matches(entry, _search.text, _mode.selected, _scope.selected, _outcome.selected, _retention.selected, _deck_queries[0].text, _deck_queries[1].text):
 			visible_entries.append(entry)
-	_count.text = "%d / %d개 표시" % [shown, _entries.size()]
+	var shown := visible_entries.size()
+	_count.text = "%d / %d개 검색 결과" % [shown, _entries.size()]
 	var visible_storage := storage_totals(visible_entries)
 	_count.text += " · " + storage_size_text(int(visible_storage.bytes), int(visible_storage.unknown))
-	_count.tooltip_text = "현재 조건에 표시된 파일의 개수와 용량입니다. 읽기 실패 파일도 포함합니다. 검색·필터·정렬은 자동 정리와 덱 분석의 대상에 영향을 주지 않습니다."
+	_count.tooltip_text = "현재 페이지뿐 아니라 검색 조건에 맞는 전체 파일의 개수와 용량입니다. 읽기 실패 파일도 포함합니다. 검색·필터·정렬·페이지는 자동 정리와 덱 분석의 대상에 영향을 주지 않습니다."
 	_reset.disabled = _search.text.is_empty() and _deck_queries[0].text.is_empty() and _deck_queries[1].text.is_empty() and _mode.selected == 0 and _scope.selected == 0 and _outcome.selected == 0 and _retention.selected == 0 and _sort.selected == 0
 	if is_instance_valid(_empty):
 		_rows.remove_child(_empty)
 		_empty.queue_free()
 		_empty = null
+	_page_count = maxi(1, int(ceil(float(shown) / float(PAGE_SIZE))))
+	if reset_scroll:
+		_page = 0
+	else:
+		# Newer files or changed sizes can move the bookmarked card across a page
+		# boundary. Resolve by file identity rather than retaining an obsolete index.
+		var file := String(_state.get("focus_file", ""))
+		if file.is_empty(): file = String(_state.get("anchor_file", ""))
+		for index in visible_entries.size():
+			if String(visible_entries[index].path) == file:
+				_page = int(index / PAGE_SIZE)
+				break
+	_page = clampi(_page, 0, _page_count - 1)
+	_state["page"] = _page
+	# Snapshot focus before freeing cards that leave the page. The snapshot below
+	# must not dereference a detached card or accidentally bookmark another file.
+	var focused := get_viewport().gui_get_focus_owner()
+	if reset_scroll:
+		_state["scroll"] = 0
+		_state["anchor_file"] = ""
+		if _usable(focused) and is_ancestor_of(focused) and not _rows.is_ancestor_of(focused):
+			_store_focus(focused)
+		else:
+			_store_focus(_search)
+	_restoring = true
+	_render_page(visible_entries)
 	if shown == 0:
 		_empty = VBoxContainer.new()
 		_empty.name = "NoReplays" if _entries.is_empty() else "NoReplayMatches"
@@ -301,15 +407,6 @@ func _refresh(reset_scroll: bool) -> void:
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 		_empty.add_child(hint)
-	if reset_scroll:
-		_state["scroll"] = 0
-		_state["anchor_file"] = ""
-		# Filtering keeps the active input, not a previously selected hidden card.
-		var focused := get_viewport().gui_get_focus_owner()
-		if _usable(focused) and is_ancestor_of(focused):
-			_store_focus(focused)
-		else:
-			_store_focus(_search)
 	_schedule_restore()
 
 func _schedule_restore() -> void:
