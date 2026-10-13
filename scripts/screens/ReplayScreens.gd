@@ -351,7 +351,12 @@ static func _restore_cleanup_focus(main, background: Control) -> void:
 	if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return
 	var target := background.find_child("RetryReplayCleanup", true, false) as Control
 	if target == null: target = background.find_child("ReplaySearch", true, false) as Control
-	if target != null: target.grab_focus()
+	if target != null: _restore_shelf_focus(background, target)
+
+static func _restore_shelf_focus(background: Control, target: Control) -> void:
+	var frame = background.find_child("ReplayListScreen", true, false)
+	if frame != null:
+		frame.restore_focus(target)
 
 static func _confirm_replay_delete(main, path: String, entry_button: Button) -> void:
 	var background: Control = main.root_background
@@ -489,10 +494,10 @@ static func _restore_deleted_replay_focus(main, background: Control, selected_in
 		var target := card.find_child("PlayReplayButton", true, false) as Button
 		if target == null: target = card.find_child("DeleteReplayButton", true, false) as Button
 		if target != null:
-			target.grab_focus()
+			_restore_shelf_focus(background, target)
 			return
 	var search := background.find_child("ReplaySearch", true, false) as LineEdit
-	if search != null: search.grab_focus()
+	if search != null: _restore_shelf_focus(background, search)
 
 static func _delete_button(main, path: String) -> Button:
 	var button: Button = main._styled_button("삭제", UIKit.DANGER, false)
@@ -724,10 +729,10 @@ static func _restore_protection_focus(main, background: Control, path: String) -
 			if card.visible and String(card.get_meta("replay_path", "")) == path:
 				var button := card.find_child("ProtectReplayButton", true, false) as Button
 				if button != null:
-					button.grab_focus()
+					_restore_shelf_focus(background, button)
 					return
 	var search := background.find_child("ReplaySearch", true, false) as Control
-	if search != null: search.grab_focus()
+	if search != null: _restore_shelf_focus(background, search)
 
 static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	var info := describe(replay)
@@ -817,7 +822,10 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	var play = main._styled_button("재생", UIKit.ACCENT, true)
 	play.name = "PlayReplayButton"
 	play.custom_minimum_size = Vector2(100, action_height)
-	play.pressed.connect(main._play_replay.bind(path))
+	play.pressed.connect(func():
+		# Mouse/touch and keyboard launches all bookmark this exact file/action.
+		play.grab_focus()
+		main._play_replay(path))
 	actions.add_child(play)
 	if GhostOpponent.playable(replay):
 		var ghost = main._styled_button("고스트 도전", UIKit.ACCENT, false)
@@ -1708,8 +1716,12 @@ static func _play_replay(main, path: String) -> void:
 	var replay := BattleReplay.load_file(path)
 	if replay.is_empty():
 		main._build_replay_list()
+		var status := main.root_background.find_child("ReplayStatus", true, false) as Label
+		if status != null:
+			var notice := "선택한 전투를 재생할 수 없습니다. 파일이 없어졌거나 읽을 수 없는 상태입니다. 보관함에서 다른 전투를 선택하세요."
+			status.text = notice + ("\n" + status.text if not status.text.is_empty() else "")
 		return
-	_open_viewer(main, replay, path)
+	_open_viewer(main, replay, path, main._build_replay_list, "리플레이 보관함의 검색 조건·카드 위치·재생 버튼 초점으로 돌아갑니다.")
 
 static func _open_viewer(main, replay: Dictionary, path: String, return_to: Callable = Callable(), return_hint: String = "") -> void:
 	if not main.save_data.is_empty():

@@ -16,6 +16,7 @@ var _reset: Button
 var _count: Label
 var _empty: VBoxContainer
 var _refresh_revision := 0
+var _restoring := false
 @onready var _scroll: ScrollContainer = $Column/ReplayScroll
 @onready var _rows: VBoxContainer = $Column/ReplayScroll/ReplayRows
 
@@ -44,8 +45,10 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	var refresh := UIKit.style_button(Button.new(), UIKit.ACCENT)
 	refresh.name = "RefreshReplayList"
 	refresh.text = "새로고침"
-	refresh.tooltip_text = "파일을 다시 읽습니다. 검색 조건과 스크롤 위치는 유지합니다."
-	refresh.pressed.connect(func(): refresh_requested.emit())
+	refresh.tooltip_text = "파일을 다시 읽습니다. 검색 조건·카드 위치·키보드 초점은 유지합니다."
+	refresh.pressed.connect(func():
+		refresh.grab_focus()
+		refresh_requested.emit())
 	search_row.add_child(refresh)
 	var filters := HFlowContainer.new()
 	filters.name = "ReplayFilters"
@@ -70,6 +73,7 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	for entry in _entries:
 		var card: Control = card_factory.call(entry)
 		_rows.add_child(card)
+		card.set_meta("replay_path", String(entry.path))
 		entry["card"] = card
 	_search.text_changed.connect(func(_text): _refresh(true))
 	_mode.item_selected.connect(func(_index): _refresh(true))
@@ -82,7 +86,58 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	_scroll.gui_input.connect(_on_scroll_input)
 	# Capture the requested position before the initial layout updates its scrollbar.
 	_refresh(false)
-	_scroll.get_v_scroll_bar().value_changed.connect(func(value): _state["scroll"] = int(value))
+	_scroll.get_v_scroll_bar().value_changed.connect(_remember_scroll)
+	get_viewport().gui_focus_changed.connect(_remember_focus)
+
+func _alive() -> bool:
+	if not is_inside_tree(): return false
+	var node: Node = self
+	while is_instance_valid(node):
+		if node.is_queued_for_deletion(): return false
+		node = node.get_parent()
+	return true
+
+func _usable(control: Control) -> bool:
+	return is_instance_valid(control) and control.is_visible_in_tree() and control.focus_mode != Control.FOCUS_NONE and not (control is BaseButton and control.disabled)
+
+func _card_for(path: String) -> Control:
+	for entry in _entries:
+		if String(entry.path) == path and entry.card.visible: return entry.card
+	return null
+
+func _remember_focus(control: Control) -> void:
+	if not _alive() or _restoring or not is_instance_valid(control): return
+	# Dialogs are siblings of this frame. They must not replace the shelf bookmark.
+	if not is_ancestor_of(control): return
+	_store_focus(control)
+
+func _store_focus(control: Control) -> void:
+	_state["focus_file"] = ""
+	_state["focus_control"] = String(get_path_to(control))
+	for entry in _entries:
+		if entry.card.is_ancestor_of(control):
+			_state["focus_file"] = String(entry.path)
+			_state["focus_control"] = String(control.name)
+			break
+
+func _remember_scroll(value: float) -> void:
+	if not _alive() or _restoring: return
+	_state["scroll"] = int(value)
+	_state["anchor_file"] = ""
+	# Keep the first visible card at the same viewport offset even if newer files
+	# have been inserted above it. Never identify cards by their generated node names.
+	for entry in _entries:
+		var card: Control = entry.card
+		if card.visible and card.position.y + card.size.y > value:
+			_state["anchor_file"] = String(entry.path)
+			_state["anchor_offset"] = int(card.position.y) - int(value)
+			break
+
+## Explicit post-action focus shares the same layout/scroll restoration as refresh.
+func restore_focus(target: Control) -> void:
+	if not _alive() or not _usable(target) or not is_ancestor_of(target): return
+	_store_focus(target)
+	_schedule_restore()
 
 func _option(parent: Control, node_name: String, labels: Array, selected: int) -> OptionButton:
 	var option := OptionButton.new()
@@ -141,14 +196,83 @@ func _refresh(reset_scroll: bool) -> void:
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 		_empty.add_child(hint)
-	if reset_scroll: _state["scroll"] = 0
-	# Restore after containers have laid out the visible cards. Ignore an older
-	# pending restore if another keystroke changed the result set in the meantime.
-	get_tree().process_frame.connect(_restore_scroll.bind(int(_state.get("scroll", 0)), _refresh_revision), CONNECT_ONE_SHOT)
+	if reset_scroll:
+		_state["scroll"] = 0
+		_state["anchor_file"] = ""
+		# Filtering keeps the active input, not a previously selected hidden card.
+		var focused := get_viewport().gui_get_focus_owner()
+		if _usable(focused) and is_ancestor_of(focused):
+			_store_focus(focused)
+		else:
+			_store_focus(_search)
+	_schedule_restore()
 
-func _restore_scroll(position: int, revision: int) -> void:
-	if is_inside_tree() and revision == _refresh_revision:
-		_scroll.scroll_vertical = position
+func _schedule_restore() -> void:
+	_refresh_revision += 1
+	_restoring = true
+	var bookmark := _state.duplicate()
+	get_tree().process_frame.connect(_restore_navigation.bind(bookmark, _refresh_revision), CONNECT_ONE_SHOT)
+
+func _restore_navigation(bookmark: Dictionary, revision: int) -> void:
+	if not _alive() or revision != _refresh_revision: return
+	var owner := get_viewport().gui_get_focus_owner()
+	var keep_modal_focus := false
+	# A newly opened modal keeps its focus. Ignore an owner in the old queued screen.
+	if _usable(owner) and not is_ancestor_of(owner):
+		var node: Node = owner
+		var queued := false
+		while is_instance_valid(node):
+			if node.is_queued_for_deletion(): queued = true
+			node = node.get_parent()
+		if not queued:
+			keep_modal_focus = true
+	var target: Control
+	var file := String(bookmark.get("focus_file", ""))
+	var path := String(bookmark.get("focus_control", ""))
+	if not file.is_empty():
+		var card := _card_for(file)
+		if card != null and not path.is_empty(): target = card.find_child(path, true, false) as Control
+	elif not path.is_empty():
+		target = get_node_or_null(NodePath(path)) as Control
+	var fallback := not path.is_empty() and not _usable(target)
+	if fallback: target = _search
+	if path.is_empty(): target = _scroll
+	if keep_modal_focus: target = null
+	if _usable(target): target.grab_focus()
+	# ScrollContainer follows focus on a deferred call; apply the bookmark after it.
+	get_tree().process_frame.connect(_finish_restore.bind(bookmark, target, revision), CONNECT_ONE_SHOT)
+
+func _finish_restore(bookmark: Dictionary, target: Control, revision: int) -> void:
+	if not _alive() or revision != _refresh_revision: return
+	var owner := get_viewport().gui_get_focus_owner()
+	if _usable(owner) and owner != target:
+		# Programmatic modal opening between phases also takes precedence. The
+		# shelf can still restore its position behind the modal without taking focus.
+		target = null
+	var position := int(bookmark.get("scroll", 0))
+	var anchor := _card_for(String(bookmark.get("anchor_file", "")))
+	if anchor != null: position = int(anchor.position.y) - int(bookmark.get("anchor_offset", 0))
+	var bar := _scroll.get_v_scroll_bar()
+	_scroll.scroll_vertical = clampi(position, 0, maxi(0, int(bar.max_value - bar.page)))
+	if _usable(target) and _scroll.is_ancestor_of(target):
+		# Restored focus must remain visible after a saved memo changes the filters or
+		# card height. Other cards are never activated as part of this fallback.
+		_scroll.ensure_control_visible(target)
+	if target == _search and not String(bookmark.get("focus_file", "")).is_empty():
+		var status: Label = column.get_node("ReplayStatus")
+		var notice := "선택했던 전투가 없어졌거나 검색 조건에서 제외되어 검색칸으로 초점을 옮겼습니다."
+		status.text = notice + ("\n" + status.text if not status.text.is_empty() else "")
+	_restoring = false
+	_remember_scroll(_scroll.scroll_vertical)
+	_remember_focus(owner if target == null else target)
+
+func _input(event: InputEvent) -> void:
+	if not _restoring or not _alive(): return
+	if (event is InputEventKey and event.pressed) or (event is InputEventMouseButton and event.pressed) or (event is InputEventScreenTouch and event.pressed) or event is InputEventScreenDrag:
+		_refresh_revision += 1
+		_restoring = false
+		_remember_scroll(_scroll.scroll_vertical)
+		_remember_focus(get_viewport().gui_get_focus_owner())
 
 func _reset_filters() -> void:
 	_search.text = ""
@@ -158,6 +282,7 @@ func _reset_filters() -> void:
 	_retention.select(0)
 	_refresh(true)
 	_search.grab_focus()
+	_store_focus(_search)
 
 func _on_scroll_input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.ctrl_pressed or event.alt_pressed or event.meta_pressed: return
