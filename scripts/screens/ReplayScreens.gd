@@ -12,6 +12,7 @@ const HpBar = preload("res://scripts/ui/HpBar.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 const ServerLink = preload("res://scripts/ServerLink.gd")
+const ReplayRequest = preload("res://scripts/ui/ReplayRequest.gd")
 const MetaStatsUI = preload("res://scripts/screens/MetaStatsUI.gd")
 const REPLAY_LIST_SCREEN := preload("res://scenes/ui/ReplayListScreen.tscn")
 
@@ -400,7 +401,7 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 
 ## Asks for a six-letter code and plays the replay it names.
 static func _show_code_dialog(main) -> void:
-	var dialog = main._action_panel("코드로 열기", Rect2(340, 190, 600, 320))
+	var dialog = main._action_panel("코드로 열기", Rect2(340, 150, 600, 420))
 	dialog.add_child(MultiplayerUI.label("공유받은 6자리 코드를 입력하세요. 필요하면 자동으로 서버에 접속합니다.", 14, MultiplayerUI.MUTED))
 	var input := LineEdit.new()
 	input.name = "ReplayCodeInput"
@@ -408,39 +409,54 @@ static func _show_code_dialog(main) -> void:
 	input.placeholder_text = "ABC234"
 	input.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	input.add_theme_font_size_override("font_size", 28)
+	input.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
 	input.text_changed.connect(func(text): input.text = text.to_upper(); input.caret_column = input.text.length())
 	dialog.add_child(input)
 	var status := MultiplayerUI.label("", 14, MultiplayerUI.GOLD)
 	status.name = "ReplayCodeStatus"
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(status)
-	var fetch := func():
-		if is_instance_valid(status):
-			status.text = Localization.text("불러오는 중...")
-		main.network.send_replay_fetch(input.text)
-	var on_link := func(text: String):
-		if is_instance_valid(status):
+	var open_button: Button = main._styled_button("열기", UIKit.ACCENT, true)
+	open_button.name = "OpenReplayCode"
+	open_button.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	dialog.add_child(open_button)
+	var pending := {"active": false}
+	var open_code := func():
+		if bool(pending.active):
+			return
+		var code := input.text.strip_edges().to_upper()
+		if not main.network.is_valid_room_code(code):
+			status.text = "영문 대문자와 숫자로 된 6자리 코드를 확인하세요."
+			input.grab_focus()
+			return
+		pending.active = true
+		open_button.disabled = true
+		input.editable = false
+		var fail := func(text: String):
+			pending.active = false
+			open_button.disabled = false
+			input.editable = true
 			status.text = Localization.text(text)
-	var open_code := func(): ServerLink.run(main, fetch, on_link)
+		var result := func(text: String):
+			var replay := BattleReplay.from_share_text(text)
+			if replay.is_empty():
+				fail.call(Localization.text("%s 코드의 리플레이를 찾을 수 없습니다.") % code)
+				return
+			main._dismiss_action_overlay()
+			_play_replay_data(main, replay)
+		ReplayRequest.start(main, dialog, "fetch", code, result, fail, func(text): status.text = Localization.text(text))
+	open_button.pressed.connect(open_code)
 	input.text_submitted.connect(func(_text): open_code.call())
-	var on_result := func(code: String, text: String):
-		if not is_instance_valid(status):
-			return
-		var replay := BattleReplay.from_share_text(text)
-		if replay.is_empty():
-			status.text = Localization.text("%s 코드의 리플레이를 찾을 수 없습니다.") % code
-			return
-		main._dismiss_action_overlay()
-		_play_replay_data(main, replay)
-	main.network.shared_replay_received.connect(on_result)
-	dialog.tree_exited.connect(func(): if main.network.shared_replay_received.is_connected(on_result): main.network.shared_replay_received.disconnect(on_result))
-	MultiplayerUI.button(main, dialog, "열기", "OpenReplayCode", open_code, true)
-	MultiplayerUI.button(main, dialog, "닫기", "CloseReplayCode", main._dismiss_action_overlay)
+	var close := MultiplayerUI.button(main, dialog, "닫기", "CloseReplayCode", main._dismiss_action_overlay)
+	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	input.grab_focus()
 
 ## Lists the most recent online matches the server has shelved; each can be watched directly.
 static func _show_recent_battles(main) -> void:
 	var dialog = main._action_panel("최근 온라인 전투", Rect2(190, 60, 900, 600))
 	var status := MultiplayerUI.label("", 14, MultiplayerUI.GOLD)
 	status.name = "RecentBattlesStatus"
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(status)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -451,25 +467,34 @@ static func _show_recent_battles(main) -> void:
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rows.add_theme_constant_override("separation", 8)
 	scroll.add_child(rows)
+	var refresh: Button = main._styled_button("새로고침", UIKit.ACCENT, false)
+	refresh.name = "RefreshRecentBattles"
+	refresh.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	dialog.add_child(refresh)
+	var pending := {"active": false}
 	var show_list := func(list: Array):
-		if not is_instance_valid(rows):
-			return
+		pending.active = false
+		refresh.disabled = false
 		for child in rows.get_children():
+			rows.remove_child(child)
 			child.queue_free()
 		status.text = "" if not list.is_empty() else Localization.text("아직 기록된 온라인 전투가 없습니다.")
 		for entry in list:
 			rows.add_child(_recent_row(main, entry))
 	var request := func():
-		if not is_instance_valid(status):
+		if bool(pending.active):
 			return
-		status.text = Localization.text("불러오는 중...")
-		main.network.recent_replays_received.connect(show_list, CONNECT_ONE_SHOT)
-		main.network.send_recent_request()
-	var on_link := func(text: String):
-		if is_instance_valid(status):
+		pending.active = true
+		refresh.disabled = true
+		var fail := func(text: String):
+			pending.active = false
+			refresh.disabled = false
 			status.text = Localization.text(text)
-	ServerLink.run(main, request, on_link)
-	MultiplayerUI.button(main, dialog, "닫기", "CloseRecentBattles", main._dismiss_action_overlay)
+		ReplayRequest.start(main, dialog, "recent", "", show_list, fail, func(text): status.text = Localization.text(text))
+	refresh.pressed.connect(request)
+	var close := MultiplayerUI.button(main, dialog, "닫기", "CloseRecentBattles", main._dismiss_action_overlay)
+	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	request.call()
 
 static func _recent_row(main, entry: Dictionary) -> Control:
 	var card := PanelContainer.new()
@@ -486,6 +511,7 @@ static func _recent_row(main, entry: Dictionary) -> Control:
 		" ".join(PackedStringArray(entry.units[0].map(func(kind): return String(BattleModel.UNIT_NAMES.get(kind, kind))))),
 		" ".join(PackedStringArray(entry.units[1].map(func(kind): return String(BattleModel.UNIT_NAMES.get(kind, kind)))))]
 	text.add_theme_font_size_override("font_size", 14)
+	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	line.add_child(text)
 	var code := Label.new()
 	code.text = String(entry.code)
@@ -493,37 +519,63 @@ static func _recent_row(main, entry: Dictionary) -> Control:
 	line.add_child(code)
 	var watch = main._styled_button("보기", UIKit.ACCENT, true)
 	watch.name = "WatchRecentBattle"
-	watch.custom_minimum_size = Vector2(90, 40)
+	watch.custom_minimum_size = Vector2(110, UIKit.TOUCH_MIN_HEIGHT)
 	watch.pressed.connect(func():
-		watch.text = "..."
-		main.network.shared_replay_received.connect(func(_code, replay_text):
+		if watch.disabled:
+			return
+		watch.disabled = true
+		var fail := func(message: String):
+			watch.disabled = false
+			watch.text = "재시도"
+			watch.tooltip_text = Localization.text(message)
+			var status = main.root_background.find_child("RecentBattlesStatus", true, false)
+			if status is Label:
+				status.text = Localization.text(message)
+		var result := func(replay_text: String):
 			var replay := BattleReplay.from_share_text(replay_text)
 			if replay.is_empty():
-				watch.text = "실패"
+				fail.call("리플레이를 찾을 수 없습니다. 목록을 새로고침하거나 다른 전투를 선택하세요.")
 				return
 			main._dismiss_action_overlay()
-			_play_replay_data(main, replay), CONNECT_ONE_SHOT)
-		main.network.send_replay_fetch(String(entry.code)))
+			_play_replay_data(main, replay)
+		ReplayRequest.start(main, watch, "fetch", String(entry.code), result, fail, func(_text): watch.text = "불러오는 중"))
 	line.add_child(watch)
 	return card
 
 ## Uploads a replay for a share code, connecting to the server first when needed.
 static func _share_by_code(main, replay: Dictionary, button: Button) -> void:
-	button.text = "..."
-	var send := func():
-		var on_code := func(code: String):
-			if not is_instance_valid(button):
-				return
-			button.text = code if not code.is_empty() else "재시도"
-			button.tooltip_text = Localization.text("공유 코드를 복사했습니다.") if not code.is_empty() else Localization.text("서버가 리플레이를 보관하지 못했습니다. 다시 누르거나 복사 버튼으로 공유하세요.")
-			if not code.is_empty():
-				DisplayServer.clipboard_set(code)
-		main.network.replay_code_received.connect(on_code, CONNECT_ONE_SHOT)
-		main.network.send_replay_upload(BattleReplay.to_share_text(replay))
-	var on_status := func(text: String):
-		if is_instance_valid(button) and not text.contains("접속 중"):
-			button.text = "접속 실패"
-	ServerLink.run(main, send, on_status)
+	if button.disabled:
+		return
+	var text := BattleReplay.to_share_text(replay)
+	if text.is_empty():
+		button.tooltip_text = "공유할 수 없는 리플레이입니다."
+		return
+	var digest := text.sha256_text()
+	if String(button.get_meta("ReplayShareDigest", "")) == digest:
+		DisplayServer.clipboard_set(String(button.get_meta("ReplayShareCode", "")))
+		button.tooltip_text = Localization.text("공유 코드를 복사했습니다.")
+		return
+	button.disabled = true
+	var fail := func(message: String):
+		button.disabled = false
+		button.text = "접속 실패" if message.contains("접속") else "재시도"
+		button.tooltip_text = Localization.text(message)
+		var status = main.root_background.find_child("ReplayStatus", true, false)
+		if status is Label:
+			status.text = Localization.text(message)
+	var on_code := func(code: String):
+		if code.is_empty():
+			fail.call("서버가 리플레이를 보관하지 못했습니다. 다시 누르거나 복사 버튼으로 공유하세요.")
+			return
+		button.disabled = false
+		button.text = code
+		button.set_meta("ReplayShareDigest", digest)
+		button.set_meta("ReplayShareCode", code)
+		button.tooltip_text = Localization.text("공유 코드를 복사했습니다.")
+		DisplayServer.clipboard_set(code)
+	ReplayRequest.start(main, button, "upload", text, on_code, fail, func(message):
+		button.text = "접속 중" if message.contains("접속") else "발급 중"
+		button.tooltip_text = Localization.text(message))
 
 ## Saves a pasted share text as a replay. Returns the message to show the player.
 static func import_text(main, text: String) -> String:
