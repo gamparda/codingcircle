@@ -138,7 +138,7 @@ static func _build_replay_list(main) -> void:
 	analysis_button.tooltip_text = "보관함 읽기를 마치면 전체 기록을 분석할 수 있습니다."
 	UIKit.style_button(analysis_button, UIKit.GOLD_DEEP, false, 16)
 	column.get_node("Footer").add_child(analysis_button)
-	analysis_button.pressed.connect(func(): _show_deck_analysis(main))
+	analysis_button.pressed.connect(func(): _show_deck_analysis(main, frame))
 	var code_button := Button.new()
 	code_button.name = "OpenByCodeButton"
 	code_button.text = Localization.text("코드로 열기")
@@ -163,7 +163,7 @@ static func _complete_replay_list(main, frame, entries: Array, error: String) ->
 	var status: Label = column.get_node("ReplayStatus")
 	var analysis_button: Button = column.get_node("Footer/DeckAnalysisButton")
 	analysis_button.disabled = not error.is_empty()
-	analysis_button.tooltip_text = "보관 폴더를 읽지 못했습니다. 새로고침 후 다시 시도하세요." if not error.is_empty() else "전체 보관함의 내 덱 전적을 분석합니다. 검색·페이지 조건과 관계없이 집계합니다."
+	analysis_button.tooltip_text = "보관 폴더를 읽지 못했습니다. 새로고침 후 다시 시도하세요." if not error.is_empty() else "읽어 둔 전체 보관함의 내 덱 전적을 분석합니다. 검색·정렬·페이지 조건과 관계없이 집계합니다. 게임 밖에서 파일을 바꿨다면 먼저 새로고침하세요."
 	var shown := 0
 	var unreadable := 0
 	var preserved := 0
@@ -555,9 +555,10 @@ static func _unreadable_replay_card(main, path: String, file_bytes: int = -1) ->
 	return card
 
 ## Overlay with one row per deck I have played: record, average length, hardest stage and advice.
-static func _show_deck_analysis(main) -> void:
+static func _show_deck_analysis(main, shelf: ReplayListScreen = null) -> void:
+	if shelf != null and not _dialog_alive(shelf): return
 	var dialog = main._action_panel("덱 분석", Rect2(150, 50, 980, 620))
-	var rows: Array = DeckAnalysis.collect(BattleReplay.list_saved())
+	var rows: Array = DeckAnalysis.collect_replays(shelf.snapshot_replays()) if shelf != null else DeckAnalysis.collect(BattleReplay.list_saved())
 	var global_box := VBoxContainer.new()
 	global_box.name = "GlobalDeckStats"
 	global_box.add_theme_constant_override("separation", 3)
@@ -1252,16 +1253,13 @@ static func _show_code_dialog(main, return_code: String = "", return_notice: Str
 	input.grab_focus()
 	if not return_code.is_empty(): input.select_all()
 
-## Restore after the shelf's layout, without reconnecting or downloading on return.
+## The code dialog only needs its footer button, which exists during shelf loading.
+## Restore immediately without reconnecting, downloading or waiting for local files.
 static func _return_to_code_dialog(main, code: String) -> void:
 	main._build_replay_list()
-	var background: Control = main.root_background
-	var reopen := func():
-		if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return
-		var entry := background.find_child("OpenByCodeButton", true, false) as Button
-		if entry != null: entry.grab_focus()
-		_show_code_dialog(main, code)
-	_after_replay_list_loaded(background, reopen)
+	var entry := main.root_background.find_child("OpenByCodeButton", true, false) as Button
+	if entry != null: entry.grab_focus()
+	_show_code_dialog(main, code)
 
 static func _restore_code_entry_focus(main, background: Control, focus_ref: WeakRef) -> void:
 	if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return

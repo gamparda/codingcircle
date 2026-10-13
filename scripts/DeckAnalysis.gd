@@ -9,9 +9,13 @@ const OWN_MODES := ["campaign", "practice", "daily", "draft"]
 ## Rows sorted by games played (then win rate). Each row: deck, games, wins, losses, draws, win_rate,
 ## average_seconds, hardest_stage {stage, rate, games} or {}, tips.
 static func collect(paths: Array) -> Array:
+	return collect_replays(paths.map(func(path): return BattleReplay.load_file(String(path))))
+
+## Use validated, already loaded replays without scanning or opening files again.
+## The caller supplies the complete shelf in recent storage order, before filters.
+static func collect_replays(replays: Array) -> Array:
 	var groups := {}
-	for path in paths:
-		var replay := BattleReplay.load_file(String(path))
+	for replay in replays:
 		if replay.is_empty() or not OWN_MODES.has(String(replay.get("meta", {}).get("mode", ""))):
 			continue
 		var deck: Array = replay.setup.unit_decks[0]

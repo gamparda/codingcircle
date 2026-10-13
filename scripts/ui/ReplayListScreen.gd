@@ -383,6 +383,14 @@ func restore_focus(target: Control) -> void:
 func deck_queries() -> PackedStringArray:
 	return PackedStringArray([_deck_queries[0].text, _deck_queries[1].text])
 
+## Deck analysis uses the entire loaded snapshot, independent of visible cards.
+## Retain the newest deck's slot order even if the shelf is sorted oldest/largest.
+func snapshot_replays() -> Array:
+	var entries := _entries.duplicate()
+	entries.sort_custom(func(a, b):
+		return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
+	return entries.map(func(entry): return entry.replay)
+
 ## Apply both fields together. Keep the source card reachable for repeated choices.
 func apply_deck_queries(queries: PackedStringArray, source: Button, message: String) -> void:
 	if not _alive() or not _usable(source) or not is_ancestor_of(source) or queries.size() != 2: return
