@@ -81,6 +81,7 @@ var pending_battle_replays: Array = [] # finished battles awaiting a successful 
 var replay_recording_error := ""
 var replay_viewer = null
 var replay_list_state: Dictionary = {} # Shelf filters and scroll; session only, never saved.
+var records_state: Dictionary = {} # Records navigation survives watching a challenge replay.
 var quick_wait_started_msec := 0
 var battle_curve: Array = []
 var battle_curve_samples: Array = [] # timestamped observations for the report; never saved or sent
@@ -794,6 +795,9 @@ func _play_replay(path: String) -> void:
 
 func _build_records_screen() -> void:
 	MenuScreens._build_records_screen(self)
+
+func _show_challenge_replays(period: String, date: String, ruleset: String, record: Dictionary) -> void:
+	ReplayScreens._show_challenge_replays(self, period, date, ruleset, record)
 
 func _build_settings_screen(mobile_layout_override: bool = false) -> void:
 	SettingsScreen._build_settings_screen(self, mobile_layout_override)

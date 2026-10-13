@@ -330,7 +330,8 @@ static func _build_patch_notes_screen(main) -> void:
 
 static func _build_records_screen(main) -> void:
 	var frame = _show_scene(main, RECORDS_SCREEN, Localization.text("개인 전적"), "이 기기에 저장된 전적")
-	frame.populate(main.save_data)
+	frame.populate(main.save_data, main.records_state)
+	frame.challenge_replays_requested.connect(main._show_challenge_replays)
 	var footer := HBoxContainer.new()
 	footer.name = "RecordsFooter"
 	footer.add_theme_constant_override("separation", 10)

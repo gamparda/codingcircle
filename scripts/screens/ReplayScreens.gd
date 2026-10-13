@@ -4,6 +4,7 @@ extends RefCounted
 const Localization = preload("res://scripts/Localization.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
+const ChallengeReplays = preload("res://scripts/ChallengeReplays.gd")
 const ReplayViewer = preload("res://scripts/ui/ReplayViewer.gd")
 const MenuScreens = preload("res://scripts/screens/MenuScreens.gd")
 const DeckAnalysis = preload("res://scripts/DeckAnalysis.gd")
@@ -609,7 +610,7 @@ static func _play_replay(main, path: String) -> void:
 		return
 	_open_viewer(main, replay, path)
 
-static func _open_viewer(main, replay: Dictionary, path: String) -> void:
+static func _open_viewer(main, replay: Dictionary, path: String, return_to: Callable = Callable()) -> void:
 	if not main.save_data.is_empty():
 		preload("res://scripts/Goals.gd").mark(main.save_data, "watch_replay")
 		main._save_profile()
@@ -619,7 +620,11 @@ static func _open_viewer(main, replay: Dictionary, path: String) -> void:
 	var info := describe(replay)
 	var viewer := ReplayViewer.new()
 	viewer.open(replay, "%s  ·  %s" % [Localization.text(String(info.title)), info.duration])
-	viewer.closed.connect(func(): main._build_replay_list())
+	viewer.closed.connect(return_to if return_to.is_valid() else main._build_replay_list)
+	if return_to.is_valid():
+		var close := viewer.find_child("ReplayClose", true, false) as Button
+		if close != null:
+			close.tooltip_text = "도전 기록으로 돌아갑니다. 날짜·버전·결과 조건과 페이지·스크롤을 유지합니다."
 	viewer.branch_requested.connect(func(tick): main._start_branch_battle(viewer.replay, tick))
 	viewer.set_storage_state(path, false)
 	var store := func():
@@ -638,3 +643,154 @@ static func _open_viewer(main, replay: Dictionary, path: String) -> void:
 	viewer.notes_changed.connect(func(_updated): store.call())
 	main.root_background.add_child(viewer)
 	main.replay_viewer = viewer
+
+## Find candidates without treating matching dates, rounded times or legacy versions as a battle ID.
+static func _show_challenge_replays(main, period: String, date: String, ruleset: String, record: Dictionary, return_focus: Control = null) -> void:
+	if return_focus == null:
+		return_focus = main.get_viewport().gui_get_focus_owner()
+	var focus_target := return_focus
+	var entries := ChallengeReplays.matching(ChallengeReplays.load_saved(), period, date, ruleset)
+	var dialog: VBoxContainer = main._action_panel("도전의 보관 전투", Rect2(190, 60, 900, 600))
+	var title := "주간 도전" if period == "weekly" else "일일 도전"
+	var date_text := "%s-%s-%s" % [date.substr(0, 4), date.substr(4, 2), date.substr(6, 2)]
+	var rule_text := "버전 미상" if ruleset == "0" else "버전 " + ruleset
+	var heading := MultiplayerUI.label("%s %s (UTC) · %s\n보관 기록: %s · %d점 · %.1f초" % [title, date_text, rule_text, "성공" if bool(record.get("won", false)) else "실패", int(record.get("score", 0)), float(record.get("seconds", 0.0))], 16, UIKit.TEXT)
+	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dialog.add_child(heading)
+	var hint := MultiplayerUI.label("같은 날짜의 전투·클립입니다. 버전 미상 전투는 기록의 버전과 다를 수 있습니다. 결과·완료 시간이 같아도 최고 점수를 낸 전투인지는 확인이 필요합니다.", 14, UIKit.TEXT_MUTED)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dialog.add_child(hint)
+	var status := MultiplayerUI.label("보관 전투 %d개 · 버전 확인된 전투 우선" % entries.size(), 14, UIKit.GOLD)
+	status.name = "ChallengeReplayStatus"
+	status.tooltip_text = "버전이 확인된 전투를 먼저 표시하며, 각 그룹 안에서는 최신 보관순입니다."
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dialog.add_child(status)
+	var scroll := ScrollContainer.new()
+	scroll.name = "ChallengeReplayScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	scroll.scroll_deadzone = 16
+	scroll.focus_mode = Control.FOCUS_ALL
+	dialog.add_child(scroll)
+	var rows := VBoxContainer.new()
+	rows.name = "ChallengeReplayRows"
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rows.add_theme_constant_override("separation", 10)
+	scroll.add_child(rows)
+	var controls: Array[Control] = [scroll]
+	# Confirmed versions come first; unknown versions remain visible in a separate group.
+	for unknown in [false, true]:
+		var group: Array = entries.filter(func(entry): return (ChallengeReplays.ruleset_of(entry.replay) == "0") == unknown)
+		if group.is_empty(): continue
+		var group_title := MultiplayerUI.label(("버전 미상 · 날짜만 일치" if unknown else "기록의 버전 확인됨") + " · %d개" % group.size(), 16, UIKit.GOLD)
+		rows.add_child(group_title)
+		for entry in group:
+			var card := PanelContainer.new()
+			card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE, UIKit.EDGE_SOFT, 12), 14, 10))
+			rows.add_child(card)
+			var content := VBoxContainer.new()
+			card.add_child(content)
+			var replay: Dictionary = entry.replay
+			var info := describe(replay)
+			var caption := "%s · %.1f초 · %s" % [info.outcome, float(replay.result.elapsed), "클립" if not replay.clip.is_empty() else "전체 전투"]
+			if not replay.clip.is_empty():
+				caption += " · 구간 %s · 길이 %s" % [info.clip_range, info.clip_length]
+			var details := MultiplayerUI.label(caption, 16, UIKit.TEXT)
+			details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			content.add_child(details)
+			if ChallengeReplays.same_time_and_outcome(replay, record):
+				var match_hint := MultiplayerUI.label("기록과 결과·완료 시간 일치 · 점수는 확인 필요", 14, UIKit.TEAL)
+				match_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+				content.add_child(match_hint)
+			var actions := HBoxContainer.new()
+			actions.add_theme_constant_override("separation", 10)
+			content.add_child(actions)
+			var path := String(entry.path)
+			var fingerprint := String(entry.fingerprint)
+			var stamp := MultiplayerUI.label(_stamp(path) + " · " + path.get_file(), 13, UIKit.TEXT_MUTED)
+			stamp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			stamp.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			stamp.tooltip_text = ProjectSettings.globalize_path(path)
+			actions.add_child(stamp)
+			var watch := UIKit.style_button(Button.new(), UIKit.ACCENT, true, 16)
+			watch.name = "WatchChallengeReplay"
+			watch.text = "재생"
+			watch.custom_minimum_size = Vector2(110, UIKit.TOUCH_MIN_HEIGHT)
+			actions.add_child(watch)
+			controls.append(watch)
+			watch.pressed.connect(func():
+				if not _challenge_dialog_alive(dialog) or watch.disabled:
+					return
+				# Read again before leaving the records screen: the file may have been removed or replaced.
+				var current := BattleReplay.load_file(path)
+				if current.is_empty() or not ChallengeReplays.belongs_to(current, period, date, ruleset) or ChallengeReplays.fingerprint(current) != fingerprint:
+					status.text = "선택한 전투를 읽을 수 없거나 파일 내용이 바뀌었습니다. 새로고침 후 다시 선택하세요."
+					watch.disabled = true
+					return
+				main._dismiss_action_overlay()
+				watch.disabled = true
+				_open_viewer(main, current, path, main._build_records_screen))
+	if entries.is_empty():
+		var empty := MultiplayerUI.label("읽을 수 있는 보관 전투가 없습니다. 저장 실패·자동 정리·삭제로 점수 기록만 남을 수 있습니다. 다른 버전으로 확인된 전투는 포함하지 않습니다.", 16, UIKit.TEXT_MUTED)
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		rows.add_child(empty)
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 10)
+	dialog.add_child(footer)
+	var refresh := UIKit.style_button(Button.new(), UIKit.TEAL)
+	refresh.name = "RefreshChallengeReplays"
+	refresh.text = "새로고침"
+	refresh.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	refresh.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	refresh.pressed.connect(func():
+		if _challenge_dialog_alive(dialog):
+			_show_challenge_replays(main, period, date, ruleset, record, focus_target))
+	footer.add_child(refresh)
+	var close := func():
+		if not _challenge_dialog_alive(dialog): return
+		main._dismiss_action_overlay()
+		main.records_state.erase("focus")
+		if is_instance_valid(focus_target) and focus_target.is_inside_tree():
+			focus_target.grab_focus.call_deferred()
+	var back := UIKit.style_button(Button.new(), UIKit.ACCENT)
+	back.name = "CloseChallengeReplays"
+	back.text = "도전 기록으로"
+	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	back.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	back.pressed.connect(close)
+	footer.add_child(back)
+	controls.append(refresh)
+	controls.append(back)
+	for index in controls.size():
+		var control := controls[index]
+		control.focus_previous = control.get_path_to(controls[(index + controls.size() - 1) % controls.size()])
+		control.focus_next = control.get_path_to(controls[(index + 1) % controls.size()])
+		control.focus_neighbor_left = control.focus_previous
+		control.focus_neighbor_top = control.focus_previous
+		control.focus_neighbor_right = control.focus_next
+		control.focus_neighbor_bottom = control.focus_next
+		control.gui_input.connect(func(event: InputEvent):
+			if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+				control.accept_event()
+				close.call())
+	scroll.gui_input.connect(func(event: InputEvent):
+		if not event is InputEventKey or not event.pressed or event.alt_pressed or event.ctrl_pressed or event.meta_pressed: return
+		match event.keycode:
+			KEY_UP: scroll.scroll_vertical -= 48
+			KEY_DOWN: scroll.scroll_vertical += 48
+			KEY_PAGEUP: scroll.scroll_vertical -= maxi(48, int(scroll.size.y))
+			KEY_PAGEDOWN: scroll.scroll_vertical += maxi(48, int(scroll.size.y))
+			KEY_HOME: scroll.scroll_vertical = 0
+			KEY_END: scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+			_: return
+		scroll.accept_event())
+	scroll.grab_focus.call_deferred()
+
+static func _challenge_dialog_alive(dialog: Control) -> bool:
+	if not is_instance_valid(dialog) or not dialog.is_inside_tree(): return false
+	var node: Node = dialog
+	while node != null:
+		if node.is_queued_for_deletion(): return false
+		node = node.get_parent()
+	return true

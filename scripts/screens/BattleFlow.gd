@@ -126,7 +126,7 @@ static func _start_daily_challenge(main, period: String = "daily") -> void:
 	main.battle_preset = {"name": Localization.text("주간 도전" if DailyChallenge.is_weekly(challenge) else "일일 도전"), "units": challenge.units.duplicate(), "structures": challenge.structures.duplicate()}
 	main._build_battle_screen()
 	main.local_step_accumulator = 0.0
-	main.local_recorder = BattleReplay.Recorder.new(main.local_model, BattleReplay.DEFAULT_HZ, {"side": 1, "stage": int(setup.stage)}, {"mode": "daily", "stage": int(setup.stage), "date": String(challenge.key), "modifier": String(challenge.modifier), "period": String(challenge.get("period", "daily"))})
+	main.local_recorder = BattleReplay.Recorder.new(main.local_model, BattleReplay.DEFAULT_HZ, {"side": 1, "stage": int(setup.stage)}, {"mode": "daily", "stage": int(setup.stage), "date": String(challenge.key), "modifier": String(challenge.modifier), "period": String(challenge.get("period", "daily")), "ruleset": String(challenge.ruleset)})
 	main._on_snapshot(main.local_model.snapshot())
 
 ## A drafted battle: the player's drafted units and active structures against the AI's picks. Recorded as a

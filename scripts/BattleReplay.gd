@@ -101,6 +101,8 @@ static func valid(replay: Variant) -> bool:
 	for key in ["mode", "date", "period"]:
 		if meta.has(key) and not meta[key] is String:
 			return false
+	if meta.has("ruleset") and not preload("res://scripts/ServerStats.gd").valid_ruleset(meta.ruleset):
+		return false
 	if meta.has("stage") and (not _is_integer(meta.stage) or int(meta.stage) < 1 or int(meta.stage) > 8):
 		return false
 	var setup = replay.setup

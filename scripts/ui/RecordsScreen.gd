@@ -1,10 +1,13 @@
 extends "res://scripts/ui/SubMenuFrame.gd"
 ## Personal records with campaign and versioned challenge history. Footer actions stay outside the scroll area.
 
+signal challenge_replays_requested(period: String, date: String, ruleset: String, record: Dictionary)
+
 const TABLE_HEADERS := ["단계", "이름", "별", "도전", "승", "최단", "최고 기지 HP"]
 const TABLE_WIDTHS := [56, 150, 96, 70, 70, 100, 140]
 const ServerStats = preload("res://scripts/ServerStats.gd")
-const HISTORY_HEADERS := ["날짜 (UTC)", "콘텐츠 버전", "결과", "최고 점수", "완료 시간"]
+const ChallengeReplays = preload("res://scripts/ChallengeReplays.gd")
+const HISTORY_HEADERS := ["날짜 (UTC)", "콘텐츠 버전", "결과", "최고 점수", "완료 시간", "보관 전투"]
 const HISTORY_WIDTHS := [170, 0, 70, 115, 115]
 const HISTORY_PAGE_DATES := 10
 
@@ -26,8 +29,23 @@ var _history_page_buttons: Array[Button] = []
 var _records_scroll: ScrollContainer
 var _history_page_count := 1
 var _campaign_scroll := 0
+var _session_state: Dictionary = {}
+var _tab_buttons: Dictionary = {}
+var _saved_replays: Array = []
+var _replays_loaded := false
+var _scroll_revision := 0
+var _return_focus := ""
 
-func populate(save_data: Dictionary) -> void:
+func populate(save_data: Dictionary, session_state: Dictionary = {}) -> void:
+	_session_state = session_state
+	if session_state.has("history"):
+		_history_state = session_state.history
+	else:
+		session_state["history"] = _history_state
+	_campaign_scroll = int(session_state.get("campaign_scroll", 0))
+	var restored_period := String(session_state.get("active", "campaign"))
+	_return_focus = String(session_state.get("focus", ""))
+	session_state.erase("focus")
 	var stats: Dictionary = save_data.stats
 	var online_rate := 0.0 if int(stats.online_completed) == 0 else float(stats.online_wins) / float(stats.online_completed) * 100.0
 	var summary := HBoxContainer.new()
@@ -81,6 +99,17 @@ func populate(save_data: Dictionary) -> void:
 	_history_reset.name = "ChallengeHistoryReset"
 	_history_reset.text = "초기화"
 	tools.add_child(_history_reset)
+	var replay_refresh := UIKit.style_button(Button.new(), UIKit.TEAL, false, 14)
+	replay_refresh.name = "RefreshChallengeReplayCounts"
+	replay_refresh.text = "보관 새로고침"
+	replay_refresh.tooltip_text = "보관 전투 파일을 다시 읽습니다. 날짜·버전·결과 조건과 페이지·스크롤은 유지합니다."
+	replay_refresh.pressed.connect(func():
+		if _active_period == "campaign" or not _screen_alive(): return
+		_remember_scroll(_records_scroll.scroll_vertical)
+		_saved_replays = ChallengeReplays.load_saved()
+		_replays_loaded = true
+		_refresh_history())
+	tools.add_child(replay_refresh)
 	_build_history_navigation()
 	var scroll := ScrollContainer.new()
 	scroll.name = "RecordsScroll"
@@ -115,6 +144,7 @@ func populate(save_data: Dictionary) -> void:
 		buttons[entry[0]] = button
 	for id in buttons:
 		buttons[id].pressed.connect(_select_records_tab.bind(id))
+	_tab_buttons = buttons
 	# Keep a read-only snapshot so filtering does not modify best scores or pending submissions.
 	_history = {"daily": save_data.daily.duplicate(true), "weekly": save_data.weekly.duplicate(true)}
 	filter.item_selected.connect(_on_history_filter_changed)
@@ -122,6 +152,42 @@ func populate(save_data: Dictionary) -> void:
 	search.text_changed.connect(_on_history_search_changed)
 	_history_reset.pressed.connect(_reset_history_search)
 	_populate_campaign(_history_panels.campaign, save_data)
+	_records_scroll.get_v_scroll_bar().value_changed.connect(_remember_scroll)
+	if restored_period in ["daily", "weekly"]:
+		_select_records_tab(restored_period, false)
+	else:
+		_restore_scroll_after_layout(_campaign_scroll)
+
+func _remember_scroll(value: float) -> void:
+	if not _screen_alive(): return
+	if _active_period == "campaign":
+		_campaign_scroll = int(value)
+		_session_state["campaign_scroll"] = int(value)
+	else:
+		_history_state[_active_period].scroll = int(value)
+
+func _restore_scroll_after_layout(position: int) -> void:
+	_scroll_revision += 1
+	get_tree().process_frame.connect(_restore_scroll.bind(position, _active_period, _scroll_revision), CONNECT_ONE_SHOT)
+
+func _restore_scroll(position: int, period: String, revision: int) -> void:
+	if _screen_alive() and period == _active_period and revision == _scroll_revision:
+		if not _return_focus.is_empty():
+			var target := find_child(_return_focus, true, false) as Control
+			if target != null and target.is_visible_in_tree() and not (target is Button and target.disabled):
+				target.grab_focus()
+			else:
+				_records_scroll.grab_focus()
+			_return_focus = ""
+		_records_scroll.scroll_vertical = position
+
+func _screen_alive() -> bool:
+	if not is_inside_tree(): return false
+	var node: Node = self
+	while node != null:
+		if node.is_queued_for_deletion(): return false
+		node = node.get_parent()
+	return true
 
 func _build_history_navigation() -> void:
 	_history_navigation = HBoxContainer.new()
@@ -155,14 +221,15 @@ func _move_history_page(action: String, direction: int) -> void:
 	state.scroll = 0
 	_refresh_history()
 
-func _select_records_tab(period: String) -> void:
+func _select_records_tab(period: String, remember_current: bool = true) -> void:
 	if period == _active_period:
 		return
-	if _active_period == "campaign":
-		_campaign_scroll = _records_scroll.scroll_vertical
-	else:
-		_history_state[_active_period].scroll = _records_scroll.scroll_vertical
+	if remember_current:
+		_remember_scroll(_records_scroll.scroll_vertical)
+	var target_scroll := _campaign_scroll if period == "campaign" else int(_history_state[period].scroll)
 	_active_period = period
+	_session_state["active"] = period
+	_tab_buttons[period].button_pressed = true
 	for key in _history_panels:
 		_history_panels[key].visible = key == period
 	_history_tools.visible = period != "campaign"
@@ -170,12 +237,18 @@ func _select_records_tab(period: String) -> void:
 	# Summary cards remain on the campaign tab, leaving room for challenge navigation.
 	_records_summary.visible = period == "campaign"
 	if period == "campaign":
-		_records_scroll.set_deferred("scroll_vertical", _campaign_scroll)
+		_restore_scroll_after_layout(target_scroll)
 	else:
+		if not _replays_loaded:
+			_saved_replays = ChallengeReplays.load_saved()
+			_replays_loaded = true
 		var state: Dictionary = _history_state[period]
 		_history_filter.select(int(state.filter))
 		_history_outcome.select(int(state.outcome))
+		_history_search.set_block_signals(true)
 		_history_search.text = String(state.query)
+		_history_search.set_block_signals(false)
+		state.scroll = target_scroll
 		_refresh_history()
 
 func _on_history_filter_changed(index: int) -> void:
@@ -210,6 +283,7 @@ func _restart_history_page() -> void:
 
 func _refresh_history() -> void:
 	var state: Dictionary = _history_state[_active_period]
+	var position := int(state.scroll)
 	var result := _populate_history(_history_panels[_active_period], _history[_active_period], _active_period, int(state.filter), String(state.query), int(state.page), int(state.outcome))
 	state.page = result.page
 	_history_page_count = result.pages
@@ -220,7 +294,7 @@ func _refresh_history() -> void:
 	for index in _history_page_buttons.size():
 		_history_page_buttons[index].disabled = int(state.page) == (0 if index < 2 else _history_page_count - 1)
 	_history_reset.disabled = int(state.filter) == 0 and int(state.outcome) == 0 and String(state.query).is_empty() and int(state.page) == 0
-	_records_scroll.set_deferred("scroll_vertical", int(state.scroll))
+	_restore_scroll_after_layout(position)
 
 func _on_records_scroll_input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.ctrl_pressed or event.alt_pressed or event.meta_pressed:
@@ -301,6 +375,7 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 	hint.text = "기기에 보관된 최고 기록 · %s · 버전이 다른 점수는 따로 표시합니다." % ("최근 %d주, 주 시작일 기준" % SaveData.WEEKLY_HISTORY if period == "weekly" else "최근 %d일" % SaveData.DAILY_HISTORY)
 	hint.text += "\n완료 시간은 해당 최고 점수를 낸 전투의 시간입니다. 같은 점수라면 더 빠른 성공 기록을 보관합니다."
 	hint.text += "\n성공이 보관된 날짜·버전의 실패 시도는 별도로 표시하지 않습니다."
+	hint.text += "\n보관 전투는 같은 날짜·버전의 도전과 버전 미상 전투입니다. 최고 점수의 전투인지는 별도로 확인하세요."
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 14)
 	hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
@@ -322,7 +397,13 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 	table.add_theme_constant_override("v_separation", 8)
 	page.add_child(table)
 	for index in HISTORY_HEADERS.size():
-		table.add_child(_history_cell(HISTORY_HEADERS[index], index, UIKit.TEXT_DIM))
+		if index < HISTORY_WIDTHS.size():
+			table.add_child(_history_cell(HISTORY_HEADERS[index], index, UIKit.TEXT_DIM))
+		else:
+			var heading := Label.new()
+			heading.text = HISTORY_HEADERS[index]
+			heading.add_theme_color_override("font_color", UIKit.TEXT_DIM)
+			table.add_child(heading)
 	var current := ServerStats.ruleset_id()
 	for row in rows:
 		if not page_dates.has(row.date): continue
@@ -340,6 +421,7 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 			if index == 4:
 				cell.tooltip_text = "최고 점수를 낸 전투의 완료 시간" if won else "기록된 실패 도전의 전투 시간"
 			table.add_child(cell)
+		table.add_child(_replays_button(period, key, rule, item))
 	if rows.is_empty():
 		var empty := Label.new()
 		empty.name = "ChallengeHistoryEmpty_" + period
@@ -357,6 +439,21 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 		empty.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 		page.add_child(empty)
 	return {"page": page_index, "pages": pages, "dates": dates.size(), "records": rows.size()}
+
+func _replays_button(period: String, date: String, ruleset: String, record: Dictionary) -> Button:
+	var matches := ChallengeReplays.matching(_saved_replays, period, date, ruleset)
+	var button := UIKit.style_button(Button.new(), UIKit.TEAL, false, 14)
+	button.name = "ChallengeReplays_" + period + "_" + date + "_" + ruleset.replace(".", "_")
+	button.text = "전투 %d개" % matches.size() if not matches.is_empty() else "보관 없음"
+	button.custom_minimum_size = Vector2(114, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 40)
+	button.disabled = matches.is_empty()
+	button.tooltip_text = "같은 날짜·버전의 전투와 버전 미상 전투를 엽니다. 최고 기록의 전투라고 단정하지 않습니다." if not matches.is_empty() else "읽을 수 있는 보관 전투가 없습니다. 저장 실패·자동 정리·삭제로 점수 기록만 남을 수 있습니다."
+	button.pressed.connect(func():
+		if not _screen_alive(): return
+		_remember_scroll(_records_scroll.scroll_vertical)
+		_session_state["focus"] = String(button.name)
+		challenge_replays_requested.emit(period, date, ruleset, record.duplicate(true)))
+	return button
 
 func _history_rows(history: Dictionary, filter: int, prefix: String) -> Array:
 	var current := ServerStats.ruleset_id()
