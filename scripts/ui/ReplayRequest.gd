@@ -49,7 +49,27 @@ static func start(main, owner: Node, kind: String, payload: String, result: Call
 	request.add_child(request.poll)
 	request.poll.start()
 	request._observe(owner, result, failure, status)
-	ServerLink.run(main, request._send, request._link_status)
+	# ServerLink may finish connecting after this request has been cancelled/freed.
+	# Keep its shared connection alive, but never send through an abandoned request.
+	var request_ref := weakref(request)
+	var send := func():
+		var current = request_ref.get_ref()
+		if is_instance_valid(current) and current.is_inside_tree() and not current.is_queued_for_deletion():
+			current._send()
+	var link_status := func(text: String):
+		var current = request_ref.get_ref()
+		if is_instance_valid(current) and current.is_inside_tree() and not current.is_queued_for_deletion():
+			current._link_status(text)
+	ServerLink.run(main, send, link_status)
+
+## Stop observing a download without closing its owner or interrupting other channels.
+## The server may still send an already requested replay; disconnect before unlocking UI.
+static func cancel_fetch(main, owner: Node) -> bool:
+	var request = main.network.get_node_or_null(NodePath("ReplayRequest_fetch"))
+	if request == null or request.owner_ref == null or request.owner_ref.get_ref() != owner:
+		return false
+	request._dispose()
+	return true
 
 func _observe(owner: Node, result: Callable, failure: Callable, status: Callable) -> void:
 	_detach()

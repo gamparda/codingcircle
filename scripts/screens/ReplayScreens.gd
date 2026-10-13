@@ -420,13 +420,40 @@ static func _show_code_dialog(main) -> void:
 	status.name = "ReplayCodeStatus"
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(status)
+	var actions := HBoxContainer.new()
+	actions.name = "ReplayCodeActions"
+	actions.add_theme_constant_override("separation", 12)
+	dialog.add_child(actions)
 	var open_button: Button = main._styled_button("열기", UIKit.ACCENT, true)
 	open_button.name = "OpenReplayCode"
+	open_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	open_button.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-	dialog.add_child(open_button)
+	actions.add_child(open_button)
+	var cancel: Button = main._styled_button("불러오기 취소", UIKit.TEAL, false)
+	cancel.name = "CancelReplayCodeFetch"
+	cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cancel.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	cancel.tooltip_text = "이 전투의 불러오기를 취소합니다. 창과 입력한 코드는 유지하며 다른 코드를 바로 열 수 있습니다."
+	cancel.visible = false
+	cancel.disabled = true
+	actions.add_child(cancel)
+	var close := MultiplayerUI.button(main, dialog, "닫기", "CloseReplayCode", main._dismiss_action_overlay)
+	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	var update_navigation := func(): _bind_code_navigation([input, open_button, cancel, close], main._dismiss_action_overlay)
 	var pending := {"active": false}
+	cancel.pressed.connect(func():
+		if not _dialog_alive(dialog) or not bool(pending.active): return
+		ReplayRequest.cancel_fetch(main, dialog)
+		pending.active = false
+		cancel.visible = false
+		cancel.disabled = true
+		open_button.disabled = false
+		input.editable = true
+		status.text = "불러오기를 취소했습니다. 코드를 수정하거나 열기를 눌러 다시 시도하세요."
+		update_navigation.call()
+		input.grab_focus())
 	var open_code := func():
-		if bool(pending.active):
+		if not _dialog_alive(dialog) or bool(pending.active):
 			return
 		var code := input.text.strip_edges().to_upper()
 		if not main.network.is_valid_room_code(code):
@@ -436,12 +463,22 @@ static func _show_code_dialog(main) -> void:
 		pending.active = true
 		open_button.disabled = true
 		input.editable = false
+		cancel.visible = true
+		cancel.disabled = false
+		update_navigation.call()
 		var fail := func(text: String):
+			if not _dialog_alive(dialog): return
+			var restore_focus := cancel.has_focus()
 			pending.active = false
+			cancel.visible = false
+			cancel.disabled = true
 			open_button.disabled = false
 			input.editable = true
 			status.text = Localization.text(text)
+			update_navigation.call()
+			if restore_focus: input.grab_focus()
 		var result := func(text: String):
+			if not _dialog_alive(dialog): return
 			var replay := BattleReplay.from_share_text(text)
 			if replay.is_empty():
 				fail.call(Localization.text("%s 코드의 리플레이를 찾을 수 없습니다.") % code)
@@ -449,11 +486,30 @@ static func _show_code_dialog(main) -> void:
 			main._dismiss_action_overlay()
 			_play_replay_data(main, replay)
 		ReplayRequest.start(main, dialog, "fetch", code, result, fail, func(text): status.text = Localization.text(text))
+		if _dialog_alive(dialog) and bool(pending.active): cancel.grab_focus()
 	open_button.pressed.connect(open_code)
 	input.text_submitted.connect(func(_text): open_code.call())
-	var close := MultiplayerUI.button(main, dialog, "닫기", "CloseReplayCode", main._dismiss_action_overlay)
-	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	update_navigation.call()
 	input.grab_focus()
+
+## Keep Tab inside this dialog while the input/open action is locked for a download.
+static func _bind_code_navigation(candidates: Array[Control], close_dialog: Callable) -> void:
+	var controls: Array[Control] = []
+	for control in candidates:
+		if not control.is_visible_in_tree(): continue
+		if control is BaseButton and control.disabled: continue
+		if control is LineEdit and not control.editable: continue
+		controls.append(control)
+	for index in controls.size():
+		var control := controls[index]
+		control.focus_previous = control.get_path_to(controls[(index + controls.size() - 1) % controls.size()])
+		control.focus_next = control.get_path_to(controls[(index + 1) % controls.size()])
+		if control.has_meta("ReplayCodeNavigationBound"): continue
+		control.set_meta("ReplayCodeNavigationBound", true)
+		control.gui_input.connect(func(event: InputEvent):
+			if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+				control.accept_event()
+				close_dialog.call())
 
 ## Lists the most recent online matches the server has shelved; each can be watched directly.
 static func _show_recent_battles(main, return_code: String = "") -> void:
@@ -469,7 +525,7 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 	dialog.add_child(status)
 	var state: Dictionary = main.recent_battles_state
 	# The fetch belongs to the dialog, so replacing/filtering cards cannot abandon it.
-	var watch_state := {"active": false, "code": "", "message": "", "failed": false}
+	var watch_state := {"active": false, "code": "", "message": "", "failed": false, "cancelled": false}
 	var watch_status := MultiplayerUI.label("", 14, UIKit.TEXT_MUTED)
 	watch_status.name = "RecentBattleRequestStatus"
 	watch_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -539,6 +595,14 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 	refresh.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
 	refresh.tooltip_text = "서버에서 최신 공개 목록을 다시 조회합니다. 검색 조건·스크롤 위치와 진행 중인 전투 보기 요청은 유지합니다."
 	footer.add_child(refresh)
+	var cancel: Button = main._styled_button("불러오기 취소", UIKit.TEAL, false)
+	cancel.name = "CancelRecentBattleFetch"
+	cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cancel.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	cancel.tooltip_text = "선택한 전투의 불러오기를 취소합니다. 검색·스크롤·목록 새로고침은 유지하며 다른 전투를 바로 선택할 수 있습니다."
+	cancel.visible = false
+	cancel.disabled = true
+	footer.add_child(cancel)
 	var close_dialog := func():
 		if not _dialog_alive(dialog): return
 		main._dismiss_action_overlay()
@@ -573,8 +637,8 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 		count.text = "%d / %d개 표시" % [shown, pending.entries.size()] if bool(pending.loaded) else "목록 수신 대기"
 		empty.visible = bool(pending.loaded) and shown == 0
 		empty.text = "현재 공개 목록에 보관된 전투가 없습니다. 미저장·정리된 전투는 표시되지 않습니다." if pending.entries.is_empty() else "검색 조건에 맞는 전투가 없습니다. 검색어·종류·결과를 바꾸거나 초기화하세요. 검색은 조회된 최근 공개 전투 안에서만 수행합니다."
-		_update_recent_watch(rows, watch_state, watch_status)
-		_bind_recent_navigation(scroll, rows, refresh, close, close_dialog, filter_controls)
+		_update_recent_watch(rows, watch_state, watch_status, cancel)
+		_bind_recent_navigation(scroll, rows, refresh, close, close_dialog, filter_controls, cancel)
 		if hidden_focus: search.grab_focus()
 		if reset_scroll: state["scroll"] = 0
 		# An empty waiting list must not clamp a saved viewport before its first response.
@@ -606,13 +670,30 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 		_open_viewer(main, replay, "", _return_to_recent_battles.bind(main, code), "최근 온라인 전투 목록으로 돌아갑니다. 검색·종류·결과·스크롤과 선택 카드 초점을 유지합니다.")
 	var update_watch := func():
 		if not _dialog_alive(dialog): return
-		_update_recent_watch(rows, watch_state, watch_status)
-		_bind_recent_navigation(scroll, rows, refresh, close, close_dialog, filter_controls)
+		var restore_focus := cancel.has_focus() and not bool(watch_state.active)
+		_update_recent_watch(rows, watch_state, watch_status, cancel)
+		_bind_recent_navigation(scroll, rows, refresh, close, close_dialog, filter_controls, cancel)
+		if restore_focus:
+			scroll.grab_focus()
+			for item in pending.entries:
+				if String(item.entry.code) == String(watch_state.code) and item.card.is_visible_in_tree():
+					var watch := item.card.find_child("WatchRecentBattle", true, false) as Button
+					if watch != null and not watch.disabled: watch.grab_focus()
+					break
+	cancel.pressed.connect(func():
+		if not _dialog_alive(dialog) or not bool(watch_state.active): return
+		ReplayRequest.cancel_fetch(main, dialog)
+		watch_state.active = false
+		watch_state.failed = false
+		watch_state.cancelled = true
+		watch_state.message = "불러오기를 취소했습니다. 해당 카드의 보기 또는 다른 전투를 선택하세요."
+		update_watch.call())
 	var watch_request := func(code: String):
 		if not _dialog_alive(dialog) or bool(watch_state.active): return
 		watch_state.active = true
 		watch_state.code = code
 		watch_state.failed = false
+		watch_state.cancelled = false
 		watch_state.message = "요청 준비 중..."
 		update_watch.call()
 		var fail := func(message: String):
@@ -634,6 +715,7 @@ static func _show_recent_battles(main, return_code: String = "") -> void:
 			watch_state.message = Localization.text(message)
 			update_watch.call()
 		ReplayRequest.start(main, dialog, "fetch", code, result, fail, progress)
+		if _dialog_alive(dialog) and bool(watch_state.active): cancel.grab_focus()
 	var show_list := func(list: Array, from_cache: bool = false):
 		if not _dialog_alive(dialog): return
 		pending.active = false
@@ -762,9 +844,13 @@ static func _recent_time_info(entry: Dictionary, now: int) -> Dictionary:
 	return {"text": "%s %s · %s" % [prefix, stamp, age], "tooltip": explanation + " 경과 시간은 목록 조회 당시 기기 시계로 계산하며 만료 시간은 아닙니다. 새로고침하면 다시 계산합니다."}
 
 ## Keep progress visible even when the requested code is filtered out or leaves the latest list.
-static func _update_recent_watch(rows: VBoxContainer, state: Dictionary, status: Label) -> void:
+static func _update_recent_watch(rows: VBoxContainer, state: Dictionary, status: Label, cancel: Button = null) -> void:
 	var active := bool(state.active)
 	var failed := bool(state.failed)
+	var cancelled := bool(state.get("cancelled", false))
+	if cancel != null:
+		cancel.visible = active
+		cancel.disabled = not active
 	var selected_code := String(state.code)
 	var selected_visible := false
 	for row in rows.get_children():
@@ -774,21 +860,21 @@ static func _update_recent_watch(rows: VBoxContainer, state: Dictionary, status:
 		if selected and row.visible: selected_visible = true
 		watch.disabled = active
 		watch.text = "불러오는 중" if active and selected else ("재시도" if failed and selected else "보기")
-		watch.tooltip_text = String(state.message) if selected else ("선택한 전투의 응답을 기다려 주세요. 코드 복사·검색·새로고침·닫기는 사용할 수 있습니다." if active else "전투를 불러와 재생합니다.")
+		watch.tooltip_text = String(state.message) if selected else ("불러오기 취소 후 다른 전투를 선택할 수 있습니다. 코드 복사·검색·새로고침·닫기도 사용할 수 있습니다." if active else "전투를 불러와 재생합니다.")
 		var detail := row.find_child("RecentBattleWatchStatus", true, false) as Label
 		if detail != null:
-			detail.visible = selected and (active or failed)
+			detail.visible = selected and (active or failed or cancelled)
 			detail.text = String(state.message)
 			detail.add_theme_color_override("font_color", UIKit.DANGER if failed else UIKit.TEXT_MUTED)
-	status.visible = active or failed
+	status.visible = active or failed or cancelled
 	status.add_theme_color_override("font_color", UIKit.DANGER if failed else UIKit.TEXT_MUTED)
 	status.text = "%s · %s" % [selected_code, String(state.message)]
 	if active:
-		status.text += "\n검색·새로고침 중에도 이 전투를 계속 불러옵니다. 창을 닫으면 재생하지 않습니다."
+		status.text += "\n검색·새로고침 중에도 이 전투를 계속 불러옵니다. 불러오기 취소 또는 창 닫기로 재생을 중단할 수 있습니다."
 	elif failed:
 		status.text += "\n해당 카드의 재시도를 누르거나 다른 전투를 선택하세요."
-	if not selected_visible and (active or failed):
-		status.text += "\n선택한 코드는 현재 표시 목록에 없습니다." + (" 검색 조건을 초기화하거나 목록을 새로고침해 확인하세요." if failed else "")
+	if not selected_visible and (active or failed or cancelled):
+		status.text += "\n선택한 코드는 현재 표시 목록에 없습니다." + (" 검색 조건을 초기화하거나 목록을 새로고침해 확인하세요." if failed or cancelled else "")
 
 static func _recent_row(main, entry: Dictionary, now: int = -1, on_watch: Callable = Callable(), on_request: Callable = Callable()) -> Control:
 	var card := PanelContainer.new()
@@ -868,7 +954,7 @@ static func _recent_row(main, entry: Dictionary, now: int = -1, on_watch: Callab
 	content.add_child(detail)
 	return card
 
-static func _bind_recent_navigation(scroll: ScrollContainer, rows: VBoxContainer, refresh: Button, close: Button, close_dialog: Callable, filter_controls: Array[Control] = []) -> void:
+static func _bind_recent_navigation(scroll: ScrollContainer, rows: VBoxContainer, refresh: Button, close: Button, close_dialog: Callable, filter_controls: Array[Control] = [], cancel: Button = null) -> void:
 	var controls: Array[Control] = []
 	for control in filter_controls:
 		if control is BaseButton and (control as BaseButton).disabled: continue
@@ -880,6 +966,7 @@ static func _bind_recent_navigation(scroll: ScrollContainer, rows: VBoxContainer
 			var button := row.find_child(button_name, true, false) as Control
 			if button != null and not (button is BaseButton and button.disabled): controls.append(button)
 	if not refresh.disabled: controls.append(refresh)
+	if cancel != null and cancel.visible and not cancel.disabled: controls.append(cancel)
 	controls.append(close)
 	for index in controls.size():
 		var control := controls[index]
