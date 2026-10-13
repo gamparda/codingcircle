@@ -38,7 +38,7 @@ func run() -> void:
 	main.find_child("OpenByCodeButton", true, false).pressed.emit()
 	await process_frame
 	var input: LineEdit = main.find_child("ReplayCodeInput", true, false)
-	check(input != null and input.max_length == 6, "the code dialog has a six-character input")
+	check(input != null and input.max_length == 0, "the code input keeps long pasted values instead of truncating them to a valid prefix")
 	input.text = "abc234"
 	input.text_changed.emit("abc234")
 	check(input.text == "ABC234", "the code is upper-cased as typed")

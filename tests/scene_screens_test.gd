@@ -50,25 +50,25 @@ func run() -> void:
 	var daily_table: GridContainer = main.find_child("ChallengeHistoryTable_daily", true, false)
 	var filter: OptionButton = main.find_child("ChallengeHistoryFilter", true, false)
 	check(daily_page.is_visible_in_tree() and filter.is_visible_in_tree() and not table.is_visible_in_tree(), "daily tab opens the challenge history and version selector")
-	check(daily_table.get_child_count() == 25 and daily_table.get_child(5).text == "2026-10-11", "history lists all preserved versions with the newest UTC date first")
-	check(daily_table.get_child(6).text == "현재 · " + rule and daily_table.get_child(8).text == "720점" and daily_table.get_child(9).text == "90.0초", "current records are displayed first even when archived under previous")
-	check(daily_table.get_child(11).text == "버전 미상 · 0" and daily_table.get_child(12).text == "실패" and daily_table.get_child(14).text == "0.0초", "unknown versions and legitimate zero-time failures remain visible")
+	check(daily_table.get_child_count() == 30 and daily_table.get_child(6).text == "2026-10-11", "history lists all preserved versions with the newest UTC date first")
+	check(daily_table.get_child(7).text == "현재 · " + rule and daily_table.get_child(9).text == "720점" and daily_table.get_child(10).text == "90.0초", "current records are displayed first even when archived under previous")
+	check(daily_table.get_child(13).text == "버전 미상 · 0" and daily_table.get_child(14).text == "실패" and daily_table.get_child(16).text == "0.0초", "unknown versions and legitimate zero-time failures remain visible")
 	filter.select(1)
 	filter.item_selected.emit(1)
 	await process_frame
 	daily_table = main.find_child("ChallengeHistoryTable_daily", true, false)
-	check(daily_table.get_child_count() == 15 and daily_table.get_child(13).text == "1000점", "current-only filter preserves separate daily best scores")
+	check(daily_table.get_child_count() == 18 and daily_table.get_child(15).text == "1000점", "current-only filter preserves separate daily best scores")
 	filter.select(2)
 	filter.item_selected.emit(2)
 	await process_frame
 	daily_table = main.find_child("ChallengeHistoryTable_daily", true, false)
-	check(daily_table.get_child_count() == 15 and daily_table.get_child(11).text == "이전 · older", "previous-version filter excludes current scores")
+	check(daily_table.get_child_count() == 18 and daily_table.get_child(13).text == "이전 · older", "previous-version filter excludes current scores")
 	var weekly_tab: Button = main.find_child("RecordsTab_weekly", true, false)
 	weekly_tab.button_pressed = true
 	weekly_tab.pressed.emit()
 	await process_frame
 	var weekly_table: GridContainer = main.find_child("ChallengeHistoryTable_weekly", true, false)
-	check(weekly_table.is_visible_in_tree() and weekly_table.get_child_count() == 10 and weekly_table.get_child(5).text == "2026-10-05", "weekly history uses its own stored week-start date and score")
+	check(weekly_table.is_visible_in_tree() and weekly_table.get_child_count() == 12 and weekly_table.get_child(6).text == "2026-10-05", "weekly history uses its own stored week-start date and score")
 	filter.select(1)
 	filter.item_selected.emit(1)
 	await process_frame

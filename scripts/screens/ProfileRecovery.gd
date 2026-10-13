@@ -140,8 +140,8 @@ static func _achievements_comparison(live: Dictionary, restored: Dictionary) -> 
 	for definition in Achievements.DEFS:
 		var id := String(definition.id)
 		# A zero timestamp still means unlocked; compare membership before timestamps.
-		var before := live.achievements.has(id)
-		var after := restored.achievements.has(id)
+		var before: bool = live.achievements.has(id)
+		var after: bool = restored.achievements.has(id)
 		var title := String(definition.name)
 		if before and not after:
 			missing_names.append(title)

@@ -4,6 +4,14 @@ extends SceneTree
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 var failures := 0
 
+func _confirm(main, button_name: String) -> void:
+	# Destructive replay actions now ask for confirmation in a dialog first.
+	await process_frame
+	var button := main.find_child(button_name, true, false) as Button
+	if button != null:
+		button.pressed.emit()
+	await process_frame
+
 func check(condition: bool, message: String) -> void:
 	if not condition:
 		failures += 1
@@ -55,7 +63,7 @@ func run() -> void:
 	check(main.find_child("UnreadableReplayCard", true, false) != null and main.find_child("NoReplays", true, false) == null, "unreadable saved files are visible rather than reported as an empty library")
 	check(main.find_child("PlayReplayButton", true, false) == null and main.find_child("ReplayStatus", true, false).text.contains("1개"), "unreadable replay cannot be played and the list explains the problem")
 	main.find_child("DeleteReplayButton", true, false).pressed.emit()
-	await process_frame
+	await _confirm(main, "ConfirmReplayDelete")
 	check(not FileAccess.file_exists(unreadable) and main.find_child("NoReplays", true, false) != null, "an unreadable replay can be deleted from the list")
 
 	var replay := _make_replay()
@@ -117,13 +125,16 @@ func run() -> void:
 	delete_button.pressed.emit()
 	await process_frame
 	check(main.find_child("DeleteReplayButton", true, false) == delete_button and main.find_child("ReplayRows", true, false).get_child_count() == 2, "failed deletion keeps the displayed replay and its retry action")
-	check(main.find_child("ReplayStatus", true, false).text.contains("삭제하지 못했습니다") and main.find_child("ReplayStatus", true, false).tooltip_text.contains(deleted.get_file()), "deletion failure identifies the affected file and offers retry")
+	var blocked_confirm := main.find_child("ConfirmReplayDelete", true, false) as Button
+	check(main.find_child("ReplayDeleteStatus", true, false).text.contains("접근할 수 없") and blocked_confirm != null and blocked_confirm.disabled, "a path that is no longer a file cannot be confirmed for deletion and the dialog explains why")
 	check(FileAccess.file_exists(deleted.path_join("keep.txt")), "a directory at a replay path is never recursively deleted")
+	main.find_child("CancelReplayDelete", true, false).pressed.emit()
+	await process_frame
 	DirAccess.remove_absolute(deleted.path_join("keep.txt"))
 	DirAccess.remove_absolute(deleted)
 	DirAccess.rename_absolute(deleted + ".hold", deleted)
 	main.find_child("DeleteReplayButton", true, false).pressed.emit()
-	await process_frame
+	await _confirm(main, "ConfirmReplayDelete")
 	check(not FileAccess.file_exists(deleted), "delete removes the file shown by that card")
 	# A library above the retention bound explains cleanup failure and offers a retry.
 	for path in BattleReplay.list_saved():
@@ -137,7 +148,7 @@ func run() -> void:
 	await process_frame
 	check(main.find_child("ReplayStatus", true, false).text.contains("51개") and main.find_child("RetryReplayCleanup", true, false) != null, "over-limit library shows actual count and cleanup retry")
 	main.find_child("RetryReplayCleanup", true, false).pressed.emit()
-	await process_frame
+	await _confirm(main, "ConfirmReplayCleanup")
 	check(BattleReplay.list_saved().size() == BattleReplay.MAX_SAVED and main.find_child("RetryReplayCleanup", true, false) == null, "cleanup retry trims oldest files and clears the warning")
 	for path in BattleReplay.list_saved():
 		DirAccess.remove_absolute(path)

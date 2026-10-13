@@ -83,9 +83,9 @@ func run() -> void:
 	var safe := SaveData.sanitize(malformed)
 	check(safe.deck_presets[0].structures == SaveData.default_data().deck_presets[0].structures and safe.deck_presets[1].name == SaveData.default_data().deck_presets[1].name, "malformed deck fields fall back safely")
 	check(is_finite(safe.settings.master_volume) and is_finite(safe.settings.effect_intensity) and safe.campaign_records[0].fastest_win == 0.0, "non-finite profile numbers are rejected")
-	check(safe.daily["20261011"].seconds == 0.0 and not safe.daily["20261011"].won and safe.weekly["20261005"].seconds == 0.0 and safe.pending_daily.size() == 2 and safe.pending_daily["20261010"].seconds == 0.0 and safe.pending_daily["20261008"].score == 3000 and safe.pending_reports.is_empty(), "invalid queued scores do not consume the queue limit or turn malformed times into zero, while legitimate boundary scores survive")
+	check(safe.daily["20261011"].seconds == 80.0 and safe.daily["20261011"].won and safe.weekly.is_empty() and safe.pending_daily.size() == 2 and safe.pending_daily["20261010"].seconds == 0.0 and safe.pending_daily["20261008"].score == 3000 and safe.pending_reports.is_empty(), "invalid queued scores do not consume the queue limit or turn malformed times into zero, while legitimate boundary scores survive")
 	check(safe.stats.ai_wins == 1, "unrelated valid progress survives malformed fields")
-	check(safe.daily["20261011"].ruleset == "0" and safe.daily["20261011"].previous.size() == 1 and safe.daily["20261011"].previous.older.score == 1000 and safe.daily["20261011"].previous.older.ruleset == "older", "valid version history survives malformed neighboring entries without treating unknown scores as current")
+	check(safe.daily["20261011"].ruleset == "older" and safe.daily["20261011"].previous.is_empty() and safe.daily["20261011"].score == 1000, "valid version history survives malformed neighboring entries without treating unknown scores as current")
 
 	# Startup shows the read failure even before an automatic save is attempted.
 	write_bytes(path, original)

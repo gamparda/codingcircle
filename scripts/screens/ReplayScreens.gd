@@ -123,7 +123,7 @@ static func _build_replay_list(main) -> void:
 	storage_help.pressed.connect(func():
 		storage_help.grab_focus()
 		var background: Control = main.root_background
-		var focus_ref := weakref(storage_help)
+		var focus_ref: WeakRef = weakref(storage_help)
 		var return_to := func():
 			if not _dialog_alive(background) or main.root_background != background: return
 			main._dismiss_action_overlay()
@@ -183,7 +183,7 @@ static func _confirm_replay_cleanup(main, entry_button: Button) -> void:
 	var background: Control = main.root_background
 	if not _dialog_alive(background) or not _dialog_alive(entry_button): return
 	entry_button.grab_focus()
-	var focus_ref := weakref(entry_button)
+	var focus_ref: WeakRef = weakref(entry_button)
 	var snapshot := BattleReplay.cleanup_snapshot()
 	var target_count := maxi(0, snapshot.plan.readable.size() - BattleReplay.MAX_SAVED)
 	var dialog: VBoxContainer = main._action_panel("오래된 리플레이 정리 확인", Rect2(200, 50, 880, 620))
@@ -325,7 +325,7 @@ static func _confirm_replay_delete(main, path: String, entry_button: Button) -> 
 	var background: Control = main.root_background
 	if not _dialog_alive(background) or not _dialog_alive(entry_button): return
 	entry_button.grab_focus()
-	var focus_ref := weakref(entry_button)
+	var focus_ref: WeakRef = weakref(entry_button)
 	var rows := background.find_child("ReplayRows", true, false) as VBoxContainer
 	var selected_index := 0
 	if rows != null:

@@ -221,7 +221,8 @@ static func show_list(main) -> void:
 						KEY_PAGEUP: scroll.scroll_vertical -= int(scroll.size.y)
 						KEY_PAGEDOWN: scroll.scroll_vertical += int(scroll.size.y)
 						KEY_HOME: scroll.scroll_vertical = 0
-						KEY_END: scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value))
+						KEY_END: scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+		)
 	var initial: Control = first_unseen if first_unseen != null else controls[1]
 	initial.grab_focus()
 	# Wait for container layout so the first unseen row can be brought into view.

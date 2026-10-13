@@ -51,7 +51,7 @@ static func start(main, owner: Node, kind: String, payload: String, result: Call
 	request._observe(owner, result, failure, status)
 	# ServerLink may finish connecting after this request has been cancelled/freed.
 	# Keep its shared connection alive, but never send through an abandoned request.
-	var request_ref := weakref(request)
+	var request_ref: WeakRef = weakref(request)
 	var send := func():
 		var current = request_ref.get_ref()
 		if is_instance_valid(current) and current.is_inside_tree() and not current.is_queued_for_deletion():
