@@ -405,26 +405,45 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 	actions.add_child(_delete_button(main, path))
 	return card
 
-## Asks for a six-letter code and plays the replay it names.
+## Validate the entire clipboard/input before putting a code into a request.
+## Never extract a valid-looking prefix from a longer message or replay payload.
+static func _replay_code_from_text(text: String) -> String:
+	var code := text.strip_edges().to_upper()
+	return code if NetworkProtocol.is_valid_room_code(code) else ""
+
+## Asks for a six-character code and plays the replay it names.
 static func _show_code_dialog(main, return_code: String = "") -> void:
 	var background: Control = main.root_background
 	var return_focus: Control = main.get_viewport().gui_get_focus_owner()
 	var focus_ref: WeakRef = weakref(return_focus) if return_focus != null else null
 	var dialog = main._action_panel("코드로 열기", Rect2(340, 150, 600, 420))
-	dialog.add_child(MultiplayerUI.label("공유받은 6자리 코드를 입력하세요. 필요하면 자동으로 서버에 접속합니다.", 14, MultiplayerUI.MUTED))
+	var hint := MultiplayerUI.label("공유받은 6자리 코드를 입력하거나 붙여넣으세요. 열기를 누르면 필요에 따라 서버에 접속합니다.", 14, MultiplayerUI.MUTED)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dialog.add_child(hint)
+	var input_row := HBoxContainer.new()
+	input_row.name = "ReplayCodeInputRow"
+	input_row.add_theme_constant_override("separation", 12)
+	dialog.add_child(input_row)
 	var input := LineEdit.new()
 	input.name = "ReplayCodeInput"
-	input.max_length = 6
+	# A length limit would silently turn a pasted longer value into a valid prefix.
+	# Keep the full value so both typing and the native paste action are validated.
 	input.placeholder_text = "ABC234"
 	input.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	input.add_theme_font_size_override("font_size", 28)
+	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	input.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
 	input.text = return_code
 	input.text_changed.connect(func(text):
 		var caret := input.caret_column
 		input.text = text.to_upper()
 		input.caret_column = caret)
-	dialog.add_child(input)
+	input_row.add_child(input)
+	var paste: Button = main._styled_button("붙여넣기", UIKit.TEAL, false)
+	paste.name = "PasteReplayCode"
+	paste.custom_minimum_size = Vector2(150, UIKit.TOUCH_MIN_HEIGHT)
+	paste.tooltip_text = "클립보드의 6자리 공유 코드를 확인한 뒤 입력합니다. 앞뒤 공백과 소문자는 자동으로 정리하며, 열기를 눌러야 불러옵니다."
+	input_row.add_child(paste)
 	var status := MultiplayerUI.label("", 14, MultiplayerUI.GOLD)
 	status.name = "ReplayCodeStatus"
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -456,8 +475,21 @@ static func _show_code_dialog(main, return_code: String = "") -> void:
 		background.get_tree().process_frame.connect(_restore_code_entry_focus.bind(main, background, focus_ref), CONNECT_ONE_SHOT)
 	var close := MultiplayerUI.button(main, dialog, "닫기", "CloseReplayCode", close_dialog)
 	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-	var update_navigation := func(): _bind_code_navigation([input, open_button, cancel, close], close_dialog)
+	var update_navigation := func(): _bind_code_navigation([input, paste, open_button, cancel, close], close_dialog)
 	var pending := {"active": false}
+	paste.pressed.connect(func():
+		if not _dialog_alive(dialog) or bool(pending.active): return
+		var text := DisplayServer.clipboard_get()
+		var code := _replay_code_from_text(text)
+		if code.is_empty():
+			status.text = "클립보드가 비어 있습니다. 공유받은 6자리 코드를 복사한 뒤 다시 붙여넣으세요." if text.strip_edges().is_empty() else "클립보드에 유효한 공유 코드가 없습니다. 6자리 코드만 복사하세요. I·O·0·1은 사용할 수 없습니다."
+			input.grab_focus()
+			return
+		input.text = code
+		input.caret_column = code.length()
+		input.grab_focus()
+		input.select_all()
+		status.text = "%s 코드를 붙여넣었습니다. 열기를 눌러 불러오세요." % code)
 	cancel.pressed.connect(func():
 		if not _dialog_alive(dialog) or not bool(pending.active): return
 		ReplayRequest.cancel_fetch(main, dialog)
@@ -465,6 +497,7 @@ static func _show_code_dialog(main, return_code: String = "") -> void:
 		cancel.visible = false
 		cancel.disabled = true
 		open_button.disabled = false
+		paste.disabled = false
 		input.editable = true
 		status.text = "불러오기를 취소했습니다. 코드를 수정하거나 열기를 눌러 다시 시도하세요."
 		update_navigation.call()
@@ -472,13 +505,15 @@ static func _show_code_dialog(main, return_code: String = "") -> void:
 	var open_code := func():
 		if not _dialog_alive(dialog) or bool(pending.active):
 			return
-		var code := input.text.strip_edges().to_upper()
-		if not main.network.is_valid_room_code(code):
-			status.text = "영문 대문자와 숫자로 된 6자리 코드를 확인하세요."
+		var code := _replay_code_from_text(input.text)
+		if code.is_empty():
+			status.text = "영문·숫자 6자리 코드를 입력하세요. I·O·0·1과 코드 중간의 공백은 사용할 수 없습니다."
 			input.grab_focus()
 			return
+		input.text = code
 		pending.active = true
 		open_button.disabled = true
+		paste.disabled = true
 		input.editable = false
 		cancel.visible = true
 		cancel.disabled = false
@@ -490,6 +525,7 @@ static func _show_code_dialog(main, return_code: String = "") -> void:
 			cancel.visible = false
 			cancel.disabled = true
 			open_button.disabled = false
+			paste.disabled = false
 			input.editable = true
 			status.text = Localization.text(text)
 			update_navigation.call()
