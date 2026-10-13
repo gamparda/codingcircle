@@ -2,6 +2,7 @@ extends "res://scripts/ui/SubMenuFrame.gd"
 ## Search the complete shelf snapshot; create cards only for the current page.
 
 signal refresh_requested
+signal deck_filters_changed(queries: PackedStringArray)
 
 const MODES := ["", "campaign", "practice", "daily", "weekly", "draft", "online", "unreadable"]
 const PAGE_SIZE := 8
@@ -20,6 +21,7 @@ var _pages: HFlowContainer
 var _state: Dictionary = {}
 var _search: LineEdit
 var _deck_queries: Array[LineEdit] = []
+var _deck_notice: Label
 var _mode: OptionButton
 var _scope: OptionButton
 var _outcome: OptionButton
@@ -117,6 +119,14 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 		query.text = String(state.get("blue_query" if side == 0 else "red_query", ""))
 		field.add_child(query)
 		_deck_queries.append(query)
+	_deck_notice = Label.new()
+	_deck_notice.name = "ReplayDeckSearchNotice"
+	_deck_notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_deck_notice.add_theme_font_size_override("font_size", 14)
+	_deck_notice.add_theme_color_override("font_color", UIKit.TEAL)
+	_deck_notice.visible = false
+	column.add_child(_deck_notice)
+	column.move_child(_deck_notice, _scroll.get_index())
 	var storage := Label.new()
 	storage.name = "ReplayStorageSummary"
 	storage.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -212,6 +222,32 @@ func restore_focus(target: Control) -> void:
 	if not _alive() or not _usable(target) or not is_ancestor_of(target): return
 	_store_focus(target)
 	_schedule_restore()
+
+func deck_queries() -> PackedStringArray:
+	return PackedStringArray([_deck_queries[0].text, _deck_queries[1].text])
+
+## Apply both fields together. Keep the source card reachable for repeated choices.
+func apply_deck_queries(queries: PackedStringArray, source: Button, message: String) -> void:
+	if not _alive() or not _usable(source) or not is_ancestor_of(source) or queries.size() != 2: return
+	for side in 2:
+		if queries[side].length() > _deck_queries[side].max_length:
+			_deck_notice.text = "검색어가 길어 조건을 적용하지 못했습니다. 해당 덱 검색칸의 조건을 줄인 뒤 다시 누르세요. 기존 검색 조건은 유지했습니다."
+			_deck_notice.add_theme_color_override("font_color", UIKit.DANGER)
+			_deck_notice.show()
+			# The pressed button toggled before validation; restore its actual state.
+			deck_filters_changed.emit(deck_queries())
+			_deck_queries[side].grab_focus()
+			_store_focus(_deck_queries[side])
+			return
+	source.grab_focus()
+	_store_focus(source)
+	_remember_scroll(_scroll.scroll_vertical)
+	# Assigning LineEdit.text does not emit text_changed. Refresh once after both.
+	for side in 2: _deck_queries[side].text = queries[side]
+	_deck_notice.text = message
+	_deck_notice.add_theme_color_override("font_color", UIKit.TEAL)
+	_deck_notice.show()
+	_refresh(false)
 
 func _option(parent: Control, node_name: String, labels: Array, selected: int) -> OptionButton:
 	var option := OptionButton.new()
@@ -339,6 +375,7 @@ func _apply_sort() -> void:
 
 func _refresh(reset_scroll: bool) -> void:
 	_refresh_revision += 1
+	if reset_scroll: _deck_notice.hide()
 	_state["query"] = _search.text
 	_state["blue_query"] = _deck_queries[0].text
 	_state["red_query"] = _deck_queries[1].text
@@ -407,6 +444,7 @@ func _refresh(reset_scroll: bool) -> void:
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 		_empty.add_child(hint)
+	deck_filters_changed.emit(deck_queries())
 	_schedule_restore()
 
 func _schedule_restore() -> void:

@@ -124,7 +124,8 @@ static func _build_replay_list(main) -> void:
 			shown += 1
 			if BattleReplay.is_protected(replay): preserved += 1
 	entries.sort_custom(func(a, b): return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
-	frame.populate(entries, func(entry): return _unreadable_replay_card(main, String(entry.path), int(entry.file_bytes)) if entry.replay.is_empty() else _replay_card(main, String(entry.path), entry.replay, int(entry.file_bytes)), main.replay_list_state)
+	frame.deck_filters_changed.connect(_refresh_shelf_deck_buttons.bind(frame))
+	frame.populate(entries, func(entry): return _unreadable_replay_card(main, String(entry.path), int(entry.file_bytes)) if entry.replay.is_empty() else _replay_card(main, String(entry.path), entry.replay, int(entry.file_bytes), frame), main.replay_list_state)
 	frame.refresh_requested.connect(main._build_replay_list)
 	var storage_help := UIKit.style_button(Button.new(), UIKit.TEAL)
 	storage_help.name = "ReplayStorageHelp"
@@ -744,7 +745,7 @@ static func _restore_protection_focus(main, background: Control, path: String) -
 	var search := background.find_child("ReplaySearch", true, false) as Control
 	if search != null: _restore_shelf_focus(background, search)
 
-static func _replay_card(main, path: String, replay: Dictionary, file_bytes: int = -1) -> Control:
+static func _replay_card(main, path: String, replay: Dictionary, file_bytes: int = -1, shelf: ReplayListScreen = null) -> Control:
 	var info := describe(replay)
 	var tone := UIKit.SUCCESS if info.outcome in ["승리", "블루 승"] else (UIKit.DANGER if info.outcome in ["패배", "레드 승"] else UIKit.TEXT_MUTED)
 	var card := PanelContainer.new()
@@ -823,7 +824,7 @@ static func _replay_card(main, path: String, replay: Dictionary, file_bytes: int
 			versus.text = "VS"
 			versus.add_theme_color_override("font_color", UIKit.TEXT_DIM)
 			row.add_child(versus)
-	_shelf_deck_preview(content, replay)
+	_shelf_deck_preview(content, replay, shelf)
 	# Keep all actions reachable within the shelf width, including on touch devices.
 	var actions := HFlowContainer.new()
 	actions.name = "ReplayCardActions"
@@ -872,13 +873,16 @@ static func _replay_card(main, path: String, replay: Dictionary, file_bytes: int
 	return card
 
 ## A compact, readable composition preview; online files do not identify the local side.
-static func _shelf_deck_preview(parent: VBoxContainer, replay: Dictionary) -> void:
+static func _shelf_deck_preview(parent: VBoxContainer, replay: Dictionary, shelf: ReplayListScreen = null) -> void:
 	var mode := String(replay.get("meta", {}).get("mode", ""))
 	var local_battle := mode in ["campaign", "practice", "daily", "draft"]
 	var preview := VBoxContainer.new()
 	preview.name = "ReplayDeckPreview"
+	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview.add_theme_constant_override("separation", 4)
 	parent.add_child(preview)
+	var buttons: Array[Button] = []
+	var queries := PackedStringArray([_challenge_full_deck_query(replay, 0), _challenge_full_deck_query(replay, 1)])
 	for side in 2:
 		var units := PackedStringArray()
 		var structures := PackedStringArray()
@@ -891,8 +895,72 @@ static func _shelf_deck_preview(parent: VBoxContainer, replay: Dictionary) -> vo
 		var label := MultiplayerUI.label("%s · 병력: %s · 구조물: %s" % [side_name, " · ".join(units), " · ".join(structures)], 14, UIKit.TEAM_BLUE.lightened(0.3) if side == 0 else UIKit.TEAM_RED.lightened(0.3))
 		label.name = "ReplayBlueDeckPreview" if side == 0 else "ReplayRedDeckPreview"
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		label.tooltip_text = "저장된 전체 전투의 출전 구성입니다. 실제 생산·설치 수가 아닙니다. 위의 진영별 덱 검색칸에서 이름이나 영문 ID로 찾을 수 있습니다.\n" + _challenge_full_deck_query(replay, side)
+		label.tooltip_text = "저장된 전체 전투의 출전 구성입니다. 실제 생산·설치 수가 아닙니다. 아래 항목을 눌러 해당 진영의 검색 조건을 추가·해제하거나 위 검색칸에서 직접 입력할 수 있습니다.\n" + queries[side]
 		preview.add_child(label)
+		if shelf == null: continue
+		var items := HFlowContainer.new()
+		items.name = "ReplayDeckSearchItems%d" % side
+		items.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		items.add_theme_constant_override("h_separation", 8)
+		items.add_theme_constant_override("v_separation", 4)
+		preview.add_child(items)
+		var choose := _choose_shelf_deck_filter.bind(shelf)
+		for kind in replay.setup.unit_decks[side]:
+			var button := _challenge_deck_button(String(kind), String(BattleModel.UNIT_NAMES.get(kind, kind)), side, choose)
+			button.name = "ReplayUnitFilter%d_%s" % [side, kind]
+			button.set_meta("deck_side_name", side_name)
+			items.add_child(button)
+			buttons.append(button)
+		for index in replay.setup.structure_decks[side].size():
+			var kind := String(replay.setup.structure_decks[side][index])
+			var button := _challenge_deck_button(kind, structures[index], side, choose)
+			button.name = "ReplayStructureFilter%d_%s" % [side, kind]
+			button.set_meta("deck_side_name", side_name)
+			items.add_child(button)
+			buttons.append(button)
+		var whole := _challenge_full_deck_button(queries, side, choose)
+		whole.name = "ReplayFullDeckFilter%d" % side
+		whole.set_meta("full_deck_title", side_name)
+		items.add_child(whole)
+		buttons.append(whole)
+	if shelf != null:
+		var pair := _challenge_full_deck_button(queries, -1, _choose_shelf_deck_filter.bind(shelf))
+		pair.name = "ReplayBothDeckFilter"
+		var actions := HFlowContainer.new()
+		actions.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		preview.add_child(actions)
+		actions.add_child(pair)
+		buttons.append(pair)
+	preview.set_meta("deck_filter_buttons", buttons)
+
+static func _choose_shelf_deck_filter(button: Button, shelf: ReplayListScreen) -> void:
+	if not _dialog_alive(shelf) or not _dialog_alive(button) or not button.is_visible_in_tree(): return
+	var queries: PackedStringArray = shelf.deck_queries()
+	var side := int(button.get_meta("deck_side"))
+	var message: String
+	if button.has_meta("full_deck_queries"):
+		var removing := _challenge_full_deck_selected(button, queries)
+		var expected: PackedStringArray = button.get_meta("full_deck_queries")
+		for target in 2:
+			if side < 0 or side == target: queries[target] = "" if removing else expected[target]
+		message = "%s 검색 %s · 전체 검색·필터·정렬%s 조건은 유지합니다." % [String(button.get_meta("full_deck_title", "양쪽 덱")), "해제" if removing else "조건을 이 카드의 전체 구성으로 교체했습니다", "·다른 덱" if side >= 0 else ""]
+	else:
+		var kind := String(button.get_meta("deck_kind"))
+		var title := String(button.get_meta("deck_title"))
+		var removing := _challenge_deck_term_selected(queries[side], kind, title)
+		queries[side] = _challenge_toggle_deck_term(queries[side], kind, title)
+		message = "%s 검색: %s %s · 다른 검색·필터·정렬 조건은 유지합니다." % [String(button.get_meta("deck_side_name")), title, "해제" if removing else "추가"]
+	shelf.apply_deck_queries(queries, button, message)
+
+## Refresh only the current page, including reused cards after typing or paging.
+static func _refresh_shelf_deck_buttons(queries: PackedStringArray, shelf: ReplayListScreen) -> void:
+	if not _dialog_alive(shelf): return
+	for preview in shelf.find_children("ReplayDeckPreview", "VBoxContainer", true, false):
+		for button in preview.get_meta("deck_filter_buttons", []):
+			if button.has_meta("full_deck_queries"):
+				_refresh_challenge_full_deck_button(button, queries)
+			else:
+				_refresh_challenge_deck_button(button, queries[int(button.get_meta("deck_side"))])
 
 ## An empty reply identifies no reason: do not assert that a code expired or was deleted.
 static func _replay_fetch_error(code: String, text: String) -> String:
@@ -1920,10 +1988,10 @@ static func _challenge_full_deck_selected(button: Button, queries: PackedStringA
 static func _refresh_challenge_full_deck_button(button: Button, queries: PackedStringArray) -> void:
 	var selected := _challenge_full_deck_selected(button, queries)
 	var side := int(button.get_meta("deck_side"))
-	var title := "양쪽 덱" if side < 0 else ("내 덱" if side == 0 else "상대 덱")
+	var title := String(button.get_meta("full_deck_title", "양쪽 덱" if side < 0 else ("내 덱" if side == 0 else "상대 덱")))
 	button.set_pressed_no_signal(selected)
 	button.text = ("✓ %s 검색 해제" if selected else "%s 전체 검색") % title
-	button.tooltip_text = ("%s 검색칸만 비웁니다. 전체 검색·결과·클립 조건은 유지합니다." if selected else "%s 검색칸을 이 카드의 병력·구조물 전체 영문 ID로 교체합니다. 해당 칸의 기존 검색어는 대체하고 다른 조건은 유지합니다. 출전 순서는 구분하지 않으며 클립도 전체 전투의 덱을 사용합니다.") % title
+	button.tooltip_text = ("%s 검색칸만 비웁니다. 다른 검색·필터·정렬 조건은 유지합니다." if selected else "%s 검색칸을 이 카드의 병력·구조물 전체 영문 ID로 교체합니다. 해당 칸의 기존 검색어는 대체하고 다른 조건은 유지합니다. 출전 순서는 구분하지 않으며 클립도 전체 전투의 덱을 사용합니다.") % title
 
 static func _challenge_deck_button(kind: String, title: String, side: int, choose: Callable) -> Button:
 	var tone := UIKit.TEAM_BLUE if side == 0 else UIKit.TEAM_RED
@@ -1968,8 +2036,8 @@ static func _refresh_challenge_deck_button(button: Button, query: String) -> voi
 	var selected := _challenge_deck_term_selected(query, kind, title)
 	button.set_pressed_no_signal(selected)
 	button.text = ("✓ " if selected else "") + title
-	var side_name := "내 덱 (블루)" if int(button.get_meta("deck_side")) == 0 else "상대 덱 (레드)"
-	button.tooltip_text = "%s 검색에서 %s (%s) %s · 종류를 구분하는 영문 ID로 추가합니다. 다른 검색·결과·클립 조건은 유지합니다. 부분 검색어는 직접 수정하세요." % [side_name, title, kind, "해제" if selected else "추가"]
+	var side_name := String(button.get_meta("deck_side_name", "내 덱 (블루)" if int(button.get_meta("deck_side")) == 0 else "상대 덱 (레드)"))
+	button.tooltip_text = "%s 검색에서 %s (%s) %s · 종류를 구분하는 영문 ID로 추가합니다. 다른 검색·필터·정렬 조건은 유지합니다. 부분 검색어는 직접 수정하세요." % [side_name, title, kind, "해제" if selected else "추가"]
 
 ## Build once from the saved decks; filtering never reloads files or simulates battles.
 static func _challenge_deck_search_text(replay: Dictionary, side: int) -> String:
