@@ -7,6 +7,7 @@ const Achievements = preload("res://scripts/Achievements.gd")
 const Goals = preload("res://scripts/Goals.gd")
 const NewFeatures = preload("res://scripts/NewFeatures.gd")
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
+const ProfileRecoveryBrowser = preload("res://scripts/ui/ProfileRecoveryBrowser.gd")
 const CHALLENGE_PAGE_SIZE := 8
 const RECORD_FIELDS := [
 	["ai_matches", "AI 경기", "판"], ["ai_wins", "AI 승리", "승"], ["ai_losses", "AI 패배", "패"],
@@ -425,7 +426,7 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 	campaign.name = "ProfileCampaignChanges"
 	parent.add_child(campaign)
 	_add_deck_comparison(parent, comparison.deck_slots, view_state)
-	_add_challenge_comparison(parent, comparison.challenges)
+	_add_challenge_comparison(parent, comparison.challenges, view_state)
 	parent.add_child(_label("기록을 합치거나 더 높은 기록을 고르는 복구가 아닙니다. 닉네임·새 기능 확인 상태·전적·업적·시작 목표·튜토리얼·도전 기록을 포함한 진행도 전체가 사본으로 바뀝니다. 현재 설정·익명 ID·전송 대기 기록은 유지합니다."))
 
 static func _add_deck_comparison(parent: VBoxContainer, comparison: Dictionary, view_state: Dictionary) -> void:
@@ -500,7 +501,7 @@ static func _add_record_comparison(parent: VBoxContainer, title: String, prefix:
 		for row in comparison.rows:
 			details.add_child(_label(String(row.text), UIKit.DANGER if bool(row.risk) else UIKit.TEXT))
 
-static func _add_challenge_comparison(parent: VBoxContainer, comparison: Dictionary) -> void:
+static func _add_challenge_comparison(parent: VBoxContainer, comparison: Dictionary, view_state: Dictionary = {}) -> void:
 	parent.add_child(_label("도전 · 날짜·버전별 변경", UIKit.GOLD))
 	var summary := _label(String(comparison.summary), UIKit.TEXT)
 	summary.name = "ProfileChallengeComparisonSummary"
@@ -520,6 +521,7 @@ static func _add_challenge_comparison(parent: VBoxContainer, comparison: Diction
 	search.placeholder_text = "도전 날짜 · 버전 검색"
 	search.tooltip_text = "2026-10 또는 20261013, 버전, 일일·주간, 성공·실패로 변경된 기록을 검색합니다. 공백으로 나눈 검색어를 모두 포함한 기록을 표시합니다."
 	search.max_length = 120
+	search.text = String(view_state.get("challenge_query", ""))
 	search.clear_button_enabled = true
 	search.custom_minimum_size = Vector2(280, UIKit.TOUCH_MIN_HEIGHT)
 	filters.add_child(search)
@@ -527,6 +529,7 @@ static func _add_challenge_comparison(parent: VBoxContainer, comparison: Diction
 	filter.name = "ProfileChallengeComparisonFilter"
 	filter.custom_minimum_size = Vector2(190, UIKit.TOUCH_MIN_HEIGHT)
 	for title in ["전체 변경", "사라짐·낮아짐", "추가만", "변경만"]: filter.add_item(title)
+	filter.select(clampi(int(view_state.get("challenge_filter", 0)), 0, 3))
 	filters.add_child(filter)
 	var count := _label("")
 	count.name = "ProfileChallengeComparisonCount"
@@ -535,6 +538,7 @@ static func _add_challenge_comparison(parent: VBoxContainer, comparison: Diction
 	details.name = "ProfileChallengeChanges"
 	parent.add_child(details)
 	var pages := HFlowContainer.new()
+	pages.name = "ProfileChallengeComparisonPages"
 	pages.add_theme_constant_override("h_separation", 10)
 	pages.add_theme_constant_override("v_separation", 10)
 	parent.add_child(pages)
@@ -548,8 +552,11 @@ static func _add_challenge_comparison(parent: VBoxContainer, comparison: Diction
 	next.text = "다음 기록"
 	next.custom_minimum_size = Vector2(140, UIKit.TOUCH_MIN_HEIGHT)
 	pages.add_child(next)
-	var state := {"page": 0}
+	# Each open comparison owns its page; modal previews share the bookmark only.
+	var state := {"page": maxi(0, int(view_state.get("challenge_page", 0)))}
 	var refresh := func():
+		view_state.challenge_query = search.text
+		view_state.challenge_filter = filter.selected
 		var terms := search.text.strip_edges().to_lower().split(" ", false)
 		var selected: Array = []
 		for row in rows:
@@ -564,6 +571,7 @@ static func _add_challenge_comparison(parent: VBoxContainer, comparison: Diction
 			if matches: selected.append(row)
 		var total_pages := maxi(1, ceili(float(selected.size()) / CHALLENGE_PAGE_SIZE))
 		state.page = clampi(int(state.page), 0, total_pages - 1)
+		view_state.challenge_page = int(state.page)
 		var lines: PackedStringArray = []
 		for row in selected.slice(int(state.page) * CHALLENGE_PAGE_SIZE, (int(state.page) + 1) * CHALLENGE_PAGE_SIZE):
 			lines.append(String(row.text))
@@ -604,7 +612,7 @@ static func _copy_text(status: Label, scroll: ScrollContainer, text: String) -> 
 			status.text = "진행도 JSON을 복사했습니다. 메모장 등에 붙여넣어 .json 파일로 저장하세요. 게임 삭제·전체 초기화 전에 게임 밖에 보관해야 합니다."
 		else:
 			status.text = "클립보드 복사를 확인하지 못했습니다. 다시 시도하거나 보관 폴더에서 사본을 복사하세요."
-	scroll.ensure_control_visible.call_deferred(status)
+	if scroll.is_ancestor_of(status): scroll.ensure_control_visible.call_deferred(status)
 
 static func _comparison_controls(parent: Node, controls: Array[Control]) -> void:
 	for child in parent.get_children():
@@ -705,7 +713,18 @@ static func _filtered_entries(source: Array, query: String, order: int, scope: i
 
 static func show(main, message: String = "", selected_path: String = "", browser_state: Dictionary = {}) -> void:
 	# Screen-local state survives refresh/import/cleanup, without changing the save.
-	var state := {"query": String(browser_state.get("query", "")), "order": clampi(int(browser_state.get("order", 0)), 0, 3), "deck_scope": clampi(int(browser_state.get("deck_scope", 0)), 0, 4), "selected_path": selected_path if not selected_path.is_empty() else String(browser_state.get("selected_path", "")), "deck_slot": clampi(int(browser_state.get("deck_slot", -1)), -1, 2)}
+	var state := {
+		"query": String(browser_state.get("query", "")),
+		"order": clampi(int(browser_state.get("order", 0)), 0, 3),
+		"deck_scope": clampi(int(browser_state.get("deck_scope", 0)), 0, 4),
+		"selected_path": selected_path if not selected_path.is_empty() else String(browser_state.get("selected_path", "")),
+		"deck_slot": clampi(int(browser_state.get("deck_slot", -1)), -1, 2),
+		"scroll": maxi(0, int(browser_state.get("scroll", 0))),
+		"focus_path": String(browser_state.get("focus_path", "")),
+	}
+	state.challenge_query = String(browser_state.get("challenge_query", ""))
+	state.challenge_filter = clampi(int(browser_state.get("challenge_filter", 0)), 0, 3)
+	state.challenge_page = maxi(0, int(browser_state.get("challenge_page", 0))) if String(state.selected_path) == String(browser_state.get("selected_path", "")) else 0
 	var outer: VBoxContainer = main._submenu("진행도 보관·복구", "현재 진행도를 보관하거나, 읽을 수 있는 사본을 골라 복구합니다.")
 	var scroll := ScrollContainer.new()
 	scroll.name = "ProfileRecoveryScroll"
@@ -715,6 +734,7 @@ static func show(main, message: String = "", selected_path: String = "", browser
 	scroll.scroll_deadzone = 16
 	outer.add_child(scroll)
 	var column := VBoxContainer.new()
+	column.name = "ProfileRecoveryColumn"
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	column.add_theme_constant_override("separation", 12)
 	scroll.add_child(column)
@@ -796,7 +816,8 @@ static func show(main, message: String = "", selected_path: String = "", browser
 	status.name = "ProfileRecoveryStatus"
 	if not String(candidates.error).is_empty():
 		status.text = (message + "\n" if not message.is_empty() else "") + String(candidates.error)
-	column.add_child(status)
+	# Keep operation results visible without pulling the player away from a comparison.
+	outer.add_child(status)
 	column.add_child(HSeparator.new())
 	column.add_child(_label("게임 밖에 사본 보관·다른 기기에서 가져오기", UIKit.GOLD))
 	column.add_child(_label("내보내기는 진행도를 JSON으로 복사합니다. 익명 ID와 전송 대기 기록은 제외합니다.\n가져오기는 내용을 확인해 사본만 보관합니다. 현재 진행도를 바꾸려면 아래의 복구 확인을 별도로 눌러야 합니다."))
@@ -814,13 +835,11 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		var result := SaveData.backup_export(String(entry.path), String(entry.fingerprint))
 		if not result.ok:
 			status.text = String(result.error)
-			scroll.ensure_control_visible.call_deferred(status)
 			return
 		_copy_text(status, scroll, String(result.text)))
 	_button(main, transfer, "클립보드 사본 가져오기", "ImportProfileBackup", func():
 		if not DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD):
 			status.text = "이 환경에서는 클립보드를 사용할 수 없습니다. JSON 사본을 보관 폴더에 복사한 뒤 새로고침하세요."
-			scroll.ensure_control_visible.call_deferred(status)
 			return
 		_preview_import(main, DisplayServer.clipboard_get(), status, scroll, state))
 	var delete_selected := _button(main, transfer, "선택한 사본 삭제 확인", "PreviewProfileBackupDelete", func():
@@ -835,7 +854,7 @@ static func show(main, message: String = "", selected_path: String = "", browser
 			var directory := SaveData.recovery_dir()
 			if DirAccess.make_dir_recursive_absolute(directory) != OK or OS.shell_open(ProjectSettings.globalize_path(directory)) != OK:
 				status.text = "보관 폴더를 열지 못했습니다. 표시된 보관 위치와 파일 권한을 확인하세요."
-				scroll.ensure_control_visible.call_deferred(status))
+				status.text += "\n보관 위치: " + ProjectSettings.globalize_path(directory))
 	var footer := HBoxContainer.new()
 	footer.name = "ProfileRecoveryFooter"
 	footer.add_theme_constant_override("separation", 10)
@@ -844,8 +863,9 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		if choice.selected >= 0 and choice.selected < entries.size():
 			_confirm(main, entries[choice.selected], state), true)
 	restore.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_button(main, footer, "새로고침", "RefreshProfileRecovery", func():
+	var refresh := _button(main, footer, "새로고침", "RefreshProfileRecovery", func():
 		show(main, "", "", state))
+	refresh.tooltip_text = "사본 파일을 다시 읽습니다. 검색·정렬·선택한 파일·비교 위치와 키보드 초점을 유지합니다."
 	_button(main, footer, "설정으로", "ProfileRecoveryBack", main._build_settings_screen)
 	var update_preview := func(index: int):
 		var valid := index >= 0 and index < entries.size()
@@ -856,10 +876,15 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		matched_decks.visible = valid
 		preview.tooltip_text = ""
 		if not valid:
+			# Discard the old file's controls too, so a focus bookmark cannot target them.
+			for child in comparison.get_children():
+				comparison.remove_child(child)
+				child.queue_free()
 			preview.text = "검색 조건에 맞는 사본이 없습니다. 검색어·덱 슬롯 범위를 바꾸거나 초기화하세요." if not candidates.entries.is_empty() else "현재 진행도를 사본으로 보관하거나, 아래에서 외부 사본을 가져오세요. 손상된 원본은 수정하지 않고 보관합니다."
 			if not entries.is_empty():
 				preview.text = "선택했던 사본이 검색 결과에 없거나 더 이상 존재하지 않습니다. 복구·내보내기·삭제할 사본을 목록에서 직접 선택하세요."
 			return
+		if String(state.selected_path) != String(entries[index].path): state.challenge_page = 0
 		state.selected_path = String(entries[index].path)
 		preview.text = _stamp(int(entries[index].modified)) + "\n" + _summary(entries[index].data) + "\n파일: " + String(entries[index].path).get_file()
 		if int(entries[index].get("excluded", 0)) > 0:
@@ -903,14 +928,16 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		search.set_text(""); order.select(0); scope.select(0)
 		rebuild.call(); search.grab_focus())
 	rebuild.call()
-	if not message.is_empty():
-		scroll.ensure_control_visible.call_deferred(status)
+	var browser := ProfileRecoveryBrowser.new()
+	browser.name = "ProfileRecoveryBrowser"
+	outer.add_child(browser)
+	browser.setup(outer, scroll, choice, search, state)
 
 static func _preview_import(main, text: String, screen_status: Label, screen_scroll: ScrollContainer, browser_state: Dictionary = {}) -> void:
 	var preview := SaveData.preview_backup_text(text)
 	if not preview.ok:
 		screen_status.text = String(preview.error)
-		screen_scroll.ensure_control_visible.call_deferred(screen_status)
+		if screen_scroll.is_ancestor_of(screen_status): screen_scroll.ensure_control_visible.call_deferred(screen_status)
 		return
 	var previous_focus: Control = main.get_viewport().gui_get_focus_owner()
 	var close := func():
