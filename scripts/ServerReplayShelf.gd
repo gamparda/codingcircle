@@ -12,7 +12,7 @@ const RECENT_LIMIT := 20
 const MAX_TEXT := 400_000
 
 var dir := ""
-## Oldest first. Each: {code, public, summary, text}
+## Oldest first. Creation time is persisted; legacy modification times are display estimates.
 var entries: Array = []
 var by_hash: Dictionary = {}
 var rng := RandomNumberGenerator.new()
@@ -51,10 +51,13 @@ func configure(directory: String) -> void:
 			continue
 		# Old shelves have no creation timestamp; keep their modification order as a fallback.
 		var created_usec := int(FileAccess.get_modified_time(path)) * 1000000
+		var time_estimated := true
 		var timestamp = data.get("created_usec")
 		if (timestamp is int or timestamp is float) and is_finite(float(timestamp)) and float(timestamp) >= 0.0 and float(timestamp) <= 9e15 and float(timestamp) == floorf(float(timestamp)):
 			created_usec = int(timestamp)
-		loaded.append({"code": code, "public": data.get("public", false), "summary": summarize(replay, code), "text": text, "created_usec": created_usec, "key": _share_key(replay)})
+			var estimate_flag = data.get("created_estimated", false)
+			time_estimated = not estimate_flag is bool or bool(estimate_flag)
+		loaded.append({"code": code, "public": data.get("public", false), "summary": summarize(replay, code), "text": text, "created_usec": created_usec, "time_estimated": time_estimated, "key": _share_key(replay)})
 	loaded.sort_custom(func(a, b): return int(a.created_usec) < int(b.created_usec) or (int(a.created_usec) == int(b.created_usec) and String(a.code) < String(b.code)))
 	for entry in loaded:
 		entries.append(entry)
@@ -116,7 +119,7 @@ func add(text: String, is_public: bool = false) -> String:
 	if code.is_empty():
 		return ""
 	var created_usec := maxi(int(Time.get_unix_time_from_system() * 1000000.0), last_created_usec + 1)
-	var entry := {"code": code, "public": is_public, "summary": summarize(replay, code), "text": text, "created_usec": created_usec, "key": key}
+	var entry := {"code": code, "public": is_public, "summary": summarize(replay, code), "text": text, "created_usec": created_usec, "time_estimated": false, "key": key}
 	if not _write(entry):
 		return ""
 	entries.append(entry)
@@ -126,8 +129,11 @@ func add(text: String, is_public: bool = false) -> String:
 	return code
 
 func _write(entry: Dictionary) -> bool:
-	return dir.is_empty() or ServerStats.write_json(dir.path_join(String(entry.code) + ".json"),
-		{"public": entry.public, "summary": entry.summary, "text": entry.text, "created_usec": entry.created_usec})
+	var data := {"public": entry.public, "summary": entry.summary, "text": entry.text, "created_usec": entry.created_usec}
+	# Do not turn a legacy file's modification time into a confirmed creation time on promotion.
+	if bool(entry.get("time_estimated", false)):
+		data["created_estimated"] = true
+	return dir.is_empty() or ServerStats.write_json(dir.path_join(String(entry.code) + ".json"), data)
 
 func _trim() -> void:
 	while entries.size() > MAX_STORED:
@@ -159,7 +165,11 @@ func recent() -> Array:
 	var list: Array = []
 	for index in range(entries.size() - 1, -1, -1):
 		if entries[index].public:
-			list.append(entries[index].summary)
+			# Response times come from storage metadata, not replay content or cached summaries.
+			var summary: Dictionary = entries[index].summary.duplicate(true)
+			summary["stored_at"] = int(entries[index].get("created_usec", 0)) / 1000000
+			summary["stored_at_estimated"] = bool(entries[index].get("time_estimated", true))
+			list.append(summary)
 			if list.size() >= RECENT_LIMIT:
 				break
 	return list

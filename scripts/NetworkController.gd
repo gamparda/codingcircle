@@ -1319,8 +1319,32 @@ func receive_shared_replay(code: String, text: String) -> void:
 func receive_recent_replays(list: Array) -> void:
 	var clean: Array = []
 	for entry in list.slice(0, ServerReplayShelf.RECENT_LIMIT):
-		if entry is Dictionary and entry.get("code") is String and is_valid_room_code(entry.code) and entry.get("units") is Array and entry.units.size() == 2:
-			clean.append(entry)
+		if not entry is Dictionary or not entry.get("code") is String or not is_valid_room_code(entry.code):
+			continue
+		if not entry.get("units") is Array or entry.units.size() != 2:
+			continue
+		var valid_decks := true
+		for deck in entry.units:
+			if not deck is Array:
+				valid_decks = false
+				break
+			if deck.size() != 3 or not deck.all(func(kind): return kind is String) or not BattleModel._valid_deck(deck, BattleModel.UNIT_STATS):
+				valid_decks = false
+				break
+		if not valid_decks:
+			continue
+		var winner = entry.get("winner", -1)
+		var ticks = entry.get("ticks", 0)
+		if not Protocol._number_in_range(winner, -1, 2) or float(winner) != floorf(float(winner)) or not Protocol._number_in_range(ticks, 0, BattleReplay.MAX_TICKS) or float(ticks) != floorf(float(ticks)):
+			continue
+		var summary := {"code": String(entry.code), "units": entry.units.duplicate(true), "winner": int(winner), "ticks": int(ticks), "mode": "quick" if entry.get("mode", "") == "quick" else "room"}
+		# Time fields are optional. Bad metadata must not hide an otherwise playable old summary.
+		var stored_at = entry.get("stored_at")
+		if Protocol._number_in_range(stored_at, 1, 9e9) and float(stored_at) == floorf(float(stored_at)):
+			summary["stored_at"] = int(stored_at)
+			var estimated = entry.get("stored_at_estimated", true)
+			summary["stored_at_estimated"] = not estimated is bool or bool(estimated)
+		clean.append(summary)
 	recent_replays_received.emit(clean)
 
 # ---------- Helper programs: assist servers and helper PCs ----------

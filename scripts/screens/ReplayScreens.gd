@@ -14,6 +14,8 @@ const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 const ServerLink = preload("res://scripts/ServerLink.gd")
 const ReplayRequest = preload("res://scripts/ui/ReplayRequest.gd")
+const NetworkProtocol = preload("res://scripts/NetworkProtocol.gd")
+const ServerReplayShelf = preload("res://scripts/ServerReplayShelf.gd")
 const MetaStatsUI = preload("res://scripts/screens/MetaStatsUI.gd")
 const REPLAY_LIST_SCREEN := preload("res://scenes/ui/ReplayListScreen.tscn")
 
@@ -454,34 +456,77 @@ static func _show_code_dialog(main) -> void:
 
 ## Lists the most recent online matches the server has shelved; each can be watched directly.
 static func _show_recent_battles(main) -> void:
+	var return_focus: Control = main.get_viewport().gui_get_focus_owner()
 	var dialog = main._action_panel("최근 온라인 전투", Rect2(190, 60, 900, 600))
+	var policy := MultiplayerUI.label("공개 전투는 최근 %d개를 표시합니다. 서버는 공유 코드·공개 전투를 합쳐 최근 %d개를 보관하며, 새 전투나 공유 업로드로 오래된 코드가 정리될 수 있습니다. 고정 만료 시간은 없습니다. 계속 보려면 보기 → 로컬 보관을 이용하세요. 시각은 UTC 기준이며 전투 시작 시각이 아닌 서버 보관 시각입니다." % [ServerReplayShelf.RECENT_LIMIT, ServerReplayShelf.MAX_STORED], 14, UIKit.TEXT_MUTED)
+	policy.name = "RecentBattlesPolicy"
+	policy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dialog.add_child(policy)
 	var status := MultiplayerUI.label("", 14, MultiplayerUI.GOLD)
 	status.name = "RecentBattlesStatus"
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(status)
 	var scroll := ScrollContainer.new()
+	scroll.name = "RecentBattlesScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.focus_mode = Control.FOCUS_ALL
 	dialog.add_child(scroll)
 	var rows := VBoxContainer.new()
 	rows.name = "RecentBattleRows"
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rows.add_theme_constant_override("separation", 8)
 	scroll.add_child(rows)
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 12)
+	dialog.add_child(footer)
 	var refresh: Button = main._styled_button("새로고침", UIKit.ACCENT, false)
 	refresh.name = "RefreshRecentBattles"
+	refresh.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	refresh.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-	dialog.add_child(refresh)
-	var pending := {"active": false}
+	footer.add_child(refresh)
+	var close_dialog := func():
+		if not _dialog_alive(dialog): return
+		main._dismiss_action_overlay()
+		if is_instance_valid(return_focus) and return_focus.is_inside_tree():
+			return_focus.grab_focus.call_deferred()
+	var close := MultiplayerUI.button(main, footer, "닫기", "CloseRecentBattles", close_dialog)
+	close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	var pending := {"active": false, "revision": 0}
 	var show_list := func(list: Array):
 		pending.active = false
+		pending.revision = int(pending.revision) + 1
+		var revision := int(pending.revision)
 		refresh.disabled = false
+		var focus: Control = main.get_viewport().gui_get_focus_owner()
+		var focused_code := ""
+		var focused_action := ""
+		if focus != null and rows.is_ancestor_of(focus):
+			focused_code = String(focus.get_meta("ReplayCode", ""))
+			focused_action = String(focus.name)
+		var previous_scroll := scroll.scroll_vertical
 		for child in rows.get_children():
 			rows.remove_child(child)
 			child.queue_free()
-		status.text = "" if not list.is_empty() else Localization.text("아직 기록된 온라인 전투가 없습니다.")
+		var now := int(Time.get_unix_time_from_system())
+		status.text = "공개 전투 %d개 · 최신 보관순 · 조회 %s UTC" % [list.size(), Time.get_datetime_string_from_unix_time(now).replace("T", " ")]
+		if list.is_empty():
+			status.text += "\n현재 공개 목록에 보관된 전투가 없습니다. 미저장·정리된 전투는 표시되지 않습니다."
+		var next_focus: Control = null
 		for entry in list:
-			rows.add_child(_recent_row(main, entry))
+			var row := _recent_row(main, entry, now)
+			rows.add_child(row)
+			if String(entry.code) == focused_code:
+				next_focus = row.find_child(focused_action, true, false) as Control
+		_bind_recent_navigation(scroll, rows, refresh, close, close_dialog)
+		# Refresh keeps the viewport and surviving focused code, rather than jumping to the top.
+		var restore := func():
+			if not _dialog_alive(dialog) or revision != int(pending.revision): return
+			if is_instance_valid(next_focus): next_focus.grab_focus()
+			elif not focused_code.is_empty(): scroll.grab_focus()
+			scroll.scroll_vertical = previous_scroll
+		dialog.get_tree().process_frame.connect(restore, CONNECT_ONE_SHOT)
 	var request := func():
 		if bool(pending.active):
 			return
@@ -490,39 +535,83 @@ static func _show_recent_battles(main) -> void:
 		var fail := func(text: String):
 			pending.active = false
 			refresh.disabled = false
-			status.text = Localization.text(text)
+			status.text = ("목록 갱신 실패 · 이전 조회 목록을 유지합니다.\n" if rows.get_child_count() > 0 else "") + Localization.text(text)
 		ReplayRequest.start(main, dialog, "recent", "", show_list, fail, func(text): status.text = Localization.text(text))
 	refresh.pressed.connect(request)
-	var close := MultiplayerUI.button(main, dialog, "닫기", "CloseRecentBattles", main._dismiss_action_overlay)
-	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	_bind_recent_navigation(scroll, rows, refresh, close, close_dialog)
+	scroll.grab_focus.call_deferred()
 	request.call()
 
-static func _recent_row(main, entry: Dictionary) -> Control:
+## Age is frozen at the explicitly displayed lookup time; a future clock is never "just now".
+static func _recent_time_info(entry: Dictionary, now: int) -> Dictionary:
+	var stored_at = entry.get("stored_at")
+	if not NetworkProtocol._number_in_range(stored_at, 1, 9e9) or float(stored_at) != floorf(float(stored_at)):
+		return {"text": "보관 시각 미상", "tooltip": "이 서버는 유효한 보관 시각을 제공하지 않았습니다. 전투 시간이나 코드로 날짜를 추정하지 않습니다."}
+	var stamp := Time.get_datetime_string_from_unix_time(int(stored_at)).replace("T", " ") + " UTC"
+	var estimated = entry.get("stored_at_estimated", true)
+	var prefix := "보관 시각 추정" if not estimated is bool or bool(estimated) else "서버 보관"
+	var difference := now - int(stored_at)
+	var age := ""
+	if difference < 0:
+		age = "기기 시계보다 미래 · 시계 확인 필요"
+	elif difference < 60:
+		age = "조회 시 1분 미만 경과"
+	elif difference < 3600:
+		age = "조회 시 %d분 경과" % (difference / 60)
+	elif difference < 86400:
+		age = "조회 시 %d시간 %d분 경과" % [difference / 3600, (difference % 3600) / 60]
+	else:
+		age = "조회 시 %d일 %d시간 경과" % [difference / 86400, (difference % 86400) / 3600]
+	var explanation := "확인된 보관 시각이 아닙니다. 이전 서버 파일의 수정 시각 등을 사용한 추정값이며 원래 보관 시각과 다를 수 있습니다." if prefix == "보관 시각 추정" else "서버에서 코드가 처음 보관된 시각입니다. 전투 시작·종료 시각과 다를 수 있습니다."
+	return {"text": "%s %s · %s" % [prefix, stamp, age], "tooltip": explanation + " 경과 시간은 목록 조회 당시 기기 시계로 계산하며 만료 시간은 아닙니다. 새로고침하면 다시 계산합니다."}
+
+static func _recent_row(main, entry: Dictionary, now: int = -1) -> Control:
 	var card := PanelContainer.new()
 	card.name = "RecentBattleRow"
 	card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE, UIKit.EDGE_SOFT, 12, 1.0, 0.3, Color(0, 0, 0, 0), 0.08), 14, 8))
-	var line := HBoxContainer.new()
-	line.add_theme_constant_override("separation", 12)
-	card.add_child(line)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 8)
+	card.add_child(content)
 	var winner := int(entry.get("winner", -1))
 	var seconds := int(entry.get("ticks", 0)) / BattleReplay.DEFAULT_HZ
-	var text := Label.new()
-	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	text.text = "%s  ·  %02d:%02d  ·  %s vs %s" % [Localization.text("블루 승" if winner == 0 else ("레드 승" if winner == 1 else "무승부")), seconds / 60, seconds % 60,
-		" ".join(PackedStringArray(entry.units[0].map(func(kind): return String(BattleModel.UNIT_NAMES.get(kind, kind))))),
-		" ".join(PackedStringArray(entry.units[1].map(func(kind): return String(BattleModel.UNIT_NAMES.get(kind, kind)))))]
-	text.add_theme_font_size_override("font_size", 14)
-	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	line.add_child(text)
-	var code := Label.new()
-	code.text = String(entry.code)
-	code.add_theme_color_override("font_color", UIKit.GOLD)
+	var title := MultiplayerUI.label("%s · %s · 전투 %02d:%02d" % ["빠른 대전" if entry.get("mode", "") == "quick" else "방 대전", "블루 승" if winner == 0 else ("레드 승" if winner == 1 else "무승부"), seconds / 60, seconds % 60], 16, UIKit.TEXT)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(title)
+	var time_info := _recent_time_info(entry, int(Time.get_unix_time_from_system()) if now < 0 else now)
+	var stamp := MultiplayerUI.label(String(time_info.text), 14, UIKit.GOLD)
+	stamp.name = "RecentBattleStoredAt"
+	stamp.tooltip_text = String(time_info.tooltip)
+	stamp.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(stamp)
+	for side in 2:
+		var deck_names := " · ".join(PackedStringArray(entry.units[side].map(func(kind): return String(BattleModel.UNIT_NAMES.get(kind, kind)))))
+		var deck := MultiplayerUI.label("%s: %s" % ["블루" if side == 0 else "레드", deck_names], 14, UIKit.TEXT_MUTED)
+		deck.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		content.add_child(deck)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 12)
+	content.add_child(line)
+	var code: Button = main._styled_button("%s · 코드 복사" % String(entry.code), UIKit.GOLD_DEEP, false)
+	code.name = "CopyRecentBattleCode"
+	code.set_meta("ReplayCode", String(entry.code))
+	code.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	code.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	code.tooltip_text = "코드만 복사합니다. 서버에서 정리된 코드는 열 수 없으므로 계속 보려면 보기 → 로컬 보관을 이용하세요."
+	code.pressed.connect(func():
+		if not _dialog_alive(card): return
+		if not DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD):
+			code.tooltip_text = "이 환경에서는 클립보드를 사용할 수 없습니다. 표시된 코드를 직접 입력하세요."
+			code.text = "%s · 복사 불가" % String(entry.code)
+			return
+		DisplayServer.clipboard_set(String(entry.code))
+		code.text = "%s · 복사됨" % String(entry.code))
 	line.add_child(code)
 	var watch = main._styled_button("보기", UIKit.ACCENT, true)
 	watch.name = "WatchRecentBattle"
+	watch.set_meta("ReplayCode", String(entry.code))
 	watch.custom_minimum_size = Vector2(110, UIKit.TOUCH_MIN_HEIGHT)
 	watch.pressed.connect(func():
-		if watch.disabled:
+		if not _dialog_alive(card) or watch.disabled:
 			return
 		watch.disabled = true
 		var fail := func(message: String):
@@ -535,13 +624,49 @@ static func _recent_row(main, entry: Dictionary) -> Control:
 		var result := func(replay_text: String):
 			var replay := BattleReplay.from_share_text(replay_text)
 			if replay.is_empty():
-				fail.call("리플레이를 찾을 수 없습니다. 목록을 새로고침하거나 다른 전투를 선택하세요.")
+				fail.call("리플레이를 찾을 수 없습니다. 서버에서 정리되었거나 읽을 수 없는 전투입니다. 목록을 새로고침하거나 다른 전투를 선택하세요.")
 				return
 			main._dismiss_action_overlay()
 			_play_replay_data(main, replay)
 		ReplayRequest.start(main, watch, "fetch", String(entry.code), result, fail, func(_text): watch.text = "불러오는 중"))
 	line.add_child(watch)
 	return card
+
+static func _bind_recent_navigation(scroll: ScrollContainer, rows: VBoxContainer, refresh: Button, close: Button, close_dialog: Callable) -> void:
+	var controls: Array[Control] = [scroll]
+	for row in rows.get_children():
+		for button_name in ["CopyRecentBattleCode", "WatchRecentBattle"]:
+			var button := row.find_child(button_name, true, false) as Control
+			if button != null: controls.append(button)
+	controls.append(refresh)
+	controls.append(close)
+	for index in controls.size():
+		var control := controls[index]
+		control.focus_previous = control.get_path_to(controls[(index + controls.size() - 1) % controls.size()])
+		control.focus_next = control.get_path_to(controls[(index + 1) % controls.size()])
+		# Persistent footer/scroll controls are rebound after refresh without accumulating handlers.
+		if control.has_meta("RecentNavigationBound"): continue
+		control.set_meta("RecentNavigationBound", true)
+		control.gui_input.connect(func(event: InputEvent):
+			if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+				control.accept_event()
+				close_dialog.call())
+	if scroll.has_meta("RecentScrollBound"): return
+	scroll.set_meta("RecentScrollBound", true)
+	scroll.gui_input.connect(func(event: InputEvent):
+		if not event is InputEventKey or not event.pressed or event.alt_pressed or event.ctrl_pressed or event.meta_pressed: return
+		var bar := scroll.get_v_scroll_bar()
+		var target := scroll.scroll_vertical
+		match event.keycode:
+			KEY_UP: target -= 48
+			KEY_DOWN: target += 48
+			KEY_PAGEUP: target -= maxi(48, int(bar.page))
+			KEY_PAGEDOWN: target += maxi(48, int(bar.page))
+			KEY_HOME: target = 0
+			KEY_END: target = int(bar.max_value - bar.page)
+			_: return
+		scroll.scroll_vertical = clampi(target, 0, maxi(0, int(bar.max_value - bar.page)))
+		scroll.accept_event())
 
 ## Uploads a replay for a share code, connecting to the server first when needed.
 static func _share_by_code(main, replay: Dictionary, button: Button) -> void:
@@ -720,7 +845,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			actions.add_child(watch)
 			controls.append(watch)
 			watch.pressed.connect(func():
-				if not _challenge_dialog_alive(dialog) or watch.disabled:
+				if not _dialog_alive(dialog) or watch.disabled:
 					return
 				# Read again before leaving the records screen: the file may have been removed or replaced.
 				var current := BattleReplay.load_file(path)
@@ -744,11 +869,11 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	refresh.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	refresh.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
 	refresh.pressed.connect(func():
-		if _challenge_dialog_alive(dialog):
+		if _dialog_alive(dialog):
 			_show_challenge_replays(main, period, date, ruleset, record, focus_target))
 	footer.add_child(refresh)
 	var close := func():
-		if not _challenge_dialog_alive(dialog): return
+		if not _dialog_alive(dialog): return
 		main._dismiss_action_overlay()
 		main.records_state.erase("focus")
 		if is_instance_valid(focus_target) and focus_target.is_inside_tree():
@@ -787,7 +912,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 		scroll.accept_event())
 	scroll.grab_focus.call_deferred()
 
-static func _challenge_dialog_alive(dialog: Control) -> bool:
+static func _dialog_alive(dialog: Control) -> bool:
 	if not is_instance_valid(dialog) or not dialog.is_inside_tree(): return false
 	var node: Node = dialog
 	while node != null:
