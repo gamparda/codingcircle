@@ -6,6 +6,7 @@ const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const Achievements = preload("res://scripts/Achievements.gd")
 const Goals = preload("res://scripts/Goals.gd")
 const NewFeatures = preload("res://scripts/NewFeatures.gd")
+const BattleBindings = preload("res://scripts/BattleBindings.gd")
 const CHALLENGE_PAGE_SIZE := 8
 const RECORD_FIELDS := [
 	["ai_matches", "AI 경기", "판"], ["ai_wins", "AI 승리", "승"], ["ai_losses", "AI 패배", "패"],
@@ -32,6 +33,70 @@ static func _deck_names(kinds: Array, units: bool) -> String:
 	for kind in kinds:
 		names.append(String(BattleModel.UNIT_NAMES.get(kind, kind) if units else structures.get(kind, kind)))
 	return " / ".join(names)
+
+static func _deck_item(kind: String, units: bool) -> String:
+	# IDs distinguish names that overlap, such as wizard and warlock.
+	return "%s (%s)" % [_deck_names([kind], units), kind]
+
+static func _deck_group_comparison(before: Array, after: Array, units: bool, keys: Array) -> Dictionary:
+	var removed: Array = []
+	var added: Array = []
+	var moved: PackedStringArray = []
+	var rows: Array = []
+	for kind in before:
+		if not after.has(kind): removed.append(kind)
+	for kind in after:
+		if not before.has(kind):
+			added.append(kind)
+		elif before.find(kind) != after.find(kind):
+			moved.append("%s %d → %d번" % [_deck_item(String(kind), units), before.find(kind) + 1, after.find(kind) + 1])
+	var title := "병력" if units else "구조물"
+	var summary := title + " · 변경 없음"
+	if before != after:
+		summary = title + (" · 구성 동일, 순서만 변경" if removed.is_empty() and added.is_empty() else " · 구성 교체")
+	var details: PackedStringArray = []
+	if not removed.is_empty(): details.append("사본에서 빠짐: %s" % _deck_names(removed, units))
+	if not added.is_empty(): details.append("사본에 들어옴: %s" % _deck_names(added, units))
+	if not moved.is_empty(): details.append("유지되는 항목의 순서 이동: %s" % " / ".join(moved))
+	# The save sanitizer guarantees three distinct, valid items in each group.
+	# Bindings stay on the current device when a profile is restored.
+	for index in before.size():
+		var changed: bool = before[index] != after[index]
+		var note := "동일"
+		if changed:
+			note = "순서 이동" if before.has(after[index]) else "새 항목"
+		rows.append({"text": "%s %d [%s]: %s → %s · %s" % [title, index + 1, BattleBindings.key_name(int(keys[index + (0 if units else 3)])), _deck_item(String(before[index]), units), _deck_item(String(after[index]), units), note], "changed": changed})
+	return {"summary": summary, "details": "\n".join(details), "rows": rows, "changed": before != after}
+
+static func _decks_comparison(live: Dictionary, restored: Dictionary) -> Dictionary:
+	var slots: Array = []
+	var changed_text: PackedStringArray = []
+	var first_changed := -1
+	var keys: Array = live.settings.battle_keys
+	for index in live.deck_presets.size():
+		var before: Dictionary = live.deck_presets[index]
+		var after: Dictionary = restored.deck_presets[index]
+		var changes: PackedStringArray = []
+		var kinds: PackedStringArray = []
+		if String(before.name) != String(after.name):
+			changes.append("이름: %s → %s" % [String(before.name), String(after.name)])
+			kinds.append("이름")
+		if before.units != after.units:
+			changes.append("병력: %s → %s" % [_deck_names(before.units, true), _deck_names(after.units, true)])
+			kinds.append("병력")
+		if before.structures != after.structures:
+			changes.append("구조물: %s → %s" % [_deck_names(before.structures, false), _deck_names(after.structures, false)])
+			kinds.append("구조물")
+		if not changes.is_empty():
+			if first_changed < 0: first_changed = index
+			changed_text.append("덱 슬롯 %d\n%s" % [index + 1, "\n".join(changes)])
+		slots.append({"before_name": String(before.name), "after_name": String(after.name),
+			"changed": not changes.is_empty(), "changes": "·".join(kinds) + " 변경" if not kinds.is_empty() else "변경 없음",
+			"units": _deck_group_comparison(before.units, after.units, true, keys),
+			"structures": _deck_group_comparison(before.structures, after.structures, false, keys)})
+	return {"slots": slots, "changed": changed_text.size(), "text": "\n\n".join(changed_text) if not changed_text.is_empty() else "세 덱의 이름·병력·구조물·배치 순서 변경 없음",
+		"default_slot": first_changed if first_changed >= 0 else int(restored.last_deck),
+		"before_selected": int(live.last_deck), "after_selected": int(restored.last_deck)}
 
 static func _challenge_versions(history: Dictionary, date: String) -> Dictionary:
 	if not history.has(date): return {}
@@ -275,7 +340,7 @@ static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionar
 	var live := SaveData.sanitize(current)
 	var restored := SaveData.sanitize(candidate)
 	var campaign: PackedStringArray = []
-	var decks: PackedStringArray = []
+	var decks := _decks_comparison(live, restored)
 	var warnings: PackedStringArray = []
 	var lost_clears := 0
 	var lost_stars := 0
@@ -297,20 +362,7 @@ static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionar
 			changes.append("시도 %d → %d · 승리 %d → %d" % [int(before.attempts), int(after.attempts), int(before.wins), int(after.wins)])
 		if not changes.is_empty():
 			campaign.append("%d단계 · %s\n%s" % [index + 1, ServerAI.stage_name(index + 1), "\n".join(changes)])
-	for index in live.deck_presets.size():
-		var before: Dictionary = live.deck_presets[index]
-		var after: Dictionary = restored.deck_presets[index]
-		var changes: PackedStringArray = []
-		if String(before.name) != String(after.name):
-			changes.append("이름: %s → %s" % [String(before.name), String(after.name)])
-		# Array order is meaningful: it controls the battle buttons and keyboard slots.
-		if before.units != after.units:
-			changes.append("병력: %s → %s" % [_deck_names(before.units, true), _deck_names(after.units, true)])
-		if before.structures != after.structures:
-			changes.append("구조물: %s → %s" % [_deck_names(before.structures, false), _deck_names(after.structures, false)])
-		if not changes.is_empty():
-			decks.append("덱 슬롯 %d\n%s" % [index + 1, "\n".join(changes)])
-	var summary := "변경: 캠페인 기록 %d단계 · 덱 구성 %d개\n개방 단계 %d → %d · 총 별 %d → %d" % [campaign.size(), decks.size(), int(live.campaign_unlocked), int(restored.campaign_unlocked), int(live.stats.total_stars), int(restored.stats.total_stars)]
+	var summary := "변경: 캠페인 기록 %d단계 · 덱 구성 %d개\n개방 단계 %d → %d · 총 별 %d → %d" % [campaign.size(), int(decks.changed), int(live.campaign_unlocked), int(restored.campaign_unlocked), int(live.stats.total_stars), int(restored.stats.total_stars)]
 	if int(restored.campaign_unlocked) < int(live.campaign_unlocked):
 		warnings.append("개방 단계가 줄어 일부 캠페인이 다시 잠깁니다.")
 	if lost_clears > 0 or lost_stars > 0:
@@ -339,14 +391,14 @@ static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionar
 	if not String(features.warning).is_empty(): warnings.append(String(features.warning))
 	return {"summary": summary, "warning": "\n".join(warnings),
 		"campaign": "\n\n".join(campaign) if not campaign.is_empty() else "단계별 기록 변경 없음",
-		"decks": "\n\n".join(decks) if not decks.is_empty() else "세 덱의 이름·병력·구조물·배치 순서 변경 없음",
+		"decks": String(decks.text), "deck_slots": decks,
 		"challenges": challenges, "stats": stats, "achievements": achievements, "goals": goals, "tutorial": tutorial,
 		"nickname": nickname, "features": features}
 
 static func _win_time(record: Dictionary) -> String:
 	return str(record.fastest_win) + "초" if float(record.fastest_win) > 0.0 else "미기록 또는 0초"
 
-static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candidate: Dictionary) -> void:
+static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candidate: Dictionary, view_state: Dictionary = {}) -> void:
 	for child in parent.get_children():
 		parent.remove_child(child)
 		child.queue_free()
@@ -372,12 +424,65 @@ static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candida
 	var campaign := _label(String(comparison.campaign), UIKit.TEXT)
 	campaign.name = "ProfileCampaignChanges"
 	parent.add_child(campaign)
-	parent.add_child(_label("덱 · 슬롯별 변경 (병력·구조물은 전투 버튼 순서)", UIKit.GOLD))
-	var decks := _label(String(comparison.decks), UIKit.TEXT)
-	decks.name = "ProfileDeckChanges"
-	parent.add_child(decks)
+	_add_deck_comparison(parent, comparison.deck_slots, view_state)
 	_add_challenge_comparison(parent, comparison.challenges)
 	parent.add_child(_label("기록을 합치거나 더 높은 기록을 고르는 복구가 아닙니다. 닉네임·새 기능 확인 상태·전적·업적·시작 목표·튜토리얼·도전 기록을 포함한 진행도 전체가 사본으로 바뀝니다. 현재 설정·익명 ID·전송 대기 기록은 유지합니다."))
+
+static func _add_deck_comparison(parent: VBoxContainer, comparison: Dictionary, view_state: Dictionary) -> void:
+	parent.add_child(_label("덱 · 슬롯을 골라 구성·버튼 순서 비교", UIKit.GOLD))
+	var summary := _label("세 덱 중 변경 %d개 · 최근 선택 덱: 슬롯 %d → 슬롯 %d" % [int(comparison.changed), int(comparison.before_selected) + 1, int(comparison.after_selected) + 1], UIKit.TEXT)
+	summary.name = "ProfileDeckComparisonSummary"
+	parent.add_child(summary)
+	parent.add_child(_label("슬롯 버튼은 비교할 덱만 고릅니다. 복구는 세 덱을 모두 사본으로 되돌립니다.\n병력·구조물 번호는 전투 버튼 순서이며 [키]는 복구 후에도 유지되는 이 기기의 현재 단축키입니다."))
+	var selectors := HFlowContainer.new()
+	selectors.name = "ProfileDeckComparisonSlots"
+	selectors.add_theme_constant_override("h_separation", 10)
+	selectors.add_theme_constant_override("v_separation", 10)
+	parent.add_child(selectors)
+	var buttons: Array[Button] = []
+	var panels: Array[Control] = []
+	var details := VBoxContainer.new()
+	details.name = "ProfileDeckChanges"
+	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(details)
+	for index in comparison.slots.size():
+		var slot: Dictionary = comparison.slots[index]
+		var button := UIKit.style_button(Button.new(), UIKit.ACCENT, false, 15)
+		button.name = "ProfileDeckSlot%d" % (index + 1)
+		button.toggle_mode = true
+		button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+		button.custom_minimum_size = Vector2(210, UIKit.TOUCH_MIN_HEIGHT)
+		button.tooltip_text = "슬롯 %d · %s\n이름: %s → %s\n현재 최근 선택: %s · 사본 최근 선택: %s" % [index + 1, String(slot.changes), String(slot.before_name), String(slot.after_name), "예" if index == int(comparison.before_selected) else "아니오", "예" if index == int(comparison.after_selected) else "아니오"]
+		selectors.add_child(button)
+		buttons.append(button)
+		var panel := VBoxContainer.new()
+		panel.name = "ProfileDeckSlot%dDetails" % (index + 1)
+		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		panel.add_theme_constant_override("separation", 8)
+		details.add_child(panel)
+		panels.append(panel)
+		panel.add_child(_label("슬롯 %d · %s\n이름: %s → %s" % [index + 1, String(slot.changes), String(slot.before_name), String(slot.after_name)], UIKit.GOLD if bool(slot.changed) else UIKit.TEXT))
+		panel.add_child(_label("현재 최근 선택: %s · 사본 최근 선택: %s" % ["이 덱" if index == int(comparison.before_selected) else "다른 덱", "이 덱" if index == int(comparison.after_selected) else "다른 덱"]))
+		for group in [slot.units, slot.structures]:
+			panel.add_child(_label(String(group.summary), UIKit.GOLD if bool(group.changed) else UIKit.TEXT_MUTED))
+			if not String(group.details).is_empty(): panel.add_child(_label(String(group.details), UIKit.TEXT))
+			for row in group.rows:
+				panel.add_child(_label(String(row.text), UIKit.GOLD if bool(row.changed) else UIKit.TEXT_MUTED))
+	var select_slot := func(selected: int):
+		if selected < 0 or selected >= buttons.size(): return
+		view_state.deck_slot = selected
+		for index in buttons.size():
+			var slot: Dictionary = comparison.slots[index]
+			var badges: PackedStringArray = []
+			if index == int(comparison.before_selected): badges.append("현재 선택")
+			if index == int(comparison.after_selected): badges.append("사본 선택")
+			buttons[index].set_pressed_no_signal(index == selected)
+			buttons[index].text = "%s슬롯 %d · %s\n%s" % ["✓ " if index == selected else "", index + 1, "변경" if bool(slot.changed) else "동일", " / ".join(badges) if not badges.is_empty() else "최근 선택 아님"]
+			panels[index].visible = index == selected
+	for index in buttons.size():
+		buttons[index].pressed.connect(select_slot.bind(index))
+	var selected := int(view_state.get("deck_slot", -1))
+	select_slot.call(selected if selected >= 0 and selected < buttons.size() else int(comparison.default_slot))
 
 static func _add_record_comparison(parent: VBoxContainer, title: String, prefix: String, comparison: Dictionary) -> void:
 	parent.add_child(_label(title, UIKit.GOLD))
@@ -472,13 +577,13 @@ static func _add_challenge_comparison(parent: VBoxContainer, comparison: Diction
 	next.pressed.connect(func(): state.page = int(state.page) + 1; refresh.call())
 	refresh.call()
 
-static func _add_comparison(parent: Node, current: Dictionary, candidate: Dictionary) -> void:
+static func _add_comparison(parent: Node, current: Dictionary, candidate: Dictionary, view_state: Dictionary = {}) -> void:
 	var comparison := VBoxContainer.new()
 	comparison.name = "ProfileRecoveryComparison"
 	comparison.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	comparison.add_theme_constant_override("separation", 10)
 	parent.add_child(comparison)
-	_fill_comparison(comparison, current, candidate)
+	_fill_comparison(comparison, current, candidate, view_state)
 
 static func _stamp(seconds: int) -> String:
 	return Time.get_datetime_string_from_unix_time(seconds).replace("T", " ") + " UTC"
@@ -567,7 +672,7 @@ static func _filtered_entries(source: Array, query: String, order: int) -> Array
 
 static func show(main, message: String = "", selected_path: String = "", browser_state: Dictionary = {}) -> void:
 	# Screen-local state survives refresh/import/cleanup, without changing the save.
-	var state := {"query": String(browser_state.get("query", "")), "order": clampi(int(browser_state.get("order", 0)), 0, 3), "selected_path": selected_path if not selected_path.is_empty() else String(browser_state.get("selected_path", ""))}
+	var state := {"query": String(browser_state.get("query", "")), "order": clampi(int(browser_state.get("order", 0)), 0, 3), "selected_path": selected_path if not selected_path.is_empty() else String(browser_state.get("selected_path", "")), "deck_slot": clampi(int(browser_state.get("deck_slot", -1)), -1, 2)}
 	var outer: VBoxContainer = main._submenu("진행도 보관·복구", "현재 진행도를 보관하거나, 읽을 수 있는 사본을 골라 복구합니다.")
 	var scroll := ScrollContainer.new()
 	scroll.name = "ProfileRecoveryScroll"
@@ -709,7 +814,7 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		if int(entries[index].get("excluded", 0)) > 0:
 			preview.text += "\n잘못된 도전 기록 %d개는 복구에서 제외합니다. 사본 원본은 그대로 보관합니다." % int(entries[index].excluded)
 		preview.tooltip_text = ProjectSettings.globalize_path(String(entries[index].path))
-		_fill_comparison(comparison, main.save_data, entries[index].data)
+		_fill_comparison(comparison, main.save_data, entries[index].data, state)
 	var rebuild := func():
 		entries.clear()
 		entries.append_array(_filtered_entries(candidates.entries, String(state.query), int(state.order)))
@@ -765,7 +870,7 @@ static func _preview_import(main, text: String, screen_status: Label, screen_scr
 	details.add_child(_label(_summary(preview.data), UIKit.TEXT))
 	details.add_child(_label("현재 진행도", UIKit.GOLD))
 	details.add_child(_label(_summary(SaveData.sanitize(main.save_data)), UIKit.TEXT))
-	_add_comparison(details, main.save_data, preview.data)
+	_add_comparison(details, main.save_data, preview.data, browser_state)
 	details.add_child(_label("이 단계에서는 사본만 보관합니다. 보관 후 선택한 사본 복구 확인을 눌러야 진행도를 되돌립니다.\n복구할 때도 현재 설정·익명 ID·전송 대기 기록을 유지합니다. 가져온 사본의 결과는 다시 보내지 않습니다."))
 	if int(preview.excluded) > 0:
 		details.add_child(_label("잘못된 도전 기록 %d개는 복구에서 제외합니다. 가져온 JSON 원본은 그대로 보관합니다." % int(preview.excluded), UIKit.DANGER))
@@ -841,7 +946,7 @@ static func _confirm(main, entry: Dictionary, browser_state: Dictionary = {}) ->
 	details.add_child(_label(_summary(SaveData.sanitize(main.save_data)), UIKit.TEXT))
 	details.add_child(_label("이 사본으로 진행도를 되돌립니다.", UIKit.GOLD))
 	details.add_child(_label(_stamp(int(entry.modified)) + "\n" + _summary(entry.data), UIKit.TEXT))
-	_add_comparison(details, main.save_data, entry.data)
+	_add_comparison(details, main.save_data, entry.data, browser_state)
 	if int(entry.get("excluded", 0)) > 0:
 		details.add_child(_label("잘못된 도전 기록 %d개는 복구에서 제외합니다. 사본 원본은 그대로 보관합니다." % int(entry.excluded), UIKit.DANGER))
 	details.add_child(_label("현재 진행도와 원본을 보관한 뒤 복구합니다. 보관이나 저장에 실패하면 현재 진행도를 유지합니다.\n현재 설정과 전송 대기 기록을 유지하며, 이미 전송한 과거 결과는 다시 보내지 않습니다."))
