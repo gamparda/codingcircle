@@ -466,11 +466,56 @@ static func _show_recent_battles(main) -> void:
 	status.name = "RecentBattlesStatus"
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(status)
+	var state: Dictionary = main.recent_battles_state
+	var search_tools := HBoxContainer.new()
+	search_tools.add_theme_constant_override("separation", 8)
+	dialog.add_child(search_tools)
+	var search := LineEdit.new()
+	search.name = "RecentBattleSearch"
+	search.placeholder_text = "보관 날짜·코드·병력 검색"
+	search.tooltip_text = "조회된 최근 공개 전투 안에서 검색합니다. 공백으로 나눈 검색어를 모두 포함해야 합니다. 예: 2026-10-13 방패병 / ABC234 / archer"
+	search.max_length = 160
+	search.clear_button_enabled = true
+	search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	search.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	search.text = String(state.get("query", ""))
+	search_tools.add_child(search)
+	var reset: Button = main._styled_button("초기화", UIKit.TEAL, false)
+	reset.name = "ResetRecentBattleFilters"
+	reset.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	search_tools.add_child(reset)
+	var filters := HBoxContainer.new()
+	filters.add_theme_constant_override("separation", 8)
+	dialog.add_child(filters)
+	var mode := OptionButton.new()
+	mode.name = "RecentBattleModeFilter"
+	for label in ["종류 전체", "빠른 대전", "방 대전"]:
+		mode.add_item(label)
+	mode.select(clampi(int(state.get("mode", 0)), 0, 2))
+	mode.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	filters.add_child(mode)
+	var outcome := OptionButton.new()
+	outcome.name = "RecentBattleOutcomeFilter"
+	for label in ["결과 전체", "블루 승", "레드 승", "무승부"]:
+		outcome.add_item(label)
+	outcome.select(clampi(int(state.get("outcome", 0)), 0, 3))
+	outcome.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	outcome.tooltip_text = "모든 전투의 블루·레드 진영 기준 결과입니다. 내 전적의 승리·패배가 아닙니다."
+	filters.add_child(outcome)
+	var count := MultiplayerUI.label("목록 수신 대기", 14, UIKit.TEXT_MUTED)
+	count.name = "RecentBattleMatchCount"
+	count.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	count.tooltip_text = "서버에서 조회한 최근 공개 전투 안의 검색 결과입니다. 전체 보관 전투를 검색하지 않습니다. 날짜는 UTC 보관 시각 기준이며 추정 시각도 포함합니다."
+	filters.add_child(count)
 	var scroll := ScrollContainer.new()
 	scroll.name = "RecentBattlesScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.focus_mode = Control.FOCUS_ALL
+	scroll.follow_focus = true
+	scroll.scroll_deadzone = 16
 	dialog.add_child(scroll)
 	var rows := VBoxContainer.new()
 	rows.name = "RecentBattleRows"
@@ -493,11 +538,58 @@ static func _show_recent_battles(main) -> void:
 	var close := MultiplayerUI.button(main, footer, "닫기", "CloseRecentBattles", close_dialog)
 	close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
-	var pending := {"active": false, "revision": 0}
-	var show_list := func(list: Array):
-		pending.active = false
+	var filter_controls: Array[Control] = [search, reset, mode, outcome]
+	var pending := {"active": false, "revision": 0, "loaded": false, "restoring": false, "entries": []}
+	var empty := MultiplayerUI.label("", 16, UIKit.TEXT_MUTED)
+	empty.name = "NoRecentBattleMatches"
+	empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	empty.visible = false
+	rows.add_child(empty)
+	var apply_filters := func(reset_scroll: bool):
+		if not _dialog_alive(dialog): return
 		pending.revision = int(pending.revision) + 1
 		var revision := int(pending.revision)
+		state["query"] = search.text
+		state["mode"] = mode.selected
+		state["outcome"] = outcome.selected
+		reset.disabled = search.text.is_empty() and mode.selected == 0 and outcome.selected == 0
+		var focus: Control = main.get_viewport().gui_get_focus_owner()
+		var hidden_focus := false
+		var shown := 0
+		for item in pending.entries:
+			var row: Control = item.card
+			row.visible = _recent_matches(item.entry, String(item.search), search.text, mode.selected, outcome.selected)
+			if row.visible: shown += 1
+			elif focus != null and row.is_ancestor_of(focus): hidden_focus = true
+		count.text = "%d / %d개 표시" % [shown, pending.entries.size()] if bool(pending.loaded) else "목록 수신 대기"
+		empty.visible = bool(pending.loaded) and shown == 0
+		empty.text = "현재 공개 목록에 보관된 전투가 없습니다. 미저장·정리된 전투는 표시되지 않습니다." if pending.entries.is_empty() else "검색 조건에 맞는 전투가 없습니다. 검색어·종류·결과를 바꾸거나 초기화하세요. 검색은 조회된 최근 공개 전투 안에서만 수행합니다."
+		_bind_recent_navigation(scroll, rows, refresh, close, close_dialog, filter_controls)
+		if hidden_focus: search.grab_focus()
+		if reset_scroll: state["scroll"] = 0
+		# An empty waiting list must not clamp a saved viewport before its first response.
+		if not bool(pending.loaded): return
+		var position := int(state.get("scroll", 0))
+		pending.restoring = true
+		var restore := func():
+			if not _dialog_alive(dialog) or revision != int(pending.revision): return
+			scroll.scroll_vertical = position
+			state["scroll"] = scroll.scroll_vertical
+			pending.restoring = false
+		dialog.get_tree().process_frame.connect(restore, CONNECT_ONE_SHOT)
+	search.text_changed.connect(func(_text): apply_filters.call(true))
+	mode.item_selected.connect(func(_index): apply_filters.call(true))
+	outcome.item_selected.connect(func(_index): apply_filters.call(true))
+	reset.pressed.connect(func():
+		search.text = ""
+		mode.select(0)
+		outcome.select(0)
+		apply_filters.call(true)
+		search.grab_focus())
+	scroll.get_v_scroll_bar().value_changed.connect(func(value):
+		if bool(pending.loaded) and not bool(pending.restoring): state["scroll"] = int(value))
+	var show_list := func(list: Array):
+		pending.active = false
 		refresh.disabled = false
 		var focus: Control = main.get_viewport().gui_get_focus_owner()
 		var focused_code := ""
@@ -505,27 +597,36 @@ static func _show_recent_battles(main) -> void:
 		if focus != null and rows.is_ancestor_of(focus):
 			focused_code = String(focus.get_meta("ReplayCode", ""))
 			focused_action = String(focus.name)
-		var previous_scroll := scroll.scroll_vertical
+		# Keep the saved position on the first response, and the current viewport on refresh.
+		if bool(pending.loaded) and not bool(pending.restoring): state["scroll"] = scroll.scroll_vertical
+		pending.restoring = true
+		pending.loaded = true
+		pending.entries = []
 		for child in rows.get_children():
 			rows.remove_child(child)
-			child.queue_free()
+			if child != empty: child.queue_free()
 		var now := int(Time.get_unix_time_from_system())
 		status.text = "공개 전투 %d개 · 최신 보관순 · 조회 %s UTC" % [list.size(), Time.get_datetime_string_from_unix_time(now).replace("T", " ")]
-		if list.is_empty():
-			status.text += "\n현재 공개 목록에 보관된 전투가 없습니다. 미저장·정리된 전투는 표시되지 않습니다."
 		var next_focus: Control = null
 		for entry in list:
 			var row := _recent_row(main, entry, now)
 			rows.add_child(row)
+			pending.entries.append({"entry": entry, "search": _recent_search_text(entry), "card": row})
 			if String(entry.code) == focused_code:
 				next_focus = row.find_child(focused_action, true, false) as Control
-		_bind_recent_navigation(scroll, rows, refresh, close, close_dialog)
+		rows.add_child(empty)
+		apply_filters.call(false)
+		var revision := int(pending.revision)
 		# Refresh keeps the viewport and surviving focused code, rather than jumping to the top.
 		var restore := func():
 			if not _dialog_alive(dialog) or revision != int(pending.revision): return
-			if is_instance_valid(next_focus): next_focus.grab_focus()
+			var position := int(state.get("scroll", 0))
+			pending.restoring = true
+			if is_instance_valid(next_focus) and next_focus.is_visible_in_tree(): next_focus.grab_focus()
 			elif not focused_code.is_empty(): scroll.grab_focus()
-			scroll.scroll_vertical = previous_scroll
+			scroll.scroll_vertical = position
+			state["scroll"] = scroll.scroll_vertical
+			pending.restoring = false
 		dialog.get_tree().process_frame.connect(restore, CONNECT_ONE_SHOT)
 	var request := func():
 		if bool(pending.active):
@@ -535,12 +636,42 @@ static func _show_recent_battles(main) -> void:
 		var fail := func(text: String):
 			pending.active = false
 			refresh.disabled = false
-			status.text = ("목록 갱신 실패 · 이전 조회 목록을 유지합니다.\n" if rows.get_child_count() > 0 else "") + Localization.text(text)
+			status.text = ("목록 갱신 실패 · 이전 조회 목록과 검색 조건을 유지합니다.\n" if bool(pending.loaded) else "") + Localization.text(text)
 		ReplayRequest.start(main, dialog, "recent", "", show_list, fail, func(text): status.text = Localization.text(text))
 	refresh.pressed.connect(request)
-	_bind_recent_navigation(scroll, rows, refresh, close, close_dialog)
+	apply_filters.call(false)
 	scroll.grab_focus.call_deferred()
 	request.call()
+
+## Search the received snapshot only; no replay downloads or inferred dates per keystroke.
+static func _recent_search_text(entry: Dictionary) -> String:
+	var winner := int(entry.get("winner", -1))
+	var seconds := int(entry.get("ticks", 0)) / BattleReplay.DEFAULT_HZ
+	var parts := PackedStringArray([String(entry.code), String(entry.get("mode", "")),
+		"빠른 대전" if entry.get("mode", "") == "quick" else "방 대전",
+		"블루 승" if winner == 0 else ("레드 승" if winner == 1 else "무승부"),
+		"%02d:%02d" % [seconds / 60, seconds % 60]])
+	var stored_at = entry.get("stored_at")
+	if NetworkProtocol._number_in_range(stored_at, 1, 9e9) and float(stored_at) == floorf(float(stored_at)):
+		var stamp := Time.get_datetime_string_from_unix_time(int(stored_at)).replace("T", " ")
+		parts.append(stamp)
+		parts.append(stamp.substr(0, 10).replace("-", ""))
+		var estimated = entry.get("stored_at_estimated", true)
+		parts.append("보관 시각 추정" if not estimated is bool or bool(estimated) else "서버 보관")
+	else:
+		parts.append("보관 시각 미상")
+	for side in 2:
+		for kind in entry.units[side]:
+			parts.append("%s %s" % [kind, BattleModel.UNIT_NAMES.get(kind, kind)])
+	return " ".join(parts).to_lower()
+
+static func _recent_matches(entry: Dictionary, text: String, query: String, mode: int, outcome: int) -> bool:
+	if mode > 0 and (entry.get("mode", "") == "quick") != (mode == 1): return false
+	var winner := int(entry.get("winner", -1))
+	if outcome > 0 and (winner if winner in [0, 1] else 2) != outcome - 1: return false
+	for term in query.to_lower().replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ", false):
+		if not text.contains(term): return false
+	return true
 
 ## Age is frozen at the explicitly displayed lookup time; a future clock is never "just now".
 static func _recent_time_info(entry: Dictionary, now: int) -> Dictionary:
@@ -632,9 +763,14 @@ static func _recent_row(main, entry: Dictionary, now: int = -1) -> Control:
 	line.add_child(watch)
 	return card
 
-static func _bind_recent_navigation(scroll: ScrollContainer, rows: VBoxContainer, refresh: Button, close: Button, close_dialog: Callable) -> void:
-	var controls: Array[Control] = [scroll]
+static func _bind_recent_navigation(scroll: ScrollContainer, rows: VBoxContainer, refresh: Button, close: Button, close_dialog: Callable, filter_controls: Array[Control] = []) -> void:
+	var controls: Array[Control] = []
+	for control in filter_controls:
+		if control is BaseButton and (control as BaseButton).disabled: continue
+		controls.append(control)
+	controls.append(scroll)
 	for row in rows.get_children():
+		if not row.visible: continue
 		for button_name in ["CopyRecentBattleCode", "WatchRecentBattle"]:
 			var button := row.find_child(button_name, true, false) as Control
 			if button != null: controls.append(button)
