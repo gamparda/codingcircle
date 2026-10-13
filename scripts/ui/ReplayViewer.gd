@@ -14,6 +14,9 @@ const CombatSounds = preload("res://scripts/CombatSounds.gd")
 const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
 const MomentumGraph = preload("res://scripts/ui/MomentumGraph.gd")
 const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
+const Report = preload("res://scripts/BattleReport.gd")
+const ReportContent = preload("res://scripts/ui/BattleReportContent.gd")
+const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const JUMP_LEAD_TICKS := 30 # land a second before a highlight so the moment plays out
 const SPEEDS := [0.5, 1.0, 2.0, 4.0, 8.0]
 
@@ -34,6 +37,9 @@ var play_button: Button
 var speed_button: Button
 var headline: Label
 var end_banner: Control
+var report_button: Button
+var report_overlay: Control
+var end_matches_record := false
 var sound_players: Array = []
 var last_sound_msec := 0
 var title_text := ""
@@ -308,7 +314,7 @@ func _build_bottom_bar() -> void:
 	branch.custom_minimum_size.x = 130
 	branch.tooltip_text = "지금 장면에서 이어서 직접 조작해 보는 되감기 실험입니다"
 	branch.pressed.connect(func():
-		if player != null and not player.is_finished():
+		if player != null and not _playback_finished():
 			if notes_dirty:
 				_toast("메모 저장을 재시도한 뒤 여기서 해보기를 눌러주세요.")
 			else:
@@ -328,13 +334,12 @@ func _control_button(parent: Control, node_name: String, text: String, color: Co
 
 # ---------------------------------------------------------------- playback
 func _restart() -> void:
+	_clear_end()
 	clip_finished = false
 	player = BattleReplay.Player.new(replay)
 	accumulator = 0.0
 	finished_shown = false
 	paused = false
-	if is_instance_valid(end_banner):
-		end_banner.queue_free()
 	view.visual_events.clear()
 	last_announced_tick = 0
 	view.set_snapshot(player.model.snapshot())
@@ -344,6 +349,8 @@ func _restart() -> void:
 	var clip := BattleReplay.clip_of(replay)
 	if not clip.is_empty() and int(clip.start) > 0:
 		seek(int(clip.start))
+	elif _playback_finished():
+		_show_end()
 
 ## The loop only runs between two marks with start before end.
 func loop_ready() -> bool:
@@ -468,6 +475,7 @@ func _on_scrub(value: float) -> void:
 
 ## Re-simulates from the start up to `tick` (no drawing in between).
 func seek(tick: int) -> void:
+	_clear_end()
 	player = BattleReplay.Player.new(replay)
 	while player.ticks < tick and player.step():
 		pass
@@ -475,15 +483,29 @@ func seek(tick: int) -> void:
 	view.visual_events.clear()
 	finished_shown = false
 	last_announced_tick = player.ticks
-	if is_instance_valid(end_banner):
-		end_banner.queue_free()
 	view.set_snapshot(player.model.snapshot())
 	_refresh_hud()
+	if _playback_finished():
+		_show_end()
+
+func _playback_finished() -> bool:
+	if player == null: return false
+	# A forced result at the last supported tick still needs one Player.step().
+	return player.is_finished() or (player.ticks >= BattleReplay.MAX_TICKS and replay.get("forced_end", {}).is_empty())
+
+func _clear_end() -> void:
+	_close_report(false)
+	if is_instance_valid(end_banner):
+		remove_child(end_banner)
+		end_banner.queue_free()
+	end_banner = null
+	report_button = null
+	end_matches_record = false
 
 func _process(delta: float) -> void:
-	if player == null or paused:
+	if player == null or paused or is_instance_valid(report_overlay):
 		return
-	if player.is_finished():
+	if _playback_finished():
 		_show_end()
 		return
 	var clip := BattleReplay.clip_of(replay)
@@ -496,7 +518,7 @@ func _process(delta: float) -> void:
 	accumulator += minf(delta, 0.25) * float(SPEEDS[speed_index])
 	var steps := 0
 	var events: Array = []
-	while accumulator >= player.dt and steps < 40 and not player.is_finished():
+	while accumulator >= player.dt and steps < 40 and not _playback_finished():
 		player.step()
 		events.append_array(player.model.drain_combat_events())
 		accumulator -= player.dt
@@ -512,6 +534,8 @@ func _process(delta: float) -> void:
 			view.push_combat_events(events)
 			_play_sounds(events)
 		_refresh_hud()
+		if _playback_finished():
+			_show_end()
 
 ## Shows a toast for every highlight the playhead just passed.
 func _announce_between(from_tick: int, to_tick: int) -> void:
@@ -590,6 +614,11 @@ func jump_previous_moment() -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
+	if is_instance_valid(report_overlay):
+		if event.keycode == KEY_ESCAPE:
+			_close_report()
+		get_viewport().set_input_as_handled()
+		return
 	match event.keycode:
 		KEY_SPACE: toggle_pause()
 		KEY_RIGHT: seek(mini(int(replay.get("result", {}).get("ticks", 0)), player.ticks + 150))
@@ -631,15 +660,24 @@ func _refresh_hud() -> void:
 	graph.set_playhead(player.ticks)
 
 func _show_end() -> void:
-	if finished_shown:
+	if finished_shown or not _playback_finished():
 		return
 	finished_shown = true
 	var winner: int = player.model.winner
+	var recorded: Dictionary = replay.get("result", {})
+	end_matches_record = winner == int(recorded.get("winner", -2)) and player.model.state_hash() == String(recorded.get("state_hash", ""))
+	var panel := Control.new()
+	panel.name = "ReplayEndPanel"
+	panel.position = Vector2(0, 230)
+	panel.size = Vector2(1280, 220)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.z_index = 30
+	add_child(panel)
+	end_banner = panel
 	var banner := Label.new()
 	banner.name = "ReplayEndBanner"
-	banner.text = "무승부" if winner == 2 else ("블루 승리" if winner == 0 else "레드 승리")
+	banner.text = "기록 한도 도달" if winner < 0 else ("무승부" if winner == 2 else ("블루 승리" if winner == 0 else "레드 승리"))
 	banner.size = Vector2(1280, 90)
-	banner.position = Vector2(0, 250)
 	banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	var tone := UIKit.TEAM_BLUE if winner == 0 else (UIKit.TEAM_RED if winner == 1 else UIKit.TEXT_MUTED)
@@ -647,7 +685,123 @@ func _show_end() -> void:
 	banner.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
 	banner.add_theme_constant_override("outline_size", 12)
 	banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	banner.z_index = 30
-	add_child(banner)
-	end_banner = banner
+	panel.add_child(banner)
 	UIKit.reveal(banner, 0.4, 14.0)
+	var status := MultiplayerUI.label(_end_status(), 14, UIKit.TEXT_MUTED if end_matches_record else UIKit.GOLD)
+	status.name = "ReplayResultStatus"
+	status.position = Vector2(200, 94)
+	status.size = Vector2(880, 40)
+	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(status)
+	report_button = _control_button(panel, "ReplayBattleReportButton", "전투 요약", UIKit.TEAL, true)
+	report_button.position = Vector2(540, 142)
+	report_button.custom_minimum_size = Vector2(200, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 52)
+	report_button.size = report_button.custom_minimum_size
+	report_button.disabled = not Report.valid(player.model.battle_report)
+	report_button.pressed.connect(_show_report)
+
+func _end_status() -> String:
+	return "재생 결과가 저장된 전투 결과와 일치합니다." if end_matches_record else "저장된 결과와 다릅니다. 규칙 변경이나 기록 차이가 있을 수 있으며, 요약은 현재 재생의 집계입니다."
+
+func _show_report() -> void:
+	if not _playback_finished() or not Report.valid(player.model.battle_report) or is_instance_valid(report_overlay):
+		return
+	close_inspector()
+	var overlay := ColorRect.new()
+	overlay.name = "ReplayBattleReportOverlay"
+	overlay.color = Color(0.02, 0.03, 0.05, 0.97)
+	overlay.size = size
+	overlay.z_index = 100
+	add_child(overlay)
+	report_overlay = overlay
+	var content := MultiplayerUI.panel(null, overlay, "ReplayBattleReportPanel", Rect2(80, 40, 1120, 640))
+	content.add_child(MultiplayerUI.label("리플레이 전투 요약", 28, UIKit.GOLD))
+	var status := MultiplayerUI.label(_end_status(), 14, UIKit.TEXT_MUTED if end_matches_record else UIKit.GOLD)
+	status.name = "ReplayReportStatus"
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(status)
+	var scroll := ScrollContainer.new()
+	scroll.name = "ReplayBattleReportScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	scroll.scroll_deadzone = 16
+	scroll.focus_mode = Control.FOCUS_ALL
+	scroll.gui_input.connect(_on_report_scroll_input.bind(scroll))
+	content.add_child(scroll)
+	var body := VBoxContainer.new()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 12)
+	scroll.add_child(body)
+	_add_report_graph(body)
+	ReportContent.populate(body, player.model.battle_report.duplicate(true), ["블루 진영", "레드 진영"])
+	var close := _control_button(content, "CloseReplayBattleReportButton", "닫기", UIKit.TEAL, false)
+	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44
+	close.pressed.connect(_close_report)
+	var focus_controls: Array[Control] = [scroll,
+		body.find_child("BattleReportMetric_damage", true, false),
+		body.find_child("BattleReportMetric_kills", true, false), close]
+	for index in focus_controls.size():
+		var control := focus_controls[index]
+		var next := control.get_path_to(focus_controls[(index + 1) % focus_controls.size()])
+		var previous := control.get_path_to(focus_controls[(index + focus_controls.size() - 1) % focus_controls.size()])
+		control.focus_next = next
+		control.focus_previous = previous
+		control.focus_neighbor_top = previous
+		control.focus_neighbor_bottom = next
+		control.focus_neighbor_left = previous
+		control.focus_neighbor_right = next
+	scroll.grab_focus.call_deferred()
+
+func _add_report_graph(parent: VBoxContainer) -> void:
+	parent.add_child(MultiplayerUI.label("전세 흐름 · 기지와 생존 병력의 체력 기준", 16, UIKit.GOLD))
+	parent.add_child(MultiplayerUI.label("▲ 블루 진영 · ▼ 레드 진영", 14, UIKit.TEXT_MUTED))
+	var report_graph := MomentumGraph.new()
+	report_graph.name = "ReplayReportMomentumGraph"
+	report_graph.custom_minimum_size = Vector2(0, 88)
+	report_graph.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(report_graph)
+	# Reuse the completed analysis pass; opening a report never simulates again.
+	var samples: Array = analysis.get("samples", []).duplicate(true)
+	var damage := float(player.model.battle_report[0].damage) + float(player.model.battle_report[1].damage)
+	var momentum := ReplayAnalysis.momentum_from_snapshot(player.model.snapshot()) if damage > 0.0 else 0.0
+	if samples.is_empty():
+		samples.append({"t": 0, "momentum": 0.0})
+	if int(samples.back().t) == player.ticks:
+		samples.back().momentum = momentum
+	else:
+		samples.append({"t": player.ticks, "momentum": momentum})
+	report_graph.setup({"samples": samples, "ticks": maxi(1, player.ticks)})
+	report_graph.set_playhead(player.ticks)
+	report_graph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var seconds := int(player.model.elapsed)
+	parent.add_child(MultiplayerUI.label("00:00 → %02d:%02d · 전체 재생 집계" % [seconds / 60, seconds % 60], 12, UIKit.TEXT_MUTED))
+	var note := MultiplayerUI.label("클립으로 열었어도 집계는 전체 전투 기준입니다. 치유·방어·자원 효과는 공격 기여도에 포함되지 않습니다.", 12, UIKit.TEXT_MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(note)
+
+func _close_report(restore_focus: bool = true) -> void:
+	if not is_instance_valid(report_overlay): return
+	remove_child(report_overlay)
+	report_overlay.queue_free()
+	report_overlay = null
+	if restore_focus and is_instance_valid(report_button):
+		report_button.grab_focus()
+
+func _on_report_scroll_input(event: InputEvent, scroll: ScrollContainer) -> void:
+	if not event is InputEventKey or not event.pressed or event.ctrl_pressed or event.alt_pressed or event.meta_pressed:
+		return
+	var bar := scroll.get_v_scroll_bar()
+	var target := scroll.scroll_vertical
+	match event.keycode:
+		KEY_UP: target -= 48
+		KEY_DOWN: target += 48
+		KEY_PAGEUP: target -= maxi(48, int(bar.page))
+		KEY_PAGEDOWN: target += maxi(48, int(bar.page))
+		KEY_HOME: target = 0
+		KEY_END: target = int(bar.max_value - bar.page)
+		_: return
+	scroll.scroll_vertical = clampi(target, 0, maxi(0, int(bar.max_value - bar.page)))
+	scroll.accept_event()
