@@ -267,6 +267,7 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 	var page_dates := dates.slice(page_index * HISTORY_PAGE_DATES, (page_index + 1) * HISTORY_PAGE_DATES)
 	var hint := Label.new()
 	hint.text = "기기에 보관된 최고 기록 · %s · 버전이 다른 점수는 따로 표시합니다." % ("최근 %d주, 주 시작일 기준" % SaveData.WEEKLY_HISTORY if period == "weekly" else "최근 %d일" % SaveData.DAILY_HISTORY)
+	hint.text += "\n완료 시간은 해당 최고 점수를 낸 전투의 시간입니다. 같은 점수라면 더 빠른 성공 기록을 보관합니다."
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 14)
 	hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
@@ -293,7 +294,10 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 		for index in cells.size():
 			var color := UIKit.GOLD if rule == current else UIKit.TEXT_MUTED
 			if index == 2: color = UIKit.SUCCESS if won else UIKit.DANGER
-			table.add_child(_history_cell(cells[index], index, color))
+			var cell := _history_cell(cells[index], index, color)
+			if index == 4:
+				cell.tooltip_text = "최고 점수를 낸 전투의 완료 시간" if won else "기록된 실패 도전의 전투 시간"
+			table.add_child(cell)
 	if rows.is_empty():
 		var empty := Label.new()
 		empty.name = "ChallengeHistoryEmpty_" + period

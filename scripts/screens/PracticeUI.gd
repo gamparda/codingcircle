@@ -64,6 +64,13 @@ static func _show_daily_brief(main, period: String = "daily") -> void:
 	var best := MultiplayerUI.label(best_text, 15, MultiplayerUI.GOLD)
 	best.name = "DailyBest"
 	column.add_child(best)
+	if not entry.is_empty():
+		var time_text := "최고 점수를 낸 전투 · %.1f초" % float(entry.seconds) if bool(entry.get("won", false)) else "기록된 실패 도전 · %.1f초" % float(entry.seconds)
+		var best_time := MultiplayerUI.label(time_text, 14, MultiplayerUI.MUTED)
+		best_time.name = "ChallengeBestTime"
+		best_time.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		best_time.tooltip_text = "같은 점수라면 더 빠른 성공 기록을 보관합니다. 최고 점수를 낸 전투의 시간이며, 모든 도전 중 최단 시간과는 다를 수 있습니다."
+		column.add_child(best_time)
 	var version_note := MultiplayerUI.label("현재 버전의 최고 점수와 순위입니다. 이전 버전 기록은 보관하며, 연속 성공 일수는 유지합니다.", 12, MultiplayerUI.MUTED)
 	version_note.name = "ChallengeVersionNote"
 	version_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

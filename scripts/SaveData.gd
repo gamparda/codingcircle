@@ -88,10 +88,59 @@ static func _is_integer(value: Variant) -> bool:
 static func _is_number(value: Variant) -> bool:
 	return (value is int or value is float) and is_finite(float(value))
 
-static func _challenge_record(entry: Dictionary) -> Dictionary:
-	return {"won": entry.get("won") is bool and entry.won, "score": clampi(int(entry.score), 0, 100000),
-		"seconds": clampf(float(entry.seconds), 0.0, 100000.0) if _is_number(entry.get("seconds")) else 0.0,
+static func _challenge_record(entry: Variant) -> Dictionary:
+	# Local battles have no time limit. Keep legitimate long battles unchanged,
+	# but never convert a missing, negative or non-finite time into a fast result.
+	if not entry is Dictionary or not entry.get("won") is bool or not _is_integer(entry.get("score")) or not _is_number(entry.get("seconds")) or float(entry.seconds) < 0.0:
+		return {}
+	var points := int(entry.score)
+	if (entry.won and (points < preload("res://scripts/ServerDailyBoard.gd").MIN_SCORE or points > preload("res://scripts/ServerDailyBoard.gd").MAX_SCORE)) or (not entry.won and points != 0):
+		return {}
+	return {"won": entry.won, "score": int(entry.score), "seconds": float(entry.seconds),
 		"ruleset": String(entry.ruleset) if preload("res://scripts/ServerStats.gd").valid_ruleset(entry.get("ruleset")) else "0"}
+
+static func _challenge_history(raw: Variant, weekly: bool, limit: int) -> Dictionary:
+	var result := {"records": {}, "excluded": 0}
+	if not raw is Dictionary:
+		result.excluded = 1 if raw != null else 0
+		return result
+	for key in raw:
+		# Validate before sorting or pruning: malformed future dates must not evict
+		# valid older days, and weekly records must use the actual Monday key.
+		if not key is String or not preload("res://scripts/ServerDailyBoard.gd").valid_date(("w" if weekly else "") + key) or (not weekly and key.length() != 8):
+			result.excluded += 1
+			continue
+		var entry = raw[key]
+		var record := _challenge_record(entry)
+		var versions := {}
+		if record.is_empty():
+			result.excluded += 1
+		if entry is Dictionary and entry.get("previous") is Dictionary:
+			for rule in entry.previous:
+				var old := _challenge_record(entry.previous[rule])
+				if not preload("res://scripts/ServerStats.gd").valid_ruleset(rule) or old.is_empty():
+					result.excluded += 1
+					continue
+				# The history key is authoritative for the originating version.
+				old.ruleset = rule
+				versions[rule] = old
+		elif entry is Dictionary and entry.has("previous") and entry.previous != null:
+			result.excluded += 1
+		if record.is_empty():
+			if versions.is_empty():
+				continue
+			# Recover a valid version without attributing its score to current rules.
+			var rules: Array = versions.keys()
+			rules.sort()
+			record = versions[rules[0]]
+		versions.erase(record.ruleset)
+		record.previous = versions
+		result.records[key] = record
+	var days: Array = result.records.keys()
+	days.sort()
+	for key in days.slice(0, maxi(0, days.size() - limit)):
+		result.records.erase(key)
+	return result
 
 static func _string_array(values: Array) -> bool:
 	for value in values:
@@ -120,7 +169,8 @@ static func apply_graphics_profile(settings: Dictionary, quality: String, mobile
 const DAILY_HISTORY := 60
 const WEEKLY_HISTORY := 16
 
-static func sanitize(raw: Variant) -> Dictionary:
+static func sanitize(raw: Variant, diagnostics: Dictionary = {}) -> Dictionary:
+	diagnostics.challenge_excluded = 0
 	var clean := default_data()
 	if not raw is Dictionary:
 		return clean
@@ -183,21 +233,9 @@ static func sanitize(raw: Variant) -> Dictionary:
 			if _is_integer(raw.achievements.get(id)):
 				clean.achievements[id] = max(0, int(raw.achievements[id]))
 	for store in [["daily", DAILY_HISTORY], ["weekly", WEEKLY_HISTORY]]:
-		if raw.get(store[0]) is Dictionary:
-			var days: Array = raw[store[0]].keys()
-			days.sort()
-			for key in days.slice(maxi(0, days.size() - int(store[1]))):
-				var entry = raw[store[0]][key]
-				if key is String and key.length() == 8 and key.is_valid_int() and entry is Dictionary and _is_integer(entry.get("score")):
-					var record := _challenge_record(entry)
-					record.previous = {}
-					if entry.get("previous") is Dictionary:
-						for rule in entry.previous:
-							var old = entry.previous[rule]
-							if preload("res://scripts/ServerStats.gd").valid_ruleset(rule) and rule != record.ruleset and old is Dictionary and _is_integer(old.get("score")):
-								record.previous[rule] = _challenge_record(old)
-								record.previous[rule].ruleset = rule
-					clean[store[0]][key] = record
+		var history := _challenge_history(raw.get(store[0]), store[0] == "weekly", int(store[1]))
+		clean[store[0]] = history.records
+		diagnostics.challenge_excluded += int(history.excluded)
 	if raw.get("goals") is Dictionary:
 		for id in preload("res://scripts/Goals.gd").ids():
 			if raw.goals.get(id) is bool and raw.goals[id]:
@@ -384,7 +422,14 @@ static func load_result(path: String = SAVE_PATH) -> Dictionary:
 		protected_paths[path] = true
 	match source.status:
 		"ok":
-			result.data = sanitize(source.raw)
+			var diagnostics := {}
+			result.data = sanitize(source.raw, diagnostics)
+			if int(diagnostics.challenge_excluded) > 0:
+				# Preserve the exact original before any automatic save can remove
+				# rejected records. Failed preservation keeps replacement protected.
+				protected_paths[path] = true
+				result.backup = _preserve_original(source.bytes, path)
+				result.warning = "날짜·점수·완료 시간이 잘못된 도전 기록 %d개를 제외했습니다. 정상 진행도와 유효한 버전별 기록은 유지했습니다.\n" % int(diagnostics.challenge_excluded) + ("원본은 복구 폴더에 보관했습니다." if not result.backup.is_empty() else "원본 보관에 실패했습니다. 원본을 보관할 수 있을 때까지 새 진행도를 저장하지 않습니다.")
 		"invalid":
 			result.backup = _preserve_original(source.bytes, path)
 			result.warning = "저장 파일이 손상되어 기본 진행도로 시작했습니다.\n" + ("원본은 별도 복구 폴더에 보관했습니다." if not result.backup.is_empty() else "새 진행도는 원본을 복구 폴더에 보관할 수 있을 때만 저장합니다.")
