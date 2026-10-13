@@ -14,6 +14,9 @@ const CombatSounds = preload("res://scripts/CombatSounds.gd")
 const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
 const MomentumGraph = preload("res://scripts/ui/MomentumGraph.gd")
 const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
+const Report = preload("res://scripts/BattleReport.gd")
+const ReportContent = preload("res://scripts/ui/BattleReportContent.gd")
+const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const JUMP_LEAD_TICKS := 30 # land a second before a highlight so the moment plays out
 const SPEEDS := [0.5, 1.0, 2.0, 4.0, 8.0]
 
@@ -34,6 +37,10 @@ var play_button: Button
 var speed_button: Button
 var headline: Label
 var end_banner: Control
+var report_overlay: Control
+var report_button: Button
+var paused_before_report := false
+var report_return_focus: Control
 var sound_players: Array = []
 var last_sound_msec := 0
 var title_text := ""
@@ -100,6 +107,12 @@ func _build() -> void:
 	zoom_reset_button.visible = false
 	zoom_reset_button.tooltip_text = "휠로 확대한 화면을 원래대로 돌립니다 (더블클릭도 같습니다)"
 	zoom_reset_button.pressed.connect(view.reset_view)
+	report_button = _control_button(self, "ReplayReportButton", "전투 요약", UIKit.TEAL, false)
+	report_button.position = Vector2(1110, 164)
+	report_button.custom_minimum_size = Vector2(124, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44)
+	report_button.size = report_button.custom_minimum_size
+	report_button.tooltip_text = "현재 장면까지의 누적 생산·건설·피해·처치를 비교합니다 (R 키)"
+	report_button.pressed.connect(_show_battle_report)
 	moment_toast = ToastLabel.new()
 	moment_toast.name = "MomentToast"
 	moment_toast.tone = UIKit.GOLD
@@ -328,6 +341,7 @@ func _control_button(parent: Control, node_name: String, text: String, color: Co
 
 # ---------------------------------------------------------------- playback
 func _restart() -> void:
+	_dismiss_battle_report()
 	clip_finished = false
 	player = BattleReplay.Player.new(replay)
 	accumulator = 0.0
@@ -456,6 +470,8 @@ func _refresh_inspector() -> void:
 	unit_panel.position = Vector2(clampf(anchor.x - 125.0, 8.0, 1272.0 - 250.0), clampf(anchor.y - unit_panel.size.y, 96.0, 560.0 - unit_panel.size.y))
 
 func toggle_pause() -> void:
+	if is_instance_valid(report_overlay):
+		return
 	paused = not paused
 	play_button.text = "재생" if paused else "일시정지"
 
@@ -468,6 +484,7 @@ func _on_scrub(value: float) -> void:
 
 ## Re-simulates from the start up to `tick` (no drawing in between).
 func seek(tick: int) -> void:
+	_dismiss_battle_report()
 	player = BattleReplay.Player.new(replay)
 	while player.ticks < tick and player.step():
 		pass
@@ -481,7 +498,7 @@ func seek(tick: int) -> void:
 	_refresh_hud()
 
 func _process(delta: float) -> void:
-	if player == null or paused:
+	if player == null or paused or is_instance_valid(report_overlay):
 		return
 	if player.is_finished():
 		_show_end()
@@ -590,6 +607,9 @@ func jump_previous_moment() -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
+	if is_instance_valid(report_overlay):
+		get_viewport().set_input_as_handled()
+		return
 	match event.keycode:
 		KEY_SPACE: toggle_pause()
 		KEY_RIGHT: seek(mini(int(replay.get("result", {}).get("ticks", 0)), player.ticks + 150))
@@ -600,6 +620,97 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_L: toggle_loop()
 		KEY_ESCAPE: close_inspector()
 		KEY_P: jump_previous_moment()
+		KEY_R: _show_battle_report()
+
+# Modal navigation runs before the focused control or playback shortcuts consume it.
+func _input(event: InputEvent) -> void:
+	if not is_instance_valid(report_overlay) or not event is InputEventKey or not event.pressed:
+		return
+	if event.keycode == KEY_ESCAPE:
+		_dismiss_battle_report()
+		get_viewport().set_input_as_handled()
+		return
+	var scroll := report_overlay.find_child("ReplayReportScroll", true, false) as ScrollContainer
+	var page := maxi(48, roundi(scroll.size.y * 0.8))
+	match event.keycode:
+		KEY_PAGEUP: scroll.scroll_vertical = maxi(0, scroll.scroll_vertical - page)
+		KEY_PAGEDOWN: scroll.scroll_vertical += page
+		KEY_HOME: scroll.scroll_vertical = 0
+		KEY_END: scroll.scroll_vertical = roundi(scroll.get_v_scroll_bar().max_value)
+		KEY_UP, KEY_DOWN:
+			if not scroll.has_focus():
+				return
+			scroll.scroll_vertical = maxi(0, scroll.scroll_vertical + (48 if event.keycode == KEY_DOWN else -48))
+		_: return
+	get_viewport().set_input_as_handled()
+
+func _show_battle_report() -> void:
+	if player == null or is_instance_valid(report_overlay) or not Report.valid(player.model.battle_report):
+		return
+	var reports: Array = player.model.battle_report.duplicate(true)
+	paused_before_report = paused
+	report_return_focus = get_viewport().gui_get_focus_owner()
+	paused = true
+	play_button.text = "재생"
+	close_inspector()
+	report_overlay = ColorRect.new()
+	report_overlay.name = "ReplayReportOverlay"
+	report_overlay.color = Color(0.02, 0.03, 0.05, 0.97)
+	report_overlay.size = size
+	report_overlay.z_index = 150
+	add_child(report_overlay)
+	var content := MultiplayerUI.panel(self, report_overlay, "ReplayReportPanel", Rect2(80, 40, 1120, 640))
+	var seconds := int(player.model.elapsed)
+	content.add_child(MultiplayerUI.label("전투 요약 · %02d:%02d까지" % [seconds / 60, seconds % 60], 28, MultiplayerUI.GOLD))
+	var notice := MultiplayerUI.label("처음부터 현재 장면까지의 누적 집계입니다. 클립 시작 전의 전투도 포함합니다. 현재 규칙으로 재현한 수치이며 기록 당시와 다를 수 있습니다.", 13, MultiplayerUI.MUTED)
+	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(notice)
+	var scroll := ScrollContainer.new()
+	scroll.name = "ReplayReportScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	scroll.scroll_deadzone = 16
+	scroll.focus_mode = Control.FOCUS_ALL
+	content.add_child(scroll)
+	var body := VBoxContainer.new()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 12)
+	scroll.add_child(body)
+	ReportContent.populate(body, reports, ["블루 진영", "레드 진영"])
+	var close := _control_button(content, "CloseReplayReportButton", "닫기", UIKit.TEAL, false)
+	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44
+	close.pressed.connect(_dismiss_battle_report)
+	# Tab and directional navigation stay in the modal, away from playback controls.
+	var focusable: Array[Control] = [scroll,
+		body.get_node("BattleReportMetricControls/BattleReportMetric_damage") as Button,
+		body.get_node("BattleReportMetricControls/BattleReportMetric_kills") as Button, close]
+	for index in focusable.size():
+		var node := focusable[index]
+		var previous := node.get_path_to(focusable[(index + focusable.size() - 1) % focusable.size()])
+		var next := node.get_path_to(focusable[(index + 1) % focusable.size()])
+		node.focus_previous = previous
+		node.focus_next = next
+		node.focus_neighbor_top = previous
+		node.focus_neighbor_left = previous
+		node.focus_neighbor_bottom = next
+		node.focus_neighbor_right = next
+	scroll.grab_focus.call_deferred()
+
+func _dismiss_battle_report() -> void:
+	if not is_instance_valid(report_overlay):
+		return
+	# Detach immediately before playback or seeking can build a new screen.
+	remove_child(report_overlay)
+	report_overlay.queue_free()
+	report_overlay = null
+	paused = paused_before_report
+	play_button.text = "재생" if paused else "일시정지"
+	if is_instance_valid(report_return_focus) and report_return_focus.is_visible_in_tree():
+		report_return_focus.grab_focus()
+	else:
+		report_button.grab_focus()
+	report_return_focus = null
 
 func _play_sounds(events: Array) -> void:
 	var now := Time.get_ticks_msec()
@@ -651,3 +762,8 @@ func _show_end() -> void:
 	add_child(banner)
 	end_banner = banner
 	UIKit.reveal(banner, 0.4, 14.0)
+	var summary := _control_button(banner, "ReplayEndReportButton", "전투 요약", UIKit.TEAL, true)
+	summary.position = Vector2(540, 104)
+	summary.custom_minimum_size = Vector2(200, 52)
+	summary.size = summary.custom_minimum_size
+	summary.pressed.connect(_show_battle_report)
