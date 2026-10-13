@@ -57,6 +57,8 @@ var storage_button: Button
 var discard_dialog: ConfirmationDialog
 var loop_start := -1
 var loop_end := -1
+var loop_start_report: Array = []
+var loop_end_report: Array = []
 var loop_enabled := false
 var loop_button: Button
 var zoom_reset_button: Button
@@ -70,6 +72,11 @@ var panel_stats: Label
 
 func open(replay_data: Dictionary, title: String = "") -> void:
 	replay = replay_data
+	loop_start = -1
+	loop_end = -1
+	loop_start_report = []
+	loop_end_report = []
+	loop_enabled = false
 	title_text = title
 	analysis = ReplayAnalysis.analyze(replay)
 	name = "ReplayViewer"
@@ -111,7 +118,7 @@ func _build() -> void:
 	report_button.position = Vector2(1110, 164)
 	report_button.custom_minimum_size = Vector2(124, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44)
 	report_button.size = report_button.custom_minimum_size
-	report_button.tooltip_text = "현재 장면까지의 누적 생산·건설·피해·처치를 비교합니다 (R 키)"
+	report_button.tooltip_text = "누적 생산·건설·피해·처치를 비교합니다 (R 키). 시작 [ · 끝 ] 지점을 정하면 해당 구간도 비교할 수 있습니다."
 	report_button.pressed.connect(_show_battle_report)
 	moment_toast = ToastLabel.new()
 	moment_toast.name = "MomentToast"
@@ -367,24 +374,32 @@ func _refresh_loop() -> void:
 	graph.set_loop(loop_start, loop_end, loop_enabled and loop_ready())
 	if is_instance_valid(loop_button):
 		loop_button.set_pressed_no_signal(loop_enabled and loop_ready())
+	if is_instance_valid(report_button):
+		report_button.tooltip_text = "전투 요약 (R 키) · 선택 구간 %s–%s와 누적 집계를 비교합니다. 반복을 켜지 않아도 사용할 수 있습니다." % [_report_time(loop_start), _report_time(loop_end)] if loop_ready() else "누적 생산·건설·피해·처치를 비교합니다 (R 키). 시작 [ · 끝 ] 지점을 정하면 해당 구간도 비교할 수 있습니다."
 
 ## Marks the current moment as the start of the repeat segment (an end that is no longer after it is dropped).
 func set_loop_start() -> void:
-	if player == null:
+	if player == null or is_instance_valid(report_overlay):
 		return
 	loop_start = player.ticks
+	loop_start_report = player.model.battle_report.duplicate(true)
 	if loop_end <= loop_start:
 		loop_end = -1
+		loop_end_report = []
 		loop_enabled = false
 	_refresh_loop()
+	_toast("구간 시작 ▸ %s · 뒤의 장면으로 이동해 끝 ] 지점을 정하세요" % _report_time(loop_start))
 
 ## Marks the current moment as the end of the segment; refused unless it lies after the start.
 func set_loop_end() -> bool:
+	if is_instance_valid(report_overlay): return false
 	if player == null or loop_start < 0 or player.ticks <= loop_start:
 		_toast("끝 지점은 시작 지점보다 뒤여야 합니다")
 		return false
 	loop_end = player.ticks
+	loop_end_report = player.model.battle_report.duplicate(true)
 	_refresh_loop()
+	_toast("선택 구간 ▸ %s–%s · 전투 요약에서 기여도를 비교하세요" % [_report_time(loop_start), _report_time(loop_end)])
 	return true
 
 ## Turns repeating on or off; it only turns on once both marks exist.
@@ -648,6 +663,10 @@ func _show_battle_report() -> void:
 	if player == null or is_instance_valid(report_overlay) or not Report.valid(player.model.battle_report):
 		return
 	var reports: Array = player.model.battle_report.duplicate(true)
+	var interval_reports: Array = Report.interval(loop_start_report, loop_end_report) if loop_ready() else []
+	var current_tick: int = player.ticks
+	var start_tick := loop_start
+	var end_tick := loop_end
 	paused_before_report = paused
 	report_return_focus = get_viewport().gui_get_focus_owner()
 	paused = true
@@ -660,9 +679,25 @@ func _show_battle_report() -> void:
 	report_overlay.z_index = 150
 	add_child(report_overlay)
 	var content := MultiplayerUI.panel(self, report_overlay, "ReplayReportPanel", Rect2(80, 40, 1120, 640))
-	var seconds := int(player.model.elapsed)
-	content.add_child(MultiplayerUI.label("전투 요약 · %02d:%02d까지" % [seconds / 60, seconds % 60], 28, MultiplayerUI.GOLD))
-	var notice := MultiplayerUI.label("처음부터 현재 장면까지의 누적 집계입니다. 클립 시작 전의 전투도 포함합니다. 현재 규칙으로 재현한 수치이며 기록 당시와 다를 수 있습니다.", 13, MultiplayerUI.MUTED)
+	var title := MultiplayerUI.label("", 28, MultiplayerUI.GOLD)
+	title.name = "ReplayReportTitle"
+	content.add_child(title)
+	var scope_controls := HBoxContainer.new()
+	scope_controls.name = "ReplayReportScopeControls"
+	scope_controls.add_theme_constant_override("separation", 12)
+	content.add_child(scope_controls)
+	var group := ButtonGroup.new()
+	for selected in [false, true]:
+		var button := _control_button(scope_controls, "ReplayReportInterval" if selected else "ReplayReportCumulative", "선택 구간" if selected else "현재까지 누적", UIKit.TEAL, false)
+		button.custom_minimum_size = Vector2(180, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44)
+		button.toggle_mode = true
+		button.button_group = group
+		button.disabled = selected and interval_reports.is_empty()
+		button.set_pressed_no_signal(selected == (not interval_reports.is_empty()))
+		button.tooltip_text = "시작 [ · 끝 ] 지점을 정하면 반복을 켜지 않아도 구간 집계를 볼 수 있습니다." if selected else "요약을 연 장면까지의 누적 집계입니다."
+		button.pressed.connect(func(): _render_report_scope(interval_reports if selected else reports, start_tick if selected else 0, end_tick if selected else current_tick, selected))
+	var notice := MultiplayerUI.label("", 13, MultiplayerUI.MUTED)
+	notice.name = "ReplayReportNotice"
 	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	content.add_child(notice)
 	var scroll := ScrollContainer.new()
@@ -674,17 +709,47 @@ func _show_battle_report() -> void:
 	scroll.focus_mode = Control.FOCUS_ALL
 	content.add_child(scroll)
 	var body := VBoxContainer.new()
+	body.name = "ReplayReportBody"
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_theme_constant_override("separation", 12)
 	scroll.add_child(body)
-	ReportContent.populate(body, reports, ["블루 진영", "레드 진영"])
 	var close := _control_button(content, "CloseReplayReportButton", "닫기", UIKit.TEAL, false)
 	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44
 	close.pressed.connect(_dismiss_battle_report)
+	_render_report_scope(interval_reports if not interval_reports.is_empty() else reports, start_tick if not interval_reports.is_empty() else 0, end_tick if not interval_reports.is_empty() else current_tick, not interval_reports.is_empty())
+	scroll.grab_focus.call_deferred()
+
+func _report_time(tick: int) -> String:
+	var seconds := float(tick) / float(int(replay.hz))
+	return "%02d:%05.2f" % [int(seconds) / 60, fmod(seconds, 60.0)]
+
+func _render_report_scope(reports: Array, start_tick: int, end_tick: int, selected: bool) -> void:
+	if not is_instance_valid(report_overlay): return
+	var title := report_overlay.find_child("ReplayReportTitle", true, false) as Label
+	var notice := report_overlay.find_child("ReplayReportNotice", true, false) as Label
+	var scroll := report_overlay.find_child("ReplayReportScroll", true, false) as ScrollContainer
+	var body := report_overlay.find_child("ReplayReportBody", true, false) as VBoxContainer
+	title.text = "전투 요약 · %s–%s 구간" % [_report_time(start_tick), _report_time(end_tick)] if selected else "전투 요약 · %s까지 누적" % _report_time(end_tick)
+	notice.text = "선택 구간에서 새로 발생한 집계입니다. 시작 이전에 생산된 병력도 구간 내 피해·처치를 기여합니다. 비중은 이 구간의 진영 합계 기준입니다." if selected else "처음부터 요약을 연 장면까지의 누적 집계입니다. 클립 시작 전의 전투도 포함합니다. 구간 비교는 시작 [ · 끝 ] 지점을 먼저 정하세요."
+	notice.text += " 현재 규칙으로 재현한 수치이며 기록 당시와 다를 수 있습니다."
+	for child in body.get_children():
+		body.remove_child(child)
+		child.queue_free()
+	ReportContent.populate(body, reports, ["블루 진영", "레드 진영"])
+	scroll.scroll_vertical = 0
+	_refresh_report_focus()
+
+func _refresh_report_focus() -> void:
+	var scroll := report_overlay.find_child("ReplayReportScroll", true, false) as ScrollContainer
+	var body := report_overlay.find_child("ReplayReportBody", true, false) as VBoxContainer
+	var close := report_overlay.find_child("CloseReplayReportButton", true, false) as Button
 	# Tab and directional navigation stay in the modal, away from playback controls.
-	var focusable: Array[Control] = [scroll,
+	var focusable: Array[Control] = [report_overlay.find_child("ReplayReportCumulative", true, false) as Button]
+	var interval_button := report_overlay.find_child("ReplayReportInterval", true, false) as Button
+	if not interval_button.disabled: focusable.append(interval_button)
+	focusable.append_array([scroll,
 		body.get_node("BattleReportMetricControls/BattleReportMetric_damage") as Button,
-		body.get_node("BattleReportMetricControls/BattleReportMetric_kills") as Button, close]
+		body.get_node("BattleReportMetricControls/BattleReportMetric_kills") as Button, close])
 	for index in focusable.size():
 		var node := focusable[index]
 		var previous := node.get_path_to(focusable[(index + focusable.size() - 1) % focusable.size()])
@@ -695,7 +760,6 @@ func _show_battle_report() -> void:
 		node.focus_neighbor_left = previous
 		node.focus_neighbor_bottom = next
 		node.focus_neighbor_right = next
-	scroll.grab_focus.call_deferred()
 
 func _dismiss_battle_report() -> void:
 	if not is_instance_valid(report_overlay):

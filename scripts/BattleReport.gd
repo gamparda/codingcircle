@@ -32,6 +32,27 @@ static func kind_name(kind: String) -> String:
 static func has_activity(row: Dictionary) -> bool:
 	return int(row.purchased) > 0 or int(row.summoned) > 0 or int(row.kills) > 0 or float(row.damage) > 0.0
 
+## Activity after the start checkpoint through the end checkpoint, without changing either report.
+static func interval(start: Array, end: Array) -> Array:
+	if not valid(start) or not valid(end): return []
+	var result: Array = []
+	for side in 2:
+		var data := empty_side()
+		for key in ["resources_spent", "structures_built"]:
+			var amount := float(end[side][key]) - float(start[side][key])
+			if amount < 0.0: return []
+			data[key] = int(amount) if key == "structures_built" else amount
+		for kind in KINDS:
+			for key in ["purchased", "summoned", "kills", "damage"]:
+				var amount := float(end[side].units[kind][key]) - float(start[side].units[kind][key])
+				if amount < 0.0: return []
+				data.units[kind][key] = amount if key == "damage" else int(amount)
+			# Sum the row differences so fractional damage and the total remain consistent.
+			data.damage += float(data.units[kind].damage)
+			data.kills += int(data.units[kind].kills)
+		result.append(data)
+	return result
+
 ## Derived presentation only: the authoritative report and wire format stay intact.
 static func comparison_rows(data: Array, metric: String = "damage") -> Array:
 	var rows: Array = []
