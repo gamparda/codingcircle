@@ -1460,10 +1460,11 @@ static func _return_to_challenge_replays(main, period: String, date: String, rul
 
 ## Read the decks recorded for this battle, including clips and older versions.
 ## Do not regenerate a challenge from the date or substitute the player's current deck.
-static func _challenge_deck_preview(parent: VBoxContainer, replay: Dictionary) -> void:
+static func _challenge_deck_preview(parent: VBoxContainer, replay: Dictionary, choose: Callable) -> Array[Button]:
+	var buttons: Array[Button] = []
 	var setup: Dictionary = replay.get("setup", {})
 	if not setup.has_all(["unit_decks", "structure_decks"]):
-		return
+		return buttons
 	var preview := VBoxContainer.new()
 	preview.name = "ChallengeReplayDecks"
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1481,30 +1482,79 @@ static func _challenge_deck_preview(parent: VBoxContainer, replay: Dictionary) -
 		units.add_theme_constant_override("v_separation", 4)
 		preview.add_child(units)
 		for kind in setup.unit_decks[side]:
-			var item := HBoxContainer.new()
-			item.add_theme_constant_override("separation", 4)
-			# Decorative children must let touch drags reach the enclosing scroll.
-			item.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var item := _challenge_deck_button(String(kind), String(BattleModel.UNIT_NAMES.get(kind, kind)), side, choose)
+			item.name = "ChallengeUnitFilter%d_%s" % [side, kind]
+			item.icon = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
+			item.expand_icon = true
+			item.add_theme_constant_override("icon_max_width", 28)
+			item.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 			units.add_child(item)
-			var portrait := TextureRect.new()
-			portrait.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
-			portrait.custom_minimum_size = Vector2(28, 34)
-			portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			item.add_child(portrait)
-			var name_label := MultiplayerUI.label(String(BattleModel.UNIT_NAMES.get(kind, kind)), 14, UIKit.TEXT)
-			name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			item.add_child(name_label)
-		var names := PackedStringArray()
+			buttons.append(item)
+		var structures := HFlowContainer.new()
+		structures.name = "ChallengeStructureDeck%d" % side
+		structures.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		structures.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		structures.add_theme_constant_override("h_separation", 12)
+		structures.add_theme_constant_override("v_separation", 4)
+		preview.add_child(structures)
+		var structure_label := MultiplayerUI.label("구조물:", 14, UIKit.TEXT_MUTED)
+		structure_label.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+		structure_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		structure_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		structures.add_child(structure_label)
 		for kind in setup.structure_decks[side]:
 			var definition: Resource = load("res://data/structures/%s.tres" % kind)
-			names.append(String(definition.get("display_name")))
-		var structures := MultiplayerUI.label("구조물: " + " · ".join(names), 14, UIKit.TEXT_MUTED)
-		structures.name = "ChallengeStructureDeck%d" % side
-		structures.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		preview.add_child(structures)
+			var item := _challenge_deck_button(String(kind), String(definition.get("display_name")), side, choose)
+			item.name = "ChallengeStructureFilter%d_%s" % [side, kind]
+			structures.add_child(item)
+			buttons.append(item)
+	return buttons
+
+static func _challenge_deck_button(kind: String, title: String, side: int, choose: Callable) -> Button:
+	var tone := UIKit.TEAM_BLUE if side == 0 else UIKit.TEAM_RED
+	var button := UIKit.style_button(Button.new(), tone, false, 14)
+	button.custom_minimum_size = Vector2(96, UIKit.TOUCH_MIN_HEIGHT)
+	button.toggle_mode = true
+	# ScrollContainer can cancel a touch press when it becomes a drag.
+	button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	button.mouse_filter = Control.MOUSE_FILTER_PASS
+	button.set_meta("deck_side", side)
+	button.set_meta("deck_kind", kind)
+	button.set_meta("deck_title", title)
+	button.text = title
+	var chosen_styles := UIKit.button_styles(tone, true)
+	button.add_theme_stylebox_override("pressed", chosen_styles.normal)
+	button.add_theme_stylebox_override("hover_pressed", chosen_styles.hover)
+	button.pressed.connect(choose.bind(button))
+	return button
+
+static func _challenge_deck_terms(query: String) -> PackedStringArray:
+	return query.replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ", false)
+
+static func _challenge_deck_term_selected(query: String, kind: String, title: String) -> bool:
+	var terms := _challenge_deck_terms(query.to_lower())
+	return terms.has(kind.to_lower()) or terms.has(title.to_lower())
+
+## Preserve all other terms. Only exact names/IDs are toggled; partial searches stay intact.
+static func _challenge_toggle_deck_term(query: String, kind: String, title: String) -> String:
+	var terms := _challenge_deck_terms(query)
+	if _challenge_deck_term_selected(query, kind, title):
+		var kept := PackedStringArray()
+		for term in terms:
+			if term.to_lower() != kind.to_lower() and term.to_lower() != title.to_lower(): kept.append(term)
+		return " ".join(kept)
+	# IDs distinguish names such as 마법사 and 흑마법사 that overlap in text search.
+	terms.append(kind)
+	return " ".join(terms)
+
+static func _refresh_challenge_deck_button(button: Button, query: String) -> void:
+	var kind := String(button.get_meta("deck_kind"))
+	var title := String(button.get_meta("deck_title"))
+	var selected := _challenge_deck_term_selected(query, kind, title)
+	button.set_pressed_no_signal(selected)
+	button.text = ("✓ " if selected else "") + title
+	var side_name := "내 덱 (블루)" if int(button.get_meta("deck_side")) == 0 else "상대 덱 (레드)"
+	button.tooltip_text = "%s 검색에서 %s (%s) %s · 종류를 구분하는 영문 ID로 추가합니다. 다른 검색·결과·클립 조건은 유지합니다. 부분 검색어는 직접 수정하세요." % [side_name, title, kind, "해제" if selected else "추가"]
 
 ## Build once from the saved decks; filtering never reloads files or simulates battles.
 static func _challenge_deck_search_text(replay: Dictionary, side: int) -> String:
@@ -1531,7 +1581,7 @@ static func _challenge_search_text(entry: Dictionary) -> String:
 	return " ".join(parts).to_lower()
 
 static func _challenge_query_matches(text: String, query: String) -> bool:
-	for term in query.to_lower().replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ", false):
+	for term in _challenge_deck_terms(query.to_lower()):
 		if not text.contains(term): return false
 	return true
 
@@ -1588,7 +1638,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	var heading := MultiplayerUI.label("%s %s (UTC) · %s\n보관 기록: %s · %d점 · %.1f초" % [title, date_text, rule_text, "성공" if bool(record.get("won", false)) else "실패", int(record.get("score", 0)), float(record.get("seconds", 0.0))], 16, UIKit.TEXT)
 	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(heading)
-	var hint := MultiplayerUI.label("내 덱·상대 덱 검색은 각 진영의 출전 구성만 찾고, 입력한 검색·결과·클립 조건을 모두 적용합니다. 빈 검색칸은 제한하지 않습니다. 덱은 저장된 전투의 출전 구성이며 실제 생산·설치 수가 아닙니다. 점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
+	var hint := MultiplayerUI.label("카드의 병력·구조물을 누르면 해당 진영의 검색 조건에 추가합니다. 검색칸에는 종류를 구분하는 영문 ID가 들어갑니다. ✓ 항목은 다시 눌러 해제합니다. 직접 입력한 전체 검색·다른 덱·결과·클립 조건은 유지합니다. 내 덱·상대 덱 검색은 각 진영의 출전 구성만 찾으며, 빈 검색칸은 제한하지 않습니다. 덱은 저장된 전투의 출전 구성이며 실제 생산·설치 수가 아닙니다. 점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var status := MultiplayerUI.label("보관 전투 %d개 · 버전 확인된 전투 우선" % entries.size(), 14, UIKit.GOLD)
 	status.name = "ChallengeReplayStatus"
@@ -1671,7 +1721,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	scroll.scroll_deadzone = 16
 	scroll.focus_mode = Control.FOCUS_ALL
 	dialog.add_child(scroll)
-	var layout := {"restoring": true, "revision": 0}
+	var layout := {"restoring": true, "revision": 0, "deck_filtering": false}
 	var rows := VBoxContainer.new()
 	rows.name = "ChallengeReplayRows"
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1680,6 +1730,38 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	# Let the longer explanation scroll so touch-sized filters leave room for cards.
 	rows.add_child(hint)
 	var controls: Array[Control] = [search, reset, deck_queries[0], deck_queries[1], outcome, scope, scroll]
+	var choose_deck_term := func(button: Button):
+		if not _dialog_alive(dialog) or not button.is_visible_in_tree(): return
+		var side := int(button.get_meta("deck_side"))
+		var query: LineEdit = deck_queries[side]
+		var title_text := String(button.get_meta("deck_title"))
+		var kind := String(button.get_meta("deck_kind"))
+		var removing := _challenge_deck_term_selected(query.text, kind, title_text)
+		var next_query := _challenge_toggle_deck_term(query.text, kind, title_text)
+		if next_query.length() > query.max_length:
+			_refresh_challenge_deck_button(button, query.text)
+			status.text = "검색어가 길어 %s을(를) 추가하지 못했습니다. 해당 덱 검색칸의 조건을 줄인 뒤 다시 누르세요. 기존 검색 조건은 유지했습니다." % title_text
+			query.grab_focus()
+			return
+		# Keep the clicked card reachable for composing more conditions without opening a keyboard.
+		layout.revision = int(layout.revision) + 1
+		layout.restoring = true
+		layout.deck_filtering = true
+		# Programmatic text assignment does not emit LineEdit.text_changed.
+		query.text = next_query
+		query.text_changed.emit(next_query)
+		layout.deck_filtering = false
+		status.text = "%s 검색: %s %s · 다른 조건은 유지합니다." % ["내 덱 (블루)" if side == 0 else "상대 덱 (레드)", title_text, "해제" if removing else "추가"]
+		button.grab_focus()
+		view_state["focus_name"] = String(button.name)
+		view_state["focus_path"] = String(button.get_meta("ChallengeReplayPath", ""))
+		var revision := int(layout.revision)
+		var keep_card_visible := func():
+			if not _dialog_alive(dialog) or int(layout.revision) != revision: return
+			if button.is_visible_in_tree(): scroll.ensure_control_visible(button)
+			view_state["scroll"] = scroll.scroll_vertical
+			layout.restoring = false
+		dialog.get_tree().process_frame.connect(keep_card_visible, CONNECT_ONE_SHOT)
 	var groups: Array = []
 	# A new analysis cancels the previous one. State belongs only to this dialog.
 	var analysis_job := {"serial": 0}
@@ -1707,7 +1789,10 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			var details := MultiplayerUI.label(caption, 16, UIKit.TEXT)
 			details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			content.add_child(details)
-			_challenge_deck_preview(content, replay)
+			entry["deck_buttons"] = _challenge_deck_preview(content, replay, choose_deck_term)
+			for button in entry.deck_buttons:
+				button.set_meta("ChallengeReplayPath", String(entry.path))
+				controls.append(button)
 			if ChallengeReplays.same_time_and_outcome(replay, record):
 				var match_hint := MultiplayerUI.label("기록과 결과·완료 시간 일치 · 점수 분석으로 비교할 수 있습니다.", 14, UIKit.TEAL)
 				match_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1835,6 +1920,8 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			var group_shown := 0
 			for entry in group.entries:
 				entry.card.visible = _challenge_matches(entry, search.text, outcome.selected, scope.selected, deck_queries[0].text, deck_queries[1].text)
+				for button in entry.deck_buttons:
+					_refresh_challenge_deck_button(button, deck_queries[int(button.get_meta("deck_side"))].text)
 				if entry.card.visible:
 					group_shown += 1
 				else:
@@ -1864,7 +1951,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 		dialog.get_tree().process_frame.connect(reset_position, CONNECT_ONE_SHOT)
 	search.text_changed.connect(func(_text): apply_filters.call(true))
 	for deck_query in deck_queries:
-		deck_query.text_changed.connect(func(_text): apply_filters.call(true))
+		deck_query.text_changed.connect(func(_text): apply_filters.call(not bool(layout.deck_filtering)))
 	outcome.item_selected.connect(func(_index): apply_filters.call(true))
 	scope.item_selected.connect(func(_index): apply_filters.call(true))
 	reset.pressed.connect(func():
