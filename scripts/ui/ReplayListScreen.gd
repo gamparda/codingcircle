@@ -11,6 +11,7 @@ var _search: LineEdit
 var _mode: OptionButton
 var _scope: OptionButton
 var _outcome: OptionButton
+var _retention: OptionButton
 var _reset: Button
 var _count: Label
 var _empty: VBoxContainer
@@ -46,15 +47,18 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	refresh.tooltip_text = "파일을 다시 읽습니다. 검색 조건과 스크롤 위치는 유지합니다."
 	refresh.pressed.connect(func(): refresh_requested.emit())
 	search_row.add_child(refresh)
-	var filters := HBoxContainer.new()
+	var filters := HFlowContainer.new()
 	filters.name = "ReplayFilters"
-	filters.add_theme_constant_override("separation", 8)
+	filters.add_theme_constant_override("h_separation", 8)
+	filters.add_theme_constant_override("v_separation", 8)
 	column.add_child(filters)
 	column.move_child(filters, _scroll.get_index())
 	_mode = _option(filters, "ReplayModeFilter", ["종류 전체", "캠페인", "연습", "일일 도전", "주간 도전", "드래프트", "온라인·기타", "읽기 실패"], int(state.get("mode", 0)))
 	_scope = _option(filters, "ReplayScopeFilter", ["전투·클립 전체", "전체 전투만", "클립만"], int(state.get("scope", 0)))
 	_outcome = _option(filters, "ReplayOutcomeFilter", ["결과 전체", "승리·블루 승", "패배·레드 승", "무승부"], int(state.get("outcome", 0)))
 	_outcome.tooltip_text = "캠페인·연습·도전·드래프트는 플레이어 승패, 온라인·기타는 블루/레드 결과로 구분합니다. 클립의 결과는 전체 전투 기준입니다."
+	_retention = _option(filters, "ReplayRetentionFilter", ["보존 전체", "정리 제외만", "일반만"], int(state.get("retention", 0)))
+	_retention.tooltip_text = "정리 제외한 전투는 최근 50개와 별도로 남습니다. 이 필터는 목록 표시만 바꿉니다."
 	_count = Label.new()
 	_count.name = "ReplayMatchCount"
 	_count.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -71,6 +75,7 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	_mode.item_selected.connect(func(_index): _refresh(true))
 	_scope.item_selected.connect(func(_index): _refresh(true))
 	_outcome.item_selected.connect(func(_index): _refresh(true))
+	_retention.item_selected.connect(func(_index): _refresh(true))
 	_reset.pressed.connect(_reset_filters)
 	_scroll.follow_focus = true
 	_scroll.focus_mode = Control.FOCUS_ALL
@@ -89,10 +94,11 @@ func _option(parent: Control, node_name: String, labels: Array, selected: int) -
 	parent.add_child(option)
 	return option
 
-static func matches(entry: Dictionary, query: String, mode: int, scope: int, outcome: int) -> bool:
+static func matches(entry: Dictionary, query: String, mode: int, scope: int, outcome: int, retention: int = 0) -> bool:
 	if mode > 0 and String(entry.mode) != String(MODES[mode]): return false
 	if scope > 0 and (entry.mode == "unreadable" or bool(entry.clip) != (scope == 2)): return false
 	if outcome > 0 and int(entry.winner) != outcome - 1: return false
+	if retention > 0 and (entry.mode == "unreadable" or bool(entry.get("protected", false)) != (retention == 1)): return false
 	var text := String(entry.search)
 	for term in query.to_lower().replace("\t", " ").replace("\n", " ").split(" ", false):
 		if not text.contains(term): return false
@@ -104,13 +110,14 @@ func _refresh(reset_scroll: bool) -> void:
 	_state["mode"] = _mode.selected
 	_state["scope"] = _scope.selected
 	_state["outcome"] = _outcome.selected
+	_state["retention"] = _retention.selected
 	var shown := 0
 	for entry in _entries:
-		entry.card.visible = matches(entry, _search.text, _mode.selected, _scope.selected, _outcome.selected)
+		entry.card.visible = matches(entry, _search.text, _mode.selected, _scope.selected, _outcome.selected, _retention.selected)
 		if entry.card.visible: shown += 1
 	_count.text = "%d / %d개 표시" % [shown, _entries.size()]
 	_count.tooltip_text = "읽기 실패 파일도 전체 개수에 포함합니다. 최신 보관순이며 검색·필터는 자동 정리와 덱 분석의 대상에 영향을 주지 않습니다."
-	_reset.disabled = _search.text.is_empty() and _mode.selected == 0 and _scope.selected == 0 and _outcome.selected == 0
+	_reset.disabled = _search.text.is_empty() and _mode.selected == 0 and _scope.selected == 0 and _outcome.selected == 0 and _retention.selected == 0
 	if is_instance_valid(_empty):
 		_rows.remove_child(_empty)
 		_empty.queue_free()
@@ -129,7 +136,7 @@ func _refresh(reset_scroll: bool) -> void:
 		UIKit.display(message, 22, UIKit.TEXT)
 		_empty.add_child(message)
 		var hint := Label.new()
-		hint.text = "전투를 끝까지 치르면 자동 저장됩니다. 공유받은 텍스트는 클립보드에서 가져올 수 있습니다." if _entries.is_empty() else "검색어·종류·결과를 바꾸거나 초기화를 눌러 전체 목록을 확인하세요."
+		hint.text = "전투를 끝까지 치르면 자동 저장됩니다. 공유받은 텍스트는 클립보드에서 가져올 수 있습니다." if _entries.is_empty() else "검색어·종류·결과·보존 조건을 바꾸거나 초기화를 눌러 전체 목록을 확인하세요."
 		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
@@ -148,6 +155,7 @@ func _reset_filters() -> void:
 	_mode.select(0)
 	_scope.select(0)
 	_outcome.select(0)
+	_retention.select(0)
 	_refresh(true)
 	_search.grab_focus()
 
