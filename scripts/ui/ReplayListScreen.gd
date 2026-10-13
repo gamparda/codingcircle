@@ -12,6 +12,8 @@ var _mode: OptionButton
 var _scope: OptionButton
 var _outcome: OptionButton
 var _retention: OptionButton
+var _sort: OptionButton
+var _applied_sort := -1
 var _reset: Button
 var _count: Label
 var _empty: VBoxContainer
@@ -45,7 +47,7 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	var refresh := UIKit.style_button(Button.new(), UIKit.ACCENT)
 	refresh.name = "RefreshReplayList"
 	refresh.text = "새로고침"
-	refresh.tooltip_text = "파일을 다시 읽습니다. 검색 조건·카드 위치·키보드 초점은 유지합니다."
+	refresh.tooltip_text = "파일과 용량을 다시 읽습니다. 검색 조건·정렬·카드 위치·키보드 초점은 유지합니다."
 	refresh.pressed.connect(func():
 		refresh.grab_focus()
 		refresh_requested.emit())
@@ -62,6 +64,8 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	_outcome.tooltip_text = "캠페인·연습·도전·드래프트는 플레이어 승패, 온라인·기타는 블루/레드 결과로 구분합니다. 클립의 결과는 전체 전투 기준입니다."
 	_retention = _option(filters, "ReplayRetentionFilter", ["보존 전체", "정리 제외만", "일반만"], int(state.get("retention", 0)))
 	_retention.tooltip_text = "정리 제외한 전투는 최근 50개와 별도로 남습니다. 이 필터는 목록 표시만 바꿉니다."
+	_sort = _option(filters, "ReplaySort", ["최근 보관순", "오래된 보관순", "용량 큰 순"], int(state.get("sort", 0)))
+	_sort.tooltip_text = "목록 순서만 바꿉니다. 자동 정리는 계속 최근 일반 기록 50개를 보존합니다. 용량 미상 파일은 용량 큰 순에서 마지막에 표시합니다."
 	_count = Label.new()
 	_count.name = "ReplayMatchCount"
 	_count.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -70,6 +74,16 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	_count.add_theme_font_size_override("font_size", 14)
 	_count.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	filters.add_child(_count)
+	var storage := Label.new()
+	storage.name = "ReplayStorageSummary"
+	storage.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	storage.add_theme_font_size_override("font_size", 14)
+	storage.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	var totals := storage_totals(_entries)
+	storage.text = "전체 보관 %d개 · %s\n일반 %s · 정리 제외 %s · 읽기 실패 %s" % [_entries.size(), storage_size_text(int(totals.bytes), int(totals.unknown)), _storage_group_text(totals.normal), _storage_group_text(totals.protected), _storage_group_text(totals.unreadable)]
+	storage.tooltip_text = "검색 조건과 관계없는 이 기기의 전체 보관함입니다. 새로고침할 때 JSON 파일 크기를 다시 확인합니다. 용량은 파일 내용의 크기이며 디스크 사용량·남은 저장 공간과는 다릅니다. 클립도 전체 전투 기록을 포함합니다. 정리 제외·읽기 실패 파일은 자동 정리로 줄어들지 않습니다."
+	column.add_child(storage)
+	column.move_child(storage, _scroll.get_index())
 	for entry in _entries:
 		var card: Control = card_factory.call(entry)
 		_rows.add_child(card)
@@ -80,6 +94,7 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	_scope.item_selected.connect(func(_index): _refresh(true))
 	_outcome.item_selected.connect(func(_index): _refresh(true))
 	_retention.item_selected.connect(func(_index): _refresh(true))
+	_sort.item_selected.connect(func(_index): _refresh(true))
 	_reset.pressed.connect(_reset_filters)
 	_scroll.follow_focus = true
 	_scroll.focus_mode = Control.FOCUS_ALL
@@ -159,6 +174,51 @@ static func matches(entry: Dictionary, query: String, mode: int, scope: int, out
 		if not text.contains(term): return false
 	return true
 
+## Only aggregate the loaded snapshot. Typing/filtering never opens files.
+static func storage_totals(entries: Array) -> Dictionary:
+	var totals := {"bytes": 0, "unknown": 0, "normal": {"count": 0, "bytes": 0, "unknown": 0}, "protected": {"count": 0, "bytes": 0, "unknown": 0}, "unreadable": {"count": 0, "bytes": 0, "unknown": 0}}
+	for entry in entries:
+		var group: Dictionary = totals.unreadable if String(entry.mode) == "unreadable" else (totals.protected if bool(entry.get("protected", false)) else totals.normal)
+		group.count += 1
+		var bytes := int(entry.get("file_bytes", -1))
+		if bytes < 0:
+			group.unknown += 1
+			totals.unknown += 1
+		else:
+			group.bytes += bytes
+			totals.bytes += bytes
+	return totals
+
+static func storage_size_text(bytes: int, unknown: int = 0) -> String:
+	if bytes < 0 or (bytes == 0 and unknown > 0): return "용량 미상" + (" %d개" % unknown if unknown > 0 else "")
+	var size := float(bytes)
+	var units := ["B", "KiB", "MiB", "GiB", "TiB"]
+	var unit := 0
+	while size >= 1024.0 and unit < units.size() - 1:
+		size /= 1024.0
+		unit += 1
+	var text := "%d B" % bytes if unit == 0 else "%.1f %s" % [size, units[unit]]
+	return text if unknown == 0 else "최소 %s (+%d개 미상)" % [text, unknown]
+
+static func _storage_group_text(group: Dictionary) -> String:
+	return "%d개 / %s" % [int(group.count), storage_size_text(int(group.bytes), int(group.unknown))]
+
+func _apply_sort() -> void:
+	if _applied_sort == _sort.selected: return
+	_applied_sort = _sort.selected
+	_entries.sort_custom(func(a, b):
+		if _applied_sort == 2:
+			var a_bytes := int(a.get("file_bytes", -1))
+			var b_bytes := int(b.get("file_bytes", -1))
+			if a_bytes != b_bytes: return a_bytes > b_bytes
+		var a_order := int(a.get("order", 0))
+		var b_order := int(b.get("order", 0))
+		if a_order != b_order:
+			return a_order < b_order if _applied_sort == 1 else a_order > b_order
+		return String(a.path) < String(b.path) if _applied_sort == 1 else String(a.path) > String(b.path))
+	for index in _entries.size():
+		_rows.move_child(_entries[index].card, index)
+
 func _refresh(reset_scroll: bool) -> void:
 	_refresh_revision += 1
 	_state["query"] = _search.text
@@ -166,13 +226,20 @@ func _refresh(reset_scroll: bool) -> void:
 	_state["scope"] = _scope.selected
 	_state["outcome"] = _outcome.selected
 	_state["retention"] = _retention.selected
+	_state["sort"] = _sort.selected
+	_apply_sort()
 	var shown := 0
+	var visible_entries: Array = []
 	for entry in _entries:
 		entry.card.visible = matches(entry, _search.text, _mode.selected, _scope.selected, _outcome.selected, _retention.selected)
-		if entry.card.visible: shown += 1
+		if entry.card.visible:
+			shown += 1
+			visible_entries.append(entry)
 	_count.text = "%d / %d개 표시" % [shown, _entries.size()]
-	_count.tooltip_text = "읽기 실패 파일도 전체 개수에 포함합니다. 최신 보관순이며 검색·필터는 자동 정리와 덱 분석의 대상에 영향을 주지 않습니다."
-	_reset.disabled = _search.text.is_empty() and _mode.selected == 0 and _scope.selected == 0 and _outcome.selected == 0 and _retention.selected == 0
+	var visible_storage := storage_totals(visible_entries)
+	_count.text += " · " + storage_size_text(int(visible_storage.bytes), int(visible_storage.unknown))
+	_count.tooltip_text = "현재 조건에 표시된 파일의 개수와 용량입니다. 읽기 실패 파일도 포함합니다. 검색·필터·정렬은 자동 정리와 덱 분석의 대상에 영향을 주지 않습니다."
+	_reset.disabled = _search.text.is_empty() and _mode.selected == 0 and _scope.selected == 0 and _outcome.selected == 0 and _retention.selected == 0 and _sort.selected == 0
 	if is_instance_valid(_empty):
 		_rows.remove_child(_empty)
 		_empty.queue_free()
@@ -280,6 +347,7 @@ func _reset_filters() -> void:
 	_scope.select(0)
 	_outcome.select(0)
 	_retention.select(0)
+	_sort.select(0)
 	_refresh(true)
 	_search.grab_focus()
 	_store_focus(_search)

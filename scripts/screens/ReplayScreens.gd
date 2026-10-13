@@ -19,6 +19,7 @@ const NetworkProtocol = preload("res://scripts/NetworkProtocol.gd")
 const ServerReplayShelf = preload("res://scripts/ServerReplayShelf.gd")
 const MetaStatsUI = preload("res://scripts/screens/MetaStatsUI.gd")
 const REPLAY_LIST_SCREEN := preload("res://scenes/ui/ReplayListScreen.tscn")
+const ReplayListScreen = preload("res://scripts/ui/ReplayListScreen.gd")
 
 static func describe(replay: Dictionary) -> Dictionary:
 	var meta: Dictionary = replay.get("meta", {})
@@ -96,6 +97,15 @@ static func _stamp(path: String) -> String:
 		return "%s-%s-%s  %s:%s" % [file.substr(0, 4), file.substr(4, 2), file.substr(6, 2), file.substr(9, 2), file.substr(11, 2)]
 	return file.get_basename()
 
+## Read file length only, including malformed/oversized JSON. Never read a link.
+static func _shelf_file_bytes(path: String, directory: DirAccess) -> int:
+	if directory == null or directory.is_link(path.get_file()) or DirAccess.dir_exists_absolute(path): return -1
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null: return -1
+	var bytes := file.get_length()
+	file.close()
+	return bytes
+
 static func _build_replay_list(main) -> void:
 	var frame = MenuScreens._show_scene(main, REPLAY_LIST_SCREEN, "리플레이", "최근 %d개와 정리 제외한 전투를 다시 보고 분석합니다" % BattleReplay.MAX_SAVED)
 	var column: VBoxContainer = frame.column
@@ -105,16 +115,19 @@ static func _build_replay_list(main) -> void:
 	var shown := 0
 	var unreadable := 0
 	var preserved := 0
+	var directory := DirAccess.open(BattleReplay.save_dir)
 	for path in BattleReplay.list_saved(false):
 		var replay := BattleReplay.load_file(path)
-		entries.append(_shelf_entry(String(path), replay))
+		var entry := _shelf_entry(String(path), replay)
+		entry["file_bytes"] = _shelf_file_bytes(String(path), directory)
+		entries.append(entry)
 		if replay.is_empty():
 			unreadable += 1
 		else:
 			shown += 1
 			if BattleReplay.is_protected(replay): preserved += 1
 	entries.sort_custom(func(a, b): return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
-	frame.populate(entries, func(entry): return _unreadable_replay_card(main, String(entry.path)) if entry.replay.is_empty() else _replay_card(main, String(entry.path), entry.replay), main.replay_list_state)
+	frame.populate(entries, func(entry): return _unreadable_replay_card(main, String(entry.path), int(entry.file_bytes)) if entry.replay.is_empty() else _replay_card(main, String(entry.path), entry.replay, int(entry.file_bytes)), main.replay_list_state)
 	frame.refresh_requested.connect(main._build_replay_list)
 	var storage_help := UIKit.style_button(Button.new(), UIKit.TEAL)
 	storage_help.name = "ReplayStorageHelp"
@@ -507,14 +520,14 @@ static func _delete_button(main, path: String) -> Button:
 	button.pressed.connect(func(): _confirm_replay_delete(main, path, button))
 	return button
 
-static func _unreadable_replay_card(main, path: String) -> PanelContainer:
+static func _unreadable_replay_card(main, path: String, file_bytes: int = -1) -> PanelContainer:
 	var card := PanelContainer.new()
 	card.name = "UnreadableReplayCard"
 	card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE, UIKit.SURFACE, UIKit.DANGER, 12), 14, 10))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	var label := Label.new()
-	label.text = "읽을 수 없는 리플레이\n%s\n파일이 손상되었거나 지원하지 않는 형식입니다." % path.get_file()
+	label.text = "읽을 수 없는 리플레이 · %s\n%s\n파일이 손상되었거나 지원하지 않는 형식입니다." % [ReplayListScreen.storage_size_text(file_bytes), path.get_file()]
 	label.tooltip_text = ProjectSettings.globalize_path(path)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -734,7 +747,7 @@ static func _restore_protection_focus(main, background: Control, path: String) -
 	var search := background.find_child("ReplaySearch", true, false) as Control
 	if search != null: _restore_shelf_focus(background, search)
 
-static func _replay_card(main, path: String, replay: Dictionary) -> Control:
+static func _replay_card(main, path: String, replay: Dictionary, file_bytes: int = -1) -> Control:
 	var info := describe(replay)
 	var tone := UIKit.SUCCESS if info.outcome in ["승리", "블루 승"] else (UIKit.DANGER if info.outcome in ["패배", "레드 승"] else UIKit.TEXT_MUTED)
 	var card := PanelContainer.new()
@@ -781,9 +794,10 @@ static func _replay_card(main, path: String, replay: Dictionary) -> Control:
 		range_label.tooltip_text = "전체 전투 %s 중의 공유 구간입니다. 클립의 승패·덱·메모는 전체 전투 기준이며 끝에서 재생을 누르면 이어서 볼 수 있습니다." % info.duration
 		text.add_child(range_label)
 	var stamp := Label.new()
-	stamp.text = _stamp(path)
+	stamp.name = "ReplayFileSize"
+	stamp.text = "%s · %s" % [_stamp(path), ReplayListScreen.storage_size_text(file_bytes)]
 	stamp.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	stamp.tooltip_text = ProjectSettings.globalize_path(path)
+	stamp.tooltip_text = "%s\n%s\n클립도 전체 전투 기록과 메모를 담은 파일입니다." % [ProjectSettings.globalize_path(path), ("파일 크기 %d B" % file_bytes if file_bytes >= 0 else "파일 크기를 확인하지 못했습니다. 새로고침해 다시 확인하세요.")]
 	stamp.add_theme_font_size_override("font_size", 12)
 	stamp.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	text.add_child(stamp)
