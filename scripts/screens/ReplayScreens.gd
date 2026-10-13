@@ -136,11 +136,11 @@ static func _build_replay_list(main) -> void:
 		notices.append("리플레이 %d개를 보관 중입니다. 자동 정리를 완료하지 못했습니다. 파일 권한을 확인하고 정리를 다시 시도하세요." % shown)
 		var retry := main._styled_button("오래된 리플레이 정리 재시도", UIKit.GOLD_DEEP, false) as Button
 		retry.name = "RetryReplayCleanup"
+		retry.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+		retry.tooltip_text = "전체 보관함에서 삭제할 오래된 전투·클립·메모를 먼저 확인합니다."
 		column.add_child(retry)
 		column.move_child(retry, column.get_node("Footer").get_index())
-		retry.pressed.connect(func():
-			BattleReplay._prune()
-			main._build_replay_list())
+		retry.pressed.connect(func(): _confirm_replay_cleanup(main, retry))
 	status.text = "\n".join(notices)
 	var back: Button = column.get_node("Footer/ReplayBack")
 	UIKit.style_button(back, Color("#697386"), false, 16)
@@ -178,6 +178,148 @@ static func _build_replay_list(main) -> void:
 	UIKit.style_button(recent_button, UIKit.ACCENT, false, 16)
 	column.get_node("Footer").add_child(recent_button)
 	recent_button.pressed.connect(func(): _show_recent_battles(main))
+
+static func _confirm_replay_cleanup(main, entry_button: Button) -> void:
+	var background: Control = main.root_background
+	if not _dialog_alive(background) or not _dialog_alive(entry_button): return
+	entry_button.grab_focus()
+	var focus_ref := weakref(entry_button)
+	var snapshot := BattleReplay.cleanup_snapshot()
+	var target_count := maxi(0, snapshot.plan.readable.size() - BattleReplay.MAX_SAVED)
+	var dialog: VBoxContainer = main._action_panel("오래된 리플레이 정리 확인", Rect2(200, 50, 880, 620))
+	dialog.name = "ReplayCleanupDialog"
+	var headline := MultiplayerUI.label("삭제 대상 %d개 · 정상 리플레이 %d개 보존 · 읽기 실패 %d개 보존" % [target_count, int(snapshot.kept), int(snapshot.unreadable)], 18, UIKit.TEXT)
+	headline.name = "ReplayCleanupSummary"
+	headline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dialog.add_child(headline)
+	var scroll := ScrollContainer.new()
+	scroll.name = "ReplayCleanupScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.focus_mode = Control.FOCUS_ALL
+	scroll.follow_focus = true
+	dialog.add_child(scroll)
+	var details := VBoxContainer.new()
+	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.add_theme_constant_override("separation", 12)
+	scroll.add_child(details)
+	var warning := MultiplayerUI.label("검색·종류·결과·클립 조건과 관계없이 전체 보관함을 정리합니다. 아래 파일과 메모를 영구 삭제하며 되돌릴 수 없습니다.\n보관 순서로 최근 %d개를 남기고, 가장 최근 저장한 파일과 읽기 실패 파일을 보존합니다. 메모가 있는 전투와 클립도 정리 대상에 포함됩니다.\n전적·도전 점수·서버 기록은 유지됩니다. 필요한 전투는 먼저 텍스트를 게임 밖에 붙여넣거나 JSON 파일을 다른 곳에 복사하세요. 서버 코드만으로는 백업되지 않습니다." % BattleReplay.MAX_SAVED, 15, UIKit.DANGER)
+	warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	details.add_child(warning)
+	var status := MultiplayerUI.label(String(snapshot.error), 15, UIKit.DANGER)
+	status.name = "ReplayCleanupStatus"
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dialog.add_child(status)
+	var controls: Array[Control] = [scroll]
+	var notes := 0
+	var clips := 0
+	for entry in snapshot.entries:
+		var replay: Dictionary = entry.replay
+		var info := describe(replay)
+		notes += int(info.notes)
+		if not String(info.clip_range).is_empty(): clips += 1
+		var card := PanelContainer.new()
+		card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE, UIKit.SURFACE, UIKit.DANGER, 12), 14, 10))
+		details.add_child(card)
+		var column := VBoxContainer.new()
+		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.add_child(column)
+		var text := "%s · %s · 전체 전투 %s · 메모 %d개\n보관 파일명 기준 시각: %s\n%s" % [info.title, info.outcome, info.duration, int(info.notes), _stamp(String(entry.path)), String(entry.path).get_file()]
+		if not String(info.clip_range).is_empty():
+			text += "\n클립 구간 %s · 길이 %s" % [info.clip_range, info.clip_length]
+		var label := MultiplayerUI.label(text, 15, UIKit.TEXT)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.tooltip_text = ProjectSettings.globalize_path(String(entry.path))
+		column.add_child(label)
+		var copy := MultiplayerUI.button(main, column, "먼저 이 전투 텍스트 복사", "CopyReplayBeforeCleanup", func():
+			if not _dialog_alive(dialog) or main.root_background != background: return
+			var shared := BattleReplay.to_share_text(replay)
+			if shared.length() > BattleReplay.MAX_SHARE_CHARS:
+				status.text = "공유 텍스트가 가져오기 한도를 넘습니다. 취소하고 이 전투의 JSON 파일을 게임 밖에 복사하세요."
+				status.add_theme_color_override("font_color", UIKit.DANGER)
+			else:
+				DisplayServer.clipboard_set(shared)
+				status.text = "%s의 전투와 메모를 복사했습니다. 다른 전투를 복사하거나 정리하기 전에 게임 밖에 붙여넣어 보관하세요." % String(entry.path).get_file()
+				status.add_theme_color_override("font_color", UIKit.TEAL))
+		copy.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+		copy.disabled = not DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD)
+		copy.tooltip_text = "이 확인창에 표시한 전투·클립·메모를 복사합니다. 다음 복사는 클립보드 내용을 덮어쓰므로 매번 게임 밖에 붙여넣으세요."
+		controls.append(copy)
+	if String(snapshot.error).is_empty():
+		headline.text += "\n함께 삭제되는 메모 %d개 · 클립 파일 %d개" % [notes, clips]
+		if target_count == 0: status.text = "현재 정리할 오래된 리플레이가 없습니다. 취소하고 보관함을 새로고침하세요."
+	var path_input := LineEdit.new()
+	path_input.name = "ReplayCleanupDirectory"
+	path_input.text = ProjectSettings.globalize_path(BattleReplay.save_dir)
+	path_input.editable = false
+	path_input.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+	path_input.tooltip_text = "위 삭제 대상이 들어 있는 실제 보관 폴더입니다. 경로 선택만으로 파일이 백업되지는 않습니다."
+	dialog.add_child(path_input)
+	controls.append(path_input)
+	var close := func():
+		if not _dialog_alive(dialog) or main.root_background != background: return
+		main._dismiss_action_overlay()
+		background.get_tree().process_frame.connect(_restore_code_entry_focus.bind(main, background, focus_ref), CONNECT_ONE_SHOT)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 10)
+	dialog.add_child(actions)
+	var refresh := MultiplayerUI.button(main, actions, "삭제 대상 다시 확인", "RefreshReplayCleanup", func():
+		if _dialog_alive(dialog) and main.root_background == background:
+			_confirm_replay_cleanup(main, entry_button))
+	var confirm := UIKit.style_button(Button.new(), UIKit.DANGER)
+	confirm.name = "ConfirmReplayCleanup"
+	confirm.text = "위 %d개 영구 삭제" % target_count
+	confirm.disabled = target_count == 0 or not String(snapshot.error).is_empty()
+	actions.add_child(confirm)
+	var cancel := MultiplayerUI.button(main, actions, "취소", "CancelReplayCleanup", close)
+	for button in [refresh, confirm, cancel]:
+		button.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		controls.append(button)
+	_bind_challenge_navigation(controls)
+	confirm.pressed.connect(func():
+		if not _dialog_alive(dialog) or main.root_background != background or confirm.disabled: return
+		var result := BattleReplay.cleanup_saved(snapshot)
+		if int(result.removed) == 0 and not String(result.error).is_empty():
+			status.text = String(result.error)
+			status.add_theme_color_override("font_color", UIKit.DANGER)
+			confirm.disabled = not bool(result.retryable)
+			_bind_challenge_navigation(controls)
+			cancel.grab_focus()
+			return
+		main._build_replay_list()
+		var current_background: Control = main.root_background
+		var shelf_status := current_background.find_child("ReplayStatus", true, false) as Label
+		if shelf_status != null:
+			var notice := "오래된 리플레이 %d개를 삭제했습니다." % int(result.removed)
+			var remaining := target_count - int(result.removed)
+			if remaining > 0:
+				notice += " 정리 대상 %d개가 남았습니다.\n%s\n남은 파일은 보존했습니다. 정리 재시도로 삭제 대상을 다시 확인하세요." % [remaining, result.error]
+			shelf_status.text = notice + ("\n" + shelf_status.text if not shelf_status.text.is_empty() else "")
+		current_background.get_tree().process_frame.connect(_restore_cleanup_focus.bind(main, current_background), CONNECT_ONE_SHOT))
+	for control in controls:
+		control.gui_input.connect(func(event: InputEvent):
+			if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+				control.accept_event()
+				close.call())
+	scroll.gui_input.connect(func(event: InputEvent):
+		if not event is InputEventKey or not event.pressed or event.alt_pressed or event.ctrl_pressed or event.meta_pressed: return
+		match event.keycode:
+			KEY_UP: scroll.scroll_vertical -= 48
+			KEY_DOWN: scroll.scroll_vertical += 48
+			KEY_PAGEUP: scroll.scroll_vertical -= maxi(48, int(scroll.size.y))
+			KEY_PAGEDOWN: scroll.scroll_vertical += maxi(48, int(scroll.size.y))
+			KEY_HOME: scroll.scroll_vertical = 0
+			KEY_END: scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+			_: return
+		scroll.accept_event())
+	cancel.grab_focus()
+
+static func _restore_cleanup_focus(main, background: Control) -> void:
+	if not _dialog_alive(background) or main.root_background != background or is_instance_valid(main.action_overlay): return
+	var target := background.find_child("RetryReplayCleanup", true, false) as Control
+	if target == null: target = background.find_child("ReplaySearch", true, false) as Control
+	if target != null: target.grab_focus()
 
 static func _confirm_replay_delete(main, path: String, entry_button: Button) -> void:
 	var background: Control = main.root_background

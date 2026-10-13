@@ -492,22 +492,70 @@ static func _saved_entries(paths: Array = []) -> Array:
 		return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
 	return entries
 
-## Unreadable files may contain recoverable data; leave them for explicit deletion.
-## Returns actual counts so callers can distinguish a successful save from failed cleanup.
-static func _prune(protected_path: String = "") -> Dictionary:
+## Share retention selection between automatic cleanup and the manual preview.
+## This only reads the shelf; it never deletes or creates a file.
+static func _prune_plan(protected_path: String = "") -> Dictionary:
 	# Periodic/server and manual retries must preserve the same most recent save too.
 	if protected_path.is_empty() and _last_saved_path.get_base_dir() == save_dir:
 		protected_path = _last_saved_path
 	var readable: Array = []
-	var unreadable := 0
+	var unreadable: Array = []
 	for entry in _saved_entries():
 		if not entry.readable:
-			unreadable += 1
+			unreadable.append(entry.path)
 		else:
 			readable.append(entry.path)
 	if readable.has(protected_path):
 		readable.erase(protected_path)
 		readable.push_front(protected_path)
+	return {"readable": readable, "unreadable": unreadable}
+
+## Bind the displayed battles, notes and retention boundary to an exact deletion set.
+static func cleanup_snapshot() -> Dictionary:
+	var plan := _prune_plan()
+	var result := {"directory": save_dir, "plan": plan, "entries": [], "kept": mini(MAX_SAVED, plan.readable.size()), "unreadable": plan.unreadable.size(), "error": ""}
+	for index in range(MAX_SAVED, plan.readable.size()):
+		var path: String = plan.readable[index]
+		var snapshot := deletion_snapshot(path)
+		if not String(snapshot.error).is_empty():
+			result.error = "%s\n%s" % [path.get_file(), snapshot.error]
+			return result
+		result.entries.append({"path": path, "fingerprint": snapshot.fingerprint, "replay": snapshot.replay})
+	if _prune_plan() != plan:
+		result.error = "확인 중 보관 목록이나 정리 순서가 바뀌었습니다. 삭제 대상을 다시 확인하세요."
+	return result
+
+## Never call _prune here: its newly computed set could include unapproved files.
+static func cleanup_saved(snapshot: Dictionary) -> Dictionary:
+	var result := {"removed": 0, "failed": [], "error": "", "retryable": false}
+	if not String(snapshot.error).is_empty() or String(snapshot.directory) != save_dir or _prune_plan() != snapshot.plan:
+		result.error = "확인창을 연 뒤 보관 목록이나 정리 순서가 바뀌었습니다. 삭제하지 않았습니다. 삭제 대상을 다시 확인하세요."
+		return result
+	# Preflight every target before deleting any: a changed note must not cause
+	# unrelated files to disappear before the player learns the preview is stale.
+	for entry in snapshot.entries:
+		if not _deletion_target_error(String(entry.path)).is_empty() or FileAccess.get_sha256(String(entry.path)) != String(entry.fingerprint):
+			result.error = "%s의 내용·메모가 바뀌었거나 파일에 접근할 수 없습니다. 삭제하지 않았습니다. 삭제 대상을 다시 확인하세요." % String(entry.path).get_file()
+			return result
+	if _prune_plan() != snapshot.plan:
+		result.error = "파일을 확인하는 동안 보관 목록이나 정리 순서가 바뀌었습니다. 삭제하지 않았습니다. 삭제 대상을 다시 확인하세요."
+		return result
+	for entry in snapshot.entries:
+		var deletion := delete_saved(String(entry.path), String(entry.fingerprint))
+		if deletion.ok:
+			result.removed += 1
+		else:
+			result.failed.append(entry.path)
+			result.error = String(deletion.error)
+			result.retryable = bool(deletion.retryable)
+			if not deletion.retryable: break
+	return result
+
+## Unreadable files may contain recoverable data; leave them for explicit deletion.
+## Returns actual counts so callers can distinguish a successful save from failed cleanup.
+static func _prune(protected_path: String = "") -> Dictionary:
+	var plan := _prune_plan(protected_path)
+	var readable: Array = plan.readable
 	var failed: Array = []
 	var removed := 0
 	for index in range(MAX_SAVED, readable.size()):
@@ -518,4 +566,4 @@ static func _prune(protected_path: String = "") -> Dictionary:
 			failed.append(path)
 	if not failed.is_empty():
 		printerr("REPLAY_TRIM_PENDING files=%d directory=%s" % [failed.size(), save_dir])
-	return {"removed": removed, "remaining": readable.size() - removed, "unreadable": unreadable, "failed": failed}
+	return {"removed": removed, "remaining": readable.size() - removed, "unreadable": plan.unreadable.size(), "failed": failed}
