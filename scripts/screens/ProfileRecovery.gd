@@ -13,6 +13,104 @@ static func _label(text: String, color: Color = UIKit.TEXT_MUTED) -> Label:
 static func _summary(data: Dictionary) -> String:
 	return "%s · 캠페인 %d단계 개방 · 별 %d개\nAI %d판 · 온라인 %d판 · 업적 %d개 · 일일 기록 %d일 · 주간 기록 %d주" % [String(data.nickname), int(data.campaign_unlocked), int(data.stats.total_stars), int(data.stats.ai_matches), int(data.stats.online_completed), data.achievements.size(), data.daily.size(), data.weekly.size()]
 
+static func _deck_names(kinds: Array, units: bool) -> String:
+	var structures := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
+	var names: PackedStringArray = []
+	for kind in kinds:
+		names.append(String(BattleModel.UNIT_NAMES.get(kind, kind) if units else structures.get(kind, kind)))
+	return " / ".join(names)
+
+static func _comparison(current: Dictionary, candidate: Dictionary) -> Dictionary:
+	# Compare the normalized values restore_backup actually applies, without touching either profile.
+	var live := SaveData.sanitize(current)
+	var restored := SaveData.sanitize(candidate)
+	var campaign: PackedStringArray = []
+	var decks: PackedStringArray = []
+	var warnings: PackedStringArray = []
+	var lost_clears := 0
+	var lost_stars := 0
+	for index in live.campaign_records.size():
+		var before: Dictionary = live.campaign_records[index]
+		var after: Dictionary = restored.campaign_records[index]
+		var changes: PackedStringArray = []
+		if bool(before.cleared) != bool(after.cleared):
+			changes.append("클리어 %s → %s" % ["완료" if before.cleared else "미완료", "완료" if after.cleared else "미완료"])
+			if before.cleared: lost_clears += 1
+		if int(before.best_stars) != int(after.best_stars):
+			changes.append("별 %d → %d" % [int(before.best_stars), int(after.best_stars)])
+			lost_stars += maxi(0, int(before.best_stars) - int(after.best_stars))
+		if float(before.fastest_win) != float(after.fastest_win):
+			changes.append("최단 승리 %s → %s" % [_win_time(before), _win_time(after)])
+		if float(before.best_base_hp) != float(after.best_base_hp):
+			changes.append("최고 기지 체력 %s → %s" % [str(before.best_base_hp), str(after.best_base_hp)])
+		if int(before.attempts) != int(after.attempts) or int(before.wins) != int(after.wins):
+			changes.append("시도 %d → %d · 승리 %d → %d" % [int(before.attempts), int(after.attempts), int(before.wins), int(after.wins)])
+		if not changes.is_empty():
+			campaign.append("%d단계 · %s\n%s" % [index + 1, ServerAI.stage_name(index + 1), "\n".join(changes)])
+	for index in live.deck_presets.size():
+		var before: Dictionary = live.deck_presets[index]
+		var after: Dictionary = restored.deck_presets[index]
+		var changes: PackedStringArray = []
+		if String(before.name) != String(after.name):
+			changes.append("이름: %s → %s" % [String(before.name), String(after.name)])
+		# Array order is meaningful: it controls the battle buttons and keyboard slots.
+		if before.units != after.units:
+			changes.append("병력: %s → %s" % [_deck_names(before.units, true), _deck_names(after.units, true)])
+		if before.structures != after.structures:
+			changes.append("구조물: %s → %s" % [_deck_names(before.structures, false), _deck_names(after.structures, false)])
+		if not changes.is_empty():
+			decks.append("덱 슬롯 %d\n%s" % [index + 1, "\n".join(changes)])
+	var summary := "변경: 캠페인 기록 %d단계 · 덱 구성 %d개\n개방 단계 %d → %d · 총 별 %d → %d" % [campaign.size(), decks.size(), int(live.campaign_unlocked), int(restored.campaign_unlocked), int(live.stats.total_stars), int(restored.stats.total_stars)]
+	if int(restored.campaign_unlocked) < int(live.campaign_unlocked):
+		warnings.append("개방 단계가 줄어 일부 캠페인이 다시 잠깁니다.")
+	if lost_clears > 0 or lost_stars > 0:
+		warnings.append("현재 기록 중 클리어 %d단계·별 %d개가 사본의 낮은 기록으로 바뀝니다. 다른 단계의 증가와 별도로 계산했습니다." % [lost_clears, lost_stars])
+	var before_growth := SaveData.campaign_growth_level(live)
+	var after_growth := SaveData.campaign_growth_level(restored)
+	if before_growth != after_growth:
+		var before_bonus := BattleModel.campaign_bonuses(before_growth)
+		var after_bonus := BattleModel.campaign_bonuses(after_growth)
+		summary += "\n성장 보상 %d → %d단계 · 병력 강화 +%d%% → +%d%%\n자원 수입 %s → %s/초 · 보유 한도 %d → %d · 시작 자원 %d → %d" % [before_growth, after_growth, roundi((float(before_bonus.stat_scale) - 1.0) * 100), roundi((float(after_bonus.stat_scale) - 1.0) * 100), str(before_bonus.income), str(after_bonus.income), int(before_bonus.capacity), int(after_bonus.capacity), int(before_bonus.starting_resources), int(after_bonus.starting_resources)]
+	if int(live.last_deck) != int(restored.last_deck):
+		summary += "\n최근 선택 덱: 슬롯 %d → 슬롯 %d" % [int(live.last_deck) + 1, int(restored.last_deck) + 1]
+	return {"summary": summary, "warning": "\n".join(warnings),
+		"campaign": "\n\n".join(campaign) if not campaign.is_empty() else "단계별 기록 변경 없음",
+		"decks": "\n\n".join(decks) if not decks.is_empty() else "세 덱의 이름·병력·구조물·배치 순서 변경 없음"}
+
+static func _win_time(record: Dictionary) -> String:
+	return str(record.fastest_win) + "초" if float(record.fastest_win) > 0.0 else "미기록 또는 0초"
+
+static func _fill_comparison(parent: VBoxContainer, current: Dictionary, candidate: Dictionary) -> void:
+	for child in parent.get_children():
+		parent.remove_child(child)
+		child.queue_free()
+	var comparison := _comparison(current, candidate)
+	parent.add_child(_label("복구하면 바뀌는 내용 · 현재 → 사본", UIKit.GOLD))
+	var summary := _label(String(comparison.summary), UIKit.TEXT)
+	summary.name = "ProfileComparisonSummary"
+	parent.add_child(summary)
+	if not String(comparison.warning).is_empty():
+		var warning := _label(String(comparison.warning), UIKit.DANGER)
+		warning.name = "ProfileComparisonWarning"
+		parent.add_child(warning)
+	parent.add_child(_label("캠페인 · 변경된 단계", UIKit.GOLD))
+	var campaign := _label(String(comparison.campaign), UIKit.TEXT)
+	campaign.name = "ProfileCampaignChanges"
+	parent.add_child(campaign)
+	parent.add_child(_label("덱 · 슬롯별 변경 (병력·구조물은 전투 버튼 순서)", UIKit.GOLD))
+	var decks := _label(String(comparison.decks), UIKit.TEXT)
+	decks.name = "ProfileDeckChanges"
+	parent.add_child(decks)
+	parent.add_child(_label("기록을 합치거나 더 높은 기록을 고르는 복구가 아닙니다. 전적·업적·도전 기록을 포함한 진행도 전체가 사본으로 바뀝니다. 현재 설정·익명 ID·전송 대기 기록은 유지합니다."))
+
+static func _add_comparison(parent: Node, current: Dictionary, candidate: Dictionary) -> void:
+	var comparison := VBoxContainer.new()
+	comparison.name = "ProfileRecoveryComparison"
+	comparison.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	comparison.add_theme_constant_override("separation", 10)
+	parent.add_child(comparison)
+	_fill_comparison(comparison, current, candidate)
+
 static func _stamp(seconds: int) -> String:
 	return Time.get_datetime_string_from_unix_time(seconds).replace("T", " ") + " UTC"
 
@@ -151,6 +249,11 @@ static func show(main, message: String = "", selected_path: String = "", browser
 	var preview := _label("", UIKit.TEXT)
 	preview.name = "ProfileRecoveryPreview"
 	column.add_child(preview)
+	var comparison := VBoxContainer.new()
+	comparison.name = "ProfileRecoveryComparison"
+	comparison.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	comparison.add_theme_constant_override("separation", 10)
+	column.add_child(comparison)
 	column.add_child(_label("복구는 전적·진행도·덱·닉네임을 사본으로 되돌립니다. 현재 진행도와 디스크 원본을 먼저 별도 보관합니다.\n현재 설정, 익명 ID, 전송 대기 기록은 유지하며 과거 결과를 다시 보내지 않습니다. 리플레이와 서버 기록은 그대로 남습니다."))
 	if int(candidates.excluded) > 0:
 		column.add_child(_label("손상되었거나 지원하지 않는 사본 %d개는 목록에서 제외했습니다. 원본 파일은 복구 폴더에 남아 있습니다." % int(candidates.excluded)))
@@ -214,6 +317,7 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		restore.disabled = not valid
 		export_selected.disabled = not valid
 		delete_selected.disabled = not valid or candidates.entries.size() < 2
+		comparison.visible = valid
 		preview.tooltip_text = ""
 		if not valid:
 			preview.text = "검색 조건에 맞는 사본이 없습니다. 검색어를 바꾸거나 초기화하세요." if not candidates.entries.is_empty() else "현재 진행도를 사본으로 보관하거나, 아래에서 외부 사본을 가져오세요. 손상된 원본은 수정하지 않고 보관합니다."
@@ -225,6 +329,7 @@ static func show(main, message: String = "", selected_path: String = "", browser
 		if int(entries[index].get("excluded", 0)) > 0:
 			preview.text += "\n잘못된 도전 기록 %d개는 복구에서 제외합니다. 사본 원본은 그대로 보관합니다." % int(entries[index].excluded)
 		preview.tooltip_text = ProjectSettings.globalize_path(String(entries[index].path))
+		_fill_comparison(comparison, main.save_data, entries[index].data)
 	var rebuild := func():
 		entries.clear()
 		entries.append_array(_filtered_entries(candidates.entries, String(state.query), int(state.order)))
@@ -280,6 +385,7 @@ static func _preview_import(main, text: String, screen_status: Label, screen_scr
 	details.add_child(_label(_summary(preview.data), UIKit.TEXT))
 	details.add_child(_label("현재 진행도", UIKit.GOLD))
 	details.add_child(_label(_summary(SaveData.sanitize(main.save_data)), UIKit.TEXT))
+	_add_comparison(details, main.save_data, preview.data)
 	details.add_child(_label("이 단계에서는 사본만 보관합니다. 보관 후 선택한 사본 복구 확인을 눌러야 진행도를 되돌립니다.\n복구할 때도 현재 설정·익명 ID·전송 대기 기록을 유지합니다. 가져온 사본의 결과는 다시 보내지 않습니다."))
 	if int(preview.excluded) > 0:
 		details.add_child(_label("잘못된 도전 기록 %d개는 복구에서 제외합니다. 가져온 JSON 원본은 그대로 보관합니다." % int(preview.excluded), UIKit.DANGER))
@@ -355,6 +461,7 @@ static func _confirm(main, entry: Dictionary, browser_state: Dictionary = {}) ->
 	details.add_child(_label(_summary(SaveData.sanitize(main.save_data)), UIKit.TEXT))
 	details.add_child(_label("이 사본으로 진행도를 되돌립니다.", UIKit.GOLD))
 	details.add_child(_label(_stamp(int(entry.modified)) + "\n" + _summary(entry.data), UIKit.TEXT))
+	_add_comparison(details, main.save_data, entry.data)
 	if int(entry.get("excluded", 0)) > 0:
 		details.add_child(_label("잘못된 도전 기록 %d개는 복구에서 제외합니다. 사본 원본은 그대로 보관합니다." % int(entry.excluded), UIKit.DANGER))
 	details.add_child(_label("현재 진행도와 원본을 보관한 뒤 복구합니다. 보관이나 저장에 실패하면 현재 진행도를 유지합니다.\n현재 설정과 전송 대기 기록을 유지하며, 이미 전송한 과거 결과는 다시 보내지 않습니다."))
