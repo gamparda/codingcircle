@@ -80,12 +80,9 @@ static func _shelf_entry(path: String, replay: Dictionary) -> Dictionary:
 		parts.append("클립 구간 %s 길이 %s" % [info.clip_range, info.clip_length])
 	else:
 		parts.append("전체 전투")
-	for side in 2:
-		for kind in replay.setup.unit_decks[side]:
-			parts.append("%s %s" % [kind, BattleModel.UNIT_NAMES.get(kind, kind)])
-		for kind in replay.setup.structure_decks[side]:
-			var definition: Resource = load("res://data/structures/%s.tres" % kind)
-			parts.append("%s %s" % [kind, definition.get("display_name")])
+	entry["deck_search"] = PackedStringArray([_challenge_deck_search_text(replay, 0), _challenge_deck_search_text(replay, 1)])
+	for deck in entry.deck_search:
+		parts.append(deck)
 	for note in BattleReplay.notes_of(replay):
 		parts.append(String(note.text))
 	entry.search = " ".join(parts).to_lower()
@@ -814,6 +811,7 @@ static func _replay_card(main, path: String, replay: Dictionary, file_bytes: int
 		row.add_child(deck_row)
 		for kind in replay.setup.unit_decks[side]:
 			var icon := TextureRect.new()
+			icon.tooltip_text = "%s (%s)" % [BattleModel.UNIT_NAMES.get(kind, kind), kind]
 			icon.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
 			icon.custom_minimum_size = Vector2(34, 46)
 			icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -825,6 +823,7 @@ static func _replay_card(main, path: String, replay: Dictionary, file_bytes: int
 			versus.text = "VS"
 			versus.add_theme_color_override("font_color", UIKit.TEXT_DIM)
 			row.add_child(versus)
+	_shelf_deck_preview(content, replay)
 	# Keep all actions reachable within the shelf width, including on touch devices.
 	var actions := HFlowContainer.new()
 	actions.name = "ReplayCardActions"
@@ -871,6 +870,29 @@ static func _replay_card(main, path: String, replay: Dictionary, file_bytes: int
 	actions.add_child(protect)
 	actions.add_child(_delete_button(main, path))
 	return card
+
+## A compact, readable composition preview; online files do not identify the local side.
+static func _shelf_deck_preview(parent: VBoxContainer, replay: Dictionary) -> void:
+	var mode := String(replay.get("meta", {}).get("mode", ""))
+	var local_battle := mode in ["campaign", "practice", "daily", "draft"]
+	var preview := VBoxContainer.new()
+	preview.name = "ReplayDeckPreview"
+	preview.add_theme_constant_override("separation", 4)
+	parent.add_child(preview)
+	for side in 2:
+		var units := PackedStringArray()
+		var structures := PackedStringArray()
+		for kind in replay.setup.unit_decks[side]:
+			units.append(String(BattleModel.UNIT_NAMES.get(kind, kind)))
+		for kind in replay.setup.structure_decks[side]:
+			var definition: Resource = load("res://data/structures/%s.tres" % kind)
+			structures.append(String(definition.get("display_name")))
+		var side_name := ("내 덱 (블루)" if side == 0 else "상대 덱 (레드)") if local_battle else ("블루 덱" if side == 0 else "레드 덱")
+		var label := MultiplayerUI.label("%s · 병력: %s · 구조물: %s" % [side_name, " · ".join(units), " · ".join(structures)], 14, UIKit.TEAM_BLUE.lightened(0.3) if side == 0 else UIKit.TEAM_RED.lightened(0.3))
+		label.name = "ReplayBlueDeckPreview" if side == 0 else "ReplayRedDeckPreview"
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.tooltip_text = "저장된 전체 전투의 출전 구성입니다. 실제 생산·설치 수가 아닙니다. 위의 진영별 덱 검색칸에서 이름이나 영문 ID로 찾을 수 있습니다.\n" + _challenge_full_deck_query(replay, side)
+		preview.add_child(label)
 
 ## An empty reply identifies no reason: do not assert that a code expired or was deleted.
 static func _replay_fetch_error(code: String, text: String) -> String:

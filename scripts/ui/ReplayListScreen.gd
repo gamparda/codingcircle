@@ -8,6 +8,7 @@ const MODES := ["", "campaign", "practice", "daily", "weekly", "draft", "online"
 var _entries: Array = []
 var _state: Dictionary = {}
 var _search: LineEdit
+var _deck_queries: Array[LineEdit] = []
 var _mode: OptionButton
 var _scope: OptionButton
 var _outcome: OptionButton
@@ -74,6 +75,35 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	_count.add_theme_font_size_override("font_size", 14)
 	_count.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	filters.add_child(_count)
+	var deck_filters := HFlowContainer.new()
+	deck_filters.name = "ReplayDeckFilters"
+	deck_filters.add_theme_constant_override("h_separation", 12)
+	deck_filters.add_theme_constant_override("v_separation", 4)
+	column.add_child(deck_filters)
+	column.move_child(deck_filters, _scroll.get_index())
+	for side in 2:
+		var field := VBoxContainer.new()
+		field.name = "ReplayBlueDeckField" if side == 0 else "ReplayRedDeckField"
+		field.custom_minimum_size.x = 280
+		field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		field.add_theme_constant_override("separation", 2)
+		deck_filters.add_child(field)
+		var heading := Label.new()
+		heading.text = "내 덱 (블루) / 온라인: 블루 덱" if side == 0 else "상대 덱 (레드) / 온라인: 레드 덱"
+		heading.add_theme_font_size_override("font_size", 14)
+		heading.add_theme_color_override("font_color", UIKit.TEAM_BLUE.lightened(0.3) if side == 0 else UIKit.TEAM_RED.lightened(0.3))
+		field.add_child(heading)
+		var query := LineEdit.new()
+		query.name = "ReplayBlueDeckSearch" if side == 0 else "ReplayRedDeckSearch"
+		query.placeholder_text = "병력·구조물 검색 (예: 탱커 포탑)" if side == 0 else "병력·구조물 검색 (예: 궁수 방벽)"
+		query.tooltip_text = "저장된 %s 진영의 병력·구조물 이름과 영문 ID만 검색합니다. 캠페인·연습·도전·드래프트는 내 덱이 블루입니다. 온라인·기타는 내 진영을 식별하지 않고 블루·레드 기준으로 찾습니다. 공백으로 나눈 검색어를 모두 포함해야 하며, 전체 검색·다른 덱·필터 조건과 함께 적용합니다. 클립도 전체 전투의 덱을 사용합니다." % ("블루" if side == 0 else "레드")
+		query.max_length = 160
+		query.clear_button_enabled = true
+		query.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 40
+		query.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		query.text = String(state.get("blue_query" if side == 0 else "red_query", ""))
+		field.add_child(query)
+		_deck_queries.append(query)
 	var storage := Label.new()
 	storage.name = "ReplayStorageSummary"
 	storage.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -90,6 +120,8 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 		card.set_meta("replay_path", String(entry.path))
 		entry["card"] = card
 	_search.text_changed.connect(func(_text): _refresh(true))
+	for query in _deck_queries:
+		query.text_changed.connect(func(_text): _refresh(true))
 	_mode.item_selected.connect(func(_index): _refresh(true))
 	_scope.item_selected.connect(func(_index): _refresh(true))
 	_outcome.item_selected.connect(func(_index): _refresh(true))
@@ -164,13 +196,17 @@ func _option(parent: Control, node_name: String, labels: Array, selected: int) -
 	parent.add_child(option)
 	return option
 
-static func matches(entry: Dictionary, query: String, mode: int, scope: int, outcome: int, retention: int = 0) -> bool:
+static func matches(entry: Dictionary, query: String, mode: int, scope: int, outcome: int, retention: int = 0, blue_query: String = "", red_query: String = "") -> bool:
 	if mode > 0 and String(entry.mode) != String(MODES[mode]): return false
 	if scope > 0 and (entry.mode == "unreadable" or bool(entry.clip) != (scope == 2)): return false
 	if outcome > 0 and int(entry.winner) != outcome - 1: return false
 	if retention > 0 and (entry.mode == "unreadable" or bool(entry.get("protected", false)) != (retention == 1)): return false
-	var text := String(entry.search)
-	for term in query.to_lower().replace("\t", " ").replace("\n", " ").split(" ", false):
+	if not _query_matches(String(entry.search), query): return false
+	var decks: PackedStringArray = entry.get("deck_search", PackedStringArray())
+	return _query_matches(decks[0] if decks.size() == 2 else "", blue_query) and _query_matches(decks[1] if decks.size() == 2 else "", red_query)
+
+static func _query_matches(text: String, query: String) -> bool:
+	for term in query.to_lower().replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ", false):
 		if not text.contains(term): return false
 	return true
 
@@ -222,6 +258,8 @@ func _apply_sort() -> void:
 func _refresh(reset_scroll: bool) -> void:
 	_refresh_revision += 1
 	_state["query"] = _search.text
+	_state["blue_query"] = _deck_queries[0].text
+	_state["red_query"] = _deck_queries[1].text
 	_state["mode"] = _mode.selected
 	_state["scope"] = _scope.selected
 	_state["outcome"] = _outcome.selected
@@ -231,7 +269,7 @@ func _refresh(reset_scroll: bool) -> void:
 	var shown := 0
 	var visible_entries: Array = []
 	for entry in _entries:
-		entry.card.visible = matches(entry, _search.text, _mode.selected, _scope.selected, _outcome.selected, _retention.selected)
+		entry.card.visible = matches(entry, _search.text, _mode.selected, _scope.selected, _outcome.selected, _retention.selected, _deck_queries[0].text, _deck_queries[1].text)
 		if entry.card.visible:
 			shown += 1
 			visible_entries.append(entry)
@@ -239,7 +277,7 @@ func _refresh(reset_scroll: bool) -> void:
 	var visible_storage := storage_totals(visible_entries)
 	_count.text += " · " + storage_size_text(int(visible_storage.bytes), int(visible_storage.unknown))
 	_count.tooltip_text = "현재 조건에 표시된 파일의 개수와 용량입니다. 읽기 실패 파일도 포함합니다. 검색·필터·정렬은 자동 정리와 덱 분석의 대상에 영향을 주지 않습니다."
-	_reset.disabled = _search.text.is_empty() and _mode.selected == 0 and _scope.selected == 0 and _outcome.selected == 0 and _retention.selected == 0 and _sort.selected == 0
+	_reset.disabled = _search.text.is_empty() and _deck_queries[0].text.is_empty() and _deck_queries[1].text.is_empty() and _mode.selected == 0 and _scope.selected == 0 and _outcome.selected == 0 and _retention.selected == 0 and _sort.selected == 0
 	if is_instance_valid(_empty):
 		_rows.remove_child(_empty)
 		_empty.queue_free()
@@ -258,7 +296,7 @@ func _refresh(reset_scroll: bool) -> void:
 		UIKit.display(message, 22, UIKit.TEXT)
 		_empty.add_child(message)
 		var hint := Label.new()
-		hint.text = "전투를 끝까지 치르면 자동 저장됩니다. 공유받은 텍스트는 클립보드에서 가져올 수 있습니다." if _entries.is_empty() else "검색어·종류·결과·보존 조건을 바꾸거나 초기화를 눌러 전체 목록을 확인하세요."
+		hint.text = "전투를 끝까지 치르면 자동 저장됩니다. 공유받은 텍스트는 클립보드에서 가져올 수 있습니다." if _entries.is_empty() else "전체 검색·양쪽 덱 검색·종류·결과·보존 조건을 바꾸거나 초기화를 눌러 전체 목록을 확인하세요. 읽기 실패 파일은 덱 조건을 해제해야 볼 수 있습니다."
 		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
@@ -343,6 +381,7 @@ func _input(event: InputEvent) -> void:
 
 func _reset_filters() -> void:
 	_search.text = ""
+	for query in _deck_queries: query.text = ""
 	_mode.select(0)
 	_scope.select(0)
 	_outcome.select(0)
