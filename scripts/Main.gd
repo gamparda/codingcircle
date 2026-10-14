@@ -112,6 +112,7 @@ var base_warning_fired := false
 var base_warning_label: Label
 var cancel_build_button: Button
 var report_overlay: Control
+var battle_report_state: Dictionary = {} # navigation only; reset for each match
 var client_purchase_gates: Dictionary = {}
 var latest_resources := 0.0
 var rage_sfx_player: AudioStreamPlayer
@@ -396,6 +397,12 @@ func _input(event: InputEvent) -> void:
 				return
 	if event is InputEventKey and LocalBattlePause.handle_key(self, event):
 		get_viewport().set_input_as_handled(); return
+	if event is InputEventKey and is_instance_valid(report_overlay):
+		var browser = report_overlay.get_node_or_null("BattleReportBrowser")
+		if browser != null and browser.handle_key(event):
+			get_viewport().set_input_as_handled()
+		# Only the global fullscreen action may reach the rest of Main.
+		if event.keycode != KEY_F11: return
 	if event is InputEventKey and is_instance_valid(stats_overlay) and not is_instance_valid(local_pause_overlay) and not is_instance_valid(action_overlay) and not is_instance_valid(report_overlay):
 		var browser = stats_overlay.get_node_or_null("BattleStatsBrowser")
 		if browser == null: browser = stats_overlay.get_node_or_null("BattleArmyPanel")
@@ -1137,7 +1144,11 @@ func _update_base_warning(data: Dictionary) -> void:
 	BattleFlow._update_base_warning(self, data)
 
 func _dismiss_battle_report() -> void:
-	if is_instance_valid(report_overlay): report_overlay.queue_free()
+	if is_instance_valid(report_overlay):
+		var browser = report_overlay.get_node_or_null("BattleReportBrowser")
+		if browser != null: browser.remember_before_close()
+		report_overlay.hide()
+		report_overlay.queue_free()
 	report_overlay = null
 
 func _report_side_name(side: int) -> String:

@@ -16,6 +16,7 @@ const ReportContent = preload("res://scripts/ui/BattleReportContent.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 const Goals = preload("res://scripts/Goals.gd")
 const ServerLink = preload("res://scripts/ServerLink.gd")
+const BattleReportBrowser = preload("res://scripts/ui/BattleReportBrowser.gd")
 
 ## Account for the confirmed result before any visual delay; keep the reward
 ## presentation so recovery can rebuild the screen without awarding it again.
@@ -438,8 +439,10 @@ static func _judge_achievements(main, winner: int) -> Array:
 static func _show_battle_report(main) -> void:
 	if not Report.valid(main.current_snapshot.get("battle_report",[])): return
 	main._dismiss_battle_report()
+	var return_focus: Control = main.get_viewport().gui_get_focus_owner()
 	main.report_overlay = ColorRect.new(); main.report_overlay.name = "BattleReportOverlay"; main.report_overlay.color = Color(0.02,0.03,0.05,0.97); main.report_overlay.size = Vector2(1280,720); main.report_overlay.z_index = 150; main.root_background.add_child(main.report_overlay)
 	var content := MultiplayerUI.panel(main,main.report_overlay,"BattleReportPanel",Rect2(80,40,1120,640))
+	content.name = "BattleReportContent"
 	content.add_child(MultiplayerUI.label("전투 요약",28,MultiplayerUI.GOLD))
 	var scroll := ScrollContainer.new()
 	scroll.name = "BattleReportScroll"
@@ -448,16 +451,20 @@ static func _show_battle_report(main) -> void:
 	scroll.follow_focus = true
 	scroll.scroll_deadzone = 16
 	scroll.focus_mode = Control.FOCUS_ALL
+	scroll.get_v_scroll_bar().focus_mode = Control.FOCUS_NONE
 	content.add_child(scroll)
 	var body := VBoxContainer.new()
+	body.name = "BattleReportBody"
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_theme_constant_override("separation", 12)
 	scroll.add_child(body)
 	_add_battle_graph(main, body)
-	ReportContent.populate(body, main.current_snapshot.battle_report, [main._report_side_name(0), main._report_side_name(1)])
+	ReportContent.populate_with_state(body, main.current_snapshot.battle_report, [main._report_side_name(0), main._report_side_name(1)], main.battle_report_state)
 	var close := MultiplayerUI.button(main,content,"닫기","CloseBattleReportButton",main._dismiss_battle_report)
 	close.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44
-	scroll.grab_focus.call_deferred()
+	var browser := BattleReportBrowser.new()
+	main.report_overlay.add_child(browser)
+	browser.setup(main, scroll, close, main.battle_report_state, return_focus)
 
 static func _add_battle_graph(main, parent: VBoxContainer) -> void:
 	var heading := MultiplayerUI.label("전세 흐름 · 기지와 생존 병력의 체력 기준", 16, MultiplayerUI.GOLD)
@@ -474,7 +481,11 @@ static func _add_battle_graph(main, parent: VBoxContainer) -> void:
 	graph.custom_minimum_size = Vector2(0, 88)
 	graph.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(graph)
-	graph.setup({"samples": main.battle_curve_samples.duplicate(true), "ticks": ticks})
+	# Result presentation stops sampling; the next match replaces the array.
+	# Sharing this confirmed history avoids copying every observation on reopen.
+	# Keep isolation for callers that display a report before result confirmation.
+	var samples: Array = main.battle_curve_samples if not main.result_presentation.is_empty() else main.battle_curve_samples.duplicate(true)
+	graph.setup({"samples": samples, "ticks": ticks})
 	graph.set_playhead(ticks)
 	graph.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	graph.tooltip_text = "파랑 위쪽·빨강 아래쪽은 해당 진영의 우세입니다. 빈 구간은 수신한 전세 기록이 없는 시간입니다."

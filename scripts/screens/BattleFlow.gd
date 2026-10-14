@@ -14,6 +14,7 @@ static func _reset_result(main) -> void:
 	main._dismiss_stats_panel()
 	# Replace the dictionary: an outgoing browser still holds its old match's state.
 	main.battle_stats_state = {}
+	main.battle_report_state = {}
 	main.result_recorded = false
 	main.result_presentation = {}
 	# History belongs to the match, rather than a particular HUD instance.

@@ -6,6 +6,9 @@ const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const Report = preload("res://scripts/BattleReport.gd")
 
 static func populate(parent: VBoxContainer, reports: Array, names: Array) -> void:
+	populate_with_state(parent, reports, names, {})
+
+static func populate_with_state(parent: VBoxContainer, reports: Array, names: Array, state: Dictionary) -> void:
 	if not Report.valid(reports) or names.size() != 2:
 		return
 	var columns := HBoxContainer.new(); columns.add_theme_constant_override("separation",28); parent.add_child(columns)
@@ -17,12 +20,12 @@ static func populate(parent: VBoxContainer, reports: Array, names: Array) -> voi
 		column.add_child(heading)
 		column.add_child(MultiplayerUI.label("사용 자원 %d · 건설 %d
 처치 %d · 실제 피해 %d" % [roundi(float(data.resources_spent)),int(data.structures_built),int(data.kills),roundi(float(data.damage))],16,MultiplayerUI.GOLD))
-	_add_unit_comparison(parent, reports)
+	_add_unit_comparison(parent, reports, state)
 	var report_note := MultiplayerUI.label("피해는 병력·구조물·기지에서 실제로 감소시킨 체력이고, 처치는 병력을 쓰러뜨린 횟수입니다. 해골의 처치·피해는 네크로맨서에 합산합니다. 치유·방어·자원 생산 효과는 이 공격 집계에 포함되지 않습니다.",12,MultiplayerUI.MUTED)
 	report_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	parent.add_child(report_note)
 
-static func _add_unit_comparison(parent: VBoxContainer, data: Array) -> void:
+static func _add_unit_comparison(parent: VBoxContainer, data: Array, state: Dictionary) -> void:
 	parent.add_child(HSeparator.new())
 	parent.add_child(MultiplayerUI.label("병력별 기여도", 18, MultiplayerUI.GOLD))
 	var controls := HBoxContainer.new()
@@ -39,6 +42,7 @@ static func _add_unit_comparison(parent: VBoxContainer, data: Array) -> void:
 	parent.add_child(rows)
 	# Freeze the selected report for metric changes; never read later playback or another match.
 	var reports: Array = data.duplicate(true)
+	var selected := "kills" if String(state.get("metric", "damage")) == "kills" else "damage"
 	var group := ButtonGroup.new()
 	for entry in [["damage", "실제 피해"], ["kills", "처치"]]:
 		var metric := String(entry[0])
@@ -46,14 +50,16 @@ static func _add_unit_comparison(parent: VBoxContainer, data: Array) -> void:
 		button.name = "BattleReportMetric_" + metric
 		button.text = String(entry[1])
 		UIKit.style_button(button, Color("#3d647d"), false, 16)
-		button.pressed.connect(func(): _render_unit_comparison(rows, hint, reports, metric))
+		button.pressed.connect(func():
+			state.metric = metric
+			_render_unit_comparison(rows, hint, reports, metric))
 		controls.add_child(button)
 		button.toggle_mode = true
 		button.button_group = group
 		button.custom_minimum_size = Vector2(150, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44)
-		button.set_pressed_no_signal(metric == "damage")
+		button.set_pressed_no_signal(metric == selected)
 		button.tooltip_text = "양 진영 합계가 큰 병력부터 정렬합니다. 비중은 각 진영의 전체 집계 기준입니다."
-	_render_unit_comparison(rows, hint, reports, "damage")
+	_render_unit_comparison(rows, hint, reports, selected)
 
 static func _render_unit_comparison(parent: VBoxContainer, hint: Label, reports: Array, metric: String) -> void:
 	for child in parent.get_children():
