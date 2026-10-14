@@ -20,6 +20,7 @@ const ServerReplayShelf = preload("res://scripts/ServerReplayShelf.gd")
 const MetaStatsUI = preload("res://scripts/screens/MetaStatsUI.gd")
 const REPLAY_LIST_SCREEN := preload("res://scenes/ui/ReplayListScreen.tscn")
 const ReplayListScreen = preload("res://scripts/ui/ReplayListScreen.gd")
+const ChallengeSearchTerms = preload("res://scripts/ui/ChallengeSearchTerms.gd")
 
 static func describe(replay: Dictionary) -> Dictionary:
 	var meta: Dictionary = replay.get("meta", {})
@@ -2138,7 +2139,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	var heading := MultiplayerUI.label("%s %s (UTC) · %s\n보관 기록: %s · %d점 · %.1f초" % [title, date_text, rule_text, "성공" if bool(record.get("won", false)) else "실패", int(record.get("score", 0)), float(record.get("seconds", 0.0))], 16, UIKit.TEXT)
 	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dialog.add_child(heading)
-	var hint := MultiplayerUI.label("카드의 병력·구조물을 누르면 해당 진영의 검색 조건에 추가합니다. 검색칸에는 종류를 구분하는 영문 ID가 들어갑니다. ✓ 항목은 다시 눌러 해제합니다. 내 덱·상대 덱의 전체 검색은 해당 검색칸을 카드의 전체 구성으로 교체하며, 양쪽 덱 전체 검색은 두 칸을 함께 교체합니다. ✓ 덱 검색 해제는 해당 칸만 비웁니다. 전체 검색·결과·클립 조건은 유지합니다. 내 덱·상대 덱 검색은 각 진영의 출전 구성만 찾으며, 빈 검색칸은 제한하지 않습니다. 덱은 저장된 전투의 출전 구성이며 순서나 실제 생산·설치 수는 구분하지 않습니다. 점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
+	var hint := MultiplayerUI.label("카드의 병력·구조물을 누르면 해당 진영의 검색 조건에 추가합니다. 검색칸에는 종류를 구분하는 영문 ID가 들어갑니다. ✓ 항목은 다시 눌러 해제합니다. 카드가 숨겨져도 검색칸 아래의 ‘검색어 ×’로 조건을 하나씩 해제할 수 있습니다. 내 덱·상대 덱의 전체 검색은 해당 검색칸을 카드의 전체 구성으로 교체하며, 양쪽 덱 전체 검색은 두 칸을 함께 교체합니다. ✓ 덱 검색 해제는 해당 칸만 비웁니다. 전체 검색·결과·클립 조건은 유지합니다. 내 덱·상대 덱 검색은 각 진영의 출전 구성만 찾으며, 빈 검색칸은 제한하지 않습니다. 덱은 저장된 전투의 출전 구성이며 순서나 실제 생산·설치 수는 구분하지 않습니다. 점수 분석으로 기지 체력·시간의 점수 근거를 확인합니다. 클립도 전체 전투 기준입니다. 이전·미상 버전은 현재 규칙의 참고 점수이며, 결과·시간·점수가 같아도 같은 전투인지는 확정할 수 없습니다.", 14, UIKit.TEXT_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var status := MultiplayerUI.label("보관 전투 %d개 · 버전 확인된 전투 우선" % entries.size(), 14, UIKit.GOLD)
 	status.name = "ChallengeReplayStatus"
@@ -2213,6 +2214,8 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	filters.add_child(count)
+	var search_terms := ChallengeSearchTerms.new()
+	dialog.add_child(search_terms)
 	var scroll := ScrollContainer.new()
 	scroll.name = "ChallengeReplayScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -2381,7 +2384,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 		var empty := MultiplayerUI.label("읽을 수 있는 보관 전투가 없습니다. 저장 실패·자동 정리·삭제로 점수 기록만 남을 수 있습니다. 다른 버전으로 확인된 전투는 포함하지 않습니다.", 16, UIKit.TEXT_MUTED)
 		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		rows.add_child(empty)
-	var no_matches := MultiplayerUI.label("검색 조건에 맞는 보관 전투가 없습니다. 내 덱은 블루, 상대 덱은 레드의 출전 구성에서 찾습니다. 공통 검색·덱별 검색어·결과·클립 조건을 바꾸거나 초기화로 모두 해제하세요.", 16, UIKit.TEXT_MUTED)
+	var no_matches := MultiplayerUI.label("검색 조건에 맞는 보관 전투가 없습니다. 위의 ‘검색어 ×’로 조건을 하나씩 해제할 수 있습니다. 내 덱은 블루, 상대 덱은 레드의 출전 구성에서 찾습니다. 결과·클립 조건을 바꾸거나 초기화로 모두 해제할 수도 있습니다.", 16, UIKit.TEXT_MUTED)
 	no_matches.name = "NoChallengeReplayMatches"
 	no_matches.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	no_matches.visible = false
@@ -2426,6 +2429,7 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 				control.accept_event()
 				close.call())
+	search_terms.close_requested.connect(close)
 	var apply_filters := func(reset_scroll: bool):
 		if not _dialog_alive(dialog): return
 		view_state["query"] = search.text
@@ -2458,6 +2462,12 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			shown += group_shown
 		count.text = "%d / %d개 표시" % [shown, entries.size()]
 		no_matches.visible = shown == 0 and not entries.is_empty()
+		for button in search_terms.buttons(): controls.erase(button)
+		search_terms.sync_queries(PackedStringArray([search.text, deck_queries[0].text, deck_queries[1].text]), scroll)
+		var term_index := controls.find(scroll)
+		for button in search_terms.buttons():
+			controls.insert(term_index, button)
+			term_index += 1
 		if focused in controls and (not focused.is_visible_in_tree() or (focused is BaseButton and focused.disabled)):
 			search.grab_focus()
 		_bind_challenge_navigation(controls)
@@ -2473,6 +2483,31 @@ static func _show_challenge_replays(main, period: String, date: String, ruleset:
 			scroll.scroll_vertical = 0
 			layout.restoring = false
 		dialog.get_tree().process_frame.connect(reset_position, CONNECT_ONE_SHOT)
+	search_terms.term_removed.connect(func(field: int, term: String):
+		if not _dialog_alive(dialog): return
+		var query: LineEdit = search if field == 0 else deck_queries[field - 1]
+		var remaining := PackedStringArray()
+		for other in _challenge_deck_terms(query.text):
+			if other.to_lower() != term: remaining.append(other)
+		# Cancel delayed restoration before replacing a condition; refresh exactly once.
+		var position := scroll.scroll_vertical
+		layout.revision = int(layout.revision) + 1
+		layout.restoring = true
+		query.text = " ".join(remaining)
+		apply_filters.call(false)
+		var removed_title := term.left(32) + ("…" if term.length() > 32 else "")
+		status.text = "%s 검색: ‘%s’ 해제 · 다른 검색·결과·클립 조건은 유지합니다." % [ChallengeSearchTerms.FIELD_NAMES[field], removed_title]
+		var focused: Control = main.get_viewport().gui_get_focus_owner()
+		view_state["focus_name"] = String(focused.name) if focused in controls else String(scroll.name)
+		view_state["focus_path"] = ""
+		view_state["scroll"] = position
+		var revision := int(layout.revision)
+		var restore_position := func():
+			if not _dialog_alive(dialog) or int(layout.revision) != revision: return
+			scroll.scroll_vertical = position
+			view_state["scroll"] = scroll.scroll_vertical
+			layout.restoring = false
+		dialog.get_tree().process_frame.connect(restore_position, CONNECT_ONE_SHOT))
 	search.text_changed.connect(func(_text): apply_filters.call(true))
 	for deck_query in deck_queries:
 		deck_query.text_changed.connect(func(_text): apply_filters.call(not bool(layout.deck_filtering)))
