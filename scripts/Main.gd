@@ -139,6 +139,7 @@ var structure_count_label: Label
 var army_count_labels: Dictionary = {} # Side-indexed HUD labels; never saved or sent.
 var unit_capacity_label: Label
 var placement_pending := false
+var build_confirm_key := 0 # Suppress the rest of a placement-confirmation stroke.
 var placement_message_serial := 0
 var room_code_input: LineEdit
 var multiplayer_screen := ""
@@ -302,6 +303,7 @@ func _arg_string(args: PackedStringArray, prefix: String, fallback: String) -> S
 
 func _notification(what: int) -> void:
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED]:
+		build_confirm_key = 0 # The OS may deliver the release to another window.
 		local_battle_backgrounded = true
 		if DisplayServer.get_name() != "headless": LocalBattlePause.pause(self, true)
 	elif what in [NOTIFICATION_APPLICATION_FOCUS_IN, NOTIFICATION_APPLICATION_RESUMED]:
@@ -352,6 +354,12 @@ func _process(delta: float) -> void:
 			get_tree().quit(2)
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventKey and build_confirm_key != 0:
+		var key := event.physical_keycode if event.physical_keycode != 0 else event.keycode
+		if key == build_confirm_key:
+			if not event.pressed: build_confirm_key = 0
+			get_viewport().set_input_as_handled()
+			return
 	if binding_capture_index>=0 and event is InputEventKey:
 		if not event.pressed or event.echo: get_viewport().set_input_as_handled(); return
 		get_viewport().set_input_as_handled()
@@ -412,6 +420,8 @@ func _input(event: InputEvent) -> void:
 		# Unhandled keys go to the reference controls, never to battle hotkeys.
 		return
 	if event is InputEventKey and _battle_text_has_focus(): return
+	if event is InputEventKey and BattleFlow._handle_build_key(self, event):
+		get_viewport().set_input_as_handled(); return
 	if event is InputEventKey and _handle_battle_hotkey(event):
 		get_viewport().set_input_as_handled(); return
 	if not event is InputEventKey or not event.pressed or event.echo:
@@ -555,6 +565,7 @@ func _clear_screen() -> void:
 	tutorial_hint = null
 	tutorial_step = -1
 	placement_pending = false
+	build_confirm_key = 0
 	placement_message_serial += 1
 	structure_buttons.clear()
 	purchase_buttons.clear()

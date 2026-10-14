@@ -409,6 +409,36 @@ static func _exit_ai_battle(main) -> void:
 	main.updater.set_safe_to_update(main._client_can_update())
 	main._build_ai_stage_screen(main.campaign_mode)
 
+## Route placement keys before focused HUD controls can navigate or activate.
+## Existing unmodified purchase bindings take priority; Shift always allows
+## fine placement even when arrows or Home/End were rebound to purchase cards.
+static func _handle_build_key(main, event: InputEventKey) -> bool:
+	if not main.battle_active or not is_instance_valid(main.battle_view) or main.battle_view.selected_structure.is_empty(): return false
+	if main._battle_text_has_focus() or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay) or (is_instance_valid(main.battle_chat_panel) and main.battle_chat_panel.visible): return false
+	if event.ctrl_pressed or event.alt_pressed or event.meta_pressed: return false
+	var key := event.physical_keycode if event.physical_keycode != 0 else event.keycode
+	if key not in [KEY_LEFT, KEY_RIGHT, KEY_HOME, KEY_END, KEY_ENTER, KEY_KP_ENTER]: return false
+	var codes: Array = main.save_data.settings.get("battle_keys", BattleBindings.DEFAULTS)
+	if not event.shift_pressed and codes.has(key): return false
+	if key in [KEY_ENTER, KEY_KP_ENTER] and event.pressed:
+		main.build_confirm_key = key
+	# Consume releases/repeated confirmations and keys during server admission
+	# without letting the focused purchase button fire behind the preview.
+	if not event.pressed or not main._battle_purchase_block_reason().is_empty() or main.placement_pending or main.battle_view.build_touch_index >= 0: return true
+	if key in [KEY_ENTER, KEY_KP_ENTER]:
+		if event.echo: return true
+		if not main.battle_view.keyboard_preview_active:
+			# A mouse-selected card first enters preview mode; confirmation is a
+			# separate press so Enter never builds at an unseen pointer position.
+			main.battle_view.begin_keyboard_build()
+		else:
+			main._on_battlefield_clicked(main.battle_view.keyboard_world_x)
+	elif key in [KEY_HOME, KEY_END]:
+		main.battle_view.jump_keyboard_build(key == KEY_END)
+	else:
+		main.battle_view.move_keyboard_build(-1 if key == KEY_LEFT else 1, event.shift_pressed)
+	return true
+
 static func _handle_battle_hotkey(main, event: InputEventKey) -> bool:
 	if not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed or not main._battle_purchase_block_reason().is_empty() or main._battle_text_has_focus() or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay): return false
 	var key := event.physical_keycode if event.physical_keycode!=0 else event.keycode
@@ -425,6 +455,8 @@ static func _handle_battle_hotkey(main, event: InputEventKey) -> bool:
 	if button.disabled: return true
 	if button.toggle_mode: button.set_pressed_no_signal(not button.button_pressed)
 	button.pressed.emit()
+	if button.has_meta("structure_kind") and is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")):
+		main.battle_view.begin_keyboard_build()
 	return true
 
 static func _purchase_unit(main, kind: String) -> void:

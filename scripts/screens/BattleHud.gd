@@ -81,7 +81,7 @@ static func _build_battle_screen(main) -> void:
 	main.placement_hint_label.name = "BuildPlacementHint"
 	main.placement_hint_label.tone = UIKit.TEAL
 	main.root_background.add_child(main.placement_hint_label)
-	main.placement_hint_label.place_center(640.0, 440.0)
+	main.placement_hint_label.place_center(640.0, 300.0)
 	main.unit_capacity_label = Label.new()
 	main.unit_capacity_label.name = "UnitCapacity"
 	main.unit_capacity_label.position = Vector2(20, 520)
@@ -656,7 +656,8 @@ static func _refresh_structure_selection(main) -> void:
 		if selected:
 			var kind: String = main.battle_view.selected_structure
 			var title: String = {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}.get(kind, kind)
-			main.placement_hint_label.text = "%s · 서버의 설치 결과를 기다리는 중" % title if main.placement_pending else "%s · 전장을 클릭하거나, 누른 채 이동 후 놓아 설치 · 전장 밖에 놓으면 취소" % title
+			main.placement_hint_label.text = "%s · 클릭 / 터치 후 놓아 설치 · 붉은 띠는 간격 부족\n←/→ 이동 · Shift 정밀/구매 키 겹침 · Home/End 양끝 · Enter 설치 · Esc 취소" % title
+			if main.placement_pending: main.placement_hint_label.text = "%s · 서버의 설치 결과를 기다리는 중" % title
 	for button in main.structure_buttons:
 		if is_instance_valid(button):
 			button.set_pressed_no_signal(is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")))
@@ -901,7 +902,7 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			elif missing > 0:
 				tooltip += resource_hint
 			elif block_reason.is_empty():
-				tooltip += "\n카드를 선택한 뒤 전장에서 위치를 선택하세요."
+				tooltip += "\n카드를 선택한 뒤 클릭·터치로 설치하거나 ←/→·Home/End로 위치를 정하고 Enter로 설치하세요. Shift+방향키는 정밀 이동입니다. 구매 단축키로 지정한 방향키·Home/End는 Shift와 함께 눌러 위치를 조정하세요."
 			if kind == "generator": tooltip += "\n발전기는 자신의 후방에만 설치할 수 있습니다."
 		else:
 			if not block_hint.is_empty(): tooltip += "\n" + block_hint

@@ -69,7 +69,13 @@ const STARS := [
 
 var snapshot: Dictionary = {}
 var own_side := 0
-var selected_structure := ""
+var selected_structure := "":
+	set(value):
+		if selected_structure == value: return
+		selected_structure = value
+		keyboard_preview_active = false
+		touch_preview_active = false
+		reset_build_touch()
 var mouse_position := Vector2.ZERO
 var animation_time := 0.0
 var visual_events: Array = []
@@ -89,6 +95,10 @@ var rage_states: Dictionary = {}
 var rage_flashes: Dictionary = {}
 var walk_times: Dictionary = {}
 var touch_preview_active := false
+var keyboard_preview_active := false
+var keyboard_world_x := 0.0
+const BUILD_CURSOR_STEP := 15.0
+const BUILD_CURSOR_FINE_STEP := 3.0
 var build_touch_index := -1
 var build_touch_kind := ""
 var finale_world_side := -1
@@ -282,7 +292,9 @@ func _process(delta: float) -> void:
 	for event in visual_events:
 		event.life = float(event.life) - delta
 	visual_events = visual_events.filter(func(event): return float(event.life) > 0.0)
-	if not touch_preview_active:
+	if keyboard_preview_active:
+		mouse_position = Vector2(world_to_screen_x(keyboard_world_x), size.y * 0.7)
+	elif not touch_preview_active:
 		mouse_position = get_local_mouse_position()
 	if not selected_structure.is_empty() or not snapshot.get("units", []).is_empty() or not visual_events.is_empty():
 		queue_redraw()
@@ -298,6 +310,7 @@ func update_build_touch(index: int, position_value: Vector2) -> bool:
 	if selected_structure != build_touch_kind:
 		reset_build_touch()
 		return false
+	keyboard_preview_active = false
 	touch_preview_active = true
 	mouse_position = position_value
 	queue_redraw()
@@ -325,6 +338,10 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		if build_touch_index >= 0:
 			return
+		# A real pointer movement takes over; stationary mouse coordinates must
+		# not overwrite a position chosen with the keyboard on the next frame.
+		if event.relative.is_zero_approx(): return
+		keyboard_preview_active = false
 		touch_preview_active = false
 		mouse_position = event.position
 	elif event is InputEventScreenTouch:
@@ -342,6 +359,8 @@ func _gui_input(event: InputEvent) -> void:
 		if build_touch_index >= 0:
 			if is_inside_tree(): accept_event()
 			return
+		keyboard_preview_active = false
+		touch_preview_active = false
 		mouse_position = event.position
 		var world_x: float = screen_to_world_x(event.position.x)
 		battlefield_clicked.emit(world_x)
@@ -710,27 +729,93 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 			draw_string_outline(display, text_position, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 5, Color(0.02, 0.03, 0.07, color.a * 0.9))
 			draw_string(display, text_position, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 
-func build_preview(world_x: float) -> Dictionary:
-	var kind := selected_structure
+func _build_bounds() -> Vector2:
 	var lower := BattleModel.BLUE_BUILD_MIN if own_side == 0 else BattleModel.RED_BUILD_MIN
 	var upper := BattleModel.BLUE_BUILD_MAX if own_side == 0 else BattleModel.RED_BUILD_MAX
-	if kind == "generator":
+	if selected_structure == "generator":
 		if own_side == 0: upper = BattleModel.BLUE_REAR_MAX
 		else: lower = BattleModel.RED_REAR_MIN
+	return Vector2(lower, upper)
+
+## The cursor stays in world coordinates through the existing screen transform.
+## Pick the nearest legal starting point, including exact spacing boundaries.
+func begin_keyboard_build() -> void:
+	if selected_structure.is_empty() or inspect_mode: return
+	var bounds := _build_bounds()
+	var desired := screen_to_world_x(mouse_position.x)
+	if not Rect2(Vector2.ZERO, size).has_point(mouse_position) or desired < bounds.x or desired > bounds.y:
+		desired = (bounds.x + bounds.y) * 0.5
+	var candidates: Array = [desired, bounds.x, bounds.y]
+	for structure in snapshot.get("structures", []):
+		if int(structure.side) != own_side or float(structure.get("hp", 1.0)) <= 0.0: continue
+		candidates.append(float(structure.x) - BattleModel.STRUCTURE_MIN_SPACING)
+		candidates.append(float(structure.x) + BattleModel.STRUCTURE_MIN_SPACING)
+	var chosen := desired
+	var distance := INF
+	for candidate in candidates:
+		var x := float(candidate)
+		if x < bounds.x or x > bounds.y or not placement_error(selected_structure, x).is_empty(): continue
+		if absf(x - desired) < distance:
+			chosen = x
+			distance = absf(x - desired)
+	reset_build_touch()
+	touch_preview_active = false
+	keyboard_preview_active = true
+	_set_keyboard_build_x(chosen)
+
+func _set_keyboard_build_x(world_x: float) -> void:
+	var bounds := _build_bounds()
+	keyboard_world_x = clampf(world_x, bounds.x, bounds.y)
+	mouse_position = Vector2(world_to_screen_x(keyboard_world_x), size.y * 0.7)
+	queue_redraw()
+
+func move_keyboard_build(direction: int, fine: bool = false) -> void:
+	if not keyboard_preview_active: begin_keyboard_build()
+	if not keyboard_preview_active: return
+	var step := BUILD_CURSOR_FINE_STEP if fine else BUILD_CURSOR_STEP
+	var world_direction := direction if own_side == 0 else -direction
+	_set_keyboard_build_x(keyboard_world_x + float(world_direction) * step)
+
+func jump_keyboard_build(to_front: bool) -> void:
+	if not keyboard_preview_active: begin_keyboard_build()
+	if not keyboard_preview_active: return
+	var bounds := _build_bounds()
+	_set_keyboard_build_x(bounds.y if to_front == (own_side == 0) else bounds.x)
+
+func build_preview(world_x: float) -> Dictionary:
+	var kind := selected_structure
+	var bounds := _build_bounds()
 	var stats: Dictionary = BattleModel.STRUCTURE_STATS.get(kind, {})
 	var error := placement_error(kind, world_x)
 	if build_touch_index >= 0 and not Rect2(Vector2.ZERO, size).has_point(mouse_position):
 		error = Localization.text("전장 밖에서 손을 떼면 설치하지 않습니다.")
-	return {"error": error, "lower": lower, "upper": upper,
+	return {"error": error, "lower": bounds.x, "upper": bounds.y,
 		"radius": float(stats.get("radius", stats.get("range", 0.0))), "x": world_x}
 
 func _draw_build_preview(lane_y: float) -> void:
-	var preview := build_preview(screen_to_world_x(mouse_position.x))
+	var preview := build_preview(keyboard_world_x if keyboard_preview_active else screen_to_world_x(mouse_position.x))
 	var valid: bool = preview.error.is_empty()
 	var build_color := Color(0.30, 0.94, 0.60, 0.24) if valid else Color(1.0, 0.30, 0.40, 0.24)
 	var left := world_to_screen_x(float(preview.lower))
 	var right := world_to_screen_x(float(preview.upper))
 	draw_rect(Rect2(minf(left, right), lane_y - 9.0, absf(right-left), 32.0), Color(0.30, 0.94, 0.60, 0.10))
+	# Only living friendly structures exclude placement, just as in the model.
+	# Clip their spacing bands to this kind's build zone (rear-only for generators).
+	for structure in snapshot.get("structures", []):
+		if int(structure.side) != own_side or float(structure.get("hp", 1.0)) <= 0.0: continue
+		var start := maxf(float(preview.lower), float(structure.x) - BattleModel.STRUCTURE_MIN_SPACING)
+		var end := minf(float(preview.upper), float(structure.x) + BattleModel.STRUCTURE_MIN_SPACING)
+		if end <= start: continue
+		var start_x := world_to_screen_x(start)
+		var end_x := world_to_screen_x(end)
+		var excluded := Rect2(minf(start_x, end_x), lane_y - 9.0, absf(end_x - start_x), 32.0)
+		draw_rect(excluded, Color(1.0, 0.30, 0.40, 0.25))
+		draw_rect(excluded, Color(1.0, 0.45, 0.50, 0.65), false, 1.0)
+		# Hatching keeps the spacing cue distinct from the valid zone by shape.
+		var stripe_x := excluded.position.x
+		while stripe_x + 10.0 <= excluded.end.x:
+			draw_line(Vector2(stripe_x, lane_y + 15.0), Vector2(stripe_x + 10.0, lane_y - 1.0), Color(1.0, 0.55, 0.60, 0.65), 1.0)
+			stripe_x += 16.0
 	draw_line(Vector2(left,lane_y-8.0), Vector2(left,lane_y+24.0), Color("#86f7ad"), 2.0)
 	draw_line(Vector2(right,lane_y-8.0), Vector2(right,lane_y+24.0), Color("#86f7ad"), 2.0)
 	var radius := float(preview.radius) / BattleModel.WORLD_WIDTH * size.x
@@ -739,6 +824,13 @@ func _draw_build_preview(lane_y: float) -> void:
 		draw_line(Vector2(mouse_position.x-radius,lane_y+4.0), Vector2(mouse_position.x+radius,lane_y+4.0), build_color.lightened(0.4), 2.0)
 	draw_rect(Rect2(mouse_position.x-23.0,lane_y-60.0,46.0,60.0), build_color)
 	draw_rect(Rect2(mouse_position.x-23.0,lane_y-60.0,46.0,60.0), build_color.lightened(0.4), false, 2.0)
+	if keyboard_preview_active:
+		var cursor := Vector2(mouse_position.x, lane_y - 70.0)
+		draw_line(cursor + Vector2(-7, -5), cursor, GOLD, 2.0)
+		draw_line(cursor, cursor + Vector2(7, -5), GOLD, 2.0)
+		if valid:
+			var label_x := clampf(mouse_position.x - 75.0, 12.0, maxf(12.0, size.x - 180.0))
+			draw_string(ThemeDB.fallback_font, Vector2(label_x, minf(lane_y + 56.0, size.y - 12.0)), "Enter · 설치", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, GOLD)
 	if not valid:
 		var label_x := clampf(mouse_position.x-150.0, 12.0, maxf(12.0,size.x-320.0))
 		draw_string(ThemeDB.fallback_font, Vector2(label_x,minf(lane_y+56.0,size.y-12.0)), String(preview.error), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#ff8a96"))
