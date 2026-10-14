@@ -133,12 +133,15 @@ static func _build_battle_screen(main) -> void:
 	resource_inner.add_child(resource_bar)
 	main.resource_label.set_meta("bar", resource_bar)
 	var side_label := Label.new()
-	side_label.text = "●  아군 진영"
+	side_label.name = "ResourceIncome"
+	side_label.text = "회복 정보 대기"
+	side_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	side_label.position = Vector2(14, 80)
 	side_label.size = Vector2(145, 22)
 	side_label.add_theme_font_size_override("font_size", 12)
 	side_label.add_theme_color_override("font_color", own_color)
 	resource_inner.add_child(side_label)
+	main.resource_label.set_meta("income_label", side_label)
 
 	var row := HBoxContainer.new()
 	row.position = Vector2(205, 19)
@@ -580,6 +583,62 @@ static func _purchase_block_hint(reason: String) -> String:
 		"일시정지": "전투가 일시정지되어 있습니다. 계속하기 또는 Space로 재개하거나 열려 있는 안내 창을 닫으세요.",
 	}.get(reason, "")
 
+## Read the same growth and living-generator inputs used by BattleModel.tick.
+## Keep forecasts separate from authoritative resources and purchase eligibility.
+static func _resource_economy(main, counts: Dictionary) -> Dictionary:
+	var income := BattleModel.RESOURCE_RATE
+	var capacity := BattleModel.MAX_RESOURCE
+	var speed := 1.0
+	var unlimited := false
+	if main.local_ai_mode and is_instance_valid(main.local_model):
+		income = main.local_model.resource_income(main.own_side)
+		capacity = main.local_model.resource_capacity(main.own_side)
+		# Campaigns and scripted/challenge battles advance at fixed 30 Hz even
+		# when a previous practice session left tool settings enabled.
+		if not main.campaign_mode and main.ghost_context.is_empty() and main.daily_challenge.is_empty():
+			speed = maxf(0.001, float(main.practice.speed))
+			unlimited = bool(main.practice.unlimited)
+	var generators := int(counts.kinds.get("generator", 0))
+	income += generators * float(BattleModel.STRUCTURE_STATS.generator.income)
+	return {"income": income, "capacity": capacity, "speed": speed, "unlimited": unlimited, "generators": generators}
+
+static func _refresh_resource_income(main, resources: float, economy: Dictionary, block_reason: String) -> void:
+	if not is_instance_valid(main.resource_label): return
+	var label = main.resource_label.get_meta("income_label", null)
+	if not is_instance_valid(label): return
+	var text := "회복 +%.1f/초" % (float(economy.income) * float(economy.speed))
+	var tone := UIKit.TEAL
+	var tooltip := "전투 시간 기준 자원 +%.1f/초 · 살아 있는 아군 발전기 %d개 · 보유 한도 %d" % [float(economy.income), int(economy.generators), int(economy.capacity)]
+	# Spectator card locks take priority over recovery locks; income still needs
+	# a fresh snapshot before it can describe the observed side's economy.
+	var awaiting_income: bool = not main.local_ai_mode and (main.awaiting_battle_snapshot or main.network.client_reconnecting or main.network_paused)
+	if awaiting_income or main.current_snapshot.is_empty():
+		text = "회복 정보 대기"
+		if awaiting_income:
+			text = "연결 복구 중" if main.network.client_reconnecting else "복구 대기" if main.network_paused else "상태 수신 중"
+		tooltip = "최신 전투 상태를 받은 뒤 자원 회복 속도를 표시합니다."
+		tone = UIKit.TEXT_MUTED
+	elif block_reason == "전투 종료":
+		text = "회복 종료"
+		tooltip = _purchase_block_hint(block_reason)
+		tone = UIKit.TEXT_MUTED
+	elif block_reason == "일시정지":
+		text = "회복 일시정지"
+		tooltip += "\n전투를 재개하면 자원 회복도 이어집니다."
+		tone = UIKit.GOLD
+	elif bool(economy.unlimited):
+		text = "무한 자원 · 자동 보충"
+		tooltip = "연습 도구가 자원을 보유 한도까지 자동으로 보충합니다."
+	elif resources >= float(economy.capacity):
+		text = "한도 도달 · 회복 멈춤"
+		tooltip += "\n한도에 도달해 추가 자원을 쌓을 수 없습니다. 자원을 사용하면 회복이 이어집니다."
+		tone = UIKit.GOLD
+	elif not is_equal_approx(float(economy.speed), 1.0):
+		tooltip += "\n현재 %.1f배속 · 실제 시간 기준 +%.1f/초" % [float(economy.speed), float(economy.income) * float(economy.speed)]
+	if label.text != text: label.text = text
+	if label.tooltip_text != tooltip: label.tooltip_text = tooltip
+	if label.get_theme_color("font_color") != tone: label.add_theme_color_override("font_color", tone)
+
 static func _refresh_purchase_buttons(main, resources: float) -> void:
 	main.latest_resources = resources
 	var awaiting_state: bool = not main.local_ai_mode and main.awaiting_battle_snapshot
@@ -590,6 +649,8 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 	var block_reason := _purchase_block_reason(main)
 	var block_hint := _purchase_block_hint(block_reason)
 	var counts := BattleModel.structure_counts(main.current_snapshot.get("structures", []), main.own_side)
+	var economy := _resource_economy(main, counts)
+	_refresh_resource_income(main, resources, economy, block_reason)
 	if is_instance_valid(main.structure_count_label):
 		main.structure_count_label.text = "구조물 — / %d" % BattleModel.STRUCTURE_LIMIT if awaiting_state else "구조물 %d / %d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT]
 		main.structure_count_label.add_theme_color_override("font_color", UIKit.GOLD if not awaiting_state and int(counts.total) >= BattleModel.STRUCTURE_LIMIT else Color("#a7afc0"))
@@ -598,11 +659,31 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 		if not is_instance_valid(button):
 			continue
 		var cooldown := 0.0
+		var cooldown_wait := 0.0
 		if button.has_meta("unit_kind") and not awaiting_state:
 			var kind: String = button.get_meta("unit_kind")
 			var advertised: Array = main.current_snapshot.get("spawn_cooldowns",[{},{}])
-			cooldown = maxf(float(advertised[main.own_side].get(kind,0.0)),maxf(0.0,float(main.client_purchase_gates.get(kind,0))-Time.get_ticks_msec())/1000.0)
-		var missing := 0 if awaiting_state else maxi(0,ceili(float(button.get_meta("purchase_cost"))-resources))
+			var model_wait := float(advertised[main.own_side].get(kind, 0.0))
+			var client_wait := maxf(0.0, float(main.client_purchase_gates.get(kind, 0)) - Time.get_ticks_msec()) / 1000.0
+			cooldown = maxf(model_wait, client_wait)
+			cooldown_wait = maxf(model_wait / float(economy.speed), client_wait)
+		var cost := float(button.get_meta("purchase_cost"))
+		var deficit := maxf(0.0, cost - resources)
+		var missing := 0 if awaiting_state else ceili(deficit)
+		var above_capacity := cost > float(economy.capacity)
+		# Use the fractional deficit; ceil is only for the displayed missing amount.
+		var resource_wait := deficit / maxf(0.001, float(economy.income) * float(economy.speed))
+		var purchase_wait := maxf(resource_wait, cooldown_wait)
+		var resource_hint := ""
+		if missing > 0:
+			resource_hint = "\n자원이 %d 더 필요합니다." % missing
+			if block_reason.is_empty():
+				if above_capacity:
+					resource_hint += " 비용이 보유 한도 %d보다 높아 회복만으로 구매할 수 없습니다." % int(economy.capacity)
+				elif bool(economy.unlimited):
+					resource_hint += " 무한 자원 도구의 보충을 기다리고 있습니다."
+				else:
+					resource_hint += " 구매 대기 예상 약 %.1f초 (현재 회복 속도·생산 대기 기준). 추가 구매나 발전기 파괴로 달라질 수 있습니다." % (ceilf(purchase_wait * 10.0) / 10.0)
 		var waiting: bool = main.placement_pending and button.has_meta("structure_kind")
 		var limit_error := ""
 		var limit_state := ""
@@ -629,14 +710,14 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 				tooltip += "\n" + limit_error
 				tooltip += " 아군 구조물이 파괴되거나 만료되어 전체·종류별 한도에 빈자리가 생기면 다시 선택할 수 있습니다."
 			elif missing > 0:
-				tooltip += "\n자원이 %d 더 필요합니다." % missing
+				tooltip += resource_hint
 			elif block_reason.is_empty():
 				tooltip += "\n카드를 선택한 뒤 전장에서 위치를 선택하세요."
 			if kind == "generator": tooltip += "\n발전기는 자신의 후방에만 설치할 수 있습니다."
 		else:
 			if not block_hint.is_empty(): tooltip += "\n" + block_hint
-			if missing > 0: tooltip += "\n자원이 %d 더 필요합니다." % missing
-			if cooldown > 0.001: tooltip += "\n생산 대기 %.1f초" % cooldown
+			if missing > 0: tooltip += resource_hint
+			if cooldown > 0.001: tooltip += "\n생산 대기 %.1f초" % (ceilf(cooldown_wait * 10.0) / 10.0)
 		if button.tooltip_text != tooltip: button.tooltip_text = tooltip
 		var unavailable: bool = not block_reason.is_empty() or waiting or not limit_error.is_empty() or missing>0 or cooldown>0.001
 		var state_label := button.get_node_or_null("PurchaseState") as Label
@@ -645,8 +726,11 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			if not block_reason.is_empty(): state_text = block_reason
 			elif waiting: state_text = "서버 확인 중"
 			elif not limit_state.is_empty(): state_text = limit_state
-			elif missing > 0: state_text = "자원 -%d" % missing
-			elif cooldown > 0.001: state_text = "대기 %.1f초" % cooldown
+			elif missing > 0:
+				if above_capacity: state_text = "자원 한도 초과"
+				elif bool(economy.unlimited): state_text = "자원 보충 중"
+				else: state_text = "자원 약 %.1f초" % (ceilf(purchase_wait * 10.0) / 10.0)
+			elif cooldown > 0.001: state_text = "대기 %.1f초" % (ceilf(cooldown_wait * 10.0) / 10.0)
 			if state_label.text!=state_text: state_label.text = state_text
 			state_label.visible = not state_text.is_empty()
 		if button.disabled != unavailable:
