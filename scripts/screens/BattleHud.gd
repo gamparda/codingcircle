@@ -82,6 +82,13 @@ static func _build_battle_screen(main) -> void:
 	main.placement_hint_label.tone = UIKit.TEAL
 	main.root_background.add_child(main.placement_hint_label)
 	main.placement_hint_label.place_center(640.0, 440.0)
+	main.unit_capacity_label = Label.new()
+	main.unit_capacity_label.name = "UnitCapacity"
+	main.unit_capacity_label.position = Vector2(20, 520)
+	main.unit_capacity_label.size = Vector2(360, 28)
+	main.unit_capacity_label.add_theme_font_size_override("font_size", 14)
+	main.unit_capacity_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	main.root_background.add_child(main.unit_capacity_label)
 	main.structure_count_label = Label.new()
 	main.structure_count_label.position = Vector2(1030, 548)
 	main.structure_count_label.size = Vector2(220, 28)
@@ -324,10 +331,20 @@ static func _create_hp_card(main, parent: Control, position_value: Vector2, side
 	var faction := Label.new()
 	faction.text = "아군 기지" if side == main.own_side else "적군 기지"
 	faction.position = Vector2(16, 7)
-	faction.size = Vector2(240, 22)
+	faction.size = Vector2(96, 22)
 	faction.add_theme_font_size_override("font_size", 13)
 	faction.add_theme_color_override("font_color", color.lightened(0.25))
 	inner.add_child(faction)
+	var army_count := Label.new()
+	army_count.name = "ArmyCount%d" % side
+	army_count.position = Vector2(114, 7)
+	army_count.size = Vector2(178, 22)
+	army_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	army_count.add_theme_font_size_override("font_size", 12)
+	army_count.add_theme_color_override("font_color", color.lightened(0.25))
+	army_count.mouse_filter = Control.MOUSE_FILTER_PASS
+	inner.add_child(army_count)
+	main.army_count_labels[side] = army_count
 	var value_label := Label.new()
 	value_label.position = Vector2(300, 5)
 	value_label.size = Vector2(104, 24)
@@ -583,6 +600,62 @@ static func _purchase_block_hint(reason: String) -> String:
 		"일시정지": "전투가 일시정지되어 있습니다. 계속하기 또는 Space로 재개하거나 열려 있는 안내 창을 닫으세요.",
 	}.get(reason, "")
 
+## The cap applies to both sides and summons together, using the raw array size.
+## Living counts describe the army; dead entries still occupy a slot until cleanup.
+static func _battle_units(main) -> Array:
+	if main.local_ai_mode and is_instance_valid(main.local_model): return main.local_model.units
+	return main.current_snapshot.get("units", [])
+
+static func _unit_population(main) -> Dictionary:
+	var values := _battle_units(main)
+	var counts := {"occupied": values.size(), "living": [0, 0], "summons": [0, 0], "kinds": [{}, {}]}
+	for unit in values:
+		if float(unit.hp) <= 0.0: continue
+		var side := int(unit.side)
+		var kind := String(unit.kind)
+		counts.living[side] += 1
+		counts.kinds[side][kind] = int(counts.kinds[side].get(kind, 0)) + 1
+		if BattleModel.SUMMON_STATS.has(kind): counts.summons[side] += 1
+	return counts
+
+static func _unit_limit_hint() -> String:
+	return "양쪽 병력과 소환수를 합쳐 전장에 최대 %d명까지 유지할 수 있습니다. 병력이 사망하고 정리되어 빈자리가 생기면 다시 생산할 수 있습니다. 구조물은 별도 한도를 사용합니다." % BattleModel.MAX_ACTIVE_UNITS
+
+static func _unit_production_limit_error(main) -> String:
+	return "전장 병력 한도 %d명 · 병력이 줄어들면 다시 생산할 수 있습니다." % BattleModel.MAX_ACTIVE_UNITS if _battle_units(main).size() >= BattleModel.MAX_ACTIVE_UNITS else ""
+
+static func _refresh_unit_population(main, counts: Dictionary) -> void:
+	var awaiting: bool = main.current_snapshot.is_empty() or (not main.local_ai_mode and (main.awaiting_battle_snapshot or main.network.client_reconnecting or main.network_paused))
+	for side in main.army_count_labels:
+		var label = main.army_count_labels[side]
+		if not is_instance_valid(label): continue
+		var text := "병력 —" if awaiting else "병력 %d" % int(counts.living[side])
+		var tooltip := "최신 전투 상태를 받은 뒤 병력 현황을 표시합니다."
+		if not awaiting:
+			var summons := int(counts.summons[side])
+			if summons > 0: text += " · 소환 %d" % summons
+			var side_name := "블루" if int(side) == 0 else "레드"
+			if not main.network.client_is_spectator: side_name = "아군" if int(side) == main.own_side else "적군"
+			tooltip = "%s · 살아 있는 병력 %d명 (소환 %d명 포함)" % [side_name, int(counts.living[side]), summons]
+			for kind in BattleModel.UNIT_NAMES:
+				var amount := int(counts.kinds[side].get(kind, 0))
+				if amount > 0:
+					tooltip += "\n%s %d명" % [String(BattleModel.UNIT_NAMES[kind]), amount]
+					if BattleModel.SUMMON_STATS.has(kind): tooltip += " · 소환 병력"
+		if label.text != text: label.text = text
+		if label.tooltip_text != tooltip: label.tooltip_text = tooltip
+	if not is_instance_valid(main.unit_capacity_label): return
+	var capacity_text := "전장 병력 — / %d" % BattleModel.MAX_ACTIVE_UNITS if awaiting else "전장 병력 %d / %d" % [int(counts.occupied), BattleModel.MAX_ACTIVE_UNITS]
+	var full: bool = not awaiting and int(counts.occupied) >= BattleModel.MAX_ACTIVE_UNITS
+	if full: capacity_text += " · 생산 한도"
+	var capacity_hint := "최신 전투 상태를 받은 뒤 전체 병력 수와 생산 한도를 표시합니다." if awaiting else _unit_limit_hint()
+	var pending := int(counts.occupied) - int(counts.living[0]) - int(counts.living[1])
+	if not awaiting and pending > 0: capacity_hint += "\n사망 후 정리 대기 %d명도 현재 전장 한도에 포함됩니다." % pending
+	var tone := UIKit.GOLD if full else UIKit.TEXT_MUTED
+	if main.unit_capacity_label.text != capacity_text: main.unit_capacity_label.text = capacity_text
+	if main.unit_capacity_label.tooltip_text != capacity_hint: main.unit_capacity_label.tooltip_text = capacity_hint
+	if main.unit_capacity_label.get_theme_color("font_color") != tone: main.unit_capacity_label.add_theme_color_override("font_color", tone)
+
 ## Read the same growth and living-generator inputs used by BattleModel.tick.
 ## Keep forecasts separate from authoritative resources and purchase eligibility.
 static func _resource_economy(main, counts: Dictionary) -> Dictionary:
@@ -649,6 +722,10 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 	var block_reason := _purchase_block_reason(main)
 	var block_hint := _purchase_block_hint(block_reason)
 	var counts := BattleModel.structure_counts(main.current_snapshot.get("structures", []), main.own_side)
+	var population := _unit_population(main)
+	_refresh_unit_population(main, population)
+	var own_name := "아군"
+	if main.network.client_is_spectator: own_name = "블루" if main.own_side == 0 else "레드"
 	var economy := _resource_economy(main, counts)
 	_refresh_resource_income(main, resources, economy, block_reason)
 	if is_instance_valid(main.structure_count_label):
@@ -688,6 +765,10 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 		var limit_error := ""
 		var limit_state := ""
 		var tooltip := String(button.get_meta("base_tooltip", ""))
+		if button.has_meta("unit_kind") and not awaiting_state:
+			if int(population.occupied) >= BattleModel.MAX_ACTIVE_UNITS:
+				limit_error = _unit_limit_hint()
+				limit_state = "전장 한도 %d/%d" % [int(population.occupied), BattleModel.MAX_ACTIVE_UNITS]
 		if button.has_meta("structure_kind"):
 			var kind: String = button.get_meta("structure_kind")
 			var count := int(counts.kinds.get(kind, 0))
@@ -716,7 +797,12 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			if kind == "generator": tooltip += "\n발전기는 자신의 후방에만 설치할 수 있습니다."
 		else:
 			if not block_hint.is_empty(): tooltip += "\n" + block_hint
-			if missing > 0: tooltip += resource_hint
+			if not awaiting_state:
+				var kind: String = button.get_meta("unit_kind")
+				tooltip += "\n살아 있는 %s %d명 · 전장 전체 %d / %d (양쪽·소환 포함)" % [own_name, int(population.kinds[main.own_side].get(kind, 0)), int(population.occupied), BattleModel.MAX_ACTIVE_UNITS]
+				if kind == "necromancer": tooltip += "\n살아 있는 %s 해골 %d명 · 전장 병력 한도에 포함" % [own_name, int(population.kinds[main.own_side].get("skeleton", 0))]
+			if not limit_error.is_empty(): tooltip += "\n" + limit_error
+			elif missing > 0: tooltip += resource_hint
 			if cooldown > 0.001: tooltip += "\n생산 대기 %.1f초" % (ceilf(cooldown_wait * 10.0) / 10.0)
 		if button.tooltip_text != tooltip: button.tooltip_text = tooltip
 		var unavailable: bool = not block_reason.is_empty() or waiting or not limit_error.is_empty() or missing>0 or cooldown>0.001

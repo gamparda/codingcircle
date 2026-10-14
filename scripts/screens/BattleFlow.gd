@@ -415,13 +415,24 @@ static func _handle_battle_hotkey(main, event: InputEventKey) -> bool:
 	var index := codes.find(key)
 	if index<0 or index>=main.purchase_buttons.size(): return false
 	var button: Button = main.purchase_buttons[index]
-	if not is_instance_valid(button) or button.disabled: return true
+	if not is_instance_valid(button): return true
+	if button.has_meta("unit_kind"):
+		var limit_error: String = main._unit_production_limit_error()
+		if not limit_error.is_empty():
+			if not main.placement_pending: main._show_placement_status(limit_error)
+			return true
+	if button.disabled: return true
 	if button.toggle_mode: button.set_pressed_no_signal(not button.button_pressed)
 	button.pressed.emit()
 	return true
 
 static func _purchase_unit(main, kind: String) -> void:
 	if not main._battle_purchase_block_reason().is_empty() or float(main.client_purchase_gates.get(kind,0))>Time.get_ticks_msec(): return
+	var limit_error: String = main._unit_production_limit_error()
+	if not limit_error.is_empty():
+		if not main.placement_pending: main._show_placement_status(limit_error)
+		main._refresh_purchase_buttons(main.latest_resources)
+		return
 	var accepted := false
 	if main.local_ai_mode:
 		if not main.campaign_mode: main.practice.refill(main.local_model,main.own_side)
@@ -432,7 +443,10 @@ static func _purchase_unit(main, kind: String) -> void:
 		main.network.send_spawn(kind); accepted = true
 	if accepted:
 		main.client_purchase_gates[kind] = Time.get_ticks_msec()+350
-		main._refresh_purchase_buttons(main.latest_resources)
+		if main.local_ai_mode:
+			main._on_snapshot(main.local_model.snapshot())
+		else:
+			main._refresh_purchase_buttons(main.latest_resources)
 
 static func _play_combat_events(main, events: Array) -> void:
 	if DisplayServer.get_name()=="headless" or bool(main.save_data.settings.muted): return

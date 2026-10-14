@@ -135,6 +135,8 @@ var result_presentation: Dictionary = {} # Rewards captured when the result is f
 var placement_status_label: Label
 var placement_hint_label: Label
 var structure_count_label: Label
+var army_count_labels: Dictionary = {} # Side-indexed HUD labels; never saved or sent.
+var unit_capacity_label: Label
 var placement_pending := false
 var placement_message_serial := 0
 var room_code_input: LineEdit
@@ -531,6 +533,8 @@ func _clear_screen() -> void:
 	placement_status_label = null
 	placement_hint_label = null
 	structure_count_label = null
+	army_count_labels.clear()
+	unit_capacity_label = null
 	connect_button_ref = null
 	join_button_ref = null
 	room_code_input = null
@@ -952,6 +956,9 @@ func _refresh_purchase_buttons(resources: float) -> void:
 
 func _battle_purchase_block_reason() -> String:
 	return BattleHud._purchase_block_reason(self)
+
+func _unit_production_limit_error() -> String:
+	return BattleHud._unit_production_limit_error(self)
 
 func _on_battlefield_clicked(world_x: float) -> void:
 	BattleFlow._on_battlefield_clicked(self, world_x)
