@@ -546,7 +546,7 @@ static func _add_purchase_labels(main, button: Button, key_text: String) -> void
 	state.visible = false
 	button.add_child(state)
 
-static func _show_army_panel(main, side: int) -> void:
+static func _show_army_panel(main, side: int, navigation: Dictionary = {}) -> void:
 	if not main.battle_active or not is_instance_valid(main.battle_view) or main.result_shown or main.finale_active or is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.action_overlay) or is_instance_valid(main.report_overlay): return
 	main.battle_view.reset_build_touch()
 	main._dismiss_stats_panel()
@@ -567,13 +567,15 @@ static func _show_army_panel(main, side: int) -> void:
 	panel.offset_top = 36
 	panel.offset_bottom = -36
 	panel.setup(main, side)
+	panel.navigation_pending = not navigation.is_empty()
+	preload("res://scripts/ui/BattleOverviewNavigation.gd").restore.call_deferred(panel, navigation)
 	if main.local_ai_mode:
 		main.local_battle_skip_delta = true
 		main.battle_view.set_process(false)
 	main._refresh_purchase_buttons(main.latest_resources)
 	UIKit.reveal(panel, 0.25, 0.0)
 
-static func _show_structure_panel(main) -> void:
+static func _show_structure_panel(main, navigation: Dictionary = {}) -> void:
 	if not main.battle_active or not is_instance_valid(main.battle_view) or main.result_shown or main.finale_active or is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.action_overlay) or is_instance_valid(main.report_overlay): return
 	main.battle_view.reset_build_touch()
 	main._dismiss_stats_panel()
@@ -593,14 +595,17 @@ static func _show_structure_panel(main) -> void:
 	panel.offset_top = 36
 	panel.offset_bottom = -36
 	panel.setup(main)
+	panel.navigation_pending = not navigation.is_empty()
+	preload("res://scripts/ui/BattleOverviewNavigation.gd").restore.call_deferred(panel, navigation)
 	if main.local_ai_mode:
 		main.local_battle_skip_delta = true
 		main.battle_view.set_process(false)
 	main._refresh_purchase_buttons(main.latest_resources)
 	UIKit.reveal(panel, 0.25, 0.0)
 
-static func _show_stats_panel(main) -> void:
+static func _show_stats_panel(main, reference: Dictionary = {}) -> void:
 	if is_instance_valid(main.battle_view): main.battle_view.reset_build_touch()
+	var return_focus: Control = main.stats_overlay.get_meta("return_focus", null) if is_instance_valid(main.stats_overlay) else null
 	main._dismiss_stats_panel()
 	main.stats_overlay = ColorRect.new()
 	main.stats_overlay.name = "UnitStatsPanel"
@@ -610,6 +615,7 @@ static func _show_stats_panel(main) -> void:
 	main.stats_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	main.stats_overlay.z_index = 120
 	main.root_background.add_child(main.stats_overlay)
+	if not reference.is_empty(): main.stats_overlay.set_meta("return_focus", return_focus)
 	var panel := preload("res://scripts/ui/BattleStatsBrowser.gd").new()
 	main.stats_overlay.add_child(panel)
 	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -618,7 +624,7 @@ static func _show_stats_panel(main) -> void:
 	panel.offset_top = 36
 	panel.offset_bottom = -36
 	var growth_level := int(main.local_model.campaign_levels[main.own_side]) if main.local_ai_mode and is_instance_valid(main.local_model) else 0
-	panel.setup(main, growth_level)
+	panel.setup(main, growth_level, reference)
 	UIKit.reveal(panel, 0.25, 0.0)
 	if main.local_ai_mode:
 		main.local_battle_skip_delta = true

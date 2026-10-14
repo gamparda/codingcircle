@@ -3,6 +3,7 @@ extends PanelContainer
 
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const LocalBattlePause = preload("res://scripts/screens/LocalBattlePause.gd")
+const OverviewNavigation = preload("res://scripts/ui/BattleOverviewNavigation.gd")
 
 var main
 var status: Label
@@ -11,9 +12,12 @@ var totals: Dictionary = {}
 var amounts: Dictionary = {}
 var scroll: ScrollContainer
 var focus_controls: Array[Control] = []
+var selected_side := 0
+var navigation_pending := false
 
-func setup(owner_main, selected_side: int) -> void:
+func setup(owner_main, side_selection: int) -> void:
 	main = owner_main
+	selected_side = side_selection
 	name = "BattleArmyPanel"
 	add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.panel_box(UIKit.TEAL, 16, 1.0), 22, 18))
 	var column := VBoxContainer.new()
@@ -26,7 +30,7 @@ func setup(owner_main, selected_side: int) -> void:
 	capacity = _label("", 16, UIKit.TEXT)
 	capacity.name = "ArmyCapacity"
 	column.add_child(capacity)
-	var hint := _label("양쪽 병력·소환수가 공유 한도를 채우면 생산·추가 소환이 멈춥니다. 사망한 병력이 정리되면 다시 생산합니다.\n소환수는 생존 병력에 포함되고, 구조물은 별도 한도입니다. 휠·터치·PageUp/PageDown으로 이동하세요.", 14, UIKit.TEXT_MUTED)
+	var hint := _label("종류 이름을 누르면 양쪽 스탯을, 진영별 수를 누르면 해당 진영의 스탯을 확인합니다.\n양쪽 병력·소환수가 공유 한도를 채우면 생산·추가 소환이 멈춥니다. 사망 후 정리되면 다시 생산합니다. 소환수도 생존 수에 포함되며 구조물은 별도 한도입니다.", 14, UIKit.TEXT_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(hint)
 	var header := HBoxContainer.new()
@@ -67,15 +71,19 @@ func setup(owner_main, selected_side: int) -> void:
 	scroll.add_child(rows)
 	for kind in BattleModel.UNIT_NAMES:
 		var row := HBoxContainer.new()
-		row.custom_minimum_size.y = 44
+		row.custom_minimum_size.y = 58
 		rows.add_child(row)
-		var title := _label(String(BattleModel.UNIT_NAMES[kind]) + (" · 소환" if BattleModel.SUMMON_STATS.has(kind) else ""), 18, UIKit.UNIT_COLORS.get(kind, UIKit.TEXT))
-		title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var title := _button(String(BattleModel.UNIT_NAMES[kind]) + (" · 소환" if BattleModel.SUMMON_STATS.has(kind) else "") + " ▸", "ArmyStats_%s" % kind, _open_kind.bind(kind, -1))
+		title.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		title.add_theme_color_override("font_color", UIKit.UNIT_COLORS.get(kind, UIKit.TEXT))
+		title.tooltip_text = "%s의 양쪽 진영 스탯 확인" % BattleModel.UNIT_NAMES[kind]
 		row.add_child(title)
 		amounts[kind] = {}
 		for side in sides:
-			var amount := _number_label()
-			amount.name = "ArmyKind_%s_%d" % [kind, int(side)]
+			var amount := _button("—", "ArmyKind_%s_%d" % [kind, int(side)], _open_kind.bind(kind, int(side)))
+			amount.custom_minimum_size.x = 200
+			amount.size_flags_horizontal = Control.SIZE_SHRINK_END
+			amount.tooltip_text = "%s · %s 진영 스탯 확인" % [BattleModel.UNIT_NAMES[kind], "블루" if int(side) == 0 else "레드"]
 			row.add_child(amount)
 			amounts[kind][side] = amount
 	var actions := HBoxContainer.new()
@@ -87,6 +95,13 @@ func setup(owner_main, selected_side: int) -> void:
 	var close := _button("닫기 · Esc", "CloseArmyDetails", main._dismiss_stats_panel)
 	actions.add_child(close)
 	close.grab_focus()
+	OverviewNavigation.configure(self)
+
+func _open_kind(kind: String, side: int) -> void:
+	var navigation := OverviewNavigation.capture(self)
+	navigation["selected_side"] = selected_side
+	navigation["focus"] = "ArmyStats_%s" % kind if side == -1 else "ArmyKind_%s_%d" % [kind, side]
+	main._show_stats_reference(0, kind, side, navigation)
 
 func _label(text: String, font_size: int, color: Color) -> Label:
 	var label := Label.new()
@@ -131,11 +146,12 @@ func refresh(counts: Dictionary, awaiting: bool) -> void:
 		for side in amounts[kind]:
 			_set_text(amounts[kind][side], "—" if awaiting else "%d명" % int(counts.kinds[side].get(kind, 0)))
 
-func _set_text(label: Label, text: String) -> void:
+func _set_text(label, text: String) -> void:
 	if label.text != text: label.text = text
 
 func handle_key(event: InputEventKey) -> bool:
 	if not event.pressed: return false
+	navigation_pending = false
 	if event.keycode == KEY_F11:
 		if not event.echo: main._set_fullscreen(not bool(main.save_data.settings.fullscreen))
 		return true

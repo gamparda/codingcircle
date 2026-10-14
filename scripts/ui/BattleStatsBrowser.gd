@@ -26,11 +26,14 @@ var view_state: Dictionary = {}
 var setting_up := true
 var restoring_view := true
 var restore_serial := 0
+var reference: Dictionary = {}
 
-func setup(owner_main, growth_level: int) -> void:
+func setup(owner_main, growth_level: int, origin_reference: Dictionary = {}) -> void:
 	main = owner_main
+	reference = origin_reference.duplicate(true)
 	# Keep this reference even if a new match replaces Main's dictionary.
-	view_state = main.battle_stats_state
+	# A shortcut has its own browsing state and cannot replace the normal browser's history.
+	view_state = main.battle_stats_state if reference.is_empty() else {}
 	_capture_sides(growth_level)
 	name = "BattleStatsBrowser"
 	add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.panel_box(UIKit.TEAL, 16, 1.0), 22, 18))
@@ -170,28 +173,68 @@ func setup(owner_main, growth_level: int) -> void:
 				roundi((float(bonuses.stat_scale) - 1.0) * 100.0)]
 			summary += "\n발전기의 추가 수입과 전투 중 지원 효과는 별도로 적용됩니다."
 			_add_card("%s 진영 전투 수치" % side_names[index], summary, 2, false, UIKit.TEAM_BLUE if side == 0 else UIKit.TEAM_RED)
+	if not reference.is_empty():
+		var first_side: int = 0 if main.network.client_is_spectator else main.own_side
+		var requested_side := int(reference.get("side", -1))
+		view_state["category"] = int(reference.category)
+		view_state["scope"] = 2 if requested_side == -1 else 0 if requested_side == first_side else 1
+		view_state["focus"] = "UnitStatsScroll"
+		for card in cards:
+			if int(card.get_meta("category")) == int(reference.category) and String(card.get_meta("kind", "")) == String(reference.kind):
+				view_state["anchor"] = String(card.get_meta("position_id"))
+				view_state["offset"] = 0.0
+				card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.panel_box(UIKit.GOLD, 12, 0.0), 14, 12))
+				break
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 12)
+	column.add_child(actions)
 	var close := Button.new()
 	close.name = "CloseUnitStatsButton"
-	close.text = "닫기 · Esc"
+	close.text = "닫기 · Esc" if reference.is_empty() else "전장으로 닫기"
 	close.custom_minimum_size = Vector2(0, 58)
+	close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	close.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
 	close.tooltip_text = "오프라인 전투는 다른 정지 창이 없으면 이어집니다." if main.local_ai_mode else "온라인 전투는 계속 진행됩니다."
 	UIKit.style_button(close, UIKit.TEAL, true)
 	close.pressed.connect(main._dismiss_stats_panel)
-	column.add_child(close)
+	actions.add_child(close)
 	focus_controls.append(close)
+	if not reference.is_empty():
+		var back := Button.new()
+		back.name = "ReturnToBattleOverview"
+		back.text = ("병력 현황" if int(reference.category) == 0 else "구조물 현황") + "으로 돌아가기 · Esc"
+		back.tooltip_text = "원래 현황의 읽던 위치와 선택한 종류로 돌아갑니다."
+		back.custom_minimum_size.y = 58
+		back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		back.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+		UIKit.style_button(back, UIKit.TEAL, true)
+		back.pressed.connect(_return_to_overview)
+		actions.add_child(back)
+		focus_controls.append(back)
 	search.text = String(view_state.get("search", ""))
 	var saved_scope := clampi(int(view_state.get("scope", 0)), 0, scope.item_count - 1)
 	scope.select(0 if scope.is_item_disabled(saved_scope) else saved_scope)
 	deck_only.set_pressed_no_signal(bool(view_state.get("deck_only", false)) and deck_known[0])
 	_select_category(clampi(int(view_state.get("category", 0)), 0, tabs.size() - 1))
 	_resize_grid()
-	close.grab_focus()
+	focus_controls.back().grab_focus()
 	setting_up = false
 	if view_state.is_empty():
 		restoring_view = false
 	else:
 		_restore_view.call_deferred(view_state.duplicate(true), restore_serial)
+
+func _return_to_overview() -> void:
+	if reference.is_empty():
+		main._dismiss_stats_panel()
+		return
+	# Do not reopen a HUD after results, an interruption, or screen replacement.
+	if not _can_restore_view(restore_serial): return
+	var navigation: Dictionary = reference.get("navigation", {})
+	if int(reference.category) == 0:
+		main._show_army_panel(int(navigation.get("selected_side", main.own_side)), navigation)
+	else:
+		main._show_structure_panel(navigation)
 
 func capture_view_state() -> void:
 	view_state["category"] = category
@@ -331,6 +374,7 @@ func _in_deck(kind: String, index: int, group: String) -> bool:
 	return deck.has(kind) or (group == "units" and kind == "skeleton" and deck.has("necromancer"))
 
 func _configure_side_card(card: Control, kind: String, group: String, enemy_summary: String) -> void:
+	card.set_meta("kind", kind)
 	card.set_meta("in_enemy_deck", _in_deck(kind, 1, group))
 	card.set_meta("enemy_summary", enemy_summary)
 	card.set_meta("summoned", kind == "skeleton")
@@ -447,6 +491,7 @@ func _update_side_card(card: Control) -> void:
 			var second_basis := "%s 진영%s" % [side_names[1], " · 미출전 참고" if not bool(card.get_meta("in_enemy_deck")) else ""]
 			summary = "%s\n%s\n\n%s\n%s" % [first_basis, first, second_basis, second]
 	var title := String(card.get_meta("title")) + " · " + _membership(card)
+	if not reference.is_empty() and int(card.get_meta("category")) == int(reference.category) and String(card.get_meta("kind", "")) == String(reference.kind): title += " · 현황에서 선택"
 	var heading: Label = card.get_meta("heading")
 	var body: Label = card.get_meta("body")
 	heading.text = title
@@ -524,7 +569,7 @@ func handle_key(event: InputEventKey) -> bool:
 	# PopupMenu owns its navigation, including Esc to close only the dropdown.
 	if scope.get_popup().visible: return false
 	if event.keycode == KEY_ESCAPE:
-		if not event.echo: main._dismiss_stats_panel()
+		if not event.echo: _return_to_overview()
 		return true
 	if event.ctrl_pressed and event.keycode == KEY_F:
 		_cancel_pending_restore()

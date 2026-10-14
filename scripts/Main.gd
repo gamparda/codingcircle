@@ -918,11 +918,15 @@ func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: C
 func _decorate_battle_card(button: Button) -> void:
 	BattleHud._decorate_battle_card(self, button)
 
-func _show_structure_panel() -> void:
-	BattleHud._show_structure_panel(self)
+func _show_structure_panel(navigation: Dictionary = {}) -> void:
+	BattleHud._show_structure_panel(self, navigation)
 
-func _show_army_panel(side: int) -> void:
-	BattleHud._show_army_panel(self, side)
+func _show_army_panel(side: int, navigation: Dictionary = {}) -> void:
+	BattleHud._show_army_panel(self, side, navigation)
+
+func _show_stats_reference(section: int, kind: String, side: int, navigation: Dictionary) -> void:
+	if not battle_active or result_shown or finale_active or not is_instance_valid(stats_overlay) or is_instance_valid(local_pause_overlay) or is_instance_valid(action_overlay) or is_instance_valid(report_overlay): return
+	BattleHud._show_stats_panel(self, {"category": section, "kind": kind, "side": side, "navigation": navigation})
 
 func _toggle_stats_panel() -> void:
 	if is_instance_valid(stats_overlay):

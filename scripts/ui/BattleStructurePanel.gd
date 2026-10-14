@@ -3,6 +3,7 @@ extends PanelContainer
 
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const LocalBattlePause = preload("res://scripts/screens/LocalBattlePause.gd")
+const OverviewNavigation = preload("res://scripts/ui/BattleOverviewNavigation.gd")
 const NAMES := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
 
 var main
@@ -13,6 +14,7 @@ var incomes: Dictionary = {}
 var slots: Dictionary = {}
 var scroll: ScrollContainer
 var focus_controls: Array[Control] = []
+var navigation_pending := false
 
 func setup(owner_main) -> void:
 	main = owner_main
@@ -24,7 +26,7 @@ func setup(owner_main) -> void:
 	column.add_child(_label("전장 구조물 현황", 26, UIKit.TEXT))
 	status = _label("", 14, UIKit.TEXT_MUTED)
 	column.add_child(status)
-	var hint := _label("한도는 진영별로 적용됩니다. 파괴·수명 종료 후 빈자리에 다시 설치할 수 있습니다.\n건설 구역 위치는 후방 0% → 전방 100%입니다. 수명·수입은 전투 시간 기준입니다.", 14, UIKit.TEXT_MUTED)
+	var hint := _label("종류별 수를 누르면 해당 진영의 구조물 스탯·설치 조건을 바로 확인합니다.\n한도는 진영별로 적용되며 파괴·수명 종료 후 재설치할 수 있습니다. 위치는 후방 0% → 전방 100%, 수명·수입은 전투 시간 기준입니다.", 14, UIKit.TEXT_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(hint)
 	scroll = ScrollContainer.new()
@@ -52,7 +54,10 @@ func setup(owner_main) -> void:
 		side_column.add_child(totals[side])
 		amounts[side] = {}
 		for kind in NAMES:
-			var amount := _label("", 16, UIKit.TEXT)
+			var amount := _button("", "StructureStats_%s_%d" % [kind, int(side)], _open_kind.bind(kind, int(side)))
+			amount.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			amount.add_theme_font_size_override("font_size", 16)
+			amount.tooltip_text = "%s · %s 진영의 스탯·설치 조건 확인" % [NAMES[kind], side_name]
 			side_column.add_child(amount)
 			amounts[side][kind] = amount
 		incomes[side] = _label("", 16, UIKit.TEAL)
@@ -85,6 +90,12 @@ func setup(owner_main) -> void:
 	var close := _button("닫기 · Esc", "CloseStructureDetails", main._dismiss_stats_panel)
 	actions.add_child(close)
 	close.grab_focus()
+	OverviewNavigation.configure(self)
+
+func _open_kind(kind: String, side: int) -> void:
+	var navigation := OverviewNavigation.capture(self)
+	navigation["focus"] = "StructureStats_%s_%d" % [kind, side]
+	main._show_stats_reference(1, kind, side, navigation)
 
 func refresh(values: Array, counts: Array, elapsed: float, awaiting: bool) -> void:
 	var state := "최신 전투 상태를 기다리고 있습니다." if awaiting else "전투 일시정지 중" if LocalBattlePause.is_paused(main) else "온라인 전투 진행 중 · 최신 수신 상태"
@@ -103,7 +114,7 @@ func refresh(values: Array, counts: Array, elapsed: float, awaiting: bool) -> vo
 		for kind in NAMES:
 			var amount := int(counts[side].kinds.get(kind, 0))
 			var limit := int(BattleModel.STRUCTURE_STATS[kind].get("max_count", BattleModel.STRUCTURE_LIMIT))
-			_set_text(amounts[side][kind], "%s — / %d" % [NAMES[kind], limit] if awaiting else "%s %d / %d%s" % [NAMES[kind], amount, limit, " · 종류 한도" if amount >= limit else ""])
+			_set_text(amounts[side][kind], "%s — / %d ▸" % [NAMES[kind], limit] if awaiting else "%s %d / %d%s ▸" % [NAMES[kind], amount, limit, " · 종류 한도" if amount >= limit else ""])
 			_set_color(amounts[side][kind], UIKit.GOLD if not awaiting and amount >= limit else UIKit.TEXT)
 		_set_text(incomes[side], "발전기 추가 수입 —" if awaiting else "발전기 추가 수입 +%.1f/전투 초" % (int(counts[side].kinds.get("generator", 0)) * float(BattleModel.STRUCTURE_STATS.generator.income)))
 		for index in slots[side].size():
@@ -151,14 +162,15 @@ func _button(text: String, node_name: String, callback: Callable) -> Button:
 	focus_controls.append(button)
 	return button
 
-func _set_text(label: Label, text: String) -> void:
+func _set_text(label, text: String) -> void:
 	if label.text != text: label.text = text
 
-func _set_color(label: Label, color: Color) -> void:
+func _set_color(label: Control, color: Color) -> void:
 	if label.get_theme_color("font_color") != color: label.add_theme_color_override("font_color", color)
 
 func handle_key(event: InputEventKey) -> bool:
 	if not event.pressed: return false
+	navigation_pending = false
 	if event.keycode == KEY_F11:
 		if not event.echo: main._set_fullscreen(not bool(main.save_data.settings.fullscreen))
 		return true
