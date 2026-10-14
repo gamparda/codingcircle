@@ -95,7 +95,7 @@ static func _build_battle_screen(main) -> void:
 	structure_details.position = Vector2(1018, 520)
 	structure_details.size = Vector2(240, 58)
 	structure_details.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
-	structure_details.tooltip_text = "양쪽 구조물의 설치 수·종류별 한도·남은 체력·수명·만료 시각·발전기 수입을 비교합니다."
+	structure_details.tooltip_text = "양쪽 구조물의 설치 수·종류별 한도·남은 체력·수명·만료 시각·발전기 수입을 비교합니다. 전장 구조물을 직접 클릭·터치하면 전투 중에도 개별 상태를 확인할 수 있습니다."
 	UIKit.style_button(structure_details, UIKit.TEAL)
 	structure_details.pressed.connect(main._show_structure_panel)
 	main.root_background.add_child(structure_details)
@@ -115,7 +115,7 @@ static func _build_battle_screen(main) -> void:
 	lifetime_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	lifetime_hint.add_theme_font_size_override("font_size", 12)
 	lifetime_hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
-	lifetime_hint.text = "체력·수명 자세히 보기"
+	lifetime_hint.text = "전장 구조물 터치 · 자세히 ▸"
 	lifetime_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	structure_details.add_child(lifetime_hint)
 	main.structure_count_label.set_meta("lifetime_hint", lifetime_hint)
@@ -868,7 +868,7 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 		if main.structure_count_label.get_theme_color("font_color") != structure_tone: main.structure_count_label.add_theme_color_override("font_color", structure_tone)
 		var lifetime_hint = main.structure_count_label.get_meta("lifetime_hint", null)
 		if is_instance_valid(lifetime_hint):
-			var lifetime_text := "수명 정보 수신 대기" if awaiting_structures else "체력·수명 자세히 보기"
+			var lifetime_text := "수명 정보 수신 대기" if awaiting_structures else "전장 구조물 터치 · 자세히 ▸"
 			var lifetime_tone := UIKit.TEXT_MUTED
 			if not awaiting_structures and not timed.is_empty():
 				var remaining := StructureLifetime.remaining(timed[0], elapsed)

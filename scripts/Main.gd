@@ -307,6 +307,7 @@ func _notification(what: int) -> void:
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED]:
 		build_confirm_key = 0 # The OS may deliver the release to another window.
 		unit_purchase_hold.reset()
+		if is_instance_valid(battle_view): battle_view.structure_inspection.reset(battle_view)
 		local_battle_backgrounded = true
 		if DisplayServer.get_name() != "headless": LocalBattlePause.pause(self, true)
 	elif what in [NOTIFICATION_APPLICATION_FOCUS_IN, NOTIFICATION_APPLICATION_RESUMED]:
@@ -350,6 +351,7 @@ func _process(delta: float) -> void:
 		else: practice.advance(local_model,local_ai,battle_delta,own_side)
 		_on_combat_events(local_model.drain_combat_events())
 		_on_snapshot(local_model.snapshot())
+	if battle_active and is_instance_valid(battle_view): battle_view.structure_inspection.sync(self)
 	unit_purchase_hold.advance(self)
 	if smoke_mode or ai_smoke_mode:
 		smoke_elapsed += delta
@@ -358,6 +360,9 @@ func _process(delta: float) -> void:
 			get_tree().quit(2)
 
 func _input(event: InputEvent) -> void:
+	if battle_active and is_instance_valid(battle_view) and battle_view.structure_inspection.handle_input(self, event):
+		get_viewport().set_input_as_handled()
+		return
 	if unit_purchase_hold.handle_input(self, event):
 		get_viewport().set_input_as_handled()
 		return

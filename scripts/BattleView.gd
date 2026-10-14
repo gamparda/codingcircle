@@ -3,6 +3,7 @@ extends Control
 
 const Localization = preload("res://scripts/Localization.gd")
 const StructureLifetime = preload("res://scripts/ui/StructureLifetime.gd")
+const StructureInspection = preload("res://scripts/ui/StructureInspection.gd")
 
 signal battlefield_clicked(world_x: float)
 signal build_touch_cancelled
@@ -70,10 +71,12 @@ const STARS := [
 
 var snapshot: Dictionary = {}
 var own_side := 0
+var structure_inspection := StructureInspection.new()
 var selected_structure := "":
 	set(value):
 		if selected_structure == value: return
 		selected_structure = value
+		structure_inspection.cancel(self)
 		keyboard_preview_active = false
 		touch_preview_active = false
 		reset_build_touch()
@@ -120,6 +123,7 @@ func _ready() -> void:
 
 ## The base of `world_loser` has fallen: it collapses with a burst of debris while the rest keeps playing.
 func start_finale(world_loser: int) -> void:
+	structure_inspection.cancel(self)
 	finale_world_side = world_loser
 	finale_age = 0.0
 	queue_redraw()
@@ -200,6 +204,7 @@ func finale_active() -> bool:
 
 func set_snapshot(data: Dictionary) -> void:
 	if float(data.get("elapsed", 0.0)) < float(snapshot.get("elapsed", 0.0)):
+		structure_inspection.cancel(self)
 		unit_actions.clear()
 		rage_states.clear()
 		rage_flashes.clear()
@@ -336,6 +341,9 @@ func _gui_input(event: InputEvent) -> void:
 	if not inspect_mode and (event is InputEventMouseMotion or event is InputEventMouseButton) and event.device == InputEvent.DEVICE_ID_EMULATION:
 		if is_inside_tree(): accept_event()
 		return
+	if structure_inspection.begin_gui_input(self, event):
+		if is_inside_tree(): accept_event()
+		return
 	if event is InputEventMouseMotion:
 		if build_touch_index >= 0:
 			return
@@ -402,6 +410,7 @@ func _draw() -> void:
 		_draw_finale(lane_y)
 	if not selected_structure.is_empty():
 		_draw_build_preview(lane_y)
+	structure_inspection.draw(self)
 
 func _draw_sky(lane_y: float) -> void:
 	var top_color := Color("#070a14")
