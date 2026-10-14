@@ -25,19 +25,24 @@ static func load_saved(with_analysis: bool = false) -> Array:
 		var replay := BattleReplay.load_file(String(path))
 		if replay.is_empty() or String(replay.get("meta", {}).get("mode", "")) != "daily":
 			continue
-		# Keep only display/matching metadata, rather than every battle's command log.
-		var entry := {"path": String(path), "order": BattleReplay._storage_order(replay), "fingerprint": fingerprint(replay),
-			"replay": {"meta": replay.get("meta", {}).duplicate(true), "result": replay.result.duplicate(true),
-				"clip": BattleReplay.clip_of(replay), "hz": replay.hz}}
-		if with_analysis:
-			entry["analysis_fingerprint"] = analysis_fingerprint(replay)
-			# The picker needs the original decks, but not commands or simulation state.
-			# Count-only records queries keep their existing lightweight metadata.
-			entry.replay["setup"] = {"unit_decks": replay.setup.unit_decks.duplicate(true),
-				"structure_decks": replay.setup.structure_decks.duplicate(true)}
-		entries.append(entry)
-	entries.sort_custom(func(a, b): return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
+		entries.append(shelf_entry(String(path), replay, with_analysis))
+	sort_entries(entries)
 	return entries
+
+static func shelf_entry(path: String, replay: Dictionary, with_analysis: bool = false, with_fingerprint: bool = true) -> Dictionary:
+	# Keep only display/matching metadata, rather than every battle's command log.
+	var entry := {"path": path, "order": BattleReplay._storage_order(replay),
+		"replay": {"meta": replay.get("meta", {}).duplicate(true), "result": replay.result.duplicate(true),
+			"clip": BattleReplay.clip_of(replay), "hz": replay.hz}}
+	if with_fingerprint: entry["fingerprint"] = fingerprint(replay)
+	if with_analysis:
+		entry["analysis_fingerprint"] = analysis_fingerprint(replay)
+		entry.replay["setup"] = {"unit_decks": replay.setup.unit_decks.duplicate(true),
+			"structure_decks": replay.setup.structure_decks.duplicate(true)}
+	return entry
+
+static func sort_entries(entries: Array) -> void:
+	entries.sort_custom(func(a, b): return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
 
 static func fingerprint(replay: Dictionary) -> String:
 	return JSON.stringify(replay, "", true).sha256_text()
