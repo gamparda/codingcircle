@@ -4,6 +4,7 @@ extends PanelContainer
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const LocalBattlePause = preload("res://scripts/screens/LocalBattlePause.gd")
 const OverviewNavigation = preload("res://scripts/ui/BattleOverviewNavigation.gd")
+const StructureLifetime = preload("res://scripts/ui/StructureLifetime.gd")
 const NAMES := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
 
 var main
@@ -26,7 +27,7 @@ func setup(owner_main) -> void:
 	column.add_child(_label("전장 구조물 현황", 26, UIKit.TEXT))
 	status = _label("", 14, UIKit.TEXT_MUTED)
 	column.add_child(status)
-	var hint := _label("종류별 수를 누르면 해당 진영의 구조물 스탯·설치 조건을 바로 확인합니다.\n한도는 진영별로 적용되며 파괴·수명 종료 후 재설치할 수 있습니다. 위치는 후방 0% → 전방 100%, 수명·수입은 전투 시간 기준입니다.", 14, UIKit.TEXT_MUTED)
+	var hint := _label("종류별 수를 누르면 해당 진영의 구조물 스탯·설치 조건을 바로 확인합니다.\n한도는 진영별로 적용되며 파괴·수명 종료 후 재설치할 수 있습니다. 위치는 후방 0% → 전방 100%, 수명·수입·만료 시각은 전투 시간 기준입니다. 남은 수명 2초 이하는 만료 임박으로 표시합니다.", 14, UIKit.TEXT_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(hint)
 	scroll = ScrollContainer.new()
@@ -62,7 +63,7 @@ func setup(owner_main) -> void:
 			amounts[side][kind] = amount
 		incomes[side] = _label("", 16, UIKit.TEAL)
 		side_column.add_child(incomes[side])
-		side_column.add_child(_label("설치 순서 · 남은 체력", 16, UIKit.TEXT_MUTED))
+		side_column.add_child(_label("설치 순서 · 남은 체력·수명", 16, UIKit.TEXT_MUTED))
 		slots[side] = []
 		for _index in BattleModel.STRUCTURE_LIMIT:
 			var slot := VBoxContainer.new()
@@ -81,7 +82,10 @@ func setup(owner_main) -> void:
 			var detail := _label("", 14, UIKit.TEXT_MUTED)
 			detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			slot.add_child(detail)
-			slots[side].append({"title": title, "health": health, "detail": detail})
+			var lifetime := _label("", 14, UIKit.TEXT_MUTED)
+			lifetime.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			slot.add_child(lifetime)
+			slots[side].append({"title": title, "health": health, "detail": detail, "lifetime": lifetime})
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 12)
 	column.add_child(actions)
@@ -124,6 +128,8 @@ func refresh(values: Array, counts: Array, elapsed: float, awaiting: bool) -> vo
 			if not present:
 				_set_text(slot.title, "상태 수신 대기" if awaiting and index == 0 else "설치된 구조물이 없습니다." if index == 0 else "")
 				_set_text(slot.detail, "")
+				_set_text(slot.lifetime, "")
+				slot.lifetime.hide()
 				_set_color(slot.title, UIKit.TEXT_MUTED)
 				continue
 			var structure: Dictionary = living[side][index]
@@ -137,8 +143,18 @@ func refresh(values: Array, counts: Array, elapsed: float, awaiting: bool) -> vo
 			_set_text(slot.title, "%s · 건설 구역 %d%%" % [NAMES.get(kind, kind), position_percent])
 			_set_color(slot.title, UIKit.DANGER if fraction <= 0.25 else UIKit.TEXT)
 			var detail := "체력 %d / %d · %d%%%s" % [ceili(hp), ceili(maximum), roundi(fraction * 100.0), " · 파괴 주의" if fraction <= 0.25 else ""]
-			if structure.has("expires_at"): detail += "\n남은 수명 %.1f 전투 초" % maxf(0.0, float(structure.expires_at) - elapsed)
 			_set_text(slot.detail, detail)
+			slot.lifetime.show()
+			var remaining := StructureLifetime.remaining(structure, elapsed)
+			if remaining >= 0.0:
+				var lifetime_text := "수명 %s · 만료 %s" % [StructureLifetime.countdown(remaining), StructureLifetime.expiry_clock(structure)]
+				if remaining <= 0.0: lifetime_text = "만료 상태 확인 중 · 예정 %s" % StructureLifetime.expiry_clock(structure)
+				elif remaining <= StructureLifetime.WARNING_SECONDS: lifetime_text += " · 만료 임박"
+				_set_text(slot.lifetime, lifetime_text)
+				_set_color(slot.lifetime, UIKit.GOLD if remaining <= StructureLifetime.WARNING_SECONDS else UIKit.TEXT_MUTED)
+			else:
+				_set_text(slot.lifetime, "수명 정보 없음" if BattleModel.STRUCTURE_STATS[kind].has("lifetime") else "수명 제한 없음 · 파괴될 때까지 유지")
+				_set_color(slot.lifetime, UIKit.TEXT_MUTED)
 			if not is_equal_approx(slot.health.max_value, maximum): slot.health.max_value = maximum
 			if not is_equal_approx(slot.health.value, hp): slot.health.value = hp
 

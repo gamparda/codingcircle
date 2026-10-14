@@ -8,6 +8,7 @@ const BattleBindings = preload("res://scripts/BattleBindings.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const HpBar = preload("res://scripts/ui/HpBar.gd")
 const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
+const StructureLifetime = preload("res://scripts/ui/StructureLifetime.gd")
 
 static func _build_battle_screen(main) -> void:
 	main.replay_recording_error = ""
@@ -94,12 +95,12 @@ static func _build_battle_screen(main) -> void:
 	structure_details.position = Vector2(1018, 520)
 	structure_details.size = Vector2(240, 58)
 	structure_details.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
-	structure_details.tooltip_text = "양쪽 구조물의 설치 수·종류별 한도·남은 체력·발전기 수입을 비교합니다."
+	structure_details.tooltip_text = "양쪽 구조물의 설치 수·종류별 한도·남은 체력·수명·만료 시각·발전기 수입을 비교합니다."
 	UIKit.style_button(structure_details, UIKit.TEAL)
 	structure_details.pressed.connect(main._show_structure_panel)
 	main.root_background.add_child(structure_details)
 	main.structure_count_label = Label.new()
-	main.structure_count_label.position = Vector2(10, 15)
+	main.structure_count_label.position = Vector2(10, 5)
 	main.structure_count_label.size = Vector2(220, 28)
 	main.structure_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	main.structure_count_label.text = "구조물 0 / %d" % BattleModel.STRUCTURE_LIMIT
@@ -107,6 +108,17 @@ static func _build_battle_screen(main) -> void:
 	main.structure_count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	structure_details.add_child(main.structure_count_label)
 	main.structure_count_label.set_meta("details_button", structure_details)
+	var lifetime_hint := Label.new()
+	lifetime_hint.name = "StructureLifetimeHint"
+	lifetime_hint.position = Vector2(10, 34)
+	lifetime_hint.size = Vector2(220, 18)
+	lifetime_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lifetime_hint.add_theme_font_size_override("font_size", 12)
+	lifetime_hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	lifetime_hint.text = "체력·수명 자세히 보기"
+	lifetime_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	structure_details.add_child(lifetime_hint)
+	main.structure_count_label.set_meta("lifetime_hint", lifetime_hint)
 
 	var controls := ColorRect.new()
 	controls.color = Color("#090d17")
@@ -840,6 +852,8 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 	if not block_reason.is_empty(): main.unit_purchase_hold.cancel()
 	var block_hint := _purchase_block_hint(block_reason)
 	var counts := BattleModel.structure_counts(main.current_snapshot.get("structures", []), main.own_side)
+	var elapsed := float(main.current_snapshot.get("elapsed", 0.0))
+	var timed := StructureLifetime.timed_structures(main.current_snapshot.get("structures", []), main.own_side)
 	var population := _unit_population(main)
 	_refresh_unit_population(main, population)
 	var own_name := "아군"
@@ -852,6 +866,21 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 		if main.structure_count_label.text != structure_text: main.structure_count_label.text = structure_text
 		var structure_tone := UIKit.GOLD if not awaiting_structures and int(counts.total) >= BattleModel.STRUCTURE_LIMIT else Color("#a7afc0")
 		if main.structure_count_label.get_theme_color("font_color") != structure_tone: main.structure_count_label.add_theme_color_override("font_color", structure_tone)
+		var lifetime_hint = main.structure_count_label.get_meta("lifetime_hint", null)
+		if is_instance_valid(lifetime_hint):
+			var lifetime_text := "수명 정보 수신 대기" if awaiting_structures else "체력·수명 자세히 보기"
+			var lifetime_tone := UIKit.TEXT_MUTED
+			if not awaiting_structures and not timed.is_empty():
+				var remaining := StructureLifetime.remaining(timed[0], elapsed)
+				var imminent_count := 0
+				for structure in timed:
+					if StructureLifetime.remaining(structure, elapsed) <= StructureLifetime.WARNING_SECONDS: imminent_count += 1
+				lifetime_text = "늪 만료 " + StructureLifetime.countdown(remaining) if remaining > 0.0 else "늪 만료 상태 확인 중"
+				if imminent_count > 0:
+					if remaining > 0.0: lifetime_text += " · %d개 임박" % imminent_count
+					lifetime_tone = UIKit.GOLD
+			if lifetime_hint.text != lifetime_text: lifetime_hint.text = lifetime_text
+			if lifetime_hint.get_theme_color("font_color") != lifetime_tone: lifetime_hint.add_theme_color_override("font_color", lifetime_tone)
 		if is_instance_valid(main.stats_overlay):
 			var panel = main.stats_overlay.get_node_or_null("BattleStructurePanel")
 			if panel != null:
@@ -897,6 +926,7 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 		var waiting: bool = main.placement_pending and button.has_meta("structure_kind")
 		var limit_error := ""
 		var limit_state := ""
+		var expiration_wait := -1.0
 		var tooltip := String(button.get_meta("base_tooltip", ""))
 		if button.has_meta("unit_kind") and not awaiting_state:
 			if int(population.occupied) >= BattleModel.MAX_ACTIVE_UNITS:
@@ -913,6 +943,10 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			limit_error = "" if awaiting_state else BattleModel.structure_limit_error(kind, counts)
 			if not limit_error.is_empty():
 				limit_state = "전체 한도 %d/%d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT] if int(counts.total) >= BattleModel.STRUCTURE_LIMIT else "종류 한도 %d/%d" % [count, maximum]
+				if block_reason.is_empty():
+					expiration_wait = StructureLifetime.limit_wait(timed, kind, counts, elapsed)
+					if expiration_wait >= 0.0:
+						limit_state = "한도 · 만료 " + StructureLifetime.countdown(expiration_wait) if expiration_wait > 0.0 else "한도 · 상태 확인 중"
 			tooltip = String(button.get_meta("base_text"))
 			if not awaiting_state:
 				tooltip += "\n설치 %d / %d · 전체 %d / %d" % [count, maximum, int(counts.total), BattleModel.STRUCTURE_LIMIT]
@@ -923,6 +957,9 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			elif not limit_error.is_empty():
 				tooltip += "\n" + limit_error
 				tooltip += " 아군 구조물이 파괴되거나 만료되어 전체·종류별 한도에 빈자리가 생기면 다시 선택할 수 있습니다."
+				if expiration_wait >= 0.0:
+					tooltip += "\n만료로 설치 공간이 생기기까지 %s (전투 시간 기준). 자원·설치 위치는 별도 조건이며 추가 설치·파괴로 달라질 수 있습니다." % StructureLifetime.countdown(expiration_wait)
+					if not is_equal_approx(float(economy.speed), 1.0): tooltip += " 현재 배속의 실제 시간으로 약 %s." % StructureLifetime.countdown(expiration_wait / float(economy.speed))
 			elif missing > 0:
 				tooltip += resource_hint
 			elif block_reason.is_empty():

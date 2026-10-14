@@ -2,6 +2,7 @@ class_name BattleView
 extends Control
 
 const Localization = preload("res://scripts/Localization.gd")
+const StructureLifetime = preload("res://scripts/ui/StructureLifetime.gd")
 
 signal battlefield_clicked(world_x: float)
 signal build_touch_cancelled
@@ -395,6 +396,7 @@ func _draw() -> void:
 		_draw_unit(unit, scale_x, lane_y)
 	if show_battle_effects or show_damage_numbers:
 		_draw_combat_events(scale_x, lane_y)
+	_draw_structure_lifetimes(lane_y)
 
 	if finale_world_side >= 0:
 		_draw_finale(lane_y)
@@ -695,10 +697,34 @@ func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> vo
 			var pulse := 5.0 + sin(animation_time * 4.0) * 2.0
 			draw_circle(Vector2(x, lane_y - 34.0), pulse, Color("#8dffd8"))
 			draw_line(Vector2(x, lane_y - 58.0), Vector2(x, lane_y - 78.0), Color("#8dffd8"), 2.0)
-	if structure.kind == "swamp" and structure.has("expires_at"):
-		var remaining := effect_remaining(structure)
-		draw_rect(Rect2(x - 35.0, lane_y + 17.0, 70.0 * remaining / float(BattleModel.STRUCTURE_STATS.swamp.lifetime), 3.0), Color("#b094de"))
-		draw_string(ThemeDB.fallback_font, Vector2(x - 13.0, lane_y + 34.0), "%.1fs" % remaining, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#c8a9ef"))
+
+func _draw_structure_lifetimes(lane_y: float) -> void:
+	var elapsed := float(snapshot.get("elapsed", 0.0))
+	var timed: Array = StructureLifetime.timed_structures(snapshot.get("structures", []), 0)
+	timed.append_array(StructureLifetime.timed_structures(snapshot.get("structures", []), 1))
+	timed.sort_custom(func(a: Dictionary, b: Dictionary): return world_to_screen_x(float(a.x)) < world_to_screen_x(float(b.x)))
+	var row_ends: Array[float] = []
+	for structure in timed:
+		var x := world_to_screen_x(float(structure.x))
+		var left := clampf(x - 48.0, 4.0, maxf(4.0, size.x - 100.0))
+		var row := 0
+		while row < row_ends.size() and left < row_ends[row] + 4.0: row += 1
+		if row == row_ends.size(): row_ends.append(0.0)
+		row_ends[row] = left + 96.0
+		var top := lane_y + 33.0 + row * 23.0
+		var remaining := StructureLifetime.remaining(structure, elapsed)
+		var imminent := remaining <= StructureLifetime.WARNING_SECONDS
+		var team := BLUE if display_side(int(structure.side)) == 0 else RED
+		var tone := GOLD if imminent else Color("#c8a9ef")
+		# Draw after units/events, below curse timers and above the HUD at y=520.
+		# Stagger nearby timers so adjacent swamps keep readable countdowns.
+		draw_line(Vector2(x, lane_y + 18.0), Vector2(x, top), Color(team.r, team.g, team.b, 0.55), 1.0)
+		draw_rect(Rect2(left, top, 96.0, 22.0), Color(0.02, 0.03, 0.06, 0.94))
+		draw_rect(Rect2(left, top, 96.0, 22.0), team, false, 1.0)
+		var text := "만료 대기" if remaining <= 0.0 else ("! 늪 " if imminent else "늪 ") + StructureLifetime.countdown(remaining)
+		draw_string(ThemeDB.fallback_font, Vector2(left + 4.0, top + 15.0), text, HORIZONTAL_ALIGNMENT_CENTER, 88.0, 14, tone)
+		var lifetime := maxf(0.001, float(BattleModel.STRUCTURE_STATS[String(structure.kind)].get("lifetime", 1.0)))
+		draw_rect(Rect2(left + 3.0, top + 18.0, 90.0 * clampf(remaining / lifetime, 0.0, 1.0), 3.0), tone)
 
 func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 	for event in visual_events:
@@ -830,7 +856,9 @@ func _draw_build_preview(lane_y: float) -> void:
 		draw_line(cursor, cursor + Vector2(7, -5), GOLD, 2.0)
 		if valid:
 			var label_x := clampf(mouse_position.x - 75.0, 12.0, maxf(12.0, size.x - 180.0))
-			draw_string(ThemeDB.fallback_font, Vector2(label_x, minf(lane_y + 56.0, size.y - 12.0)), "Enter · 설치", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, GOLD)
+			draw_rect(Rect2(label_x - 6.0, lane_y - 185.0, 180.0, 26.0), Color(0.02, 0.03, 0.06, 0.94))
+			draw_string(ThemeDB.fallback_font, Vector2(label_x, lane_y - 166.0), "Enter · 설치", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, GOLD)
 	if not valid:
 		var label_x := clampf(mouse_position.x-150.0, 12.0, maxf(12.0,size.x-320.0))
-		draw_string(ThemeDB.fallback_font, Vector2(label_x,minf(lane_y+56.0,size.y-12.0)), String(preview.error), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#ff8a96"))
+		draw_rect(Rect2(label_x - 6.0, lane_y - 185.0, 320.0, 26.0), Color(0.02, 0.03, 0.06, 0.94))
+		draw_string(ThemeDB.fallback_font, Vector2(label_x, lane_y - 166.0), String(preview.error), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#ff8a96"))
