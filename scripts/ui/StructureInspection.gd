@@ -1,24 +1,28 @@
 extends RefCounted
-## Read-only inspection in live battles. A gesture starts in the battlefield's
+## Read-only unit/structure inspection in live battles. A gesture starts in the battlefield's
 ## GUI, but Main captures its end before another control can receive the release.
 
 const Lifetime = preload("res://scripts/ui/StructureLifetime.gd")
+const UnitInspection = preload("res://scripts/ui/UnitInspection.gd")
 const FONT = preload("res://assets/fonts/BlackHanSans-Regular.ttf")
 const NAMES := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
 const DRAG_DISTANCE := 14.0
 
 var enabled := false
 var selected_id := -1
+var selected_collection := "structures"
 var touch_index := -1
 var mouse_down := false
 var start_position := Vector2.ZERO
 var pressed_id := -1
+var pressed_collection := "structures"
 var canceled := false
 var spectator := false
 var suppress_emulated_mouse := false
 
 func cancel(view) -> void:
 	selected_id = -1
+	selected_collection = "structures"
 	canceled = true
 	view.queue_redraw()
 
@@ -27,6 +31,7 @@ func reset(view) -> void:
 	touch_index = -1
 	mouse_down = false
 	pressed_id = -1
+	pressed_collection = "structures"
 	suppress_emulated_mouse = false
 
 func sync(main) -> void:
@@ -46,9 +51,13 @@ func sync(main) -> void:
 		cancel(view)
 
 func selected(view) -> Dictionary:
-	for structure in view.snapshot.get("structures", []):
-		if int(structure.get("id", -1)) == selected_id and float(structure.get("hp", 0.0)) > 0.0:
-			return structure
+	return entity(view, selected_collection, selected_id)
+
+func entity(view, collection: String, id: int) -> Dictionary:
+	if id < 0: return {}
+	for item in view.snapshot.get(collection, []):
+		if int(item.get("id", -1)) == id and float(item.get("hp", 0.0)) > 0.0:
+			return item
 	return {}
 
 func body_rect(view, structure: Dictionary) -> Rect2:
@@ -72,6 +81,14 @@ func structure_at(view, position: Vector2) -> Dictionary:
 			best = structure
 	return best
 
+func target_at(view, position: Vector2) -> Dictionary:
+	# Units are drawn above structures. Resolve the visible foreground first;
+	# separate collections also prevent colliding unit/structure IDs.
+	var unit := UnitInspection.unit_at(view, position)
+	if not unit.is_empty(): return {"collection": "units", "id": int(unit.id)}
+	var structure := structure_at(view, position)
+	return {"collection": "structures", "id": int(structure.get("id", -1))}
+
 func begin_gui_input(view, event: InputEvent) -> bool:
 	if not enabled or touch_index >= 0 or mouse_down: return false
 	if event.device == InputEvent.DEVICE_ID_EMULATION: return false
@@ -82,10 +99,11 @@ func begin_gui_input(view, event: InputEvent) -> bool:
 		position = event.position
 	else:
 		return false
-	var structure := structure_at(view, position)
-	if structure.is_empty() and selected_id < 0: return false
+	var target := target_at(view, position)
+	if int(target.id) < 0 and selected_id < 0: return false
 	start_position = position
-	pressed_id = int(structure.get("id", -1))
+	pressed_id = int(target.id)
+	pressed_collection = String(target.collection)
 	canceled = false
 	if event is InputEventScreenTouch:
 		touch_index = event.index
@@ -100,10 +118,20 @@ func _move(view, position: Vector2) -> void:
 func _release(view, position: Vector2, interrupted: bool) -> void:
 	_move(view, position)
 	if enabled and not canceled and not interrupted:
-		var structure := structure_at(view, position)
-		var released_id := int(structure.get("id", -1))
-		if released_id == pressed_id:
-			selected_id = -1 if released_id == selected_id else released_id
+		var matches := false
+		if pressed_id < 0:
+			matches = int(target_at(view, position).id) < 0
+		elif pressed_collection == "units":
+			var unit := entity(view, pressed_collection, pressed_id)
+			# Track the original unit during the tap, even if a neighbour moves
+			# closer. Never switch the target merely because the army is moving.
+			matches = not unit.is_empty() and UnitInspection.hit_rect(view, unit).has_point(position)
+		else:
+			matches = int(structure_at(view, position).get("id", -1)) == pressed_id
+		if matches:
+			var toggle_off := pressed_id == selected_id and pressed_collection == selected_collection
+			selected_id = -1 if toggle_off else pressed_id
+			selected_collection = pressed_collection
 			view.queue_redraw()
 	touch_index = -1
 	mouse_down = false
@@ -147,8 +175,12 @@ func handle_input(main, event: InputEvent) -> bool:
 
 func draw(view) -> void:
 	if not enabled or selected_id < 0: return
-	var structure := selected(view)
-	if structure.is_empty(): return
+	var item := selected(view)
+	if item.is_empty(): return
+	if selected_collection == "units":
+		UnitInspection.draw(view, item, spectator)
+		return
+	var structure := item
 	var kind := String(structure.kind)
 	var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 	var side := int(structure.side)

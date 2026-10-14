@@ -769,7 +769,7 @@ static func _refresh_unit_population(main, counts: Dictionary) -> void:
 		text += " ▸"
 		var details = label.get_meta("details_button", null)
 		if is_instance_valid(details):
-			var details_hint := tooltip + "\n누르면 양쪽 병력의 종류별 생존 수와 생산 한도를 확인합니다."
+			var details_hint := tooltip + "\n누르면 양쪽 병력의 종류별 생존 수와 생산 한도를 확인합니다. 전장 병력을 직접 클릭·터치하면 현재 체력·분노·저주·공속 지원을 확인할 수 있습니다."
 			if details.tooltip_text != details_hint: details.tooltip_text = details_hint
 		if label.text != text: label.text = text
 		if label.tooltip_text != tooltip: label.tooltip_text = tooltip
