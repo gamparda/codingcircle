@@ -12,6 +12,7 @@ static func is_paused(main) -> bool:
 static func pause(main, automatic: bool = false) -> void:
 	if not can_pause(main) or is_instance_valid(main.local_pause_overlay):
 		return
+	main.unit_purchase_hold.cancel()
 	main.local_pause_focus = main.get_viewport().gui_get_focus_owner()
 	# An open reference dropdown must not float above the interruption panel.
 	if is_instance_valid(main.stats_overlay):

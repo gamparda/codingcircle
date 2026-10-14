@@ -448,10 +448,14 @@ static func _handle_battle_hotkey(main, event: InputEventKey) -> bool:
 	var button: Button = main.purchase_buttons[index]
 	if not is_instance_valid(button): return true
 	if button.has_meta("unit_kind"):
+		if not main.unit_purchase_hold.can_hold(main): return true
+		main.unit_purchase_hold.begin_key(main, button, key)
 		var limit_error: String = main._unit_production_limit_error()
 		if not limit_error.is_empty():
 			if not main.placement_pending: main._show_placement_status(limit_error)
 			return true
+	else:
+		main.unit_purchase_hold.cancel()
 	if button.disabled: return true
 	if button.toggle_mode: button.set_pressed_no_signal(not button.button_pressed)
 	button.pressed.emit()

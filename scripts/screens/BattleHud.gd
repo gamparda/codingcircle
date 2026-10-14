@@ -405,6 +405,7 @@ static func _add_spawn_button(main, row: HBoxContainer, title: String, kind: Str
 	var primary := Localization.text("공속 +%d%% 누적") % roundi(BattleModel.SUPPORT_INCREMENT * 100.0) if kind == "healer" else Localization.text("공격 %d") % int(stats.damage)
 	var button = main._styled_button(Localization.text("%s  ·  %d\n체력 %d  ·  %s") % [title, int(stats.cost), int(stats.hp), primary], color)
 	button.tooltip_text = BattleModel.unit_stat_summary(kind, growth_level)
+	button.tooltip_text += "\n짧게 누르면 한 번 생산합니다. 카드·구매 단축키를 누르고 유지하면 자원·생산 대기·전장 한도에 맞춰 반복 생산합니다. 손을 떼거나 카드 밖으로 이동하면 취소합니다."
 	button.set_meta("base_tooltip", button.tooltip_text)
 	button.set_meta("purchase_cost", float(stats.cost))
 	button.set_meta("unit_kind", kind)
@@ -425,6 +426,23 @@ static func _add_spawn_button(main, row: HBoxContainer, title: String, kind: Str
 	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	button.add_child(portrait)
 	button.pressed.connect(main._purchase_unit.bind(kind))
+	var repeat_hint := Label.new()
+	repeat_hint.name = "RepeatPurchaseHint"
+	repeat_hint.position = Vector2(20, 31)
+	repeat_hint.size = Vector2(96, 20)
+	repeat_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	repeat_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	repeat_hint.add_theme_font_size_override("font_size", 11)
+	repeat_hint.add_theme_color_override("font_color", UIKit.GOLD)
+	var repeat_style := StyleBoxFlat.new()
+	repeat_style.bg_color = Color("#101522")
+	repeat_style.border_color = UIKit.GOLD_DEEP
+	repeat_style.set_border_width_all(1)
+	repeat_style.set_corner_radius_all(5)
+	repeat_hint.add_theme_stylebox_override("normal", repeat_style)
+	repeat_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	repeat_hint.hide()
+	button.add_child(repeat_hint)
 	row.add_child(button)
 
 static func _decorate_battle_card(main, button: Button) -> void:
@@ -501,6 +519,7 @@ static func _add_structure_button(main, row: HBoxContainer, title: String, kind:
 	emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.add_child(emblem)
 	button.pressed.connect(func():
+		main.unit_purchase_hold.cancel()
 		if is_instance_valid(main.battle_view) and not main.placement_pending and main._battle_purchase_block_reason().is_empty() and not button.disabled:
 			main.battle_view.selected_structure = "" if main.battle_view.selected_structure == kind else kind
 		main._refresh_structure_selection()
@@ -547,6 +566,7 @@ static func _add_purchase_labels(main, button: Button, key_text: String) -> void
 	button.add_child(state)
 
 static func _show_army_panel(main, side: int, navigation: Dictionary = {}) -> void:
+	main.unit_purchase_hold.cancel()
 	if not main.battle_active or not is_instance_valid(main.battle_view) or main.result_shown or main.finale_active or is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.action_overlay) or is_instance_valid(main.report_overlay): return
 	main.battle_view.reset_build_touch()
 	main._dismiss_stats_panel()
@@ -576,6 +596,7 @@ static func _show_army_panel(main, side: int, navigation: Dictionary = {}) -> vo
 	UIKit.reveal(panel, 0.25, 0.0)
 
 static func _show_structure_panel(main, navigation: Dictionary = {}) -> void:
+	main.unit_purchase_hold.cancel()
 	if not main.battle_active or not is_instance_valid(main.battle_view) or main.result_shown or main.finale_active or is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.action_overlay) or is_instance_valid(main.report_overlay): return
 	main.battle_view.reset_build_touch()
 	main._dismiss_stats_panel()
@@ -604,6 +625,7 @@ static func _show_structure_panel(main, navigation: Dictionary = {}) -> void:
 	UIKit.reveal(panel, 0.25, 0.0)
 
 static func _show_stats_panel(main, reference: Dictionary = {}) -> void:
+	main.unit_purchase_hold.cancel()
 	if is_instance_valid(main.battle_view): main.battle_view.reset_build_touch()
 	var return_focus: Control = main.stats_overlay.get_meta("return_focus", null) if is_instance_valid(main.stats_overlay) else null
 	main._dismiss_stats_panel()
@@ -640,6 +662,7 @@ static func _add_battle_chat(main) -> void:
 	main.session_chat_input = LineEdit.new(); main.session_chat_input.placeholder_text = "메시지 입력 · Enter 전송"; main.session_chat_input.max_length = 160; main.session_chat_input.custom_minimum_size.y = 40; main.session_chat_input.text_submitted.connect(func(_value): main._send_session_chat()); content.add_child(main.session_chat_input)
 	main.battle_chat_panel.visible = false
 	toggle.pressed.connect(func():
+		main.unit_purchase_hold.cancel()
 		if is_instance_valid(main.battle_view): main.battle_view.reset_build_touch()
 		main.battle_chat_panel.visible = not main.battle_chat_panel.visible)
 	MultiplayerUI.chat(main)
@@ -814,6 +837,7 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 		var resource_bar = main.resource_label.get_meta("bar", null)
 		if is_instance_valid(resource_bar): resource_bar.visible = false
 	var block_reason := _purchase_block_reason(main)
+	if not block_reason.is_empty(): main.unit_purchase_hold.cancel()
 	var block_hint := _purchase_block_hint(block_reason)
 	var counts := BattleModel.structure_counts(main.current_snapshot.get("structures", []), main.own_side)
 	var population := _unit_population(main)

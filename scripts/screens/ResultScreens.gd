@@ -438,6 +438,7 @@ static func _judge_achievements(main, winner: int) -> Array:
 
 static func _show_battle_report(main) -> void:
 	if not Report.valid(main.current_snapshot.get("battle_report",[])): return
+	main.unit_purchase_hold.cancel()
 	main._dismiss_battle_report()
 	var return_focus: Control = main.get_viewport().gui_get_focus_owner()
 	main.report_overlay = ColorRect.new(); main.report_overlay.name = "BattleReportOverlay"; main.report_overlay.color = Color(0.02,0.03,0.05,0.97); main.report_overlay.size = Vector2(1280,720); main.report_overlay.z_index = 150; main.root_background.add_child(main.report_overlay)

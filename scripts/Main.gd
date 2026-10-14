@@ -17,6 +17,7 @@ const UpdateOverlay = preload("res://scripts/screens/UpdateOverlay.gd")
 const Tutorial = preload("res://scripts/screens/Tutorial.gd")
 const PracticeUI = preload("res://scripts/screens/PracticeUI.gd")
 const LocalBattlePause = preload("res://scripts/screens/LocalBattlePause.gd")
+const UnitPurchaseHold = preload("res://scripts/screens/UnitPurchaseHold.gd")
 const PatchNotes = preload("res://scripts/PatchNotes.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 
@@ -114,6 +115,7 @@ var cancel_build_button: Button
 var report_overlay: Control
 var battle_report_state: Dictionary = {} # navigation only; reset for each match
 var client_purchase_gates: Dictionary = {}
+var unit_purchase_hold := UnitPurchaseHold.new()
 var latest_resources := 0.0
 var rage_sfx_player: AudioStreamPlayer
 var last_rage_sfx_msec := -1000
@@ -304,6 +306,7 @@ func _arg_string(args: PackedStringArray, prefix: String, fallback: String) -> S
 func _notification(what: int) -> void:
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED]:
 		build_confirm_key = 0 # The OS may deliver the release to another window.
+		unit_purchase_hold.reset()
 		local_battle_backgrounded = true
 		if DisplayServer.get_name() != "headless": LocalBattlePause.pause(self, true)
 	elif what in [NOTIFICATION_APPLICATION_FOCUS_IN, NOTIFICATION_APPLICATION_RESUMED]:
@@ -347,6 +350,7 @@ func _process(delta: float) -> void:
 		else: practice.advance(local_model,local_ai,battle_delta,own_side)
 		_on_combat_events(local_model.drain_combat_events())
 		_on_snapshot(local_model.snapshot())
+	unit_purchase_hold.advance(self)
 	if smoke_mode or ai_smoke_mode:
 		smoke_elapsed += delta
 		if smoke_elapsed > 45.0:
@@ -354,6 +358,9 @@ func _process(delta: float) -> void:
 			get_tree().quit(2)
 
 func _input(event: InputEvent) -> void:
+	if unit_purchase_hold.handle_input(self, event):
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and build_confirm_key != 0:
 		var key := event.physical_keycode if event.physical_keycode != 0 else event.keycode
 		if key == build_confirm_key:
@@ -519,9 +526,11 @@ func _update_server_lifecycle(delta: float) -> void:
 	preload("res://scripts/ServerStats.gd").write_json(status_path, status)
 
 func _exit_tree() -> void:
+	unit_purchase_hold.reset()
 	BattleFlow._cancel_finale(self)
 
 func _clear_screen() -> void:
+	unit_purchase_hold.reset()
 	_remember_stats_view()
 	BattleFlow._cancel_finale(self)
 	LocalBattlePause.dismiss(self)
@@ -1173,6 +1182,7 @@ func _dismiss_action_overlay() -> void:
 	action_overlay = null
 
 func _action_panel(title: String, rect: Rect2) -> VBoxContainer:
+	unit_purchase_hold.cancel()
 	if is_instance_valid(battle_view): battle_view.reset_build_touch()
 	_dismiss_action_overlay()
 	action_overlay = ColorRect.new(); action_overlay.name = "BattleActionOverlay"; action_overlay.color = Color(0.02,0.03,0.05,0.95); action_overlay.size = Vector2(1280,720); action_overlay.z_index = 160; root_background.add_child(action_overlay)
