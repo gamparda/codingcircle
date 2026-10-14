@@ -41,6 +41,9 @@ var _state: Dictionary = {}
 var _search: LineEdit
 var _deck_queries: Array[LineEdit] = []
 var _deck_notice: Label
+var _term_scroll: ScrollContainer
+var _term_row: HBoxContainer
+var _term_buttons: Array[Button] = []
 var _mode: OptionButton
 var _scope: OptionButton
 var _outcome: OptionButton
@@ -268,6 +271,21 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 		query.text = String(state.get("blue_query" if side == 0 else "red_query", ""))
 		field.add_child(query)
 		_deck_queries.append(query)
+	# Keep removal controls outside the result cards, including an empty result.
+	# A single horizontal row bounds the height even for many manually typed terms.
+	_term_scroll = ScrollContainer.new()
+	_term_scroll.name = "ReplaySearchTerms"
+	_term_scroll.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT + 18
+	_term_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_term_scroll.follow_focus = true
+	_term_scroll.get_h_scroll_bar().focus_mode = Control.FOCUS_NONE
+	_term_scroll.tooltip_text = "현재 검색어를 하나씩 해제합니다. 좌우로 스크롤하거나 Tab으로 이동할 수 있습니다. 블루·레드는 저장된 진영 기준입니다."
+	column.add_child(_term_scroll)
+	column.move_child(_term_scroll, _scroll.get_index())
+	_term_row = HBoxContainer.new()
+	_term_row.name = "Terms"
+	_term_row.add_theme_constant_override("separation", 8)
+	_term_scroll.add_child(_term_row)
 	_deck_notice = Label.new()
 	_deck_notice.name = "ReplayDeckSearchNotice"
 	_deck_notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -491,9 +509,77 @@ static func matches(entry: Dictionary, query: String, mode: int, scope: int, out
 	return _query_matches(decks[0] if decks.size() == 2 else "", blue_query) and _query_matches(decks[1] if decks.size() == 2 else "", red_query)
 
 static func _query_matches(text: String, query: String) -> bool:
-	for term in query.to_lower().replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ", false):
+	for term in _search_terms(query.to_lower()):
 		if not text.contains(term): return false
 	return true
+
+static func _search_terms(query: String) -> PackedStringArray:
+	return query.replace("\t", " ").replace("\n", " ").replace("\r", " ").split(" ", false)
+
+func _sync_search_terms() -> void:
+	var fields: Array[LineEdit] = [_search, _deck_queries[0], _deck_queries[1]]
+	var focused := get_viewport().gui_get_focus_owner()
+	var focus_index := _term_buttons.find(focused)
+	var existing := {}
+	for button in _term_buttons: existing[String(button.name)] = button
+	var current: Array[Button] = []
+	for field in fields.size():
+		var seen := {}
+		for term in _search_terms(fields[field].text):
+			var key: String = term.to_lower()
+			if seen.has(key): continue
+			seen[key] = true
+			var node_name := "RemoveSearchTerm%d_%s" % [field, key.sha256_text()]
+			var button: Button = existing.get(node_name)
+			if button == null:
+				var tone: Color = [UIKit.TEAL, UIKit.TEAM_BLUE, UIKit.TEAM_RED][field]
+				button = UIKit.style_button(Button.new(), tone, false, 14)
+				button.name = node_name
+				button.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT
+				button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+				button.mouse_filter = Control.MOUSE_FILTER_PASS
+				button.set_meta("search_field", field)
+				button.set_meta("search_term", key)
+				button.pressed.connect(_remove_search_term.bind(button))
+				_term_row.add_child(button)
+			existing.erase(node_name)
+			var title: String = term
+			if field > 0:
+				title = String(BattleModel.UNIT_NAMES.get(key, {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}.get(key, term)))
+			var field_name := String(["전체", "블루", "레드"][field])
+			button.text = "%s: %s ×" % [field_name, title.left(22) + ("…" if title.length() > 22 else "")]
+			button.tooltip_text = "%s 검색의 ‘%s’ 단어만 해제합니다. 같은 단어의 중복·대소문자 변형도 해제하며 부분 검색어·다른 검색칸·필터·정렬은 유지합니다." % [field_name, term]
+			_term_row.move_child(button, current.size())
+			current.append(button)
+	for button in existing.values():
+		_term_row.remove_child(button)
+		button.queue_free()
+	_term_buttons = current
+	_term_scroll.visible = not current.is_empty()
+	# Reuse surviving nodes and move a removed chip's focus to its nearest neighbor.
+	# Never open a touch keyboard merely to remove a condition.
+	if focus_index >= 0 and focused not in current:
+		var target: Control = current[mini(focus_index, current.size() - 1)] if not current.is_empty() else _scroll
+		target.grab_focus()
+		_store_focus(target)
+
+func _remove_search_term(button: Button) -> void:
+	if not _alive() or not _usable(button): return
+	button.grab_focus()
+	_store_focus(button)
+	_remember_scroll(_scroll.scroll_vertical)
+	var field := int(button.get_meta("search_field"))
+	var term := String(button.get_meta("search_term"))
+	var query: LineEdit = _search if field == 0 else _deck_queries[field - 1]
+	var remaining := PackedStringArray()
+	for other in _search_terms(query.text):
+		if other.to_lower() != term: remaining.append(other)
+	# Assigning text does not emit text_changed; update cards and selections once.
+	query.text = " ".join(remaining)
+	_deck_notice.text = "%s 검색: ‘%s’ 해제 · 다른 검색·필터·정렬 조건은 유지합니다." % [["전체", "블루", "레드"][field], term]
+	_deck_notice.add_theme_color_override("font_color", UIKit.TEAL)
+	_deck_notice.show()
+	_refresh(false)
 
 ## Only aggregate the loaded snapshot. Typing/filtering never opens files.
 static func storage_totals(entries: Array) -> Dictionary:
@@ -541,6 +627,7 @@ func _apply_sort() -> void:
 func _refresh(reset_scroll: bool) -> void:
 	_refresh_revision += 1
 	if reset_scroll: _deck_notice.hide()
+	_sync_search_terms()
 	_state["query"] = _search.text
 	_state["blue_query"] = _deck_queries[0].text
 	_state["red_query"] = _deck_queries[1].text
@@ -608,7 +695,7 @@ func _refresh(reset_scroll: bool) -> void:
 		UIKit.display(message, 22, UIKit.TEXT)
 		_empty.add_child(message)
 		var hint := Label.new()
-		hint.text = "전투를 끝까지 치르면 자동 저장됩니다. 공유받은 텍스트는 클립보드에서 가져올 수 있습니다." if _entries.is_empty() else "전체 검색·양쪽 덱 검색·종류·결과·보존 조건을 바꾸거나 초기화를 눌러 전체 목록을 확인하세요. 읽기 실패 파일은 덱 조건을 해제해야 볼 수 있습니다."
+		hint.text = "전투를 끝까지 치르면 자동 저장됩니다. 공유받은 텍스트는 클립보드에서 가져올 수 있습니다." if _entries.is_empty() else "상단의 ‘검색어 ×’로 조건을 하나씩 해제하거나 전체 검색·양쪽 덱 검색·종류·결과·보존 조건을 바꿔 보세요. 초기화는 모든 조건을 해제합니다. 읽기 실패 파일은 덱 조건을 해제해야 볼 수 있습니다."
 		if not _load_error.is_empty(): hint.text = _load_error
 		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
