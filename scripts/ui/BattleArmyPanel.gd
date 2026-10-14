@@ -4,15 +4,11 @@ extends PanelContainer
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const LocalBattlePause = preload("res://scripts/screens/LocalBattlePause.gd")
 const OverviewNavigation = preload("res://scripts/ui/BattleOverviewNavigation.gd")
+const ArmyComposition = preload("res://scripts/ui/ArmyComposition.gd")
 
 # Each living kind belongs to one primary role; summons are part of the front line.
 # These are presentation groups, independent of combat rules and deck eligibility.
-const ARMY_ROLES := {
-	"front": {"title": "근접 전열", "kinds": ["shield", "swordsman", "berserker", "skeleton"], "description": "근거리에서 공격하고 전열을 구성합니다. 해골도 이 역할에 포함합니다."},
-	"ranged": {"title": "원거리 공격", "kinds": ["archer", "warlock"], "description": "원거리에서 공격합니다. 흑마법사는 공격 대상에 적 공격력을 낮추는 장판도 만듭니다."},
-	"support": {"title": "공속 지원", "kinds": ["healer"], "description": "마법사는 아군의 공격속도를 높입니다. 직접 피해를 주거나 체력을 회복하지 않습니다."},
-	"summoner": {"title": "소환 지휘", "kinds": ["necromancer"], "description": "네크로맨서는 공격하면서 해골을 소환합니다. 소환된 해골은 근접 전열에 따로 집계합니다."},
-}
+const ARMY_ROLES = ArmyComposition.ROLES
 
 var main
 var status: Label

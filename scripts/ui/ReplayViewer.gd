@@ -16,6 +16,7 @@ const MomentumGraph = preload("res://scripts/ui/MomentumGraph.gd")
 const ToastLabel = preload("res://scripts/ui/ToastLabel.gd")
 const Report = preload("res://scripts/BattleReport.gd")
 const ReportContent = preload("res://scripts/ui/BattleReportContent.gd")
+const ArmyComposition = preload("res://scripts/ui/ArmyComposition.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const JUMP_LEAD_TICKS := 30 # land a second before a highlight so the moment plays out
 const SPEEDS := [0.5, 1.0, 2.0, 4.0, 8.0]
@@ -59,6 +60,9 @@ var loop_start := -1
 var loop_end := -1
 var loop_start_report: Array = []
 var loop_end_report: Array = []
+var loop_start_army: Dictionary = {}
+var loop_end_army: Dictionary = {}
+var report_army_visible := false
 var loop_enabled := false
 var loop_button: Button
 var clip_button: Button
@@ -79,6 +83,9 @@ func open(replay_data: Dictionary, title: String = "") -> void:
 	loop_end = -1
 	loop_start_report = []
 	loop_end_report = []
+	loop_start_army = {}
+	loop_end_army = {}
+	report_army_visible = false
 	loop_enabled = false
 	title_text = title
 	analysis = ReplayAnalysis.analyze(replay)
@@ -122,7 +129,7 @@ func _build() -> void:
 	report_button.position = Vector2(1110, 164)
 	report_button.custom_minimum_size = Vector2(124, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44)
 	report_button.size = report_button.custom_minimum_size
-	report_button.tooltip_text = "누적 생산·건설·피해·처치를 비교합니다 (R 키). 시작 [ · 끝 ] 지점을 정하면 해당 구간도 비교할 수 있습니다."
+	report_button.tooltip_text = "피해·처치와 현재 생존 병력·역할 구성을 비교합니다 (R 키). 시작 [ · 끝 ] 지점을 정하면 구간의 집계와 병력 증감도 확인합니다."
 	report_button.pressed.connect(_show_battle_report)
 	moment_toast = ToastLabel.new()
 	moment_toast.name = "MomentToast"
@@ -425,6 +432,8 @@ func clear_loop() -> void:
 	loop_end = -1
 	loop_start_report = []
 	loop_end_report = []
+	loop_start_army = {}
+	loop_end_army = {}
 	loop_enabled = false
 	_refresh_loop()
 	clip_button.grab_focus()
@@ -439,9 +448,11 @@ func set_loop_start() -> void:
 		return
 	loop_start = player.ticks
 	loop_start_report = player.model.battle_report.duplicate(true)
+	loop_start_army = ArmyComposition.capture(player.model.units)
 	if loop_end <= loop_start:
 		loop_end = -1
 		loop_end_report = []
+		loop_end_army = {}
 		loop_enabled = false
 	_refresh_loop()
 	_toast("구간 시작 ▸ %s · 뒤의 장면으로 이동해 끝 ] 지점을 정하세요" % _report_time(loop_start))
@@ -457,6 +468,7 @@ func set_loop_end() -> bool:
 		return false
 	loop_end = player.ticks
 	loop_end_report = player.model.battle_report.duplicate(true)
+	loop_end_army = ArmyComposition.capture(player.model.units)
 	_refresh_loop()
 	_toast("선택 구간 ▸ %s–%s · 구간 복사로 공유하거나 전투 요약에서 비교하세요" % [_report_time(loop_start), _report_time(loop_end)])
 	return true
@@ -765,6 +777,10 @@ func _show_battle_report() -> void:
 	report_overlay.color = Color(0.02, 0.03, 0.05, 0.97)
 	report_overlay.size = size
 	report_overlay.z_index = 150
+	# Freeze counts with the report; switching scopes never reads a later playhead.
+	report_overlay.set_meta("current_army", ArmyComposition.capture(player.model.units))
+	report_overlay.set_meta("start_army", loop_start_army.duplicate(true))
+	report_overlay.set_meta("end_army", loop_end_army.duplicate(true))
 	add_child(report_overlay)
 	var content := MultiplayerUI.panel(self, report_overlay, "ReplayReportPanel", Rect2(80, 40, 1120, 640))
 	var title := MultiplayerUI.label("", 28, MultiplayerUI.GOLD)
@@ -784,6 +800,19 @@ func _show_battle_report() -> void:
 		button.set_pressed_no_signal(selected == (not interval_reports.is_empty()))
 		button.tooltip_text = "시작 [ · 끝 ] 지점을 정하면 반복을 켜지 않아도 구간 집계를 볼 수 있습니다." if selected else "요약을 연 장면까지의 누적 집계입니다."
 		button.pressed.connect(func(): _render_report_scope(interval_reports if selected else reports, start_tick if selected else 0, end_tick if selected else current_tick, selected))
+	var view_controls := HBoxContainer.new()
+	view_controls.name = "ReplayReportViewControls"
+	view_controls.add_theme_constant_override("separation", 12)
+	content.add_child(view_controls)
+	var view_group := ButtonGroup.new()
+	for army in [false, true]:
+		var button := _control_button(view_controls, "ReplayReportArmy" if army else "ReplayReportContribution", "생존 병력" if army else "피해·처치", UIKit.TEAL, false)
+		button.custom_minimum_size = Vector2(180, UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 44)
+		button.toggle_mode = true
+		button.button_group = view_group
+		button.set_pressed_no_signal(army == report_army_visible)
+		button.tooltip_text = "현재 시점 또는 선택 구간 끝의 역할·종류별 생존 수와 시작 대비 증감을 확인합니다." if army else "기존 자원·건설·피해·처치와 병력별 기여도를 확인합니다."
+		button.pressed.connect(_set_report_view.bind(army))
 	var notice := MultiplayerUI.label("", 13, MultiplayerUI.MUTED)
 	notice.name = "ReplayReportNotice"
 	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -795,6 +824,7 @@ func _show_battle_report() -> void:
 	scroll.follow_focus = true
 	scroll.scroll_deadzone = 16
 	scroll.focus_mode = Control.FOCUS_ALL
+	scroll.get_v_scroll_bar().focus_mode = Control.FOCUS_NONE
 	content.add_child(scroll)
 	var body := VBoxContainer.new()
 	body.name = "ReplayReportBody"
@@ -813,19 +843,57 @@ func _report_time(tick: int) -> String:
 
 func _render_report_scope(reports: Array, start_tick: int, end_tick: int, selected: bool) -> void:
 	if not is_instance_valid(report_overlay): return
-	var title := report_overlay.find_child("ReplayReportTitle", true, false) as Label
-	var notice := report_overlay.find_child("ReplayReportNotice", true, false) as Label
 	var scroll := report_overlay.find_child("ReplayReportScroll", true, false) as ScrollContainer
 	var body := report_overlay.find_child("ReplayReportBody", true, false) as VBoxContainer
-	title.text = "전투 요약 · %s–%s 구간" % [_report_time(start_tick), _report_time(end_tick)] if selected else "전투 요약 · %s까지 누적" % _report_time(end_tick)
-	notice.text = "선택 구간에서 새로 발생한 집계입니다. 시작 이전에 생산된 병력도 구간 내 피해·처치를 기여합니다. 비중은 이 구간의 진영 합계 기준입니다." if selected else "처음부터 요약을 연 장면까지의 누적 집계입니다. 클립 시작 전의 전투도 포함합니다. 구간 비교는 시작 [ · 끝 ] 지점을 먼저 정하세요."
-	notice.text += " 현재 규칙으로 재현한 수치이며 기록 당시와 다를 수 있습니다."
+	report_overlay.set_meta("selected_scope", selected)
+	report_overlay.set_meta("scope_start", start_tick)
+	report_overlay.set_meta("scope_end", end_tick)
+	_refresh_report_heading()
 	for child in body.get_children():
 		body.remove_child(child)
 		child.queue_free()
-	ReportContent.populate(body, reports, ["블루 진영", "레드 진영"])
+	var contribution := VBoxContainer.new()
+	contribution.name = "ReplayReportContributionBody"
+	contribution.add_theme_constant_override("separation", 12)
+	body.add_child(contribution)
+	ReportContent.populate(contribution, reports, ["블루 진영", "레드 진영"])
+	var army := VBoxContainer.new()
+	army.name = "ReplayReportArmyBody"
+	army.add_theme_constant_override("separation", 12)
+	body.add_child(army)
+	ArmyComposition.populate(army, report_overlay.get_meta("end_army") if selected else report_overlay.get_meta("current_army"), report_overlay.get_meta("start_army") if selected else {})
+	contribution.visible = not report_army_visible
+	army.visible = report_army_visible
 	scroll.scroll_vertical = 0
 	_refresh_report_focus()
+
+func _set_report_view(army: bool) -> void:
+	if not is_instance_valid(report_overlay): return
+	report_army_visible = army
+	var body := report_overlay.find_child("ReplayReportBody", true, false) as VBoxContainer
+	body.get_node("ReplayReportContributionBody").visible = not army
+	body.get_node("ReplayReportArmyBody").visible = army
+	_refresh_report_heading()
+	var scroll := report_overlay.find_child("ReplayReportScroll", true, false) as ScrollContainer
+	scroll.scroll_vertical = 0
+	_refresh_report_focus()
+
+func _refresh_report_heading() -> void:
+	var title := report_overlay.find_child("ReplayReportTitle", true, false) as Label
+	var notice := report_overlay.find_child("ReplayReportNotice", true, false) as Label
+	var current := report_overlay.find_child("ReplayReportCumulative", true, false) as Button
+	var selected: bool = report_overlay.get_meta("selected_scope", false)
+	var start_tick: int = report_overlay.get_meta("scope_start", 0)
+	var end_tick: int = report_overlay.get_meta("scope_end", 0)
+	current.text = "현재 시점" if report_army_visible else "현재까지 누적"
+	current.tooltip_text = "요약을 연 장면의 생존 병력입니다." if report_army_visible else "요약을 연 장면까지의 누적 집계입니다."
+	if report_army_visible:
+		title.text = "병력 구성 · %s–%s 구간" % [_report_time(start_tick), _report_time(end_tick)] if selected else "병력 구성 · %s 시점" % _report_time(end_tick)
+		notice.text = "선택한 시작·끝 장면의 생존 병력을 비교합니다. 재생 위치와 관계없이 지정한 두 시점을 사용합니다." if selected else "요약을 연 장면의 생존 병력입니다. 다른 시점을 보려면 닫은 뒤 시간 막대로 이동하세요. 시작 [ · 끝 ]으로 구간 증감도 비교합니다."
+	else:
+		title.text = "전투 요약 · %s–%s 구간" % [_report_time(start_tick), _report_time(end_tick)] if selected else "전투 요약 · %s까지 누적" % _report_time(end_tick)
+		notice.text = "선택 구간에서 새로 발생한 집계입니다. 시작 이전에 생산된 병력도 구간 내 피해·처치를 기여합니다. 비중은 이 구간의 진영 합계 기준입니다." if selected else "처음부터 요약을 연 장면까지의 누적 집계입니다. 클립 시작 전의 전투도 포함합니다. 구간 비교는 시작 [ · 끝 ] 지점을 먼저 정하세요."
+	notice.text += " 현재 규칙으로 재현한 수치이며 기록 당시와 다를 수 있습니다."
 
 func _refresh_report_focus() -> void:
 	var scroll := report_overlay.find_child("ReplayReportScroll", true, false) as ScrollContainer
@@ -835,9 +903,14 @@ func _refresh_report_focus() -> void:
 	var focusable: Array[Control] = [report_overlay.find_child("ReplayReportCumulative", true, false) as Button]
 	var interval_button := report_overlay.find_child("ReplayReportInterval", true, false) as Button
 	if not interval_button.disabled: focusable.append(interval_button)
-	focusable.append_array([scroll,
-		body.get_node("BattleReportMetricControls/BattleReportMetric_damage") as Button,
-		body.get_node("BattleReportMetricControls/BattleReportMetric_kills") as Button, close])
+	focusable.append_array([
+		report_overlay.find_child("ReplayReportContribution", true, false) as Button,
+		report_overlay.find_child("ReplayReportArmy", true, false) as Button, scroll])
+	if not report_army_visible:
+		focusable.append_array([
+			body.get_node("ReplayReportContributionBody/BattleReportMetricControls/BattleReportMetric_damage") as Button,
+			body.get_node("ReplayReportContributionBody/BattleReportMetricControls/BattleReportMetric_kills") as Button])
+	focusable.append(close)
 	for index in focusable.size():
 		var node := focusable[index]
 		var previous := node.get_path_to(focusable[(index + focusable.size() - 1) % focusable.size()])
