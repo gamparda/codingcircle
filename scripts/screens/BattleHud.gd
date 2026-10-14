@@ -737,9 +737,6 @@ static func _refresh_unit_population(main, counts: Dictionary) -> void:
 			if details.tooltip_text != details_hint: details.tooltip_text = details_hint
 		if label.text != text: label.text = text
 		if label.tooltip_text != tooltip: label.tooltip_text = tooltip
-	if is_instance_valid(main.stats_overlay):
-		var panel = main.stats_overlay.get_node_or_null("BattleArmyPanel")
-		if panel != null: panel.refresh(counts, awaiting)
 	if not is_instance_valid(main.unit_capacity_label): return
 	var capacity_text := "전장 병력 — / %d" % BattleModel.MAX_ACTIVE_UNITS if awaiting else "전장 병력 %d / %d" % [int(counts.occupied), BattleModel.MAX_ACTIVE_UNITS]
 	var full: bool = not awaiting and int(counts.occupied) >= BattleModel.MAX_ACTIVE_UNITS
@@ -836,6 +833,8 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 				var values: Array = main.current_snapshot.get("structures", [])
 				var side_counts: Array = [counts if main.own_side == 0 else BattleModel.structure_counts(values, 0), counts if main.own_side == 1 else BattleModel.structure_counts(values, 1)]
 				panel.refresh(values, side_counts, float(main.current_snapshot.get("elapsed", 0.0)), awaiting_structures)
+	var army_panel = main.stats_overlay.get_node_or_null("BattleArmyPanel") if is_instance_valid(main.stats_overlay) else null
+	var production: Dictionary = {}
 	var clear_selection := false
 	for button in main.purchase_buttons:
 		if not is_instance_valid(button):
@@ -856,6 +855,10 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 		# Use the fractional deficit; ceil is only for the displayed missing amount.
 		var resource_wait := deficit / maxf(0.001, float(economy.income) * float(economy.speed))
 		var purchase_wait := maxf(resource_wait, cooldown_wait)
+		# The overview describes the same purchase conditions as the cards. It
+		# never queues a spawn or estimates an opponent's undisclosed deck.
+		if army_panel != null and button.has_meta("unit_kind") and not main.network.client_is_spectator:
+			production[String(button.get_meta("unit_kind"))] = {"cost": cost, "missing": missing, "cooldown": cooldown, "cooldown_wait": cooldown_wait, "purchase_wait": purchase_wait, "above_capacity": above_capacity}
 		var resource_hint := ""
 		if missing > 0:
 			resource_hint = "\n자원이 %d 더 필요합니다." % missing
@@ -935,3 +938,6 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			clear_selection = true
 	if clear_selection:
 		main._refresh_structure_selection()
+	if is_instance_valid(army_panel) and not army_panel.is_queued_for_deletion():
+		var awaiting_army: bool = main.current_snapshot.is_empty() or (not main.local_ai_mode and (main.awaiting_battle_snapshot or main.network.client_reconnecting or main.network_paused))
+		army_panel.refresh(population, awaiting_army, {"resources": resources, "economy": economy, "production": production, "block_reason": block_reason})
