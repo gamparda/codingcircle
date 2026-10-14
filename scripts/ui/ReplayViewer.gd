@@ -83,6 +83,13 @@ var seek_panel: PanelContainer
 var seek_label: Label
 var seek_cancel_button: Button
 var seek_scene_controls: Array[Button] = []
+var analysis_job = null
+var analysis_pending := false
+var analysis_ready := false
+var analysis_panel: PanelContainer
+var analysis_label: Label
+var analysis_button: Button
+var moment_buttons: Array[Button] = []
 
 func open(replay_data: Dictionary, title: String = "") -> void:
 	replay = replay_data
@@ -95,7 +102,11 @@ func open(replay_data: Dictionary, title: String = "") -> void:
 	report_army_visible = false
 	loop_enabled = false
 	title_text = title
-	analysis = ReplayAnalysis.analyze(replay)
+	# Build the playable scene before starting the independent silent analysis.
+	analysis = {"samples": [], "highlights": [], "ticks": int(replay.get("result", {}).get("ticks", 0))}
+	analysis_job = null
+	analysis_pending = true
+	analysis_ready = false
 	name = "ReplayViewer"
 	position = Vector2.ZERO
 	size = Vector2(1280, 720)
@@ -147,6 +158,7 @@ func _build() -> void:
 	_build_storage_controls()
 	_build_selection_controls()
 	_build_seek_controls()
+	_build_analysis_controls()
 	_refresh_loop()
 	for i in 4:
 		var voice := AudioStreamPlayer.new()
@@ -183,6 +195,85 @@ func _build_seek_controls() -> void:
 		var control := find_child(node_name, true, false) as Button
 		if control != null:
 			seek_scene_controls.append(control)
+
+func _build_analysis_controls() -> void:
+	analysis_panel = PanelContainer.new()
+	analysis_panel.name = "ReplayAnalysisPanel"
+	analysis_panel.position = Vector2(18, 164)
+	analysis_panel.custom_minimum_size = Vector2(510, 58)
+	analysis_panel.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE, UIKit.SURFACE, UIKit.TEAL, 10), 10, 0))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	analysis_label = Label.new()
+	analysis_label.name = "ReplayAnalysisStatus"
+	analysis_label.custom_minimum_size.x = 340
+	analysis_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	analysis_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	analysis_label.add_theme_font_size_override("font_size", 13)
+	analysis_label.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
+	analysis_label.text = "전세·주요 순간 분석 준비 중\n재생·시간 이동·메모는 계속 사용할 수 있습니다"
+	row.add_child(analysis_label)
+	analysis_button = _control_button(row, "ReplayAnalysisToggle", "분석 중지", UIKit.TEAL, false)
+	analysis_button.custom_minimum_size = Vector2(140, 58)
+	analysis_button.pressed.connect(func():
+		if is_analyzing():
+			cancel_analysis()
+		else:
+			analysis_pending = true
+			analysis_label.text = "전세·주요 순간 분석 준비 중\n재생 위치와 메모는 유지됩니다"
+			_refresh_analysis_controls())
+	analysis_panel.add_child(row)
+	add_child(analysis_panel)
+	_refresh_analysis_controls()
+
+func is_analyzing() -> bool:
+	return analysis_pending or analysis_job != null
+
+func _refresh_analysis_controls() -> void:
+	for button in moment_buttons:
+		button.disabled = not analysis_ready
+		button.tooltip_text = "주요 순간으로 이동합니다 (N / P 키)." if analysis_ready else "전세 분석이 끝나면 사용할 수 있습니다. 시간 막대·그래프·방향키로는 지금도 이동할 수 있습니다."
+	analysis_panel.visible = not analysis_ready
+	analysis_button.text = "분석 중지" if is_analyzing() else "다시 분석"
+	analysis_button.tooltip_text = "전세 그래프·주요 순간 분석만 중지합니다. 재생과 메모는 유지됩니다." if is_analyzing() else "전세 그래프·주요 순간을 처음부터 다시 분석합니다. 재생 위치는 바꾸지 않습니다."
+	_refresh_loop()
+
+func cancel_analysis() -> void:
+	if not is_analyzing(): return
+	analysis_pending = false
+	analysis_job = null
+	analysis_label.text = "전세·주요 순간 분석을 중지했습니다\n시간 이동·재생과 현재 장면 클립 복사는 가능합니다"
+	_refresh_analysis_controls()
+
+func _advance_analysis() -> void:
+	if not is_analyzing(): return
+	if analysis_pending:
+		analysis_pending = false
+		analysis_job = ReplayAnalysis.AnalysisJob.new(replay)
+		# Initialization/validation gets its own frame; never add a tick batch to it.
+		if not analysis_job.done: return
+	else:
+		ReplayAnalysis.advance(analysis_job)
+	if not analysis_job.done:
+		var total := int(replay.get("result", {}).get("ticks", 0))
+		var percent := clampi(roundi(100.0 * float(analysis_job.ticks) / float(maxi(1, total))), 0, 99)
+		analysis_label.text = "전세·주요 순간 분석 중 · %d%%\n%s / 기록 %s · 장면 이동을 먼저 처리합니다" % [percent, _report_time(analysis_job.ticks), _report_time(total)]
+		return
+	if not analysis_job.valid:
+		analysis_job = null
+		analysis_label.text = "전세 분석에 필요한 기록을 읽지 못했습니다\n보관 파일을 확인한 뒤 다시 시도하세요"
+		_refresh_analysis_controls()
+		return
+	# Publish once. setup keeps notes, selection and the current/pending playhead.
+	analysis = analysis_job.out
+	analysis_job = null
+	analysis_ready = true
+	graph.setup(analysis)
+	graph.set_playhead(seek_target if is_seeking() else int(player.ticks))
+	var restore_focus := analysis_button.has_focus()
+	_refresh_analysis_controls()
+	if restore_focus:
+		progress.grab_focus()
 
 func _build_storage_controls() -> void:
 	var panel := PanelContainer.new()
@@ -239,7 +330,7 @@ func _request_close() -> void:
 	if is_seeking():
 		cancel_seek()
 	if not notes_dirty:
-		closed.emit()
+		_close_viewer()
 		return
 	if not is_instance_valid(discard_dialog):
 		discard_dialog = ConfirmationDialog.new()
@@ -248,9 +339,14 @@ func _request_close() -> void:
 		discard_dialog.dialog_text = "메모가 아직 저장되지 않았습니다.\n돌아가서 저장을 재시도하거나, 변경 내용을 버리고 나갈 수 있습니다."
 		discard_dialog.ok_button_text = "저장하지 않고 나가기"
 		discard_dialog.cancel_button_text = "돌아가기"
-		discard_dialog.confirmed.connect(func(): closed.emit())
+		discard_dialog.confirmed.connect(_close_viewer)
 		add_child(discard_dialog)
 	discard_dialog.popup_centered(Vector2i(520, 180))
+
+func _close_viewer() -> void:
+	analysis_pending = false
+	analysis_job = null
+	closed.emit()
 
 func _build_top_bar() -> void:
 	var top := ColorRect.new()
@@ -366,12 +462,14 @@ func _build_bottom_bar() -> void:
 	var previous := _control_button(row, "ReplayPreviousMoment", "◀ 이전 순간", UIKit.ACCENT, false)
 	previous.custom_minimum_size.x = 110
 	previous.pressed.connect(func(): jump_previous_moment(true))
+	moment_buttons.append(previous)
 	play_button = _control_button(row, "ReplayPlayPause", "일시정지", UIKit.ACCENT, true)
 	play_button.custom_minimum_size.x = 100
 	play_button.pressed.connect(toggle_pause)
 	var next := _control_button(row, "ReplayNextMoment", "다음 순간 ▶", UIKit.ACCENT, false)
 	next.custom_minimum_size.x = 110
 	next.pressed.connect(func(): jump_next_moment(true))
+	moment_buttons.append(next)
 	var restart := _control_button(row, "ReplayRestart", "처음부터", UIKit.TEAL, false)
 	restart.custom_minimum_size.x = 90
 	restart.pressed.connect(func(): _restart(true))
@@ -407,6 +505,8 @@ func _build_bottom_bar() -> void:
 			if notes_dirty:
 				_toast("메모 저장을 재시도한 뒤 여기서 해보기를 눌러주세요.")
 			else:
+				analysis_pending = false
+				analysis_job = null
 				branch_requested.emit(player.ticks))
 	var close := _control_button(row, "ReplayClose", "나가기", UIKit.DANGER, false)
 	close.custom_minimum_size.x = 90
@@ -462,7 +562,7 @@ func _refresh_loop() -> void:
 		if loop_ready():
 			clip_button.tooltip_text = "선택 구간 %s–%s를 공유용 텍스트로 복사합니다. 가져오면 시작 지점부터 재생하고 끝에서 멈춥니다. 전체 전투와 메모도 포함됩니다." % [_report_time(loop_start), _report_time(loop_end)]
 		else:
-			clip_button.tooltip_text = "끝 ] 지점을 정하거나 구간 해제를 누르세요." if loop_start >= 0 else "가까운 주요 장면(없으면 현재 위치) 전후 10초를 공유용 텍스트로 복사합니다. 시작 [ · 끝 ]으로 정확한 구간을 정할 수도 있습니다."
+			clip_button.tooltip_text = "끝 ] 지점을 정하거나 구간 해제를 누르세요." if loop_start >= 0 else ("가까운 주요 장면(없으면 현재 위치) 전후 10초를 공유용 텍스트로 복사합니다. 시작 [ · 끝 ]으로 정확한 구간을 정할 수도 있습니다." if analysis_ready else "전세 분석 전에는 현재 위치 전후 10초를 복사합니다. 시작 [ · 끝 ]으로 정확한 구간을 정할 수도 있습니다.")
 		if int(replay.get("result", {}).get("ticks", 0)) <= 0:
 			clip_button.tooltip_text = "기록된 재생 구간이 없어 클립을 복사할 수 없습니다."
 	if is_instance_valid(selection_panel):
@@ -723,6 +823,8 @@ func _exit_tree() -> void:
 	# No pending callbacks or background worker can publish after leaving the viewer.
 	seek_target = -1
 	seek_player = null
+	analysis_pending = false
+	analysis_job = null
 
 ## Synchronous helper retained for programmatic callers. Interactive controls use
 ## request_seek() and advance the candidate within a frame budget instead.
@@ -754,10 +856,13 @@ func _process(delta: float) -> void:
 	if is_queued_for_deletion():
 		seek_target = -1
 		seek_player = null
+		analysis_pending = false
+		analysis_job = null
 		return
 	if is_seeking():
 		_advance_seek()
 		return
+	_advance_analysis()
 	if player == null or paused or is_instance_valid(report_overlay):
 		return
 	if _pause_at_clip_end():
@@ -883,6 +988,9 @@ func _nearby_clip() -> Dictionary:
 	return BattleReplay.make_clip(replay, center, title, hz * 10, hz * 10)
 
 func jump_next_moment(interactive: bool = false) -> void:
+	if not analysis_ready:
+		_toast("전세 분석이 끝나면 주요 순간으로 이동할 수 있습니다 · 시간 막대를 이용하세요")
+		return
 	var current := seek_target if is_seeking() else int(player.ticks)
 	var lead := int(replay.get("hz", BattleReplay.DEFAULT_HZ)) # land one recorded second before the moment
 	var item := ReplayAnalysis.next_after(analysis.get("highlights", []), current + lead)
@@ -893,6 +1001,9 @@ func jump_next_moment(interactive: bool = false) -> void:
 			seek(maxi(0, int(item.tick) - lead))
 
 func jump_previous_moment(interactive: bool = false) -> void:
+	if not analysis_ready:
+		_toast("전세 분석이 끝나면 주요 순간으로 이동할 수 있습니다 · 시간 막대를 이용하세요")
+		return
 	var current := seek_target if is_seeking() else int(player.ticks)
 	var lead := int(replay.get("hz", BattleReplay.DEFAULT_HZ))
 	var item := ReplayAnalysis.previous_before(analysis.get("highlights", []), current + lead)

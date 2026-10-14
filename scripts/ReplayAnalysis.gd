@@ -13,58 +13,94 @@ const CONTACT_EVENTS := ["ATTACK", "DAMAGE", "BASE_HIT", "DEATH", "STRUCTURE_DES
 const BASE_WEIGHT := 0.35
 const UNIT_WEIGHT := 1.6
 const CURVE_GAIN := 1.6
+const BATCH_TICKS := 512
+const BUDGET_USEC := 4000
 
-## Returns {"samples": [{"t": tick, "momentum": -1..1}], "highlights": [{"tick", "kind", "text"}], "ticks": N}.
-## momentum > 0 means the blue side is ahead (base health plus living army health).
-static func analyze(replay: Dictionary) -> Dictionary:
+## The owner advances or discards this silent pass. Partial results are private
+## until done, so trimming highlights never changes an already published list.
+class AnalysisJob extends RefCounted:
+	var player = null
 	var out := {"samples": [], "highlights": [], "ticks": 0}
-	if not BattleReplay.valid(replay):
-		return out
-	var player := BattleReplay.Player.new(replay)
 	var highlights: Array = []
 	var milestone_hit := [{}, {}]
 	var first_death := false
 	var first_structure := false
 	var last_sign := 0
 	var last_sign_tick := 0
-	var strongest_swing := 0.0
-	var contested := false # nobody has fought yet: whoever deployed first only looks ahead, so no lead counts
-	while player.step():
-		var model: BattleModel = player.model
-		for event in model.drain_combat_events():
-			var kind := String(event.get("type", ""))
-			if CONTACT_EVENTS.has(kind):
-				contested = true
-			if kind == "DEATH" and not first_death:
-				first_death = true
-				highlights.append({"tick": player.ticks, "kind": "clash", "text": "첫 교전: 첫 번째 병력이 쓰러졌습니다"})
-			elif kind == "STRUCTURE_DESTROYED" and not first_structure:
-				first_structure = true
-				highlights.append({"tick": player.ticks, "kind": "structure", "text": "첫 구조물이 파괴되었습니다"})
-		for side in 2:
-			var fraction := float(model.base_hp[side]) / maxf(1.0, float(model.base_max_hp[side]))
-			for milestone in BASE_MILESTONES:
-				if fraction <= milestone and not milestone_hit[side].has(milestone):
-					milestone_hit[side][milestone] = true
-					var name := "블루" if side == 0 else "레드"
-					highlights.append({"tick": player.ticks, "kind": "base", "text": "%s 기지 체력 %d%% 이하" % [name, roundi(milestone * 100.0)]})
-		if player.ticks % SAMPLE_TICKS == 0:
-			var momentum := _momentum(model) if contested else 0.0
-			out.samples.append({"t": player.ticks, "momentum": momentum})
-			var sign_now := 0 if absf(momentum) < MIN_LEAD_SWING else (1 if momentum > 0.0 else -1)
-			if sign_now != 0 and last_sign != 0 and sign_now != last_sign and player.ticks - last_sign_tick > SAMPLE_TICKS * 4:
-				highlights.append({"tick": player.ticks, "kind": "swing", "text": "%s 쪽으로 전세가 역전되었습니다" % ("블루" if sign_now > 0 else "레드")})
-				strongest_swing = maxf(strongest_swing, absf(momentum))
-			if sign_now != 0:
-				if sign_now != last_sign:
-					last_sign_tick = player.ticks
-				last_sign = sign_now
-	out.ticks = player.ticks
-	var winner: int = player.model.winner
-	highlights.append({"tick": player.ticks, "kind": "finish", "text": "결정타: %s 승리" % ("블루" if winner == 0 else ("레드" if winner == 1 else "무승부"))})
-	highlights.sort_custom(func(a, b): return int(a.tick) < int(b.tick))
-	out.highlights = _trim(highlights)
-	return out
+	var contested := false
+	var done := false
+	var valid := false
+	var ticks := 0
+
+	func _init(replay: Dictionary) -> void:
+		valid = BattleReplay.valid(replay)
+		if valid:
+			player = BattleReplay.Player.new(replay)
+		else:
+			done = true
+
+## Returns {"samples": [{"t": tick, "momentum": -1..1}], "highlights": [{"tick", "kind", "text"}], "ticks": N}.
+## momentum > 0 means the blue side is ahead (base health plus living army health).
+static func analyze(replay: Dictionary) -> Dictionary:
+	var job := AnalysisJob.new(replay)
+	while not job.done:
+		advance(job)
+	return job.out
+
+## One frame of analysis. A single simulation tick can exceed the time budget.
+static func advance(job: AnalysisJob) -> void:
+	if job.done: return
+	var started := Time.get_ticks_usec()
+	for _step in BATCH_TICKS:
+		var running: bool = job.player.step()
+		job.ticks = job.player.ticks
+		if not running:
+			# Preserve the synchronous analyzer's terminal-tick boundary.
+			job.player.model.combat_events.clear()
+			job.out.ticks = job.ticks
+			var winner: int = job.player.model.winner
+			job.highlights.append({"tick": job.ticks, "kind": "finish", "text": "결정타: %s 승리" % ("블루" if winner == 0 else ("레드" if winner == 1 else "무승부"))})
+			job.highlights.sort_custom(func(a, b): return int(a.tick) < int(b.tick))
+			job.out.highlights = _trim(job.highlights)
+			job.player = null
+			job.highlights = []
+			job.done = true
+			return
+		_observe(job)
+		if Time.get_ticks_usec() - started >= BUDGET_USEC: return
+
+static func _observe(job: AnalysisJob) -> void:
+	var model: BattleModel = job.player.model
+	# Events are read once and discarded without a deep copy or retained history.
+	for event in model.combat_events:
+		var kind := String(event.get("type", ""))
+		if CONTACT_EVENTS.has(kind):
+			job.contested = true
+		if kind == "DEATH" and not job.first_death:
+			job.first_death = true
+			job.highlights.append({"tick": job.ticks, "kind": "clash", "text": "첫 교전: 첫 번째 병력이 쓰러졌습니다"})
+		elif kind == "STRUCTURE_DESTROYED" and not job.first_structure:
+			job.first_structure = true
+			job.highlights.append({"tick": job.ticks, "kind": "structure", "text": "첫 구조물이 파괴되었습니다"})
+	model.combat_events.clear()
+	for side in 2:
+		var fraction := float(model.base_hp[side]) / maxf(1.0, float(model.base_max_hp[side]))
+		for milestone in BASE_MILESTONES:
+			if fraction <= milestone and not job.milestone_hit[side].has(milestone):
+				job.milestone_hit[side][milestone] = true
+				var name := "블루" if side == 0 else "레드"
+				job.highlights.append({"tick": job.ticks, "kind": "base", "text": "%s 기지 체력 %d%% 이하" % [name, roundi(milestone * 100.0)]})
+	if job.ticks % SAMPLE_TICKS == 0:
+		# Before contact, deploying first must not look like a decisive lead.
+		var momentum := _momentum(model) if job.contested else 0.0
+		job.out.samples.append({"t": job.ticks, "momentum": momentum})
+		var sign_now := 0 if absf(momentum) < MIN_LEAD_SWING else (1 if momentum > 0.0 else -1)
+		if sign_now != 0 and job.last_sign != 0 and sign_now != job.last_sign and job.ticks - job.last_sign_tick > SAMPLE_TICKS * 4:
+			job.highlights.append({"tick": job.ticks, "kind": "swing", "text": "%s 쪽으로 전세가 역전되었습니다" % ("블루" if sign_now > 0 else "레드")})
+		if sign_now != 0:
+			if sign_now != job.last_sign:
+				job.last_sign_tick = job.ticks
+			job.last_sign = sign_now
 
 static func _momentum(model: BattleModel) -> float:
 	# Armies decide fights, bases only decide the ending, so units weigh much more than base health.
