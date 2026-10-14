@@ -764,13 +764,18 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 			draw_string_outline(display, text_position, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 5, Color(0.02, 0.03, 0.07, color.a * 0.9))
 			draw_string(display, text_position, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 
-func _build_bounds() -> Vector2:
+func _build_limits() -> Array:
 	var lower := BattleModel.BLUE_BUILD_MIN if own_side == 0 else BattleModel.RED_BUILD_MIN
 	var upper := BattleModel.BLUE_BUILD_MAX if own_side == 0 else BattleModel.RED_BUILD_MAX
 	if selected_structure == "generator":
 		if own_side == 0: upper = BattleModel.BLUE_REAR_MAX
 		else: lower = BattleModel.RED_REAR_MIN
-	return Vector2(lower, upper)
+	return [lower, upper]
+
+## Vector2 stores float32; use _build_limits() wherever the exact rule constants matter.
+func _build_bounds() -> Vector2:
+	var limits := _build_limits()
+	return Vector2(limits[0], limits[1])
 
 ## The cursor stays in world coordinates through the existing screen transform.
 ## Pick the nearest legal starting point, including exact spacing boundaries.
@@ -819,12 +824,12 @@ func jump_keyboard_build(to_front: bool) -> void:
 
 func build_preview(world_x: float) -> Dictionary:
 	var kind := selected_structure
-	var bounds := _build_bounds()
+	var bounds := _build_limits()
 	var stats: Dictionary = BattleModel.STRUCTURE_STATS.get(kind, {})
 	var error := placement_error(kind, world_x)
 	if build_touch_index >= 0 and not Rect2(Vector2.ZERO, size).has_point(mouse_position):
 		error = Localization.text("전장 밖에서 손을 떼면 설치하지 않습니다.")
-	return {"error": error, "lower": bounds.x, "upper": bounds.y,
+	return {"error": error, "lower": bounds[0], "upper": bounds[1],
 		"radius": float(stats.get("radius", stats.get("range", 0.0))), "x": world_x}
 
 func _draw_build_preview(lane_y: float) -> void:

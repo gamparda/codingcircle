@@ -45,7 +45,6 @@ func setup(owner_main, side_selection: int, role_selection: String = "") -> void
 	column.add_child(status)
 	capacity = _label("", 16, UIKit.TEXT)
 	capacity.name = "ArmyCapacity"
-	column.add_child(capacity)
 	var hint := _label("아군 열은 생존 수와 다음 생산 조건을 함께 보여 줍니다. 예상은 현재 회복·생산 대기 기준이며 추가 구매·발전기 파괴로 달라집니다.\n종류 이름·진영별 수를 누르면 스탯을 확인합니다. 이 화면에서는 생산하지 않습니다. 공유 한도는 양쪽 병력·소환수를 포함하며 사망 후 정리되면 빈자리가 생깁니다.", 14, UIKit.TEXT_MUTED)
 	if main.network.client_is_spectator:
 		hint.text = "관전 중에는 양쪽 생존 수·소환수·공유 한도를 확인합니다. 종류 이름·진영별 수를 누르면 스탯을 확인합니다.\n공유 한도는 양쪽 병력·소환수를 포함하며 사망 후 정리되면 빈자리가 생깁니다. 구조물은 별도 한도를 사용합니다."
@@ -54,7 +53,6 @@ func setup(owner_main, side_selection: int, role_selection: String = "") -> void
 	economy_summary.name = "ArmyEconomy"
 	economy_summary.custom_minimum_size.y = 42
 	economy_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(economy_summary)
 	var header := HBoxContainer.new()
 	column.add_child(header)
 	var kind_heading := _label("진영별 생존 병력", 16, UIKit.TEXT_MUTED)
@@ -103,6 +101,9 @@ func setup(owner_main, side_selection: int, role_selection: String = "") -> void
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rows.add_theme_constant_override("separation", 6)
 	scroll.add_child(rows)
+	# Live capacity and economy notes scroll with the lists; the side totals and role filters stay pinned.
+	rows.add_child(capacity)
+	rows.add_child(economy_summary)
 	rows.add_child(_label("역할별 생존 구성 · 각 진영의 전체 생존 병력 중 비율", 16, UIKit.TEXT))
 	for role in ARMY_ROLES:
 		var role_row := HBoxContainer.new()

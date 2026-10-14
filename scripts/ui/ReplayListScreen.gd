@@ -57,6 +57,7 @@ var _refresh_revision := 0
 var _restoring := false
 @onready var _scroll: ScrollContainer = $Column/ReplayScroll
 @onready var _rows: VBoxContainer = $Column/ReplayScroll/ReplayRows
+var _scroll_body: VBoxContainer
 
 ## The frame owns the scan so a queued ancestor cancels work before the next file.
 ## Keep the saved card/page bookmark untouched until the entire snapshot is ready.
@@ -193,6 +194,15 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	_state = state
 	_card_factory = card_factory
 	_page = maxi(0, int(state.get("page", 0)))
+	# Only the search box and the page buttons stay pinned. Filters, deck search and storage notes
+	# scroll together with the cards so a 720p window still shows whole result cards.
+	_scroll_body = VBoxContainer.new()
+	_scroll_body.name = "ReplayScrollBody"
+	_scroll_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scroll_body.add_theme_constant_override("separation", 10)
+	_scroll.remove_child(_rows)
+	_scroll.add_child(_scroll_body)
+	_scroll_body.add_child(_rows)
 	var search_row := HBoxContainer.new()
 	search_row.name = "ReplaySearchTools"
 	search_row.add_theme_constant_override("separation", 8)
@@ -224,8 +234,8 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	filters.name = "ReplayFilters"
 	filters.add_theme_constant_override("h_separation", 8)
 	filters.add_theme_constant_override("v_separation", 8)
-	column.add_child(filters)
-	column.move_child(filters, _scroll.get_index())
+	_scroll_body.add_child(filters)
+	_scroll_body.move_child(filters, _rows.get_index())
 	_mode = _option(filters, "ReplayModeFilter", ["종류 전체", "캠페인", "연습", "일일 도전", "주간 도전", "드래프트", "온라인·기타", "읽기 실패"], int(state.get("mode", 0)))
 	_scope = _option(filters, "ReplayScopeFilter", ["전투·클립 전체", "전체 전투만", "클립만"], int(state.get("scope", 0)))
 	_outcome = _option(filters, "ReplayOutcomeFilter", ["결과 전체", "승리·블루 승", "패배·레드 승", "무승부"], int(state.get("outcome", 0)))
@@ -242,12 +252,15 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	_count.add_theme_font_size_override("font_size", 14)
 	_count.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 	filters.add_child(_count)
+	# Deck search and storage notes sit behind a toggle so cards are visible without scrolling.
+	var detail_box := VBoxContainer.new()
+	detail_box.name = "ReplayDetailBox"
+	detail_box.add_theme_constant_override("separation", 8)
 	var deck_filters := HFlowContainer.new()
 	deck_filters.name = "ReplayDeckFilters"
 	deck_filters.add_theme_constant_override("h_separation", 12)
 	deck_filters.add_theme_constant_override("v_separation", 4)
-	column.add_child(deck_filters)
-	column.move_child(deck_filters, _scroll.get_index())
+	detail_box.add_child(deck_filters)
 	for side in 2:
 		var field := VBoxContainer.new()
 		field.name = "ReplayBlueDeckField" if side == 0 else "ReplayRedDeckField"
@@ -280,8 +293,8 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	_term_scroll.follow_focus = true
 	_term_scroll.get_h_scroll_bar().focus_mode = Control.FOCUS_NONE
 	_term_scroll.tooltip_text = "현재 검색어를 하나씩 해제합니다. 좌우로 스크롤하거나 Tab으로 이동할 수 있습니다. 블루·레드는 저장된 진영 기준입니다."
-	column.add_child(_term_scroll)
-	column.move_child(_term_scroll, _scroll.get_index())
+	_scroll_body.add_child(_term_scroll)
+	_scroll_body.move_child(_term_scroll, _rows.get_index())
 	_term_row = HBoxContainer.new()
 	_term_row.name = "Terms"
 	_term_row.add_theme_constant_override("separation", 8)
@@ -292,8 +305,8 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	_deck_notice.add_theme_font_size_override("font_size", 14)
 	_deck_notice.add_theme_color_override("font_color", UIKit.TEAL)
 	_deck_notice.visible = false
-	column.add_child(_deck_notice)
-	column.move_child(_deck_notice, _scroll.get_index())
+	_scroll_body.add_child(_deck_notice)
+	_scroll_body.move_child(_deck_notice, _rows.get_index())
 	var storage := Label.new()
 	storage.name = "ReplayStorageSummary"
 	storage.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -305,8 +318,24 @@ func populate(entries: Array, card_factory: Callable, state: Dictionary) -> void
 	if not _load_error.is_empty():
 		storage.text = "전체 보관 개수·용량을 확인하지 못했습니다."
 		storage.tooltip_text = _load_error
-	column.add_child(storage)
-	column.move_child(storage, _scroll.get_index())
+	detail_box.add_child(storage)
+	_scroll_body.add_child(detail_box)
+	_scroll_body.move_child(detail_box, _rows.get_index())
+	var has_deck_query := not String(state.get("blue_query", "")).strip_edges().is_empty() or not String(state.get("red_query", "")).strip_edges().is_empty()
+	detail_box.visible = bool(state.get("detail_open", false)) or has_deck_query
+	var detail_toggle := UIKit.style_button(Button.new(), UIKit.TEAL, false, 14)
+	detail_toggle.name = "ReplayDetailToggle"
+	detail_toggle.toggle_mode = true
+	detail_toggle.set_pressed_no_signal(detail_box.visible)
+	detail_toggle.text = "상세 검색 ▴" if detail_box.visible else "상세 검색 ▾"
+	detail_toggle.tooltip_text = "내 덱·상대 덱 검색과 보관 용량 안내를 펼치거나 접습니다. 덱 검색어가 있으면 접어도 검색은 계속 적용됩니다."
+	detail_toggle.custom_minimum_size.y = UIKit.TOUCH_MIN_HEIGHT if UIKit.is_touch() else 40
+	detail_toggle.toggled.connect(func(open: bool):
+		detail_box.visible = open
+		detail_toggle.text = "상세 검색 ▴" if open else "상세 검색 ▾"
+		_state["detail_open"] = open)
+	search_row.add_child(detail_toggle)
+	search_row.move_child(detail_toggle, 1)
 	var pages := HFlowContainer.new()
 	_pages = pages
 	pages.name = "ReplayPages"

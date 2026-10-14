@@ -367,7 +367,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and build_confirm_key != 0:
-		var key := event.physical_keycode if event.physical_keycode != 0 else event.keycode
+		var key: int = event.physical_keycode if event.physical_keycode != 0 else event.keycode
 		if key == build_confirm_key:
 			if not event.pressed: build_confirm_key = 0
 			get_viewport().set_input_as_handled()

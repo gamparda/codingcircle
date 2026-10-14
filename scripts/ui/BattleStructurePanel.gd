@@ -29,7 +29,6 @@ func setup(owner_main) -> void:
 	column.add_child(status)
 	var hint := _label("종류별 수를 누르면 해당 진영의 구조물 스탯·설치 조건을 바로 확인합니다.\n한도는 진영별로 적용되며 파괴·수명 종료 후 재설치할 수 있습니다. 위치는 후방 0% → 전방 100%, 수명·수입·만료 시각은 전투 시간 기준입니다. 남은 수명 2초 이하는 만료 임박으로 표시합니다.", 14, UIKit.TEXT_MUTED)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(hint)
 	scroll = ScrollContainer.new()
 	scroll.name = "StructureDetailsScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -38,10 +37,16 @@ func setup(owner_main) -> void:
 	scroll.get_v_scroll_bar().focus_mode = Control.FOCUS_NONE
 	column.add_child(scroll)
 	focus_controls.append(scroll)
+	var body := VBoxContainer.new()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 10)
+	scroll.add_child(body)
 	var columns := HBoxContainer.new()
 	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	columns.add_theme_constant_override("separation", 24)
-	scroll.add_child(columns)
+	body.add_child(columns)
+	# Help text follows the slots inside the scroll area, so the slots get the panel height first.
+	body.add_child(hint)
 	for side in [main.own_side, 1 - main.own_side]:
 		var side_column := VBoxContainer.new()
 		side_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL

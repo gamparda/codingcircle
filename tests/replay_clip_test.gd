@@ -56,11 +56,18 @@ func run() -> void:
 	await process_frame
 	var saved := BattleReplay.save(clip, "clip-test")
 	main._build_replay_list()
-	await process_frame
+	# The shelf scans and builds its cards over several frames.
+	for _i in 600:
+		await process_frame
+		if main.find_children("*", "Label", true, false).any(func(label): return label.text.begins_with("클립 ▸")): break
 	check(main.find_children("*", "Label", true, false).any(func(label): return label.text.begins_with("클립 ▸")), "the list marks clips")
 	main._play_replay(saved)
 	await process_frame
 	var viewer = main.replay_viewer
+	# Opening at the clip start is an interactive seek now, advanced within a frame budget.
+	for _i in 900:
+		if not viewer.is_seeking(): break
+		await process_frame
 	check(absi(viewer.player.ticks - int(clip.clip.start)) <= 6, "the viewer opens at the clip start (%d vs %d)" % [viewer.player.ticks, int(clip.clip.start)])
 	check(viewer.moment_toast.text.begins_with("클립 ▸"), "and says what the clip is")
 	var guard := 0
@@ -79,6 +86,9 @@ func run() -> void:
 	main._play_replay(BattleReplay.save(replay, "full"))
 	await process_frame
 	var full_viewer = main.replay_viewer
+	for _i in 900:
+		if full_viewer.analysis_ready: break
+		await process_frame
 	var target: Dictionary = full_viewer.analysis.highlights[0]
 	full_viewer.seek(int(target.tick) + 40)
 	var text: String = full_viewer.copy_clip()

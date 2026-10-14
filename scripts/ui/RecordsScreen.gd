@@ -430,7 +430,6 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 14)
 	hint.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
-	page.add_child(hint)
 	if valid_query and not history.is_empty():
 		var summary := Label.new()
 		summary.name = "ChallengeHistorySummary_" + period
@@ -489,6 +488,8 @@ func _populate_history(page: VBoxContainer, history: Dictionary, period: String,
 		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		empty.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
 		page.add_child(empty)
+	# The long explanation follows the table so the first rows are visible without scrolling.
+	page.add_child(hint)
 	return {"page": page_index, "pages": pages, "dates": dates.size(), "records": rows.size()}
 
 func _replays_button(period: String, date: String, ruleset: String, record: Dictionary) -> Button:

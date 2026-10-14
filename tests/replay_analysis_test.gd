@@ -59,10 +59,14 @@ func run() -> void:
 	main._play_replay(saved)
 	await process_frame
 	var viewer = main.replay_viewer
+	# The momentum analysis runs over several frames now; wait for it before using the graph.
+	for _i in 900:
+		if viewer.analysis_ready: break
+		await process_frame
 	check(viewer.graph != null and viewer.graph.highlights.size() == highlights.size(), "viewer draws the momentum graph with its highlights")
 	viewer.toggle_pause()
 	viewer.jump_next_moment()
-	var first_target: int = int(highlights[0].tick) - viewer.JUMP_LEAD_TICKS
+	var first_target: int = int(highlights[0].tick) - int(viewer.replay.get("hz", BattleReplay.DEFAULT_HZ))
 	check(viewer.player.ticks == maxi(0, first_target), "next moment lands a second before the first highlight")
 	var landed: int = viewer.player.ticks
 	viewer.jump_next_moment()
@@ -70,6 +74,9 @@ func run() -> void:
 	viewer.jump_previous_moment()
 	check(viewer.player.ticks <= landed + 1, "previous moment goes back")
 	viewer.graph.seek_requested.emit(int(replay.result.ticks) / 2)
+	for _i in 900:
+		if not viewer.is_seeking(): break
+		await process_frame
 	check(absi(viewer.player.ticks - int(replay.result.ticks) / 2) <= 1, "clicking the graph seeks")
 	var mid_marker: Dictionary = viewer.graph.nearest_highlight(viewer.graph._x_for(int(highlights[0].tick)))
 	check(not mid_marker.is_empty() and mid_marker.tick == highlights[0].tick, "markers can be hit by position")

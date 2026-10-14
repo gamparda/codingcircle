@@ -70,6 +70,9 @@ func run() -> void:
 	check(ReplayAnalysis.momentum_from_snapshot({"base_hp": [0.0, 0.0], "units": []}) == 0.0, "empty snapshot is neutral")
 
 	BattleReplay.save_dir = "user://deck_analysis_test"
+	# A previous run that died before its cleanup must not leak replays into this one.
+	for leftover in BattleReplay.list_saved():
+		DirAccess.remove_absolute(leftover)
 	var tank_deck := ["shield", "swordsman", "archer"]
 	var mage_deck := ["healer", "warlock", "necromancer"]
 	BattleReplay.save(_battle(tank_deck, 1, "campaign", 200, 0), "a")
