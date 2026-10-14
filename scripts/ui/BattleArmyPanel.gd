@@ -5,20 +5,39 @@ const UIKit = preload("res://scripts/ui/UIKit.gd")
 const LocalBattlePause = preload("res://scripts/screens/LocalBattlePause.gd")
 const OverviewNavigation = preload("res://scripts/ui/BattleOverviewNavigation.gd")
 
+# Each living kind belongs to one primary role; summons are part of the front line.
+# These are presentation groups, independent of combat rules and deck eligibility.
+const ARMY_ROLES := {
+	"front": {"title": "근접 전열", "kinds": ["shield", "swordsman", "berserker", "skeleton"], "description": "근거리에서 공격하고 전열을 구성합니다. 해골도 이 역할에 포함합니다."},
+	"ranged": {"title": "원거리 공격", "kinds": ["archer", "warlock"], "description": "원거리에서 공격합니다. 흑마법사는 공격 대상에 적 공격력을 낮추는 장판도 만듭니다."},
+	"support": {"title": "공속 지원", "kinds": ["healer"], "description": "마법사는 아군의 공격속도를 높입니다. 직접 피해를 주거나 체력을 회복하지 않습니다."},
+	"summoner": {"title": "소환 지휘", "kinds": ["necromancer"], "description": "네크로맨서는 공격하면서 해골을 소환합니다. 소환된 해골은 근접 전열에 따로 집계합니다."},
+}
+
 var main
 var status: Label
 var capacity: Label
 var economy_summary: Label
 var totals: Dictionary = {}
 var amounts: Dictionary = {}
+var kind_rows: Dictionary = {}
+var role_amounts: Dictionary = {}
+var role_rows: Dictionary = {}
+var role_titles: Dictionary = {}
+var role_buttons: Dictionary = {}
+var all_kinds_button: Button
+var role_hint: Label
+var kinds_heading: Label
+var active_role := ""
 var scroll: ScrollContainer
 var focus_controls: Array[Control] = []
 var selected_side := 0
 var navigation_pending := false
 
-func setup(owner_main, side_selection: int) -> void:
+func setup(owner_main, side_selection: int, role_selection: String = "") -> void:
 	main = owner_main
 	selected_side = side_selection
+	active_role = role_selection if ARMY_ROLES.has(role_selection) else ""
 	name = "BattleArmyPanel"
 	add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.panel_box(UIKit.TEAL, 16, 1.0), 22, 18))
 	var column := VBoxContainer.new()
@@ -35,7 +54,6 @@ func setup(owner_main, side_selection: int) -> void:
 	if main.network.client_is_spectator:
 		hint.text = "관전 중에는 양쪽 생존 수·소환수·공유 한도를 확인합니다. 종류 이름·진영별 수를 누르면 스탯을 확인합니다.\n공유 한도는 양쪽 병력·소환수를 포함하며 사망 후 정리되면 빈자리가 생깁니다. 구조물은 별도 한도를 사용합니다."
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(hint)
 	economy_summary = _label("최신 전투 상태를 받은 뒤 자원·생산 조건을 표시합니다.", 14, UIKit.TEXT_MUTED)
 	economy_summary.name = "ArmyEconomy"
 	economy_summary.custom_minimum_size.y = 42
@@ -43,7 +61,7 @@ func setup(owner_main, side_selection: int) -> void:
 	column.add_child(economy_summary)
 	var header := HBoxContainer.new()
 	column.add_child(header)
-	var kind_heading := _label("병력 종류", 16, UIKit.TEXT_MUTED)
+	var kind_heading := _label("진영별 생존 병력", 16, UIKit.TEXT_MUTED)
 	kind_heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(kind_heading)
 	# Keep the same row/column order when numbers change, including zero counts.
@@ -65,6 +83,18 @@ func setup(owner_main, side_selection: int) -> void:
 		total.name = "ArmyTotal%d" % int(side)
 		total_row.add_child(total)
 		totals[side] = total
+	var filters := HBoxContainer.new()
+	filters.add_theme_constant_override("separation", 8)
+	column.add_child(filters)
+	all_kinds_button = _button("모든 병력 보기", "ArmyRoleAll", _select_role.bind(""))
+	all_kinds_button.add_theme_font_size_override("font_size", 14)
+	filters.add_child(all_kinds_button)
+	for role in ARMY_ROLES:
+		var button := _button(String(ARMY_ROLES[role].title), "ArmyRole_%s" % role, _select_role.bind(role))
+		button.add_theme_font_size_override("font_size", 14)
+		button.tooltip_text = "%s의 병력 종류만 보기 · 다시 누르면 모든 병력 보기" % ARMY_ROLES[role].title
+		filters.add_child(button)
+		role_buttons[role] = button
 	scroll = ScrollContainer.new()
 	scroll.name = "ArmyKindsScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -77,11 +107,33 @@ func setup(owner_main, side_selection: int) -> void:
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rows.add_theme_constant_override("separation", 6)
 	scroll.add_child(rows)
+	rows.add_child(_label("역할별 생존 구성 · 각 진영의 전체 생존 병력 중 비율", 16, UIKit.TEXT))
+	for role in ARMY_ROLES:
+		var role_row := HBoxContainer.new()
+		rows.add_child(role_row)
+		role_rows[role] = role_row
+		var title := _label(String(ARMY_ROLES[role].title) + (" · 소환 포함" if role == "front" else ""), 14, UIKit.TEXT_MUTED)
+		title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		role_row.add_child(title)
+		role_titles[role] = title
+		role_amounts[role] = {}
+		for side in sides:
+			var amount := _number_label()
+			amount.name = "ArmyRoleAmount_%s_%d" % [role, int(side)]
+			role_row.add_child(amount)
+			role_amounts[role][side] = amount
+	role_hint = _label("", 14, UIKit.TEXT_MUTED)
+	role_hint.name = "ArmyRoleHint"
+	role_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rows.add_child(role_hint)
+	kinds_heading = _label("", 16, UIKit.TEXT)
+	rows.add_child(kinds_heading)
 	for kind in BattleModel.UNIT_NAMES:
 		var row := HBoxContainer.new()
 		var row_height := 58 if main.network.client_is_spectator else 80
 		row.custom_minimum_size.y = row_height
 		rows.add_child(row)
+		kind_rows[kind] = row
 		var title := _button(String(BattleModel.UNIT_NAMES[kind]) + (" · 소환" if BattleModel.SUMMON_STATS.has(kind) else "") + " ▸", "ArmyStats_%s" % kind, _open_kind.bind(kind, -1))
 		title.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		title.add_theme_color_override("font_color", UIKit.UNIT_COLORS.get(kind, UIKit.TEXT))
@@ -97,6 +149,9 @@ func setup(owner_main, side_selection: int) -> void:
 			amount.tooltip_text = "%s · %s 진영 스탯 확인" % [BattleModel.UNIT_NAMES[kind], "블루" if int(side) == 0 else "레드"]
 			row.add_child(amount)
 			amounts[kind][side] = amount
+	# Keep long instructions scrollable so role controls don't shrink the kind list.
+	rows.add_child(hint)
+	_apply_role_filter()
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 12)
 	column.add_child(actions)
@@ -111,8 +166,40 @@ func setup(owner_main, side_selection: int) -> void:
 func _open_kind(kind: String, side: int) -> void:
 	var navigation := OverviewNavigation.capture(self)
 	navigation["selected_side"] = selected_side
+	navigation["role"] = active_role
 	navigation["focus"] = "ArmyStats_%s" % kind if side == -1 else "ArmyKind_%s_%d" % [kind, side]
 	main._show_stats_reference(0, kind, side, navigation)
+
+func _select_role(role: String) -> void:
+	if role != "" and not ARMY_ROLES.has(role): return
+	navigation_pending = false
+	active_role = "" if role == active_role else role
+	_apply_role_filter()
+	# Start with the composition and explanation; leave focus on the role button.
+	scroll.scroll_vertical = 0
+
+func _apply_role_filter() -> void:
+	all_kinds_button.text = ("✓ " if active_role.is_empty() else "") + "모든 병력 보기"
+	for role in role_buttons:
+		var selected: bool = role == active_role
+		role_buttons[role].text = ("✓ " if selected else "") + String(ARMY_ROLES[role].title)
+		role_rows[role].visible = active_role.is_empty() or selected
+		for state_name in ["font_color", "font_hover_color", "font_pressed_color"]:
+			role_buttons[role].add_theme_color_override(state_name, UIKit.GOLD if selected else UIKit.TEXT)
+		var tone := UIKit.GOLD if selected else UIKit.TEXT_MUTED
+		if role_titles[role].get_theme_color("font_color") != tone: role_titles[role].add_theme_color_override("font_color", tone)
+	for kind in kind_rows:
+		kind_rows[kind].visible = active_role.is_empty() or ARMY_ROLES[active_role].kinds.has(kind)
+	if active_role.is_empty():
+		role_hint.text = "위 역할 버튼으로 종류 목록을 좁힐 수 있습니다. 각 병력은 한 역할에만 집계하며, 해골은 근접 전열에 포함합니다. 비율은 생존 인원 기준입니다."
+		kinds_heading.text = "모든 병력 종류 · 생존 수와 생산 조건"
+	else:
+		var role: Dictionary = ARMY_ROLES[active_role]
+		var members := PackedStringArray()
+		for kind in role.kinds: members.append(String(BattleModel.UNIT_NAMES.get(kind, kind)))
+		role_hint.text = "%s: %s\n%s" % [role.title, " · ".join(members), role.description]
+		kinds_heading.text = "%s의 병력 종류 · 생존 수와 생산 조건" % role.title
+	if main.network.client_is_spectator: kinds_heading.text = kinds_heading.text.replace("생존 수와 생산 조건", "생존 수")
 
 func _label(text: String, font_size: int, color: Color) -> Label:
 	var label := Label.new()
@@ -152,6 +239,7 @@ func refresh(counts: Dictionary, awaiting: bool, purchase: Dictionary = {}) -> v
 	var tone := UIKit.GOLD if full else UIKit.TEXT
 	if capacity.get_theme_color("font_color") != tone: capacity.add_theme_color_override("font_color", tone)
 	_refresh_economy(purchase, awaiting)
+	_refresh_roles(counts, awaiting)
 	for side in totals:
 		_set_text(totals[side], "—" if awaiting else "%d명 · 소환 %d명 포함" % [int(counts.living[side]), int(counts.summons[side])])
 	for kind in amounts:
@@ -169,6 +257,17 @@ func refresh(counts: Dictionary, awaiting: bool, purchase: Dictionary = {}) -> v
 			if amount.tooltip_text != hint: amount.tooltip_text = hint
 			for state_name in ["font_color", "font_hover_color", "font_pressed_color"]:
 				if amount.get_theme_color(state_name) != amount_tone: amount.add_theme_color_override(state_name, amount_tone)
+
+func _refresh_roles(counts: Dictionary, awaiting: bool) -> void:
+	for role in role_amounts:
+		for side in role_amounts[role]:
+			var text := "—"
+			if not awaiting:
+				var living := int(counts.living[side])
+				var amount := 0
+				for kind in ARMY_ROLES[role].kinds: amount += int(counts.kinds[side].get(kind, 0))
+				text = "%d명 · %d%%" % [amount, roundi(float(amount) * 100.0 / float(living))] if living > 0 else "0명 · —"
+			_set_text(role_amounts[role][side], text)
 
 func _refresh_economy(purchase: Dictionary, awaiting: bool) -> void:
 	var text := "최신 전투 상태를 받은 뒤 자원·생산 조건을 표시합니다.\n복구 중에는 이전 상태의 예상 대기를 표시하지 않습니다."
@@ -250,8 +349,11 @@ func handle_key(event: InputEventKey) -> bool:
 		if not event.echo: main._dismiss_stats_panel()
 		return true
 	if event.keycode == KEY_TAB:
-		var index := focus_controls.find(get_viewport().gui_get_focus_owner())
-		focus_controls[posmod(index + (-1 if event.shift_pressed else 1), focus_controls.size())].grab_focus()
+		var visible_controls: Array[Control] = []
+		for control in focus_controls:
+			if control.is_visible_in_tree(): visible_controls.append(control)
+		var index := visible_controls.find(get_viewport().gui_get_focus_owner())
+		if not visible_controls.is_empty(): visible_controls[posmod(index + (-1 if event.shift_pressed else 1), visible_controls.size())].grab_focus()
 		return true
 	if event.ctrl_pressed or event.alt_pressed or event.meta_pressed: return false
 	match event.keycode:

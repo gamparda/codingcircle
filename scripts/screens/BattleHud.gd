@@ -566,7 +566,7 @@ static func _show_army_panel(main, side: int, navigation: Dictionary = {}) -> vo
 	panel.offset_right = -90
 	panel.offset_top = 36
 	panel.offset_bottom = -36
-	panel.setup(main, side)
+	panel.setup(main, side, String(navigation.get("role", "")))
 	panel.navigation_pending = not navigation.is_empty()
 	preload("res://scripts/ui/BattleOverviewNavigation.gd").restore.call_deferred(panel, navigation)
 	if main.local_ai_mode:
