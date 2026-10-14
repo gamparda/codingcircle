@@ -6,6 +6,7 @@ signal seek_requested(tick: int)
 signal highlight_hovered(text: String)
 
 const UIKit = preload("res://scripts/ui/UIKit.gd")
+const MomentumCurve = preload("res://scripts/ui/MomentumCurve.gd")
 const MARKER_COLORS := {"clash": Color("#ffd36a"), "structure": Color("#b9c2d6"), "base": Color("#ff6b81"), "swing": Color("#6dd5ff"), "finish": Color("#ffffff")}
 
 var samples: Array = []
@@ -17,12 +18,22 @@ var loop_on := false
 var total_ticks := 1
 var playhead := 0
 var _dragging := false
+var _curve: MomentumCurve
+
+func _init() -> void:
+	_curve = MomentumCurve.new()
+	_curve.name = "MomentumCurve"
+	_curve.show_behind_parent = true
+	add_child(_curve)
+	_curve.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	resized.connect(queue_redraw)
 
 func setup(analysis: Dictionary) -> void:
 	samples = analysis.get("samples", [])
 	highlights = analysis.get("highlights", [])
 	total_ticks = maxi(1, int(analysis.get("ticks", 1)))
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	_curve.setup(samples, total_ticks)
 	queue_redraw()
 
 func set_loop(start_tick: int, end_tick: int, enabled: bool) -> void:
@@ -47,22 +58,7 @@ func _tick_for(x: float) -> int:
 	return clampi(roundi(x / maxf(size.x, 1.0) * float(total_ticks)), 0, total_ticks)
 
 func _draw() -> void:
-	var panel := StyleBoxFlat.new()
-	panel.bg_color = Color("#0a101c")
-	panel.border_color = UIKit.EDGE_SOFT
-	panel.set_border_width_all(1)
-	panel.set_corner_radius_all(8)
-	panel.anti_aliasing = true
-	draw_style_box(panel, Rect2(Vector2.ZERO, size))
 	var mid := size.y * 0.5
-	draw_line(Vector2(0, mid), Vector2(size.x, mid), Color(1, 1, 1, 0.14), 1.0)
-	var segment: Array = []
-	for sample in samples:
-		if bool(sample.get("break_before", false)) and not segment.is_empty():
-			_draw_segment(segment, mid)
-			segment = []
-		segment.append(sample)
-	_draw_segment(segment, mid)
 	for item in highlights:
 		var hx := _x_for(int(item.tick))
 		var color: Color = MARKER_COLORS.get(String(item.kind), Color.WHITE)
@@ -82,32 +78,6 @@ func _draw() -> void:
 	var px := _x_for(playhead)
 	draw_line(Vector2(px, 0), Vector2(px, size.y), UIKit.GOLD, 2.0)
 	draw_circle(Vector2(px, mid), 4.0, UIKit.GOLD)
-
-func _draw_segment(segment: Array, mid: float) -> void:
-	if segment.is_empty(): return
-	var start_x := _x_for(int(segment.front().t))
-	var blue := PackedVector2Array([Vector2(start_x, mid)])
-	var red := PackedVector2Array([Vector2(start_x, mid)])
-	var line := PackedVector2Array()
-	for sample in segment:
-		var x := _x_for(int(sample.t))
-		var y := float(sample.momentum) * (mid - 3.0)
-		blue.append(Vector2(x, mid - maxf(y, 0.0)))
-		red.append(Vector2(x, mid - minf(y, 0.0)))
-		line.append(Vector2(x, mid - y))
-	var end_x := _x_for(int(segment.back().t))
-	blue.append(Vector2(end_x, mid))
-	red.append(Vector2(end_x, mid))
-	_fill(blue, Color(UIKit.TEAM_BLUE.r, UIKit.TEAM_BLUE.g, UIKit.TEAM_BLUE.b, 0.55))
-	_fill(red, Color(UIKit.TEAM_RED.r, UIKit.TEAM_RED.g, UIKit.TEAM_RED.b, 0.55))
-	if line.size() >= 2:
-		draw_polyline(line, Color(1, 1, 1, 0.8), 1.5, true)
-	else:
-		draw_circle(line[0], 2.0, Color(1, 1, 1, 0.8))
-
-func _fill(points: PackedVector2Array, color: Color) -> void:
-	if points.size() >= 3 and not Geometry2D.triangulate_polygon(points).is_empty():
-		draw_colored_polygon(points, color)
 
 func _note_at(x: float, tolerance: float = 7.0) -> Dictionary:
 	for note in notes:
