@@ -56,6 +56,8 @@ func run()->void:
 	check(main.purchase_buttons.map(func(button):return button.get_node("PurchaseHotkey").text)==["J","K","L","U","I","O"],"battle cards show saved key names")
 	check(not main._handle_battle_hotkey(key(KEY_1)) and main.local_model.units.is_empty(),"old key no longer triggers purchase")
 	check(main._handle_battle_hotkey(key(KEY_J)) and main.local_model.units.size()==1,"new unit key performs actual purchase")
+	main.local_model.resources[0] = 200.0
+	main._refresh_purchase_buttons(200.0) # the key mapping is under test, not affordability
 	check(main._handle_battle_hotkey(key(KEY_U)) and main.battle_view.selected_structure=="wall","new structure key selects matching slot")
 	var input:=LineEdit.new();main.root_background.add_child(input);input.grab_focus();await process_frame
 	check(not main._handle_battle_hotkey(key(KEY_K)),"custom keys remain blocked during text input")

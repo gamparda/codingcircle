@@ -145,7 +145,10 @@ func run() -> void:
 	for index in BattleReplay.MAX_SAVED + 1:
 		BattleReplay.write_file(BattleReplay.save_dir.path_join("20261011_%02d.json" % index), small_replay)
 	main._build_replay_list()
-	await process_frame
+	# The shelf now reads files in short batches; wait for the scan to finish.
+	for _i in 600:
+		await process_frame
+		if main.find_child("RetryReplayCleanup", true, false) != null: break
 	check(main.find_child("ReplayStatus", true, false).text.contains("51개") and main.find_child("RetryReplayCleanup", true, false) != null, "over-limit library shows actual count and cleanup retry")
 	main.find_child("RetryReplayCleanup", true, false).pressed.emit()
 	await _confirm(main, "ConfirmReplayCleanup")

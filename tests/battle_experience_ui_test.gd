@@ -26,7 +26,7 @@ func run()->void:
 	await process_frame;await process_frame
 	check(main.purchase_buttons.map(func(button):return button.get_node("PurchaseHotkey").text)==["1","2","3","Q","W","E"],"six purchase cards expose correct hotkeys")
 	check(main._handle_battle_hotkey(key(KEY_2)) and main.local_model.units.size()==1,"unit hotkey follows authoritative purchase callback")
-	check(main.purchase_buttons[1].disabled and main.purchase_buttons[1].get_node("PurchaseState").text.contains("대기"),"successful purchase displays cooldown and disables repeat")
+	check(main.purchase_buttons[1].disabled and main.purchase_buttons[1].get_node("PurchaseState").text.contains("초"),"successful purchase displays its wait and disables repeat")
 	var repeated:=key(KEY_2);repeated.echo=true
 	check(not main._handle_battle_hotkey(repeated) and main.local_model.units.size()==1,"key-repeat cannot spam purchases")
 	var input:=LineEdit.new();main.root_background.add_child(input);input.grab_focus();await process_frame

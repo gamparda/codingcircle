@@ -41,7 +41,8 @@ func run()->void:
 	check(main.root_background.find_child("PracticeControls",true,false)!=null,"actual scene offers pause/speed/reset")
 	main._toggle_practice_pause();var elapsed:float=main.local_model.elapsed;main._process(0.2)
 	check(main.local_model.elapsed==elapsed and main.purchase_buttons.all(func(button):return button.disabled),"UI pause blocks simulation and purchases")
-	main._toggle_practice_pause();main.practice.speed=4;main.practice_used_tools=true;main._process(0.1)
+	main._toggle_practice_pause();main.practice.speed=4;main.practice_used_tools=true;main._process(0.0) # the first resumed frame drops its delta by design
+	main._process(0.1)
 	check(is_equal_approx(main.local_model.elapsed,elapsed+0.4),"four-times practice actually advances four-times")
 	main._restart_practice();check(main.local_model.elapsed==0 and main.local_model.units.is_empty() and not main.practice.paused,"reset clears battle and preserves chosen deck")
 	await capture("practice-tools")

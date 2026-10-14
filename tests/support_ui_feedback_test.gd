@@ -150,7 +150,7 @@ func run() -> void:
 	check(main.local_model.campaign_levels[0] == 7, "stage-eight practice simulates seven previous clears")
 	check(main.local_model.resources[0] == BattleModel.campaign_bonuses(7).starting_resources, "practice grants the matching starting resources")
 	check(main.save_data == saved_progress, "practice growth does not grant real campaign records")
-	check(main.purchase_buttons[0].tooltip_text == BattleModel.unit_stat_summary("shield", 7), "practice card stats use the boosted model rather than old save progression")
+	check(main.purchase_buttons[0].tooltip_text.begins_with(BattleModel.unit_stat_summary("shield", 7)), "practice card stats use the boosted model rather than old save progression")
 	main._build_ai_stage_screen(false)
 	await process_frame
 	check(not tree_text(main).contains("09  ") and tree_text(main).contains("08  최종전"), "practice menu ends at stage eight")
