@@ -18,12 +18,19 @@ var deck_known: Array = [false, false]
 var growth_levels: Array = [0, 0]
 var side_names: Array = ["내", "상대"]
 var clear: Button
+var reset: Button
 var count: Label
 var scroll: ScrollContainer
 var grid: GridContainer
+var view_state: Dictionary = {}
+var setting_up := true
+var restoring_view := true
+var restore_serial := 0
 
 func setup(owner_main, growth_level: int) -> void:
 	main = owner_main
+	# Keep this reference even if a new match replaces Main's dictionary.
+	view_state = main.battle_stats_state
 	_capture_sides(growth_level)
 	name = "BattleStatsBrowser"
 	add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.panel_box(UIKit.TEAL, 16, 1.0), 22, 18))
@@ -72,6 +79,16 @@ func setup(owner_main, growth_level: int) -> void:
 	clear.pressed.connect(func(): search.text = ""; _refresh(); search.grab_focus())
 	search_row.add_child(clear)
 	focus_controls.append(clear)
+	reset = Button.new()
+	reset.name = "ResetStatsView"
+	reset.text = "조건 초기화"
+	reset.tooltip_text = "검색어·진영·출전 필터를 지우고 병력 분류의 처음으로 돌아갑니다."
+	reset.custom_minimum_size = Vector2(130, 58)
+	reset.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	UIKit.style_button(reset, UIKit.ACCENT)
+	reset.pressed.connect(_reset_view)
+	search_row.add_child(reset)
+	focus_controls.append(reset)
 	var filter_row := HBoxContainer.new()
 	filter_row.add_theme_constant_override("separation", 8)
 	column.add_child(filter_row)
@@ -118,7 +135,9 @@ func setup(owner_main, growth_level: int) -> void:
 	scroll.follow_focus = true
 	scroll.focus_mode = Control.FOCUS_ALL
 	scroll.get_v_scroll_bar().focus_mode = Control.FOCUS_NONE
+	scroll.get_v_scroll_bar().gui_input.connect(_on_scroll_input)
 	scroll.resized.connect(_resize_grid)
+	scroll.gui_input.connect(_on_scroll_input)
 	column.add_child(scroll)
 	focus_controls.append(scroll)
 	grid = GridContainer.new()
@@ -158,9 +177,77 @@ func setup(owner_main, growth_level: int) -> void:
 	close.pressed.connect(main._dismiss_stats_panel)
 	column.add_child(close)
 	focus_controls.append(close)
-	_select_category(0)
+	search.text = String(view_state.get("search", ""))
+	var saved_scope := clampi(int(view_state.get("scope", 0)), 0, scope.item_count - 1)
+	scope.select(0 if scope.is_item_disabled(saved_scope) else saved_scope)
+	deck_only.set_pressed_no_signal(bool(view_state.get("deck_only", false)) and deck_known[0])
+	_select_category(clampi(int(view_state.get("category", 0)), 0, tabs.size() - 1))
 	_resize_grid()
 	close.grab_focus()
+	setting_up = false
+	if view_state.is_empty():
+		restoring_view = false
+	else:
+		_restore_view.call_deferred(view_state.duplicate(true), restore_serial)
+
+func capture_view_state() -> void:
+	view_state["category"] = category
+	view_state["search"] = search.text
+	view_state["scope"] = scope.selected
+	view_state["deck_only"] = deck_only.button_pressed
+	# An immediate close must preserve the position waiting for layout restoration.
+	if restoring_view: return
+	view_state["scroll"] = scroll.scroll_vertical
+	var focused := get_viewport().gui_get_focus_owner()
+	if focused in focus_controls:
+		view_state["focus"] = String(focused.name)
+		if focused == search: view_state["caret"] = search.caret_column
+
+func _restore_view(state: Dictionary, serial: int) -> void:
+	# Containers need to settle after visibility, wrapping and grid width change.
+	if not _can_restore_view(serial): return
+	await get_tree().process_frame
+	if not _can_restore_view(serial): return
+	await get_tree().process_frame
+	if not _can_restore_view(serial): return
+	var current_focus := get_viewport().gui_get_focus_owner()
+	var has_modal := is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.action_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.result_overlay)
+	# Do not steal focus from an interruption panel or a control the user just chose.
+	if not has_modal and (current_focus == null or current_focus == focus_controls.back()):
+		var target: Control = focus_controls.back()
+		for control in focus_controls:
+			if String(control.name) == String(state.get("focus", "")) and control.is_visible_in_tree() and not (control is BaseButton and control.disabled):
+				target = control
+				break
+		target.grab_focus()
+		if target == search:
+			search.caret_column = clampi(int(state.get("caret", search.text.length())), 0, search.text.length())
+	# ScrollContainer follows focus with a deferred call; let it settle first.
+	await get_tree().process_frame
+	if not _can_restore_view(serial): return
+	scroll.scroll_vertical = maxi(0, int(state.get("scroll", 0)))
+	restoring_view = false
+	capture_view_state()
+
+func _can_restore_view(serial: int) -> bool:
+	return serial == restore_serial and is_inside_tree() and not is_queued_for_deletion() and is_visible_in_tree() and is_instance_valid(main.stats_overlay) and main.stats_overlay.get_node_or_null("BattleStatsBrowser") == self
+
+func _cancel_pending_restore() -> void:
+	if restoring_view:
+		restore_serial += 1
+		restoring_view = false
+
+func _on_scroll_input(event: InputEvent) -> void:
+	if (event is InputEventMouseButton and event.pressed) or (event is InputEventScreenTouch and event.pressed) or event is InputEventScreenDrag or (event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0):
+		_cancel_pending_restore()
+
+func _reset_view() -> void:
+	view_state.clear()
+	search.text = ""
+	scope.select(0)
+	deck_only.set_pressed_no_signal(false)
+	_select_category(0)
+	search.grab_focus()
 
 func _capture_sides(growth_level: int) -> void:
 	growth_levels[0] = growth_level
@@ -306,6 +393,10 @@ func _update_side_card(card: Control) -> void:
 	card.set_meta("search_text", (title + " " + summary).to_lower())
 
 func _refresh() -> void:
+	if not setting_up:
+		# A user's new condition takes priority over any pending reopen restoration.
+		restore_serial += 1
+		restoring_view = false
 	var terms := search.text.strip_edges().to_lower().split(" ", false)
 	var matches := 0
 	var shared := 0
@@ -341,6 +432,7 @@ func _refresh() -> void:
 			var second_bonus: Dictionary = BattleModel.campaign_bonuses(int(growth_levels[1]))
 			deck_hint.text += " · 병력 성장 %s +%d%% / %s +%d%%" % [side_names[0], roundi((float(first_bonus.stat_scale) - 1.0) * 100.0), side_names[1], roundi((float(second_bonus.stat_scale) - 1.0) * 100.0)]
 	clear.disabled = search.text.is_empty()
+	reset.disabled = search.text.is_empty() and category == 0 and scope.selected == 0 and not deck_only.button_pressed
 	scroll.scroll_vertical = 0
 
 func _resize_grid() -> void:
@@ -358,10 +450,12 @@ func handle_key(event: InputEventKey) -> bool:
 		if not event.echo: main._dismiss_stats_panel()
 		return true
 	if event.ctrl_pressed and event.keycode == KEY_F:
+		_cancel_pending_restore()
 		search.grab_focus()
 		search.select_all()
 		return true
 	if event.keycode == KEY_TAB:
+		_cancel_pending_restore()
 		var available: Array[Control] = []
 		for control in focus_controls:
 			if control.is_visible_in_tree() and not (control is BaseButton and control.disabled): available.append(control)
@@ -371,6 +465,8 @@ func handle_key(event: InputEventKey) -> bool:
 		return true
 	if get_viewport().gui_get_focus_owner() is LineEdit: return false
 	if event.ctrl_pressed or event.alt_pressed or event.meta_pressed: return false
+	if event.keycode in [KEY_PAGEUP, KEY_PAGEDOWN, KEY_HOME, KEY_END]:
+		_cancel_pending_restore()
 	match event.keycode:
 		KEY_PAGEUP: scroll.scroll_vertical -= maxi(1, int(scroll.size.y) - 32)
 		KEY_PAGEDOWN: scroll.scroll_vertical += maxi(1, int(scroll.size.y) - 32)

@@ -46,6 +46,7 @@ var battle_active := false
 var result_shown := false
 var result_overlay: Control
 var stats_overlay: Control
+var battle_stats_state: Dictionary = {} # In-memory navigation for the current match only.
 var root_background: ColorRect
 var smoke_mode := false
 var smoke_elapsed := 0.0
@@ -500,6 +501,7 @@ func _exit_tree() -> void:
 	BattleFlow._cancel_finale(self)
 
 func _clear_screen() -> void:
+	_remember_stats_view()
 	BattleFlow._cancel_finale(self)
 	LocalBattlePause.dismiss(self)
 	local_battle_skip_delta = false
@@ -916,9 +918,15 @@ func _toggle_stats_panel() -> void:
 	else:
 		_show_stats_panel()
 
+func _remember_stats_view() -> void:
+	if is_instance_valid(stats_overlay):
+		var browser = stats_overlay.get_node_or_null("BattleStatsBrowser")
+		if browser != null: browser.capture_view_state()
+
 func _dismiss_stats_panel() -> void:
 	var was_open := is_instance_valid(stats_overlay)
 	if was_open:
+		_remember_stats_view()
 		stats_overlay.hide()
 		stats_overlay.queue_free()
 	stats_overlay = null
