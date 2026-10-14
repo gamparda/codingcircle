@@ -748,6 +748,8 @@ func request_seek(tick: int) -> void:
 	_refresh_seek_status()
 
 func _set_seek_busy(busy: bool) -> void:
+	if is_instance_valid(graph):
+		graph.set_preparation_paused(busy)
 	if is_instance_valid(seek_panel):
 		seek_panel.visible = busy
 	for button in seek_scene_controls:

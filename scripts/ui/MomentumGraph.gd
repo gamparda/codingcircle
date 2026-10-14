@@ -51,6 +51,9 @@ func set_playhead(tick: int) -> void:
 		playhead = tick
 		queue_redraw()
 
+func set_preparation_paused(paused: bool) -> void:
+	_curve.set_preparation_paused(paused)
+
 func _x_for(tick: int) -> float:
 	return size.x * float(tick) / float(total_ticks)
 
