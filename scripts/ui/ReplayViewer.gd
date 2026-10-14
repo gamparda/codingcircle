@@ -18,8 +18,9 @@ const Report = preload("res://scripts/BattleReport.gd")
 const ReportContent = preload("res://scripts/ui/BattleReportContent.gd")
 const ArmyComposition = preload("res://scripts/ui/ArmyComposition.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
-const JUMP_LEAD_TICKS := 30 # land a second before a highlight so the moment plays out
 const SPEEDS := [0.5, 1.0, 2.0, 4.0, 8.0]
+const SEEK_BATCH_TICKS := 512
+const SEEK_BUDGET_USEC := 4000
 
 var replay: Dictionary = {}
 var player = null
@@ -76,6 +77,12 @@ var panel_side: Label
 var panel_bar: HpBar
 var panel_hp: Label
 var panel_stats: Label
+var seek_target := -1
+var seek_player = null
+var seek_panel: PanelContainer
+var seek_label: Label
+var seek_cancel_button: Button
+var seek_scene_controls: Array[Button] = []
 
 func open(replay_data: Dictionary, title: String = "") -> void:
 	replay = replay_data
@@ -93,7 +100,7 @@ func open(replay_data: Dictionary, title: String = "") -> void:
 	position = Vector2.ZERO
 	size = Vector2(1280, 720)
 	_build()
-	_restart()
+	_restart(true)
 	var clip := BattleReplay.clip_of(replay)
 	if not clip.is_empty():
 		moment_toast.text = "클립 ▸ %s" % String(clip.get("title", ""))
@@ -139,6 +146,7 @@ func _build() -> void:
 	moment_toast.place_center(640.0, 232.0)
 	_build_storage_controls()
 	_build_selection_controls()
+	_build_seek_controls()
 	_refresh_loop()
 	for i in 4:
 		var voice := AudioStreamPlayer.new()
@@ -146,6 +154,35 @@ func _build() -> void:
 		voice.volume_db = -8.0
 		add_child(voice)
 		sound_players.append(voice)
+
+func _build_seek_controls() -> void:
+	seek_panel = PanelContainer.new()
+	seek_panel.name = "ReplaySeekPanel"
+	seek_panel.position = Vector2(300, 490)
+	seek_panel.custom_minimum_size = Vector2(680, 70)
+	seek_panel.z_index = 50
+	seek_panel.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE, UIKit.SURFACE, UIKit.TEAL, 10), 12, 6))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	seek_label = Label.new()
+	seek_label.name = "ReplaySeekStatus"
+	seek_label.custom_minimum_size.x = 500
+	seek_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	seek_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	seek_label.add_theme_font_size_override("font_size", 15)
+	seek_label.add_theme_color_override("font_color", UIKit.TEXT)
+	row.add_child(seek_label)
+	seek_cancel_button = _control_button(row, "ReplaySeekCancel", "탐색 취소", UIKit.DANGER, false)
+	seek_cancel_button.custom_minimum_size = Vector2(140, 58)
+	seek_cancel_button.tooltip_text = "탐색 전 장면으로 돌아가 멈춥니다 (Esc). 시간 막대로 다른 시점을 선택할 수도 있습니다."
+	seek_cancel_button.pressed.connect(cancel_seek)
+	seek_panel.add_child(row)
+	add_child(seek_panel)
+	seek_panel.hide()
+	for node_name in ["ReplayLoopStart", "ReplayLoopEnd", "ReplayLoopToggle", "ReplayNoteButton", "ReplayNoteDeleteButton", "ReplayClipButton", "ReplayBranchButton", "ReplayReportButton"]:
+		var control := find_child(node_name, true, false) as Button
+		if control != null:
+			seek_scene_controls.append(control)
 
 func _build_storage_controls() -> void:
 	var panel := PanelContainer.new()
@@ -199,6 +236,8 @@ func set_storage_state(path: String, dirty: bool) -> void:
 	storage_label.add_theme_color_override("font_color", UIKit.GOLD if dirty else UIKit.TEXT_MUTED)
 
 func _request_close() -> void:
+	if is_seeking():
+		cancel_seek()
 	if not notes_dirty:
 		closed.emit()
 		return
@@ -286,7 +325,7 @@ func _build_bottom_bar() -> void:
 	graph.size = Vector2(950, 42)
 	graph.setup(analysis)
 	graph.set_notes(BattleReplay.notes_of(replay))
-	graph.seek_requested.connect(func(tick): seek(tick))
+	graph.seek_requested.connect(request_seek)
 	bar.add_child(graph)
 	var loop_row := HBoxContainer.new()
 	loop_row.name = "ReplayLoopRow"
@@ -326,16 +365,16 @@ func _build_bottom_bar() -> void:
 	bar.add_child(row)
 	var previous := _control_button(row, "ReplayPreviousMoment", "◀ 이전 순간", UIKit.ACCENT, false)
 	previous.custom_minimum_size.x = 110
-	previous.pressed.connect(jump_previous_moment)
+	previous.pressed.connect(func(): jump_previous_moment(true))
 	play_button = _control_button(row, "ReplayPlayPause", "일시정지", UIKit.ACCENT, true)
 	play_button.custom_minimum_size.x = 100
 	play_button.pressed.connect(toggle_pause)
 	var next := _control_button(row, "ReplayNextMoment", "다음 순간 ▶", UIKit.ACCENT, false)
 	next.custom_minimum_size.x = 110
-	next.pressed.connect(jump_next_moment)
+	next.pressed.connect(func(): jump_next_moment(true))
 	var restart := _control_button(row, "ReplayRestart", "처음부터", UIKit.TEAL, false)
 	restart.custom_minimum_size.x = 90
-	restart.pressed.connect(_restart)
+	restart.pressed.connect(func(): _restart(true))
 	speed_button = _control_button(row, "ReplaySpeed", "1배속", UIKit.GOLD_DEEP, false)
 	speed_button.custom_minimum_size.x = 80
 	speed_button.pressed.connect(cycle_speed)
@@ -364,7 +403,7 @@ func _build_bottom_bar() -> void:
 	branch.custom_minimum_size.x = 130
 	branch.tooltip_text = "지금 장면에서 이어서 직접 조작해 보는 되감기 실험입니다"
 	branch.pressed.connect(func():
-		if player != null and not player.is_finished():
+		if player != null and not is_seeking() and not player.is_finished():
 			if notes_dirty:
 				_toast("메모 저장을 재시도한 뒤 여기서 해보기를 눌러주세요.")
 			else:
@@ -383,8 +422,9 @@ func _control_button(parent: Control, node_name: String, text: String, color: Co
 	return button
 
 # ---------------------------------------------------------------- playback
-func _restart() -> void:
+func _restart(interactive: bool = false) -> void:
 	_dismiss_battle_report()
+	_reset_seek()
 	clip_finished = false
 	player = BattleReplay.Player.new(replay)
 	accumulator = 0.0
@@ -392,6 +432,7 @@ func _restart() -> void:
 	paused = false
 	if is_instance_valid(end_banner):
 		end_banner.queue_free()
+		end_banner = null
 	view.visual_events.clear()
 	last_announced_tick = 0
 	view.set_snapshot(player.model.snapshot())
@@ -400,7 +441,10 @@ func _restart() -> void:
 		play_button.text = "일시정지"
 	var clip := BattleReplay.clip_of(replay)
 	if not clip.is_empty() and int(clip.start) > 0:
-		seek(int(clip.start))
+		if interactive:
+			request_seek(int(clip.start))
+		else:
+			seek(int(clip.start))
 
 ## The loop only runs between two marks with start before end.
 func loop_ready() -> bool:
@@ -414,7 +458,7 @@ func _refresh_loop() -> void:
 		report_button.tooltip_text = "전투 요약 (R 키) · 선택 구간 %s–%s와 누적 집계를 비교합니다. 반복을 켜지 않아도 사용할 수 있습니다." % [_report_time(loop_start), _report_time(loop_end)] if loop_ready() else "누적 생산·건설·피해·처치를 비교합니다 (R 키). 시작 [ · 끝 ] 지점을 정하면 해당 구간도 비교할 수 있습니다."
 	if is_instance_valid(clip_button):
 		clip_button.text = "구간 복사" if loop_start >= 0 else "클립 복사"
-		clip_button.disabled = (loop_start >= 0 and not loop_ready()) or int(replay.get("result", {}).get("ticks", 0)) <= 0
+		clip_button.disabled = is_seeking() or (loop_start >= 0 and not loop_ready()) or int(replay.get("result", {}).get("ticks", 0)) <= 0
 		if loop_ready():
 			clip_button.tooltip_text = "선택 구간 %s–%s를 공유용 텍스트로 복사합니다. 가져오면 시작 지점부터 재생하고 끝에서 멈춥니다. 전체 전투와 메모도 포함됩니다." % [_report_time(loop_start), _report_time(loop_end)]
 		else:
@@ -436,12 +480,13 @@ func clear_loop() -> void:
 	loop_end_army = {}
 	loop_enabled = false
 	_refresh_loop()
-	clip_button.grab_focus()
+	if not is_seeking():
+		clip_button.grab_focus()
 	_toast("구간을 해제했습니다 · 클립 복사는 주변 장면을 공유합니다")
 
 ## Marks the current moment as the start of the repeat segment (an end that is no longer after it is dropped).
 func set_loop_start() -> void:
-	if player == null or is_instance_valid(report_overlay):
+	if player == null or is_seeking() or is_instance_valid(report_overlay):
 		return
 	if player.ticks >= int(replay.get("result", {}).get("ticks", 0)):
 		_toast("구간 시작은 기록된 전투 끝보다 앞이어야 합니다")
@@ -459,7 +504,7 @@ func set_loop_start() -> void:
 
 ## Marks the current moment as the end of the segment; refused unless it lies after the start.
 func set_loop_end() -> bool:
-	if is_instance_valid(report_overlay): return false
+	if is_seeking() or is_instance_valid(report_overlay): return false
 	if player == null or loop_start < 0 or player.ticks <= loop_start:
 		_toast("끝 지점은 시작 지점보다 뒤여야 합니다")
 		return false
@@ -475,12 +520,14 @@ func set_loop_end() -> bool:
 
 ## Turns repeating on or off; it only turns on once both marks exist.
 func toggle_loop() -> bool:
+	if is_seeking():
+		return loop_enabled
 	if loop_enabled:
 		loop_enabled = false
 	elif loop_ready():
 		loop_enabled = true
 		if player != null and (player.ticks < loop_start or player.ticks >= loop_end):
-			seek(loop_start)
+			request_seek(loop_start)
 	else:
 		_toast("반복하려면 시작과 끝 지점을 먼저 정하세요")
 	_refresh_loop()
@@ -519,6 +566,8 @@ func _build_unit_panel() -> void:
 	add_child(unit_panel)
 
 func _on_unit_clicked(unit: Dictionary) -> void:
+	if is_seeking():
+		return
 	inspected_id = int(unit.get("id", -1)) if not unit.is_empty() else -1
 	_refresh_inspector()
 
@@ -529,6 +578,9 @@ func close_inspector() -> void:
 ## Keeps the panel in step with the playhead: it follows its unit and closes when the unit is gone.
 func _refresh_inspector() -> void:
 	if not is_instance_valid(unit_panel):
+		return
+	if is_seeking():
+		unit_panel.hide()
 		return
 	var found := {}
 	if inspected_id >= 0:
@@ -566,28 +618,146 @@ func cycle_speed() -> void:
 	speed_button.text = ("%s배속" % str(SPEEDS[speed_index]).trim_suffix(".0"))
 
 func _on_scrub(value: float) -> void:
-	seek(int(value))
+	request_seek(int(value))
 
-## Re-simulates from the start up to `tick` (no drawing in between).
+func is_seeking() -> bool:
+	return seek_target >= 0
+
+## UI requests are coalesced until the next frame. The displayed player stays intact
+## until the destination is ready, so cancellation never needs another simulation.
+func request_seek(tick: int) -> void:
+	if player == null or is_queued_for_deletion():
+		return
+	_dismiss_battle_report()
+	if not is_seeking():
+		# A loop rewind can be requested just after ticking, before drawing that
+		# frame. Freeze a snapshot matching the player we retain for cancellation.
+		view.set_snapshot(player.model.snapshot())
+		view.visual_events.clear()
+		_refresh_hud()
+	seek_target = clampi(tick, 0, int(replay.get("result", {}).get("ticks", 0)))
+	accumulator = 0.0
+	unit_panel.hide()
+	for voice in sound_players:
+		voice.stop()
+	if is_instance_valid(end_banner):
+		end_banner.hide()
+	_set_seek_busy(true)
+	progress.set_value_no_signal(float(seek_target))
+	graph.set_playhead(seek_target)
+	_refresh_seek_status()
+
+func _set_seek_busy(busy: bool) -> void:
+	if is_instance_valid(seek_panel):
+		seek_panel.visible = busy
+	for button in seek_scene_controls:
+		button.disabled = busy
+	if is_instance_valid(view):
+		view.set_process(not busy)
+	_refresh_loop()
+
+func _reset_seek() -> void:
+	seek_target = -1
+	seek_player = null
+	_set_seek_busy(false)
+
+## Discard only the unfinished candidate and restore the last completed scene.
+func cancel_seek() -> void:
+	if not is_seeking():
+		return
+	var return_focus := seek_cancel_button.has_focus()
+	_reset_seek()
+	paused = true
+	accumulator = 0.0
+	play_button.text = "재생"
+	if is_instance_valid(end_banner):
+		end_banner.show()
+	_refresh_hud()
+	if return_focus:
+		progress.grab_focus()
+	_toast("탐색을 취소했습니다 · 이전 장면에서 멈췄습니다")
+
+func _refresh_seek_status() -> void:
+	var completed: int = seek_player.ticks if seek_player != null else 0
+	var percent := clampi(roundi(100.0 * float(completed) / float(maxi(1, seek_target))), 0, 99)
+	seek_label.text = "장면 이동 중 · %s → %s · %d%%\n현재 화면은 이전 장면입니다 · 다른 시점을 선택하거나 취소하세요" % [_report_time(completed), _report_time(seek_target), percent]
+
+func _advance_seek() -> void:
+	if seek_target == player.ticks:
+		var return_focus := seek_cancel_button.has_focus()
+		_reset_seek()
+		if is_instance_valid(end_banner):
+			end_banner.show()
+		_refresh_hud()
+		if return_focus:
+			progress.grab_focus()
+		return
+	# Reuse unfinished work when the new target is still ahead of it. Multiple
+	# dragging events in a frame only construct a candidate for the latest target.
+	if seek_player == null or seek_player.ticks > seek_target:
+		seek_player = BattleReplay.Player.new(replay)
+	var started := Time.get_ticks_usec()
+	var steps := 0
+	var reached_end := false
+	while seek_player.ticks < seek_target and steps < SEEK_BATCH_TICKS:
+		var running: bool = seek_player.step()
+		# Seeking is silent; discard per tick instead of retaining the whole trip.
+		seek_player.model.combat_events.clear()
+		steps += 1
+		if not running:
+			reached_end = true
+			break
+		if Time.get_ticks_usec() - started >= SEEK_BUDGET_USEC:
+			break
+	if seek_player.ticks >= seek_target or reached_end:
+		var return_focus := seek_cancel_button.has_focus()
+		player = seek_player
+		_reset_seek()
+		_finish_seek()
+		if return_focus:
+			progress.grab_focus()
+	else:
+		_refresh_seek_status()
+
+func _exit_tree() -> void:
+	# No pending callbacks or background worker can publish after leaving the viewer.
+	seek_target = -1
+	seek_player = null
+
+## Synchronous helper retained for programmatic callers. Interactive controls use
+## request_seek() and advance the candidate within a frame budget instead.
 func seek(tick: int) -> void:
 	_dismiss_battle_report()
+	_reset_seek()
+	tick = clampi(tick, 0, int(replay.get("result", {}).get("ticks", 0)))
 	player = BattleReplay.Player.new(replay)
 	while player.ticks < tick and player.step():
-		pass
+		player.model.combat_events.clear()
+	_finish_seek()
+
+func _finish_seek() -> void:
 	accumulator = 0.0
 	var clip := BattleReplay.clip_of(replay)
 	# Seeking back into a clip arms its end again; seeking past it lets the viewer continue.
 	clip_finished = not clip.is_empty() and player.ticks >= int(clip.end)
-	player.model.drain_combat_events()
+	player.model.combat_events.clear()
 	view.visual_events.clear()
 	finished_shown = false
 	last_announced_tick = player.ticks
 	if is_instance_valid(end_banner):
 		end_banner.queue_free()
+		end_banner = null
 	view.set_snapshot(player.model.snapshot())
 	_refresh_hud()
 
 func _process(delta: float) -> void:
+	if is_queued_for_deletion():
+		seek_target = -1
+		seek_player = null
+		return
+	if is_seeking():
+		_advance_seek()
+		return
 	if player == null or paused or is_instance_valid(report_overlay):
 		return
 	if _pause_at_clip_end():
@@ -606,7 +776,7 @@ func _process(delta: float) -> void:
 		accumulator -= player.dt
 		steps += 1
 		if loop_enabled and loop_ready() and player.ticks >= loop_end:
-			seek(loop_start)
+			request_seek(loop_start)
 			accumulator = 0.0
 			return
 		if stop_at_clip and player.ticks >= int(clip.end):
@@ -653,7 +823,7 @@ func _toast(text: String) -> void:
 ## Pins the text in the input box to the current moment. Returns whether a note was added.
 func add_note() -> bool:
 	var text := note_input.text.strip_edges()
-	if text.is_empty() or player == null:
+	if text.is_empty() or player == null or is_seeking():
 		return false
 	var updated := BattleReplay.with_note(replay, player.ticks, text)
 	if updated == replay:
@@ -668,6 +838,8 @@ func add_note() -> bool:
 
 ## Removes the note nearest to the playhead. Returns whether one was removed.
 func delete_note() -> bool:
+	if is_seeking():
+		return false
 	var note := BattleReplay.nearest_note(replay, player.ticks if player != null else 0)
 	if note.is_empty():
 		return false
@@ -679,7 +851,7 @@ func delete_note() -> bool:
 
 ## A completed selection takes priority over the nearby-highlight clip, even outside the selection.
 func copy_clip() -> String:
-	if player == null or is_instance_valid(report_overlay):
+	if player == null or is_seeking() or is_instance_valid(report_overlay):
 		return ""
 	if loop_start >= 0 and not loop_ready():
 		_toast("끝 ] 지점을 정하거나 구간 해제를 누른 뒤 복사하세요")
@@ -710,14 +882,25 @@ func _nearby_clip() -> Dictionary:
 			title = String(item.text)
 	return BattleReplay.make_clip(replay, center, title, hz * 10, hz * 10)
 
-func jump_next_moment() -> void:
-	var item := ReplayAnalysis.next_after(analysis.get("highlights", []), player.ticks + JUMP_LEAD_TICKS)
+func jump_next_moment(interactive: bool = false) -> void:
+	var current := seek_target if is_seeking() else int(player.ticks)
+	var lead := int(replay.get("hz", BattleReplay.DEFAULT_HZ)) # land one recorded second before the moment
+	var item := ReplayAnalysis.next_after(analysis.get("highlights", []), current + lead)
 	if not item.is_empty():
-		seek(maxi(0, int(item.tick) - JUMP_LEAD_TICKS))
+		if interactive:
+			request_seek(maxi(0, int(item.tick) - lead))
+		else:
+			seek(maxi(0, int(item.tick) - lead))
 
-func jump_previous_moment() -> void:
-	var item := ReplayAnalysis.previous_before(analysis.get("highlights", []), player.ticks + JUMP_LEAD_TICKS)
-	seek(maxi(0, int(item.tick) - JUMP_LEAD_TICKS) if not item.is_empty() else 0)
+func jump_previous_moment(interactive: bool = false) -> void:
+	var current := seek_target if is_seeking() else int(player.ticks)
+	var lead := int(replay.get("hz", BattleReplay.DEFAULT_HZ))
+	var item := ReplayAnalysis.previous_before(analysis.get("highlights", []), current + lead)
+	var target := maxi(0, int(item.tick) - lead) if not item.is_empty() else 0
+	if interactive:
+		request_seek(target)
+	else:
+		seek(target)
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
@@ -727,18 +910,22 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	match event.keycode:
 		KEY_SPACE: toggle_pause()
-		KEY_RIGHT: seek(mini(int(replay.get("result", {}).get("ticks", 0)), player.ticks + 150))
-		KEY_LEFT: seek(maxi(0, player.ticks - 150))
-		KEY_N: jump_next_moment()
+		KEY_RIGHT: request_seek((seek_target if is_seeking() else int(player.ticks)) + int(replay.get("hz", BattleReplay.DEFAULT_HZ)) * 5)
+		KEY_LEFT: request_seek((seek_target if is_seeking() else int(player.ticks)) - int(replay.get("hz", BattleReplay.DEFAULT_HZ)) * 5)
+		KEY_N: jump_next_moment(true)
 		KEY_BRACKETLEFT: set_loop_start()
 		KEY_BRACKETRIGHT: set_loop_end()
 		KEY_L: toggle_loop()
 		KEY_ESCAPE: close_inspector()
-		KEY_P: jump_previous_moment()
+		KEY_P: jump_previous_moment(true)
 		KEY_R: _show_battle_report()
 
 # Modal navigation runs before the focused control or playback shortcuts consume it.
 func _input(event: InputEvent) -> void:
+	if is_seeking() and event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		cancel_seek()
+		get_viewport().set_input_as_handled()
+		return
 	if not is_instance_valid(report_overlay) or not event is InputEventKey or not event.pressed:
 		return
 	if event.keycode == KEY_ESCAPE:
@@ -760,7 +947,7 @@ func _input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 func _show_battle_report() -> void:
-	if player == null or is_instance_valid(report_overlay) or not Report.valid(player.model.battle_report):
+	if player == null or is_seeking() or is_instance_valid(report_overlay) or not Report.valid(player.model.battle_report):
 		return
 	var reports: Array = player.model.battle_report.duplicate(true)
 	var interval_reports: Array = Report.interval(loop_start_report, loop_end_report) if loop_ready() else []
