@@ -398,6 +398,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled(); return
 	if event is InputEventKey and is_instance_valid(stats_overlay) and not is_instance_valid(local_pause_overlay) and not is_instance_valid(action_overlay) and not is_instance_valid(report_overlay):
 		var browser = stats_overlay.get_node_or_null("BattleStatsBrowser")
+		if browser == null: browser = stats_overlay.get_node_or_null("BattleArmyPanel")
 		if browser != null and browser.handle_key(event):
 			get_viewport().set_input_as_handled()
 		# Unhandled keys go to the reference controls, never to battle hotkeys.
@@ -929,6 +930,7 @@ func _remember_stats_view() -> void:
 
 func _dismiss_stats_panel() -> void:
 	var was_open := is_instance_valid(stats_overlay)
+	var return_focus: Control = stats_overlay.get_meta("return_focus", null) if was_open else null
 	if was_open:
 		_remember_stats_view()
 		stats_overlay.hide()
@@ -939,8 +941,11 @@ func _dismiss_stats_panel() -> void:
 			battle_view.set_process(not LocalBattlePause.is_paused(self) or finale_active)
 			_refresh_purchase_buttons(latest_resources)
 		if not LocalBattlePause.is_paused(self) and not is_instance_valid(action_overlay) and not is_instance_valid(report_overlay) and is_instance_valid(root_background):
-			var stats_button := root_background.find_child("UnitStatsButton", true, false) as Button
-			if stats_button != null: stats_button.grab_focus()
+			if is_instance_valid(return_focus) and return_focus.is_inside_tree() and return_focus.is_visible_in_tree():
+				return_focus.grab_focus()
+			else:
+				var stats_button := root_background.find_child("UnitStatsButton", true, false) as Button
+				if stats_button != null: stats_button.grab_focus()
 
 func _show_stats_panel() -> void:
 	BattleHud._show_stats_panel(self)

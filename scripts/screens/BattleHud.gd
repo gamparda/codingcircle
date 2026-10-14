@@ -359,6 +359,24 @@ static func _create_hp_card(main, parent: Control, position_value: Vector2, side
 	hp_bar.max_value = BattleModel.BASE_MAX_HP
 	hp_bar.value = BattleModel.BASE_MAX_HP
 	inner.add_child(hp_bar)
+	# The entire base card is a touch target; keep its health display underneath.
+	var details := Button.new()
+	details.name = "ArmyDetails%d" % side
+	details.position = Vector2.ZERO
+	details.size = Vector2(420, 64)
+	details.flat = true
+	details.focus_mode = Control.FOCUS_ALL
+	details.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	# Hover/press feedback must remain translucent over the health and count labels.
+	for state in ["normal", "hover", "pressed", "hover_pressed"]:
+		var feedback := StyleBoxFlat.new()
+		feedback.bg_color = Color(1, 1, 1, 0.10 if state in ["pressed", "hover_pressed"] else 0.05 if state == "hover" else 0.0)
+		feedback.set_corner_radius_all(12)
+		details.add_theme_stylebox_override(state, feedback)
+	details.add_theme_stylebox_override("focus", UIKit.button_styles(color, false)["focus"])
+	details.pressed.connect(_show_army_panel.bind(main, side))
+	inner.add_child(details)
+	army_count.set_meta("details_button", details)
 	if side == 0:
 		main.blue_hp_bar = hp_bar
 		main.blue_hp_label = value_label
@@ -517,6 +535,33 @@ static func _add_purchase_labels(main, button: Button, key_text: String) -> void
 	state.visible = false
 	button.add_child(state)
 
+static func _show_army_panel(main, side: int) -> void:
+	if not main.battle_active or not is_instance_valid(main.battle_view) or main.result_shown or main.finale_active or is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.action_overlay) or is_instance_valid(main.report_overlay): return
+	main.battle_view.reset_build_touch()
+	main._dismiss_stats_panel()
+	main.stats_overlay = ColorRect.new()
+	main.stats_overlay.name = "ArmyDetailsOverlay"
+	main.stats_overlay.color = Color(0.02, 0.025, 0.045, 0.94)
+	main.stats_overlay.size = Vector2(1280, 720)
+	main.stats_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	main.stats_overlay.z_index = 120
+	main.root_background.add_child(main.stats_overlay)
+	var origin = main.army_count_labels.get(side)
+	if is_instance_valid(origin): main.stats_overlay.set_meta("return_focus", origin.get_meta("details_button", null))
+	var panel := preload("res://scripts/ui/BattleArmyPanel.gd").new()
+	main.stats_overlay.add_child(panel)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.offset_left = 90
+	panel.offset_right = -90
+	panel.offset_top = 36
+	panel.offset_bottom = -36
+	panel.setup(main, side)
+	if main.local_ai_mode:
+		main.local_battle_skip_delta = true
+		main.battle_view.set_process(false)
+	main._refresh_purchase_buttons(main.latest_resources)
+	UIKit.reveal(panel, 0.25, 0.0)
+
 static func _show_stats_panel(main) -> void:
 	if is_instance_valid(main.battle_view): main.battle_view.reset_build_touch()
 	main._dismiss_stats_panel()
@@ -642,8 +687,16 @@ static func _refresh_unit_population(main, counts: Dictionary) -> void:
 				if amount > 0:
 					tooltip += "\n%s %d명" % [String(BattleModel.UNIT_NAMES[kind]), amount]
 					if BattleModel.SUMMON_STATS.has(kind): tooltip += " · 소환 병력"
+		text += " ▸"
+		var details = label.get_meta("details_button", null)
+		if is_instance_valid(details):
+			var details_hint := tooltip + "\n누르면 양쪽 병력의 종류별 생존 수와 생산 한도를 확인합니다."
+			if details.tooltip_text != details_hint: details.tooltip_text = details_hint
 		if label.text != text: label.text = text
 		if label.tooltip_text != tooltip: label.tooltip_text = tooltip
+	if is_instance_valid(main.stats_overlay):
+		var panel = main.stats_overlay.get_node_or_null("BattleArmyPanel")
+		if panel != null: panel.refresh(counts, awaiting)
 	if not is_instance_valid(main.unit_capacity_label): return
 	var capacity_text := "전장 병력 — / %d" % BattleModel.MAX_ACTIVE_UNITS if awaiting else "전장 병력 %d / %d" % [int(counts.occupied), BattleModel.MAX_ACTIVE_UNITS]
 	var full: bool = not awaiting and int(counts.occupied) >= BattleModel.MAX_ACTIVE_UNITS
