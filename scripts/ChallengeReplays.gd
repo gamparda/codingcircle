@@ -47,6 +47,7 @@ static func fingerprint(replay: Dictionary) -> String:
 static func analysis_fingerprint(replay: Dictionary) -> String:
 	var battle := replay.duplicate()
 	battle.erase("notes")
+	battle.erase("_local_protected")
 	return fingerprint(battle)
 
 static func matching(entries: Array, period: String, date: String, ruleset: String) -> Array:

@@ -326,9 +326,10 @@ const MAX_SHARE_CHARS := 2_000_000
 
 ## Compact single-line text (deflate + base64) that can be pasted into chat or a bug report.
 static func to_share_text(replay: Dictionary) -> String:
-	# Local retention order is not part of the battle or its shared identity.
+	# Local retention choices are not part of the battle or its shared identity.
 	var shared := replay.duplicate()
 	shared.erase("_local_order")
+	shared.erase("_local_protected")
 	var raw := JSON.stringify(shared).to_utf8_buffer()
 	return SHARE_PREFIX + Marshalls.raw_to_base64(raw.compress(FileAccess.COMPRESSION_DEFLATE)) + ":" + str(raw.size())
 
@@ -353,6 +354,7 @@ static func from_share_text(text: String) -> Dictionary:
 	if not valid(parsed):
 		return {}
 	parsed.erase("_local_order")
+	parsed.erase("_local_protected")
 	return parsed
 
 # --- storage -----------------------------------------------------------------
@@ -368,6 +370,8 @@ static func save(replay: Dictionary, name_hint: String = "") -> String:
 	if order >= 9007199254740991:
 		return ""
 	var stored := replay.duplicate()
+	# New copies start unprotected; protection belongs to one existing local file.
+	stored.erase("_local_protected")
 	stored["_local_order"] = order + 1
 	var stamp := Time.get_datetime_string_from_system(false, false).replace(":", "").replace("-", "").replace("T", "_")
 	var safe := ""
@@ -394,12 +398,23 @@ static func write_file(path: String, replay: Dictionary) -> bool:
 	if not valid(replay):
 		return false
 	var stored := replay.duplicate()
+	stored.erase("_local_protected")
 	if FileAccess.file_exists(path):
 		var existing := load_file(path)
 		stored.erase("_local_order")
 		if _storage_order(existing) > 0:
 			stored["_local_order"] = _storage_order(existing)
+		if is_protected(existing):
+			stored["_local_protected"] = true
+	return _commit_file(path, stored)
+
+static func _commit_file(path: String, stored: Dictionary, fingerprint: String = "") -> bool:
+	if not fingerprint.is_empty() and (not _deletion_target_error(path).is_empty() or FileAccess.get_sha256(path) != fingerprint):
+		return false
 	var temporary := path + ".tmp"
+	var directory := DirAccess.open(path.get_base_dir())
+	if directory == null or directory.is_link(temporary.get_file()) or DirAccess.dir_exists_absolute(temporary):
+		return false
 	var file := FileAccess.open(temporary, FileAccess.WRITE)
 	if file == null:
 		return false
@@ -407,10 +422,40 @@ static func write_file(path: String, replay: Dictionary) -> bool:
 	file.flush()
 	var error := file.get_error()
 	file.close()
+	# A protection change must never overwrite notes edited after its preview.
+	if not fingerprint.is_empty() and (not _deletion_target_error(path).is_empty() or FileAccess.get_sha256(path) != fingerprint):
+		DirAccess.remove_absolute(temporary)
+		return false
 	if error != OK or DirAccess.rename_absolute(temporary, path) != OK:
 		DirAccess.remove_absolute(temporary)
 		return false
 	return true
+
+static func is_protected(replay: Dictionary) -> bool:
+	var value = replay.get("_local_protected", false)
+	return value is bool and value
+
+## Changes only local retention metadata; no new copy, order bump or cleanup.
+static func set_protected(path: String, fingerprint: String, enabled: bool) -> Dictionary:
+	var snapshot := deletion_snapshot(path)
+	var result := {"ok": false, "error": String(snapshot.error)}
+	if not result.error.is_empty(): return result
+	if fingerprint.is_empty() or String(snapshot.fingerprint) != fingerprint:
+		result.error = "확인창을 연 뒤 파일 내용이 바뀌었습니다. 보존 상태를 바꾸지 않았습니다. 취소하고 새로고침해 다시 확인하세요."
+		return result
+	var replay: Dictionary = snapshot.replay
+	if replay.is_empty():
+		result.error = "읽을 수 없는 파일의 보존 상태는 바꿀 수 없습니다. 원본은 정리 대상에서 제외됩니다."
+		return result
+	if enabled:
+		replay["_local_protected"] = true
+	else:
+		replay.erase("_local_protected")
+	if not _commit_file(path, replay, fingerprint):
+		result.error = "보존 상태를 저장하지 못했습니다. 파일 변경·권한·저장 공간을 확인하고 새로고침 후 다시 시도하세요."
+		return result
+	result.ok = true
+	return result
 
 static func load_file(path: String) -> Dictionary:
 	var file := FileAccess.open(path, FileAccess.READ)
@@ -487,7 +532,7 @@ static func _saved_entries(paths: Array = []) -> Array:
 	var entries: Array = []
 	for path in paths:
 		var replay := load_file(path)
-		entries.append({"path": path, "order": _storage_order(replay), "readable": not replay.is_empty()})
+		entries.append({"path": path, "order": _storage_order(replay), "readable": not replay.is_empty(), "protected": is_protected(replay)})
 	entries.sort_custom(func(a, b):
 		return int(a.order) > int(b.order) or (int(a.order) == int(b.order) and String(a.path) > String(b.path)))
 	return entries
@@ -500,20 +545,23 @@ static func _prune_plan(protected_path: String = "") -> Dictionary:
 		protected_path = _last_saved_path
 	var readable: Array = []
 	var unreadable: Array = []
+	var preserved: Array = []
 	for entry in _saved_entries():
 		if not entry.readable:
 			unreadable.append(entry.path)
+		elif entry.protected:
+			preserved.append(entry.path)
 		else:
 			readable.append(entry.path)
 	if readable.has(protected_path):
 		readable.erase(protected_path)
 		readable.push_front(protected_path)
-	return {"readable": readable, "unreadable": unreadable}
+	return {"readable": readable, "unreadable": unreadable, "protected": preserved}
 
 ## Bind the displayed battles, notes and retention boundary to an exact deletion set.
 static func cleanup_snapshot() -> Dictionary:
 	var plan := _prune_plan()
-	var result := {"directory": save_dir, "plan": plan, "entries": [], "kept": mini(MAX_SAVED, plan.readable.size()), "unreadable": plan.unreadable.size(), "error": ""}
+	var result := {"directory": save_dir, "plan": plan, "entries": [], "kept": mini(MAX_SAVED, plan.readable.size()) + plan.protected.size(), "protected": plan.protected.size(), "unreadable": plan.unreadable.size(), "error": ""}
 	for index in range(MAX_SAVED, plan.readable.size()):
 		var path: String = plan.readable[index]
 		var snapshot := deletion_snapshot(path)
@@ -560,10 +608,16 @@ static func _prune(protected_path: String = "") -> Dictionary:
 	var removed := 0
 	for index in range(MAX_SAVED, readable.size()):
 		var path: String = readable[index]
-		if DirAccess.remove_absolute(path) == OK:
+		var snapshot := deletion_snapshot(path)
+		if not String(snapshot.error).is_empty():
+			failed.append(path)
+			continue
+		# Recheck protection and contents immediately before removing a candidate.
+		if snapshot.replay.is_empty() or is_protected(snapshot.replay): continue
+		if delete_saved(path, String(snapshot.fingerprint)).ok:
 			removed += 1
 		else:
 			failed.append(path)
 	if not failed.is_empty():
 		printerr("REPLAY_TRIM_PENDING files=%d directory=%s" % [failed.size(), save_dir])
-	return {"removed": removed, "remaining": readable.size() - removed, "unreadable": plan.unreadable.size(), "failed": failed}
+	return {"removed": removed, "remaining": readable.size() - removed + plan.protected.size(), "unreadable": plan.unreadable.size(), "failed": failed}

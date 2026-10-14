@@ -82,13 +82,31 @@ static func _build_battle_screen(main) -> void:
 	main.placement_hint_label.tone = UIKit.TEAL
 	main.root_background.add_child(main.placement_hint_label)
 	main.placement_hint_label.place_center(640.0, 440.0)
+	main.unit_capacity_label = Label.new()
+	main.unit_capacity_label.name = "UnitCapacity"
+	main.unit_capacity_label.position = Vector2(20, 520)
+	main.unit_capacity_label.size = Vector2(360, 28)
+	main.unit_capacity_label.add_theme_font_size_override("font_size", 14)
+	main.unit_capacity_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	main.root_background.add_child(main.unit_capacity_label)
+	var structure_details := Button.new()
+	structure_details.name = "StructureDetailsButton"
+	structure_details.position = Vector2(1018, 520)
+	structure_details.size = Vector2(240, 58)
+	structure_details.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	structure_details.tooltip_text = "양쪽 구조물의 설치 수·종류별 한도·남은 체력·발전기 수입을 비교합니다."
+	UIKit.style_button(structure_details, UIKit.TEAL)
+	structure_details.pressed.connect(main._show_structure_panel)
+	main.root_background.add_child(structure_details)
 	main.structure_count_label = Label.new()
-	main.structure_count_label.position = Vector2(1030, 548)
+	main.structure_count_label.position = Vector2(10, 15)
 	main.structure_count_label.size = Vector2(220, 28)
 	main.structure_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	main.structure_count_label.text = "구조물 0 / %d" % BattleModel.STRUCTURE_LIMIT
 	main.structure_count_label.add_theme_color_override("font_color", Color("#a7afc0"))
-	main.root_background.add_child(main.structure_count_label)
+	main.structure_count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	structure_details.add_child(main.structure_count_label)
+	main.structure_count_label.set_meta("details_button", structure_details)
 
 	var controls := ColorRect.new()
 	controls.color = Color("#090d17")
@@ -133,12 +151,15 @@ static func _build_battle_screen(main) -> void:
 	resource_inner.add_child(resource_bar)
 	main.resource_label.set_meta("bar", resource_bar)
 	var side_label := Label.new()
-	side_label.text = "●  아군 진영"
+	side_label.name = "ResourceIncome"
+	side_label.text = "회복 정보 대기"
+	side_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	side_label.position = Vector2(14, 80)
 	side_label.size = Vector2(145, 22)
 	side_label.add_theme_font_size_override("font_size", 12)
 	side_label.add_theme_color_override("font_color", own_color)
 	resource_inner.add_child(side_label)
+	main.resource_label.set_meta("income_label", side_label)
 
 	var row := HBoxContainer.new()
 	row.position = Vector2(205, 19)
@@ -185,6 +206,16 @@ static func _build_battle_screen(main) -> void:
 	if main.local_ai_mode and not main.campaign_mode: main._add_practice_controls()
 	if main.campaign_mode and main.local_ai_mode:
 		var goal := Label.new(); goal.name = "CampaignBattleGoal"; goal.text = CampaignBrief.goal(main.current_ai_stage); goal.position = Vector2(160,98); goal.size = Vector2(340,48); goal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; goal.add_theme_font_size_override("font_size",12); goal.mouse_filter = Control.MOUSE_FILTER_IGNORE; main.root_background.add_child(goal)
+		main.practice_pause_button = main._styled_button("일시정지", Color("#3d647d"))
+		main.practice_pause_button.name = "CampaignPauseButton"
+		main.practice_pause_button.position = Vector2(970, 98)
+		main.practice_pause_button.size = Vector2(146, 58)
+		main.practice_pause_button.z_index = 10
+		main.practice_pause_button.pressed.connect(main._toggle_practice_pause)
+		main.root_background.add_child(main.practice_pause_button)
+	if main.local_ai_mode and is_instance_valid(main.practice_pause_button):
+		main.practice_pause_button.tooltip_text = "전투 일시정지 · Space로도 조작할 수 있습니다."
+		main.practice_pause_button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
 	if not main.local_ai_mode:
 		for side in 2:
 			var name_label := ToastLabel.new(); name_label.name = "BattlePlayerName%d"%side; name_label.text = main._report_side_name(side)
@@ -207,6 +238,8 @@ static func _build_battle_screen(main) -> void:
 	main.cancel_build_button = main._styled_button("설치 취소 · Esc",Color("#697386")); main.cancel_build_button.name = "CancelBuildButton"; main.cancel_build_button.position = Vector2(536,480); main.cancel_build_button.size = Vector2(208,58); main.cancel_build_button.visible = false; main.cancel_build_button.z_index = 10; main.cancel_build_button.pressed.connect(main._cancel_build_selection); main.root_background.add_child(main.cancel_build_button)
 	main._refresh_purchase_buttons(main.latest_resources)
 	_battle_intro(main)
+	if main.local_ai_mode and main.local_battle_backgrounded and DisplayServer.get_name() != "headless":
+		preload("res://scripts/screens/LocalBattlePause.gd").pause(main, true)
 
 ## "STAGE 03 · 전진" style band that slides in, holds, and leaves. Purely decorative (ignores input).
 static func _battle_intro(main) -> void:
@@ -309,10 +342,20 @@ static func _create_hp_card(main, parent: Control, position_value: Vector2, side
 	var faction := Label.new()
 	faction.text = "아군 기지" if side == main.own_side else "적군 기지"
 	faction.position = Vector2(16, 7)
-	faction.size = Vector2(240, 22)
+	faction.size = Vector2(96, 22)
 	faction.add_theme_font_size_override("font_size", 13)
 	faction.add_theme_color_override("font_color", color.lightened(0.25))
 	inner.add_child(faction)
+	var army_count := Label.new()
+	army_count.name = "ArmyCount%d" % side
+	army_count.position = Vector2(114, 7)
+	army_count.size = Vector2(178, 22)
+	army_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	army_count.add_theme_font_size_override("font_size", 12)
+	army_count.add_theme_color_override("font_color", color.lightened(0.25))
+	army_count.mouse_filter = Control.MOUSE_FILTER_PASS
+	inner.add_child(army_count)
+	main.army_count_labels[side] = army_count
 	var value_label := Label.new()
 	value_label.position = Vector2(300, 5)
 	value_label.size = Vector2(104, 24)
@@ -327,6 +370,24 @@ static func _create_hp_card(main, parent: Control, position_value: Vector2, side
 	hp_bar.max_value = BattleModel.BASE_MAX_HP
 	hp_bar.value = BattleModel.BASE_MAX_HP
 	inner.add_child(hp_bar)
+	# The entire base card is a touch target; keep its health display underneath.
+	var details := Button.new()
+	details.name = "ArmyDetails%d" % side
+	details.position = Vector2.ZERO
+	details.size = Vector2(420, 64)
+	details.flat = true
+	details.focus_mode = Control.FOCUS_ALL
+	details.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	# Hover/press feedback must remain translucent over the health and count labels.
+	for state in ["normal", "hover", "pressed", "hover_pressed"]:
+		var feedback := StyleBoxFlat.new()
+		feedback.bg_color = Color(1, 1, 1, 0.10 if state in ["pressed", "hover_pressed"] else 0.05 if state == "hover" else 0.0)
+		feedback.set_corner_radius_all(12)
+		details.add_theme_stylebox_override(state, feedback)
+	details.add_theme_stylebox_override("focus", UIKit.button_styles(color, false)["focus"])
+	details.pressed.connect(_show_army_panel.bind(main, side))
+	inner.add_child(details)
+	army_count.set_meta("details_button", details)
 	if side == 0:
 		main.blue_hp_bar = hp_bar
 		main.blue_hp_label = value_label
@@ -485,8 +546,66 @@ static func _add_purchase_labels(main, button: Button, key_text: String) -> void
 	state.visible = false
 	button.add_child(state)
 
-static func _show_stats_panel(main) -> void:
+static func _show_army_panel(main, side: int, navigation: Dictionary = {}) -> void:
+	if not main.battle_active or not is_instance_valid(main.battle_view) or main.result_shown or main.finale_active or is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.action_overlay) or is_instance_valid(main.report_overlay): return
+	main.battle_view.reset_build_touch()
+	main._dismiss_stats_panel()
+	main.stats_overlay = ColorRect.new()
+	main.stats_overlay.name = "ArmyDetailsOverlay"
+	main.stats_overlay.color = Color(0.02, 0.025, 0.045, 0.94)
+	main.stats_overlay.size = Vector2(1280, 720)
+	main.stats_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	main.stats_overlay.z_index = 120
+	main.root_background.add_child(main.stats_overlay)
+	var origin = main.army_count_labels.get(side)
+	if is_instance_valid(origin): main.stats_overlay.set_meta("return_focus", origin.get_meta("details_button", null))
+	var panel := preload("res://scripts/ui/BattleArmyPanel.gd").new()
+	main.stats_overlay.add_child(panel)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.offset_left = 90
+	panel.offset_right = -90
+	panel.offset_top = 36
+	panel.offset_bottom = -36
+	panel.setup(main, side, String(navigation.get("role", "")))
+	panel.navigation_pending = not navigation.is_empty()
+	preload("res://scripts/ui/BattleOverviewNavigation.gd").restore.call_deferred(panel, navigation)
+	if main.local_ai_mode:
+		main.local_battle_skip_delta = true
+		main.battle_view.set_process(false)
+	main._refresh_purchase_buttons(main.latest_resources)
+	UIKit.reveal(panel, 0.25, 0.0)
+
+static func _show_structure_panel(main, navigation: Dictionary = {}) -> void:
+	if not main.battle_active or not is_instance_valid(main.battle_view) or main.result_shown or main.finale_active or is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.action_overlay) or is_instance_valid(main.report_overlay): return
+	main.battle_view.reset_build_touch()
+	main._dismiss_stats_panel()
+	main.stats_overlay = ColorRect.new()
+	main.stats_overlay.name = "StructureDetailsOverlay"
+	main.stats_overlay.color = Color(0.02, 0.025, 0.045, 0.94)
+	main.stats_overlay.size = Vector2(1280, 720)
+	main.stats_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	main.stats_overlay.z_index = 120
+	main.root_background.add_child(main.stats_overlay)
+	if is_instance_valid(main.structure_count_label): main.stats_overlay.set_meta("return_focus", main.structure_count_label.get_meta("details_button", null))
+	var panel := preload("res://scripts/ui/BattleStructurePanel.gd").new()
+	main.stats_overlay.add_child(panel)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.offset_left = 90
+	panel.offset_right = -90
+	panel.offset_top = 36
+	panel.offset_bottom = -36
+	panel.setup(main)
+	panel.navigation_pending = not navigation.is_empty()
+	preload("res://scripts/ui/BattleOverviewNavigation.gd").restore.call_deferred(panel, navigation)
+	if main.local_ai_mode:
+		main.local_battle_skip_delta = true
+		main.battle_view.set_process(false)
+	main._refresh_purchase_buttons(main.latest_resources)
+	UIKit.reveal(panel, 0.25, 0.0)
+
+static func _show_stats_panel(main, reference: Dictionary = {}) -> void:
 	if is_instance_valid(main.battle_view): main.battle_view.reset_build_touch()
+	var return_focus: Control = main.stats_overlay.get_meta("return_focus", null) if is_instance_valid(main.stats_overlay) else null
 	main._dismiss_stats_panel()
 	main.stats_overlay = ColorRect.new()
 	main.stats_overlay.name = "UnitStatsPanel"
@@ -496,74 +615,21 @@ static func _show_stats_panel(main) -> void:
 	main.stats_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	main.stats_overlay.z_index = 120
 	main.root_background.add_child(main.stats_overlay)
-	var panel := PanelContainer.new()
-	panel.position = Vector2(145, 72)
-	panel.size = Vector2(990, 576)
-	panel.add_theme_stylebox_override("panel", UIKit.panel_box(UIKit.TEAL, 16, 1.0))
+	if not reference.is_empty(): main.stats_overlay.set_meta("return_focus", return_focus)
+	var panel := preload("res://scripts/ui/BattleStatsBrowser.gd").new()
 	main.stats_overlay.add_child(panel)
-	UIKit.reveal(panel, 0.25, 12.0)
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 28)
-	margin.add_theme_constant_override("margin_right", 28)
-	margin.add_theme_constant_override("margin_top", 22)
-	margin.add_theme_constant_override("margin_bottom", 22)
-	panel.add_child(margin)
-	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 10)
-	margin.add_child(content)
-	var title := Label.new()
-	title.text = Localization.text("유닛 상세 스탯")
-	title.add_theme_font_size_override("font_size", 28)
-	title.add_theme_color_override("font_color", Color("#f5f7fb"))
-	content.add_child(title)
-	var subtitle := Label.new()
-	subtitle.text = Localization.text("현재 전투 수치 · DPS는 공격력 ÷ 공격 간격")
-	subtitle.add_theme_color_override("font_color", Color("#8f98ad"))
-	content.add_child(subtitle)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 12)
-	grid.add_theme_constant_override("v_separation", 10)
-	var scroll := ScrollContainer.new()
-	scroll.name = "UnitStatsScroll"
-	scroll.custom_minimum_size = Vector2(0, 300)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	content.add_child(scroll)
-	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(grid)
-	var names := BattleModel.UNIT_NAMES
-	for kind in names.keys():
-		var unit_color: Color = UIKit.UNIT_COLORS.get(kind, UIKit.ACCENT)
-		var card := PanelContainer.new()
-		card.custom_minimum_size = Vector2(455, 126)
-		card.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(UIKit.SURFACE_HI.lerp(unit_color, 0.08), UIKit.SURFACE.darkened(0.12), Color(unit_color.r, unit_color.g, unit_color.b, 0.5), 12, 1.0, 0.0, Color(0, 0, 0, 0), 0.08), 14, 10))
-		grid.add_child(card)
-		var card_row := HBoxContainer.new()
-		card_row.add_theme_constant_override("separation", 14)
-		card.add_child(card_row)
-		var portrait := TextureRect.new()
-		portrait.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
-		portrait.custom_minimum_size = Vector2(78, 100)
-		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		card_row.add_child(portrait)
-		var label := Label.new()
-		label.text = "%s\n%s" % [names[kind], BattleModel.unit_stat_summary(kind, int(main.local_model.campaign_levels[main.own_side]) if main.local_ai_mode and is_instance_valid(main.local_model) else 0)]
-		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		label.add_theme_font_size_override("font_size", 14)
-		label.add_theme_color_override("font_color", UIKit.TEXT)
-		card_row.add_child(label)
-	var world_stats := Label.new()
-	world_stats.text = BattleModel.battle_stat_summary()
-	world_stats.add_theme_font_size_override("font_size", 13)
-	world_stats.add_theme_color_override("font_color", Color("#9ba5b8"))
-	content.add_child(world_stats)
-	var close = main._styled_button(Localization.text("닫기"), Color("#3d8f83"), true)
-	close.custom_minimum_size = Vector2(160, 44)
-	close.pressed.connect(main._dismiss_stats_panel)
-	content.add_child(close)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.offset_left = 90
+	panel.offset_right = -90
+	panel.offset_top = 36
+	panel.offset_bottom = -36
+	var growth_level := int(main.local_model.campaign_levels[main.own_side]) if main.local_ai_mode and is_instance_valid(main.local_model) else 0
+	panel.setup(main, growth_level, reference)
+	UIKit.reveal(panel, 0.25, 0.0)
+	if main.local_ai_mode:
+		main.local_battle_skip_delta = true
+		main.battle_view.set_process(false)
+		main._refresh_purchase_buttons(main.latest_resources)
 
 static func _add_battle_chat(main) -> void:
 	var toggle = main._styled_button("방 채팅",Color("#3d647d")); toggle.name = "BattleChatButton"; toggle.position = Vector2(970,190); toggle.size = Vector2(144,44); toggle.z_index = 10; main.root_background.add_child(toggle)
@@ -608,7 +674,7 @@ static func _purchase_block_reason(main) -> String:
 		if main.network.client_reconnecting: return "연결 복구 중"
 		if main.awaiting_battle_snapshot: return "상태 수신 중"
 		if main.network_paused: return "복구 대기"
-	elif not main.campaign_mode and main.practice.paused:
+	elif preload("res://scripts/screens/LocalBattlePause.gd").is_paused(main):
 		return "일시정지"
 	return ""
 
@@ -619,8 +685,125 @@ static func _purchase_block_hint(reason: String) -> String:
 		"연결 복구 중": "서버 연결을 복구하고 있습니다. 복구 후 전투 상태를 받으면 자원과 생산 대기에 맞춰 구매 카드가 갱신됩니다.",
 		"상태 수신 중": "최신 전투 상태를 기다리고 있습니다. 자원·생산 대기·설치 개수를 받은 뒤 구매할 수 있습니다.",
 		"복구 대기": "전투 상태를 복구하고 있습니다. 전투가 재개되면 자원과 생산 대기에 맞춰 구매 카드가 갱신됩니다.",
-		"일시정지": "전투가 일시정지되어 있습니다. 상단의 계속 버튼으로 재개하세요.",
+		"일시정지": "전투가 일시정지되어 있습니다. 계속하기 또는 Space로 재개하거나 열려 있는 안내 창을 닫으세요.",
 	}.get(reason, "")
+
+## The cap applies to both sides and summons together, using the raw array size.
+## Living counts describe the army; dead entries still occupy a slot until cleanup.
+static func _battle_units(main) -> Array:
+	if main.local_ai_mode and is_instance_valid(main.local_model): return main.local_model.units
+	return main.current_snapshot.get("units", [])
+
+static func _unit_population(main) -> Dictionary:
+	var values := _battle_units(main)
+	var counts := {"occupied": values.size(), "living": [0, 0], "summons": [0, 0], "kinds": [{}, {}]}
+	for unit in values:
+		if float(unit.hp) <= 0.0: continue
+		var side := int(unit.side)
+		var kind := String(unit.kind)
+		counts.living[side] += 1
+		counts.kinds[side][kind] = int(counts.kinds[side].get(kind, 0)) + 1
+		if BattleModel.SUMMON_STATS.has(kind): counts.summons[side] += 1
+	return counts
+
+static func _unit_limit_hint() -> String:
+	return "양쪽 병력과 소환수를 합쳐 전장에 최대 %d명까지 유지할 수 있습니다. 병력이 사망하고 정리되어 빈자리가 생기면 다시 생산할 수 있습니다. 구조물은 별도 한도를 사용합니다." % BattleModel.MAX_ACTIVE_UNITS
+
+static func _unit_production_limit_error(main) -> String:
+	return "전장 병력 한도 %d명 · 병력이 줄어들면 다시 생산할 수 있습니다." % BattleModel.MAX_ACTIVE_UNITS if _battle_units(main).size() >= BattleModel.MAX_ACTIVE_UNITS else ""
+
+static func _refresh_unit_population(main, counts: Dictionary) -> void:
+	var awaiting: bool = main.current_snapshot.is_empty() or (not main.local_ai_mode and (main.awaiting_battle_snapshot or main.network.client_reconnecting or main.network_paused))
+	for side in main.army_count_labels:
+		var label = main.army_count_labels[side]
+		if not is_instance_valid(label): continue
+		var text := "병력 —" if awaiting else "병력 %d" % int(counts.living[side])
+		var tooltip := "최신 전투 상태를 받은 뒤 병력 현황을 표시합니다."
+		if not awaiting:
+			var summons := int(counts.summons[side])
+			if summons > 0: text += " · 소환 %d" % summons
+			var side_name := "블루" if int(side) == 0 else "레드"
+			if not main.network.client_is_spectator: side_name = "아군" if int(side) == main.own_side else "적군"
+			tooltip = "%s · 살아 있는 병력 %d명 (소환 %d명 포함)" % [side_name, int(counts.living[side]), summons]
+			for kind in BattleModel.UNIT_NAMES:
+				var amount := int(counts.kinds[side].get(kind, 0))
+				if amount > 0:
+					tooltip += "\n%s %d명" % [String(BattleModel.UNIT_NAMES[kind]), amount]
+					if BattleModel.SUMMON_STATS.has(kind): tooltip += " · 소환 병력"
+		text += " ▸"
+		var details = label.get_meta("details_button", null)
+		if is_instance_valid(details):
+			var details_hint := tooltip + "\n누르면 양쪽 병력의 종류별 생존 수와 생산 한도를 확인합니다."
+			if details.tooltip_text != details_hint: details.tooltip_text = details_hint
+		if label.text != text: label.text = text
+		if label.tooltip_text != tooltip: label.tooltip_text = tooltip
+	if not is_instance_valid(main.unit_capacity_label): return
+	var capacity_text := "전장 병력 — / %d" % BattleModel.MAX_ACTIVE_UNITS if awaiting else "전장 병력 %d / %d" % [int(counts.occupied), BattleModel.MAX_ACTIVE_UNITS]
+	var full: bool = not awaiting and int(counts.occupied) >= BattleModel.MAX_ACTIVE_UNITS
+	if full: capacity_text += " · 생산 한도"
+	var capacity_hint := "최신 전투 상태를 받은 뒤 전체 병력 수와 생산 한도를 표시합니다." if awaiting else _unit_limit_hint()
+	var pending := int(counts.occupied) - int(counts.living[0]) - int(counts.living[1])
+	if not awaiting and pending > 0: capacity_hint += "\n사망 후 정리 대기 %d명도 현재 전장 한도에 포함됩니다." % pending
+	var tone := UIKit.GOLD if full else UIKit.TEXT_MUTED
+	if main.unit_capacity_label.text != capacity_text: main.unit_capacity_label.text = capacity_text
+	if main.unit_capacity_label.tooltip_text != capacity_hint: main.unit_capacity_label.tooltip_text = capacity_hint
+	if main.unit_capacity_label.get_theme_color("font_color") != tone: main.unit_capacity_label.add_theme_color_override("font_color", tone)
+
+## Read the same growth and living-generator inputs used by BattleModel.tick.
+## Keep forecasts separate from authoritative resources and purchase eligibility.
+static func _resource_economy(main, counts: Dictionary) -> Dictionary:
+	var income := BattleModel.RESOURCE_RATE
+	var capacity := BattleModel.MAX_RESOURCE
+	var speed := 1.0
+	var unlimited := false
+	if main.local_ai_mode and is_instance_valid(main.local_model):
+		income = main.local_model.resource_income(main.own_side)
+		capacity = main.local_model.resource_capacity(main.own_side)
+		# Campaigns and scripted/challenge battles advance at fixed 30 Hz even
+		# when a previous practice session left tool settings enabled.
+		if not main.campaign_mode and main.ghost_context.is_empty() and main.daily_challenge.is_empty():
+			speed = maxf(0.001, float(main.practice.speed))
+			unlimited = bool(main.practice.unlimited)
+	var generators := int(counts.kinds.get("generator", 0))
+	income += generators * float(BattleModel.STRUCTURE_STATS.generator.income)
+	return {"income": income, "capacity": capacity, "speed": speed, "unlimited": unlimited, "generators": generators}
+
+static func _refresh_resource_income(main, resources: float, economy: Dictionary, block_reason: String) -> void:
+	if not is_instance_valid(main.resource_label): return
+	var label = main.resource_label.get_meta("income_label", null)
+	if not is_instance_valid(label): return
+	var text := "회복 +%.1f/초" % (float(economy.income) * float(economy.speed))
+	var tone := UIKit.TEAL
+	var tooltip := "전투 시간 기준 자원 +%.1f/초 · 살아 있는 아군 발전기 %d개 · 보유 한도 %d" % [float(economy.income), int(economy.generators), int(economy.capacity)]
+	# Spectator card locks take priority over recovery locks; income still needs
+	# a fresh snapshot before it can describe the observed side's economy.
+	var awaiting_income: bool = not main.local_ai_mode and (main.awaiting_battle_snapshot or main.network.client_reconnecting or main.network_paused)
+	if awaiting_income or main.current_snapshot.is_empty():
+		text = "회복 정보 대기"
+		if awaiting_income:
+			text = "연결 복구 중" if main.network.client_reconnecting else "복구 대기" if main.network_paused else "상태 수신 중"
+		tooltip = "최신 전투 상태를 받은 뒤 자원 회복 속도를 표시합니다."
+		tone = UIKit.TEXT_MUTED
+	elif block_reason == "전투 종료":
+		text = "회복 종료"
+		tooltip = _purchase_block_hint(block_reason)
+		tone = UIKit.TEXT_MUTED
+	elif block_reason == "일시정지":
+		text = "회복 일시정지"
+		tooltip += "\n전투를 재개하면 자원 회복도 이어집니다."
+		tone = UIKit.GOLD
+	elif bool(economy.unlimited):
+		text = "무한 자원 · 자동 보충"
+		tooltip = "연습 도구가 자원을 보유 한도까지 자동으로 보충합니다."
+	elif resources >= float(economy.capacity):
+		text = "한도 도달 · 회복 멈춤"
+		tooltip += "\n한도에 도달해 추가 자원을 쌓을 수 없습니다. 자원을 사용하면 회복이 이어집니다."
+		tone = UIKit.GOLD
+	elif not is_equal_approx(float(economy.speed), 1.0):
+		tooltip += "\n현재 %.1f배속 · 실제 시간 기준 +%.1f/초" % [float(economy.speed), float(economy.income) * float(economy.speed)]
+	if label.text != text: label.text = text
+	if label.tooltip_text != tooltip: label.tooltip_text = tooltip
+	if label.get_theme_color("font_color") != tone: label.add_theme_color_override("font_color", tone)
 
 static func _refresh_purchase_buttons(main, resources: float) -> void:
 	main.latest_resources = resources
@@ -632,23 +815,68 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 	var block_reason := _purchase_block_reason(main)
 	var block_hint := _purchase_block_hint(block_reason)
 	var counts := BattleModel.structure_counts(main.current_snapshot.get("structures", []), main.own_side)
+	var population := _unit_population(main)
+	_refresh_unit_population(main, population)
+	var own_name := "아군"
+	if main.network.client_is_spectator: own_name = "블루" if main.own_side == 0 else "레드"
+	var economy := _resource_economy(main, counts)
+	_refresh_resource_income(main, resources, economy, block_reason)
 	if is_instance_valid(main.structure_count_label):
-		main.structure_count_label.text = "구조물 — / %d" % BattleModel.STRUCTURE_LIMIT if awaiting_state else "구조물 %d / %d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT]
-		main.structure_count_label.add_theme_color_override("font_color", UIKit.GOLD if not awaiting_state and int(counts.total) >= BattleModel.STRUCTURE_LIMIT else Color("#a7afc0"))
+		var awaiting_structures: bool = main.current_snapshot.is_empty() or (not main.local_ai_mode and (main.awaiting_battle_snapshot or main.network.client_reconnecting or main.network_paused))
+		var structure_text := "구조물 — / %d ▸" % BattleModel.STRUCTURE_LIMIT if awaiting_structures else "구조물 %d / %d ▸" % [int(counts.total), BattleModel.STRUCTURE_LIMIT]
+		if main.structure_count_label.text != structure_text: main.structure_count_label.text = structure_text
+		var structure_tone := UIKit.GOLD if not awaiting_structures and int(counts.total) >= BattleModel.STRUCTURE_LIMIT else Color("#a7afc0")
+		if main.structure_count_label.get_theme_color("font_color") != structure_tone: main.structure_count_label.add_theme_color_override("font_color", structure_tone)
+		if is_instance_valid(main.stats_overlay):
+			var panel = main.stats_overlay.get_node_or_null("BattleStructurePanel")
+			if panel != null:
+				var values: Array = main.current_snapshot.get("structures", [])
+				var side_counts: Array = [counts if main.own_side == 0 else BattleModel.structure_counts(values, 0), counts if main.own_side == 1 else BattleModel.structure_counts(values, 1)]
+				panel.refresh(values, side_counts, float(main.current_snapshot.get("elapsed", 0.0)), awaiting_structures)
+	var army_panel = main.stats_overlay.get_node_or_null("BattleArmyPanel") if is_instance_valid(main.stats_overlay) else null
+	var production: Dictionary = {}
 	var clear_selection := false
 	for button in main.purchase_buttons:
 		if not is_instance_valid(button):
 			continue
 		var cooldown := 0.0
+		var cooldown_wait := 0.0
 		if button.has_meta("unit_kind") and not awaiting_state:
 			var kind: String = button.get_meta("unit_kind")
 			var advertised: Array = main.current_snapshot.get("spawn_cooldowns",[{},{}])
-			cooldown = maxf(float(advertised[main.own_side].get(kind,0.0)),maxf(0.0,float(main.client_purchase_gates.get(kind,0))-Time.get_ticks_msec())/1000.0)
-		var missing := 0 if awaiting_state else maxi(0,ceili(float(button.get_meta("purchase_cost"))-resources))
+			var model_wait := float(advertised[main.own_side].get(kind, 0.0))
+			var client_wait := maxf(0.0, float(main.client_purchase_gates.get(kind, 0)) - Time.get_ticks_msec()) / 1000.0
+			cooldown = maxf(model_wait, client_wait)
+			cooldown_wait = maxf(model_wait / float(economy.speed), client_wait)
+		var cost := float(button.get_meta("purchase_cost"))
+		var deficit := maxf(0.0, cost - resources)
+		var missing := 0 if awaiting_state else ceili(deficit)
+		var above_capacity := cost > float(economy.capacity)
+		# Use the fractional deficit; ceil is only for the displayed missing amount.
+		var resource_wait := deficit / maxf(0.001, float(economy.income) * float(economy.speed))
+		var purchase_wait := maxf(resource_wait, cooldown_wait)
+		# The overview describes the same purchase conditions as the cards. It
+		# never queues a spawn or estimates an opponent's undisclosed deck.
+		if army_panel != null and button.has_meta("unit_kind") and not main.network.client_is_spectator:
+			production[String(button.get_meta("unit_kind"))] = {"cost": cost, "missing": missing, "cooldown": cooldown, "cooldown_wait": cooldown_wait, "purchase_wait": purchase_wait, "above_capacity": above_capacity}
+		var resource_hint := ""
+		if missing > 0:
+			resource_hint = "\n자원이 %d 더 필요합니다." % missing
+			if block_reason.is_empty():
+				if above_capacity:
+					resource_hint += " 비용이 보유 한도 %d보다 높아 회복만으로 구매할 수 없습니다." % int(economy.capacity)
+				elif bool(economy.unlimited):
+					resource_hint += " 무한 자원 도구의 보충을 기다리고 있습니다."
+				else:
+					resource_hint += " 구매 대기 예상 약 %.1f초 (현재 회복 속도·생산 대기 기준). 추가 구매나 발전기 파괴로 달라질 수 있습니다." % (ceilf(purchase_wait * 10.0) / 10.0)
 		var waiting: bool = main.placement_pending and button.has_meta("structure_kind")
 		var limit_error := ""
 		var limit_state := ""
 		var tooltip := String(button.get_meta("base_tooltip", ""))
+		if button.has_meta("unit_kind") and not awaiting_state:
+			if int(population.occupied) >= BattleModel.MAX_ACTIVE_UNITS:
+				limit_error = _unit_limit_hint()
+				limit_state = "전장 한도 %d/%d" % [int(population.occupied), BattleModel.MAX_ACTIVE_UNITS]
 		if button.has_meta("structure_kind"):
 			var kind: String = button.get_meta("structure_kind")
 			var count := int(counts.kinds.get(kind, 0))
@@ -671,14 +899,19 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 				tooltip += "\n" + limit_error
 				tooltip += " 아군 구조물이 파괴되거나 만료되어 전체·종류별 한도에 빈자리가 생기면 다시 선택할 수 있습니다."
 			elif missing > 0:
-				tooltip += "\n자원이 %d 더 필요합니다." % missing
+				tooltip += resource_hint
 			elif block_reason.is_empty():
 				tooltip += "\n카드를 선택한 뒤 전장에서 위치를 선택하세요."
 			if kind == "generator": tooltip += "\n발전기는 자신의 후방에만 설치할 수 있습니다."
 		else:
 			if not block_hint.is_empty(): tooltip += "\n" + block_hint
-			if missing > 0: tooltip += "\n자원이 %d 더 필요합니다." % missing
-			if cooldown > 0.001: tooltip += "\n생산 대기 %.1f초" % cooldown
+			if not awaiting_state:
+				var kind: String = button.get_meta("unit_kind")
+				tooltip += "\n살아 있는 %s %d명 · 전장 전체 %d / %d (양쪽·소환 포함)" % [own_name, int(population.kinds[main.own_side].get(kind, 0)), int(population.occupied), BattleModel.MAX_ACTIVE_UNITS]
+				if kind == "necromancer": tooltip += "\n살아 있는 %s 해골 %d명 · 전장 병력 한도에 포함" % [own_name, int(population.kinds[main.own_side].get("skeleton", 0))]
+			if not limit_error.is_empty(): tooltip += "\n" + limit_error
+			elif missing > 0: tooltip += resource_hint
+			if cooldown > 0.001: tooltip += "\n생산 대기 %.1f초" % (ceilf(cooldown_wait * 10.0) / 10.0)
 		if button.tooltip_text != tooltip: button.tooltip_text = tooltip
 		var unavailable: bool = not block_reason.is_empty() or waiting or not limit_error.is_empty() or missing>0 or cooldown>0.001
 		var state_label := button.get_node_or_null("PurchaseState") as Label
@@ -687,18 +920,24 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			if not block_reason.is_empty(): state_text = block_reason
 			elif waiting: state_text = "서버 확인 중"
 			elif not limit_state.is_empty(): state_text = limit_state
-			elif missing > 0: state_text = "자원 -%d" % missing
-			elif cooldown > 0.001: state_text = "대기 %.1f초" % cooldown
+			elif missing > 0:
+				if above_capacity: state_text = "자원 한도 초과"
+				elif bool(economy.unlimited): state_text = "자원 보충 중"
+				else: state_text = "자원 약 %.1f초" % (ceilf(purchase_wait * 10.0) / 10.0)
+			elif cooldown > 0.001: state_text = "대기 %.1f초" % (ceilf(cooldown_wait * 10.0) / 10.0)
 			if state_label.text!=state_text: state_label.text = state_text
 			state_label.visible = not state_text.is_empty()
 		if button.disabled != unavailable:
 			button.disabled = unavailable
 			button.modulate = Color(0.4, 0.4, 0.4, 1.0) if unavailable else Color.WHITE
 		if state_label: state_label.modulate = Color(2.5,2.5,2.5,1.0) if unavailable else Color.WHITE
-		if unavailable and not waiting and button.has_meta("structure_kind") and is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")):
+		if unavailable and block_reason != "일시정지" and not waiting and button.has_meta("structure_kind") and is_instance_valid(main.battle_view) and main.battle_view.selected_structure == String(button.get_meta("structure_kind")):
 			if not block_reason.is_empty(): main._show_placement_status(block_hint)
 			elif not limit_error.is_empty(): main._show_placement_status(limit_error)
 			main.battle_view.selected_structure = ""
 			clear_selection = true
 	if clear_selection:
 		main._refresh_structure_selection()
+	if is_instance_valid(army_panel) and not army_panel.is_queued_for_deletion():
+		var awaiting_army: bool = main.current_snapshot.is_empty() or (not main.local_ai_mode and (main.awaiting_battle_snapshot or main.network.client_reconnecting or main.network_paused))
+		army_panel.refresh(population, awaiting_army, {"resources": resources, "economy": economy, "production": production, "block_reason": block_reason})
