@@ -83,6 +83,7 @@ func setup(owner_main, selected_side: int) -> void:
 	column.add_child(actions)
 	var reference := _button("유닛 스탯", "ArmyOpenStats", main._show_stats_panel)
 	actions.add_child(reference)
+	actions.add_child(_button("구조물 현황", "ArmyOpenStructures", main._show_structure_panel))
 	var close := _button("닫기 · Esc", "CloseArmyDetails", main._dismiss_stats_panel)
 	actions.add_child(close)
 	close.grab_focus()

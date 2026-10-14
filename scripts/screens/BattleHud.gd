@@ -89,13 +89,24 @@ static func _build_battle_screen(main) -> void:
 	main.unit_capacity_label.add_theme_font_size_override("font_size", 14)
 	main.unit_capacity_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	main.root_background.add_child(main.unit_capacity_label)
+	var structure_details := Button.new()
+	structure_details.name = "StructureDetailsButton"
+	structure_details.position = Vector2(1018, 520)
+	structure_details.size = Vector2(240, 58)
+	structure_details.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	structure_details.tooltip_text = "양쪽 구조물의 설치 수·종류별 한도·남은 체력·발전기 수입을 비교합니다."
+	UIKit.style_button(structure_details, UIKit.TEAL)
+	structure_details.pressed.connect(main._show_structure_panel)
+	main.root_background.add_child(structure_details)
 	main.structure_count_label = Label.new()
-	main.structure_count_label.position = Vector2(1030, 548)
+	main.structure_count_label.position = Vector2(10, 15)
 	main.structure_count_label.size = Vector2(220, 28)
 	main.structure_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	main.structure_count_label.text = "구조물 0 / %d" % BattleModel.STRUCTURE_LIMIT
 	main.structure_count_label.add_theme_color_override("font_color", Color("#a7afc0"))
-	main.root_background.add_child(main.structure_count_label)
+	main.structure_count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	structure_details.add_child(main.structure_count_label)
+	main.structure_count_label.set_meta("details_button", structure_details)
 
 	var controls := ColorRect.new()
 	controls.color = Color("#090d17")
@@ -562,6 +573,32 @@ static func _show_army_panel(main, side: int) -> void:
 	main._refresh_purchase_buttons(main.latest_resources)
 	UIKit.reveal(panel, 0.25, 0.0)
 
+static func _show_structure_panel(main) -> void:
+	if not main.battle_active or not is_instance_valid(main.battle_view) or main.result_shown or main.finale_active or is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.action_overlay) or is_instance_valid(main.report_overlay): return
+	main.battle_view.reset_build_touch()
+	main._dismiss_stats_panel()
+	main.stats_overlay = ColorRect.new()
+	main.stats_overlay.name = "StructureDetailsOverlay"
+	main.stats_overlay.color = Color(0.02, 0.025, 0.045, 0.94)
+	main.stats_overlay.size = Vector2(1280, 720)
+	main.stats_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	main.stats_overlay.z_index = 120
+	main.root_background.add_child(main.stats_overlay)
+	if is_instance_valid(main.structure_count_label): main.stats_overlay.set_meta("return_focus", main.structure_count_label.get_meta("details_button", null))
+	var panel := preload("res://scripts/ui/BattleStructurePanel.gd").new()
+	main.stats_overlay.add_child(panel)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.offset_left = 90
+	panel.offset_right = -90
+	panel.offset_top = 36
+	panel.offset_bottom = -36
+	panel.setup(main)
+	if main.local_ai_mode:
+		main.local_battle_skip_delta = true
+		main.battle_view.set_process(false)
+	main._refresh_purchase_buttons(main.latest_resources)
+	UIKit.reveal(panel, 0.25, 0.0)
+
 static func _show_stats_panel(main) -> void:
 	if is_instance_valid(main.battle_view): main.battle_view.reset_build_touch()
 	main._dismiss_stats_panel()
@@ -782,8 +819,17 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 	var economy := _resource_economy(main, counts)
 	_refresh_resource_income(main, resources, economy, block_reason)
 	if is_instance_valid(main.structure_count_label):
-		main.structure_count_label.text = "구조물 — / %d" % BattleModel.STRUCTURE_LIMIT if awaiting_state else "구조물 %d / %d" % [int(counts.total), BattleModel.STRUCTURE_LIMIT]
-		main.structure_count_label.add_theme_color_override("font_color", UIKit.GOLD if not awaiting_state and int(counts.total) >= BattleModel.STRUCTURE_LIMIT else Color("#a7afc0"))
+		var awaiting_structures: bool = main.current_snapshot.is_empty() or (not main.local_ai_mode and (main.awaiting_battle_snapshot or main.network.client_reconnecting or main.network_paused))
+		var structure_text := "구조물 — / %d ▸" % BattleModel.STRUCTURE_LIMIT if awaiting_structures else "구조물 %d / %d ▸" % [int(counts.total), BattleModel.STRUCTURE_LIMIT]
+		if main.structure_count_label.text != structure_text: main.structure_count_label.text = structure_text
+		var structure_tone := UIKit.GOLD if not awaiting_structures and int(counts.total) >= BattleModel.STRUCTURE_LIMIT else Color("#a7afc0")
+		if main.structure_count_label.get_theme_color("font_color") != structure_tone: main.structure_count_label.add_theme_color_override("font_color", structure_tone)
+		if is_instance_valid(main.stats_overlay):
+			var panel = main.stats_overlay.get_node_or_null("BattleStructurePanel")
+			if panel != null:
+				var values: Array = main.current_snapshot.get("structures", [])
+				var side_counts: Array = [counts if main.own_side == 0 else BattleModel.structure_counts(values, 0), counts if main.own_side == 1 else BattleModel.structure_counts(values, 1)]
+				panel.refresh(values, side_counts, float(main.current_snapshot.get("elapsed", 0.0)), awaiting_structures)
 	var clear_selection := false
 	for button in main.purchase_buttons:
 		if not is_instance_valid(button):

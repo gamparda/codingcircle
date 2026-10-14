@@ -399,6 +399,7 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and is_instance_valid(stats_overlay) and not is_instance_valid(local_pause_overlay) and not is_instance_valid(action_overlay) and not is_instance_valid(report_overlay):
 		var browser = stats_overlay.get_node_or_null("BattleStatsBrowser")
 		if browser == null: browser = stats_overlay.get_node_or_null("BattleArmyPanel")
+		if browser == null: browser = stats_overlay.get_node_or_null("BattleStructurePanel")
 		if browser != null and browser.handle_key(event):
 			get_viewport().set_input_as_handled()
 		# Unhandled keys go to the reference controls, never to battle hotkeys.
@@ -916,6 +917,12 @@ func _add_spawn_button(row: HBoxContainer, title: String, kind: String, color: C
 
 func _decorate_battle_card(button: Button) -> void:
 	BattleHud._decorate_battle_card(self, button)
+
+func _show_structure_panel() -> void:
+	BattleHud._show_structure_panel(self)
+
+func _show_army_panel(side: int) -> void:
+	BattleHud._show_army_panel(self, side)
 
 func _toggle_stats_panel() -> void:
 	if is_instance_valid(stats_overlay):
