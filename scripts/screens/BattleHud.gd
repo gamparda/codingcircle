@@ -95,7 +95,7 @@ static func _build_battle_screen(main) -> void:
 	structure_details.position = Vector2(1018, 520)
 	structure_details.size = Vector2(240, 58)
 	structure_details.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
-	structure_details.tooltip_text = "양쪽 구조물의 설치 수·종류별 한도·남은 체력·수명·만료 시각·발전기 수입을 비교합니다. 전장 구조물을 직접 클릭·터치하면 전투 중에도 개별 상태를 확인할 수 있습니다."
+	structure_details.tooltip_text = "양쪽 구조물의 설치 수·종류별 한도·남은 체력·수명·만료 시각·발전기 수입을 비교합니다. 전장 구조물을 직접 클릭·터치하면 전투 중에도 개별 상태를 확인할 수 있습니다. 겹친 곳을 다시 누르면 병력 아래 구조물도 차례로 선택하며, Tab·Shift+Tab으로 앞뒤 대상을 확인합니다."
 	UIKit.style_button(structure_details, UIKit.TEAL)
 	structure_details.pressed.connect(main._show_structure_panel)
 	main.root_background.add_child(structure_details)
@@ -769,7 +769,7 @@ static func _refresh_unit_population(main, counts: Dictionary) -> void:
 		text += " ▸"
 		var details = label.get_meta("details_button", null)
 		if is_instance_valid(details):
-			var details_hint := tooltip + "\n누르면 양쪽 병력의 종류별 생존 수와 생산 한도를 확인합니다. 전장 병력을 직접 클릭·터치하면 현재 체력·분노·저주·공속 지원을 확인할 수 있습니다."
+			var details_hint := tooltip + "\n누르면 양쪽 병력의 종류별 생존 수와 생산 한도를 확인합니다. 전장 병력을 직접 클릭·터치하면 현재 체력·분노·저주·공속 지원을 확인할 수 있습니다. 겹친 곳을 다시 누르면 차례로 선택하며, Tab·Shift+Tab으로 앞뒤 대상을 확인합니다."
 			if details.tooltip_text != details_hint: details.tooltip_text = details_hint
 		if label.text != text: label.text = text
 		if label.tooltip_text != tooltip: label.tooltip_text = tooltip

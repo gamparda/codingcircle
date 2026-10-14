@@ -16,6 +16,8 @@ var mouse_down := false
 var start_position := Vector2.ZERO
 var pressed_id := -1
 var pressed_collection := "structures"
+var pressed_targets: Array = []
+var cycle_targets: Array = []
 var canceled := false
 var spectator := false
 var suppress_emulated_mouse := false
@@ -23,6 +25,8 @@ var suppress_emulated_mouse := false
 func cancel(view) -> void:
 	selected_id = -1
 	selected_collection = "structures"
+	cycle_targets.clear()
+	pressed_targets.clear()
 	canceled = true
 	view.queue_redraw()
 
@@ -49,6 +53,8 @@ func sync(main) -> void:
 		if selected_id >= 0 or not canceled: cancel(view)
 	elif selected_id >= 0 and selected(view).is_empty():
 		cancel(view)
+	elif selected_id >= 0 and cycle_targets.size() > 1:
+		prune_cycle_targets(view)
 
 func selected(view) -> Dictionary:
 	return entity(view, selected_collection, selected_id)
@@ -81,6 +87,80 @@ func structure_at(view, position: Vector2) -> Dictionary:
 			best = structure
 	return best
 
+func targets_at(view, position: Vector2) -> Array:
+	var targets: Array = []
+	# The first tap retains foreground/nearest priority. Subsequent taps can
+	# reach every overlapping unit, including structures hidden underneath.
+	for unit in UnitInspection.units_at(view, position):
+		targets.append({"collection": "units", "id": int(unit.id)})
+	var structures: Array = []
+	var order := 0
+	for structure in view.snapshot.get("structures", []):
+		order += 1
+		if float(structure.get("hp", 0.0)) <= 0.0 or not NAMES.has(String(structure.get("kind", ""))): continue
+		var rect := body_rect(view, structure)
+		if rect.has_point(position):
+			structures.append({"id": int(structure.id), "distance": position.distance_squared_to(rect.get_center()), "order": order})
+	structures.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if float(a.distance) != float(b.distance): return float(a.distance) < float(b.distance)
+		return int(a.order) < int(b.order)
+	)
+	for structure in structures:
+		targets.append({"collection": "structures", "id": int(structure.id)})
+	return targets
+
+func target_index(targets: Array, collection: String, id: int) -> int:
+	for index in targets.size():
+		var target: Dictionary = targets[index]
+		if String(target.collection) == collection and int(target.id) == id: return index
+	return -1
+
+func ordered_targets(view, position: Vector2) -> Array:
+	var hits := targets_at(view, position)
+	if target_index(hits, selected_collection, selected_id) < 0: return hits
+	# Preserve the order of surviving candidates even when interpolation,
+	# marching or a new snapshot changes which one is nearest to the pointer.
+	var pending := {"units": {}, "structures": {}}
+	for hit in hits:
+		pending[String(hit.collection)][int(hit.id)] = hit
+	var ordered: Array = []
+	for previous in cycle_targets:
+		var collection := String(previous.collection)
+		var id := int(previous.id)
+		if pending[collection].has(id):
+			ordered.append(pending[collection][id])
+			pending[collection].erase(id)
+	for hit in hits:
+		if pending[String(hit.collection)].has(int(hit.id)): ordered.append(hit)
+	return ordered
+
+func prune_cycle_targets(view) -> void:
+	# Linear lookup avoids a snapshot scan per candidate in a crowded army.
+	# Keep the original tap group for keyboard browsing as the army moves.
+	var live := {"units": {}, "structures": {}}
+	for collection in live:
+		for item in view.snapshot.get(collection, []):
+			if float(item.get("hp", 0.0)) > 0.0:
+				live[collection][int(item.get("id", -1))] = true
+	var remaining: Array = []
+	for target in cycle_targets:
+		if live[String(target.collection)].has(int(target.id)): remaining.append(target)
+	cycle_targets = remaining
+
+func cycle_selection(view, direction: int) -> void:
+	prune_cycle_targets(view)
+	var index := target_index(cycle_targets, selected_collection, selected_id)
+	if index < 0 or cycle_targets.size() < 2: return
+	var target: Dictionary = cycle_targets[posmod(index + direction, cycle_targets.size())]
+	selected_collection = String(target.collection)
+	selected_id = int(target.id)
+	view.queue_redraw()
+
+func navigation_hint() -> String:
+	var index := target_index(cycle_targets, selected_collection, selected_id)
+	if index < 0 or cycle_targets.size() < 2: return ""
+	return "겹침 %d/%d · 재선택/Tab: 다음" % [index + 1, cycle_targets.size()]
+
 func target_at(view, position: Vector2) -> Dictionary:
 	# Units are drawn above structures. Resolve the visible foreground first;
 	# separate collections also prevent colliding unit/structure IDs.
@@ -99,11 +179,16 @@ func begin_gui_input(view, event: InputEvent) -> bool:
 		position = event.position
 	else:
 		return false
-	var target := target_at(view, position)
+	var candidates := ordered_targets(view, position)
+	var target := {"collection": "structures", "id": -1}
+	if not candidates.is_empty():
+		var index := target_index(candidates, selected_collection, selected_id)
+		target = candidates[(index + 1) % candidates.size()] if index >= 0 and candidates.size() > 1 else candidates[0]
 	if int(target.id) < 0 and selected_id < 0: return false
 	start_position = position
 	pressed_id = int(target.id)
 	pressed_collection = String(target.collection)
+	pressed_targets = candidates
 	canceled = false
 	if event is InputEventScreenTouch:
 		touch_index = event.index
@@ -127,15 +212,22 @@ func _release(view, position: Vector2, interrupted: bool) -> void:
 			# closer. Never switch the target merely because the army is moving.
 			matches = not unit.is_empty() and UnitInspection.hit_rect(view, unit).has_point(position)
 		else:
-			matches = int(structure_at(view, position).get("id", -1)) == pressed_id
+			var structure := entity(view, pressed_collection, pressed_id)
+			matches = not structure.is_empty() and body_rect(view, structure).has_point(position)
 		if matches:
 			var toggle_off := pressed_id == selected_id and pressed_collection == selected_collection
-			selected_id = -1 if toggle_off else pressed_id
-			selected_collection = pressed_collection
-			view.queue_redraw()
+			if toggle_off or pressed_id < 0:
+				cancel(view)
+			else:
+				selected_id = pressed_id
+				selected_collection = pressed_collection
+				cycle_targets = pressed_targets
+				prune_cycle_targets(view)
+				view.queue_redraw()
 	touch_index = -1
 	mouse_down = false
 	pressed_id = -1
+	pressed_targets = []
 
 func handle_input(main, event: InputEvent) -> bool:
 	sync(main)
@@ -149,6 +241,12 @@ func handle_input(main, event: InputEvent) -> bool:
 		if not event.pressed: suppress_emulated_mouse = false
 		return true
 	if event is InputEventKey:
+		if enabled and selected_id >= 0 and cycle_targets.size() > 1 and event.keycode == KEY_TAB and not event.ctrl_pressed and not event.alt_pressed and not event.meta_pressed:
+			if event.pressed:
+				canceled = true
+				main.unit_purchase_hold.cancel()
+				if not event.echo: cycle_selection(view, -1 if event.shift_pressed else 1)
+			return true
 		if enabled and selected_id >= 0 and event.pressed and event.keycode == KEY_ESCAPE:
 			cancel(view)
 			main.unit_purchase_hold.cancel()
@@ -178,7 +276,7 @@ func draw(view) -> void:
 	var item := selected(view)
 	if item.is_empty(): return
 	if selected_collection == "units":
-		UnitInspection.draw(view, item, spectator)
+		UnitInspection.draw(view, item, spectator, navigation_hint())
 		return
 	var structure := item
 	var kind := String(structure.kind)
@@ -193,7 +291,8 @@ func draw(view) -> void:
 	view.draw_rect(body, view.GOLD, false, 2.0)
 	var width := minf(340.0, maxf(1.0, view.size.x - 24.0))
 	var left := clampf(body.get_center().x - width * 0.5, 12.0, maxf(12.0, view.size.x - width - 12.0))
-	var card := Rect2(left, 28.0, width, 142.0)
+	var hint := navigation_hint()
+	var card := Rect2(left, 28.0, width, 142.0 if hint.is_empty() else 164.0)
 	view.draw_line(Vector2(card.get_center().x, card.end.y), Vector2(body.get_center().x, body.position.y), Color(team.r, team.g, team.b, 0.65), 1.5)
 	view.draw_rect(card, Color(0.02, 0.03, 0.06, 0.96))
 	view.draw_rect(card, team, false, 2.0)
@@ -216,4 +315,8 @@ func draw(view) -> void:
 	elif kind == "generator":
 		detail = "추가 수입 +%.1f/전투 초 · 수명 제한 없음" % float(stats.income)
 	view.draw_string(FONT, Vector2(left + 12.0, 120.0), detail, HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 14, detail_tone)
-	view.draw_string(FONT, Vector2(left + 12.0, 152.0), "같은 구조물 · 빈 전장 · Esc로 닫기", HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 12, Color("#8995ad"))
+	if hint.is_empty():
+		view.draw_string(FONT, Vector2(left + 12.0, 152.0), "같은 구조물 · 빈 전장 · Esc로 닫기", HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 12, Color("#8995ad"))
+	else:
+		view.draw_string(FONT, Vector2(left + 12.0, 148.0), hint, HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 12, view.GOLD)
+		view.draw_string(FONT, Vector2(left + 12.0, 176.0), "Shift+Tab: 이전 · 빈 전장/Esc: 닫기", HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 12, Color("#8995ad"))

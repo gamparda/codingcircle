@@ -12,19 +12,28 @@ static func hit_rect(view, unit: Dictionary) -> Rect2:
 	# Include the staggered health bars as well as the sprite body.
 	return body_rect(view, unit).grow_individual(0.0, 32.0, 0.0, 0.0)
 
-static func unit_at(view, position: Vector2) -> Dictionary:
-	var best: Dictionary = {}
-	var best_distance := INF
+static func units_at(view, position: Vector2) -> Array:
+	var hits: Array = []
+	var order := 0
 	for unit in view.snapshot.get("units", []):
+		order += 1
 		if float(unit.get("hp", 0.0)) <= 0.0 or not BattleModel.UNIT_NAMES.has(String(unit.get("kind", ""))): continue
 		var rect := body_rect(view, unit)
 		if not hit_rect(view, unit).has_point(position): continue
 		var distance := position.distance_squared_to(rect.get_center())
 		# Equal-distance units are drawn in snapshot order; prefer the top one.
-		if distance <= best_distance:
-			best_distance = distance
-			best = unit
-	return best
+		hits.append({"unit": unit, "distance": distance, "order": order})
+	hits.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if float(a.distance) != float(b.distance): return float(a.distance) < float(b.distance)
+		return int(a.order) > int(b.order)
+	)
+	var result: Array = []
+	for hit in hits: result.append(hit.unit)
+	return result
+
+static func unit_at(view, position: Vector2) -> Dictionary:
+	var units := units_at(view, position)
+	return {} if units.is_empty() else units[0]
 
 static func curse_remaining(view, unit: Dictionary) -> float:
 	var remaining := 0.0
@@ -35,7 +44,7 @@ static func curse_remaining(view, unit: Dictionary) -> float:
 		remaining = maxf(remaining, float(curse.get("expires_at", elapsed)) - elapsed)
 	return remaining
 
-static func draw(view, unit: Dictionary, spectator: bool) -> void:
+static func draw(view, unit: Dictionary, spectator: bool, navigation_hint: String = "") -> void:
 	var body := body_rect(view, unit)
 	var side := int(unit.side)
 	var kind := String(unit.kind)
@@ -48,7 +57,7 @@ static func draw(view, unit: Dictionary, spectator: bool) -> void:
 	view.draw_circle(Vector2(body.get_center().x, body.end.y + 3.0), 4.0, view.GOLD)
 	var width := minf(380.0, maxf(1.0, view.size.x - 24.0))
 	var left := clampf(body.get_center().x - width * 0.5, 12.0, maxf(12.0, view.size.x - width - 12.0))
-	var card := Rect2(left, 28.0, width, 224.0)
+	var card := Rect2(left, 28.0, width, 224.0 if navigation_hint.is_empty() else 244.0)
 	view.draw_line(Vector2(card.get_center().x, card.end.y), Vector2(body.get_center().x, body.position.y), Color(team.r, team.g, team.b, 0.65), 1.5)
 	view.draw_rect(card, Color(0.02, 0.03, 0.06, 0.96))
 	view.draw_rect(card, team, false, 2.0)
@@ -84,7 +93,11 @@ static func draw(view, unit: Dictionary, spectator: bool) -> void:
 		ability = "저주는 장판을 벗어나면 해제됩니다"
 	_line(view, left, width, 192.0, ability, 14, ability_tone)
 	_line(view, left, width, 212.0, "마지막 전투 상태 기준 · 전투는 계속 진행", 12, Color("#8995ad"))
-	_line(view, left, width, 238.0, "같은 병력 · 빈 전장 · Esc로 닫기", 12, Color("#8995ad"))
+	if navigation_hint.is_empty():
+		_line(view, left, width, 238.0, "같은 병력 · 빈 전장 · Esc로 닫기", 12, Color("#8995ad"))
+	else:
+		_line(view, left, width, 238.0, navigation_hint, 12, view.GOLD)
+		_line(view, left, width, 258.0, "Shift+Tab: 이전 · 빈 전장/Esc: 닫기", 12, Color("#8995ad"))
 
 static func _line(view, left: float, width: float, y: float, text: String, font_size: int, tone: Color) -> void:
 	view.draw_string(FONT, Vector2(left + 12.0, y), text, HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, font_size, tone)
