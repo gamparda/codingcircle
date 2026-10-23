@@ -34,6 +34,17 @@ func _battle(units: Array, stage: int, mode: String, seconds_cap: int, winner_hi
 func _init() -> void:
 	call_deferred("run")
 
+func _wait_for_analysis_button(main) -> Button:
+	var deadline := Time.get_ticks_msec() + 10000
+	while Time.get_ticks_msec() < deadline:
+		var button := main.root_background.find_child("DeckAnalysisButton", true, false) as Button
+		if button != null and not button.disabled:
+			return button
+		await process_frame
+	check(false, "replay shelf did not finish loading within ten seconds")
+	quit(1)
+	return null
+
 func run() -> void:
 	# Summary line wording for each story.
 	var line := ReplayAnalysis.summary_line
@@ -81,6 +92,10 @@ func run() -> void:
 	var online := _battle(tank_deck, 1, "campaign", 30, 1)
 	online.meta.mode = "quick" # online replays do not say which side is "me", so they are ignored
 	BattleReplay.save(online, "d")
+	# Force several asynchronous read batches even on a fast machine. These online
+	# fixtures do not affect the two locally played decks checked below.
+	for index in 12:
+		BattleReplay.save(online, "async-%d" % index)
 	var rows := DeckAnalysis.collect(BattleReplay.list_saved())
 	check(rows.size() == 2, "two decks played locally (online replays ignored): %d" % rows.size())
 	if rows.size() == 2:
@@ -98,22 +113,32 @@ func run() -> void:
 	var main = load("res://scenes/Main.tscn").instantiate()
 	bootstrap.add_child(main)
 	main.updater.enabled = false
+	main.link_enabled = false
 	await process_frame
 	main._build_replay_list()
+	var analysis_button: Button = await _wait_for_analysis_button(main)
+	if analysis_button == null: return
+	analysis_button.pressed.emit()
 	await process_frame
-	main.find_child("DeckAnalysisButton", true, false).pressed.emit()
-	await process_frame
-	check(main.find_child("DeckAnalysisRows", true, false).get_child_count() == 2, "dialog lists both decks")
-	check(main.find_child("DeckAnalysisHeadline", true, false).text.contains("판"), "rows describe the record")
-	main.find_child("CloseDeckAnalysis", true, false).pressed.emit()
+	var analysis_rows: Node = main.find_child("DeckAnalysisRows", true, false)
+	var headline := main.find_child("DeckAnalysisHeadline", true, false) as Label
+	check(analysis_rows != null and analysis_rows.get_child_count() == 2, "dialog lists both decks")
+	check(headline != null and headline.text.contains("판"), "rows describe the record")
+	var close_button := main.find_child("CloseDeckAnalysis", true, false) as Button
+	check(close_button != null, "analysis dialog has a close action")
+	if close_button == null:
+		quit(1)
+		return
+	close_button.pressed.emit()
 	await process_frame
 	check(main.find_child("DeckAnalysisRows", true, false) == null, "dialog closes")
 	for path in BattleReplay.list_saved():
 		DirAccess.remove_absolute(path)
 	DirAccess.remove_absolute("user://deck_analysis_test")
 	main._build_replay_list()
-	await process_frame
-	main.find_child("DeckAnalysisButton", true, false).pressed.emit()
+	analysis_button = await _wait_for_analysis_button(main)
+	if analysis_button == null: return
+	analysis_button.pressed.emit()
 	await process_frame
 	check(main.find_child("NoDeckAnalysis", true, false) != null, "empty history explains itself")
 	print("deck_analysis_test failures=%d" % failures)
