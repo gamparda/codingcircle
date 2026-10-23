@@ -9,6 +9,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class ReleasePolicyTest(unittest.TestCase):
+    def test_pull_requests_run_full_checks_without_publishing(self):
+        workflow = (ROOT / ".github" / "workflows" / "build-and-deploy.yml").read_text(encoding="utf-8")
+        self.assertIn("  pull_request:", workflow.split("permissions:", 1)[0])
+        for job in ("build", "deploy"):
+            body = workflow.split(f"\n  {job}:\n", 1)[1]
+            self.assertTrue(body.lstrip().startswith("if: github.event_name != 'pull_request'"), job)
+
     def test_release_json_is_the_single_version_source(self):
         release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
         for key in ("content_version", "windows_version", "android_binary_version"):

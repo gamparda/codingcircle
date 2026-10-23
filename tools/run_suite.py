@@ -56,8 +56,15 @@ def run_one(godot: str, test: str, timeout: int) -> tuple:
         proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
                               env={**os.environ, "PYTHONUTF8": "1"}, timeout=timeout)
         return proc.returncode, (proc.stdout + proc.stderr), time.time() - started
-    except subprocess.TimeoutExpired:
-        return 124, "timed out", time.time() - started
+    except subprocess.TimeoutExpired as error:
+        # Godot script errors can leave SceneTree running. Keep their diagnostics
+        # instead of reducing the failure to an unexplained 180-second timeout.
+        chunks = []
+        for output in (error.stdout, error.stderr):
+            if output:
+                chunks.append(output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output)
+        chunks.append(f"timed out after {timeout}s")
+        return 124, "\n".join(chunks), time.time() - started
 
 
 def main(argv: list) -> int:

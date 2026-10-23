@@ -83,6 +83,7 @@
     "tests/docs_policy_test.py"
   ],
   "release": [
+    "tests/suite_runner_test.py",
     "tests/release_version_policy_test.py",
     "tests/localization_catalog_test.py",
     "tests/suites_cover_all_tests_test.py"

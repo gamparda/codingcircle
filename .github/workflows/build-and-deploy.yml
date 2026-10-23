@@ -3,6 +3,7 @@ name: Build and deploy mandatory update
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -11,8 +12,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: github-pages-update
-  cancel-in-progress: false
+  group: github-pages-update-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GODOT_VERSION: 4.7.2
@@ -22,6 +23,8 @@ jobs:
   tests:
     name: tests (${{ matrix.suite }})
     runs-on: windows-latest
+    permissions:
+      contents: read
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -49,6 +52,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "${{ matrix.suite }} suite failed" }
 
   build:
+    if: github.event_name != 'pull_request'
     needs: [tests, multiplayer-preview]
     runs-on: windows-latest
     steps:
@@ -239,6 +243,7 @@ jobs:
           path: site
 
   deploy:
+    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -251,6 +256,8 @@ jobs:
 
   multiplayer-preview:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
