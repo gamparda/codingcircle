@@ -255,18 +255,25 @@ jobs:
         uses: actions/deploy-pages@v4
 
   multiplayer-preview:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
+      - name: Prepare preview renderer
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # Refresh Ubuntu packages without waiting on unrelated third-party repositories.
+          apt_options=(-o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=-)
+          sudo timeout 90s apt-get "${apt_options[@]}" update
+          sudo timeout 75s apt-get "${apt_options[@]}" install -y xvfb libgl1-mesa-dri fonts-noto-cjk
       - name: Render actual multiplayer scenes
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb libgl1-mesa-dri fonts-noto-cjk
           curl -fL --retry 2 -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
           unzip -q godot.zip -d .ci
           GODOT="$PWD/.ci/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
