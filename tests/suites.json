@@ -73,6 +73,7 @@
   ],
   "security": [
     "tests/security_windows_updater.gd",
+    "tests/security_windows_download_test.py",
     "tests/security_linux_updater_test.py",
     "tests/security_windows_batch_test.py",
     "tests/managed_agent_package_test.py"

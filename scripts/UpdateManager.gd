@@ -13,6 +13,8 @@ const BUILD_INFO_PATH := "res://build_info.json"
 const DEFAULT_UPDATE_URL := "https://gamparda.github.io/codingcircle/update.json"
 const OFFICIAL_DOWNLOAD_PREFIX := "https://gamparda.github.io/codingcircle/"
 const CHECK_INTERVAL := 60.0
+const MANIFEST_TIMEOUT_SECONDS := 25.0
+const INSTALLER_TIMEOUT_SECONDS := 600.0
 const RESTART_GUARD_PATH := "user://content/restart_attempt.json"
 const RESTART_GUARD_SECONDS := 600.0 # one restart per published build per ten minutes: a failing download never loops
 
@@ -41,7 +43,8 @@ func _ready() -> void:
 		if arg.begins_with("--update-url="):
 			update_url = arg.trim_prefix("--update-url=")
 	http = HTTPRequest.new()
-	http.timeout = 25.0
+	http.use_threads = true
+	http.timeout = MANIFEST_TIMEOUT_SECONDS
 	http.max_redirects = 0
 	http.request_completed.connect(_on_request_completed)
 	add_child(http)
@@ -83,6 +86,7 @@ func check_for_update(force: bool = false) -> void:
 	state = "checking"
 	countdown = CHECK_INTERVAL
 	http.download_file = ""
+	http.timeout = MANIFEST_TIMEOUT_SECONDS
 	var error := http.request(update_url, ["Cache-Control: no-cache"])
 	if error != OK:
 		state = "idle"
@@ -183,6 +187,7 @@ func _begin_download() -> void:
 	DirAccess.make_dir_recursive_absolute(update_dir)
 	installer_path = update_dir.path_join(random_update_basename("exe"))
 	http.download_file = installer_path
+	http.timeout = INSTALLER_TIMEOUT_SECONDS
 	state = "downloading"
 	var error := http.request(String(manifest.installer_url), ["Cache-Control: no-cache"])
 	if error != OK:
@@ -190,6 +195,7 @@ func _begin_download() -> void:
 
 func _handle_installer_response(result: int, response_code: int) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200 or not FileAccess.file_exists(installer_path):
+		push_warning("Windows installer download failed: result=%d, HTTP=%d" % [result, response_code])
 		_fail_update(Localization.text("업데이트 설치 파일 다운로드에 실패했습니다."))
 		return
 	update_status.emit(Localization.text("다운로드 파일 무결성 확인 중..."), 1.0)
