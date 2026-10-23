@@ -81,7 +81,7 @@ class ManagedAgentPackageTests(unittest.TestCase):
                 result = subprocess.run(
                     [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                      "-File", str(ROOT / "installer" / "managed_agent_stop.ps1"),
-                     "-InstallDirectory", str(root / "managed")],
+                     "-InstallDirectory", str(root / "managed"), "-Verbose"],
                     capture_output=True, timeout=20,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))

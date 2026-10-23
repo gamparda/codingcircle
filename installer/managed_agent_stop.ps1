@@ -1,13 +1,37 @@
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$InstallDirectory
 )
 
 $ErrorActionPreference = 'Stop'
-$AgentDirectory = [IO.Path]::GetFullPath($InstallDirectory)
-if (Test-Path -LiteralPath $AgentDirectory -PathType Container) {
-    $AgentDirectory = (Get-Item -LiteralPath $AgentDirectory -Force).FullName
+if (-not ('PCRemoteAgent.NativePath' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System.Runtime.InteropServices;
+using System.Text;
+namespace PCRemoteAgent {
+    public static class NativePath {
+        [DllImport("kernel32.dll", EntryPoint = "GetLongPathNameW", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+        public static extern uint GetLongPathName(string path, StringBuilder result, uint length);
+    }
 }
+'@
+}
+
+function Get-LongAgentPath([string]$Path) {
+    $FullPath = [IO.Path]::GetFullPath($Path)
+    if (-not (Test-Path -LiteralPath $FullPath)) { return $FullPath }
+    $Buffer = New-Object Text.StringBuilder 32768
+    $Length = [PCRemoteAgent.NativePath]::GetLongPathName($FullPath, $Buffer, $Buffer.Capacity)
+    if ($Length -eq 0) { throw (New-Object ComponentModel.Win32Exception ([Runtime.InteropServices.Marshal]::GetLastWin32Error())) }
+    if ($Length -ge $Buffer.Capacity) { throw 'Agent path is too long.' }
+    return $Buffer.ToString()
+}
+
+# Hosted Windows runners use TEMP under C:\Users\RUNNER~1, while process image
+# APIs return C:\Users\runneradmin. Normalize DOS aliases explicitly on both sides.
+$AgentDirectory = Get-LongAgentPath $InstallDirectory
+Write-Verbose "Agent install directory: $AgentDirectory"
 $AgentExecutables = @(
     (Join-Path $AgentDirectory 'PCRemoteAgent.exe'),
     (Join-Path $AgentDirectory 'ChzzkAutoWatch.exe')
@@ -18,6 +42,10 @@ function Get-InstalledAgentProcesses {
     # ExecutablePath on service-hosted runners, even for processes owned by this user.
     foreach ($Candidate in @(Get-Process -Name PCRemoteAgent, ChzzkAutoWatch -ErrorAction SilentlyContinue)) {
         try { $CandidatePath = $Candidate.Path } catch { continue }
+        Write-Verbose "Inspecting process $($Candidate.Id): $CandidatePath"
+        if ($CandidatePath) {
+            try { $CandidatePath = Get-LongAgentPath $CandidatePath } catch { continue }
+        }
         if (-not $CandidatePath -or $AgentExecutables -notcontains $CandidatePath) { continue }
         $Metadata = Get-CimInstance Win32_Process -Filter "ProcessId=$($Candidate.Id)"
         [pscustomobject]@{ Process = $Candidate; ProcessId = $Candidate.Id; CommandLine = $Metadata.CommandLine }
