@@ -1,0 +1,6 @@
+{
+  "server_url": "https://pc-api.ruellyya.kr",
+  "remote_access": true,
+  "tray_icon": true,
+  "direct_lan": false
+}

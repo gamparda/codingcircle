@@ -74,7 +74,8 @@
   "security": [
     "tests/security_windows_updater.gd",
     "tests/security_linux_updater_test.py",
-    "tests/security_windows_batch_test.py"
+    "tests/security_windows_batch_test.py",
+    "tests/managed_agent_package_test.py"
   ],
   "balance": [
     "tests/balance_bot_test.gd",
