@@ -73,18 +73,22 @@ class ManagedAgentPackageTests(unittest.TestCase):
                     executable = destination / "PCRemoteAgent.exe"
                     shutil.copyfile(pathlib.Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe", executable)
                     processes.append(subprocess.Popen(
-                        [str(executable), "/d", "/q", "/k"], stdin=subprocess.PIPE,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        [str(executable), "/d", "/q", "/k", "echo agent-ready"], stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                         creationflags=subprocess.CREATE_NO_WINDOW,
                     ))
+                    self.assertEqual(processes[-1].stdout.readline().strip(), b"agent-ready")
                 result = subprocess.run(
                     [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                      "-File", str(ROOT / "installer" / "managed_agent_stop.ps1"),
-                     "-InstallDirectory", str(root / "managed")],
+                     "-InstallDirectory", str(root / "managed"), "-Verbose"],
                     capture_output=True, timeout=20,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
-                self.assertIsNotNone(processes[0].poll(), "the target agent was left running")
+                try:
+                    processes[0].wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.fail("the target agent was left running: " + (result.stdout + result.stderr).decode(errors="replace"))
                 self.assertIsNone(processes[1].poll(), "an unrelated agent was terminated")
             finally:
                 for process in processes:
@@ -93,6 +97,39 @@ class ManagedAgentPackageTests(unittest.TestCase):
                     process.wait(timeout=10)
                     if process.stdin:
                         process.stdin.close()
+                    if process.stdout:
+                        process.stdout.close()
+
+    @unittest.skipUnless(os.name == "nt" and POWERSHELL, "Windows PowerShell required")
+    def test_stop_does_not_require_wmi_image_paths(self):
+        with tempfile.TemporaryDirectory(prefix="agent wmi ") as directory:
+            executable = pathlib.Path(directory) / "PCRemoteAgent.exe"
+            shutil.copyfile(pathlib.Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe", executable)
+            process = subprocess.Popen(
+                [str(executable), "/d", "/q", "/k", "echo agent-ready"], stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            try:
+                self.assertEqual(process.stdout.readline().strip(), b"agent-ready")
+                wrapper = pathlib.Path(directory) / "without-wmi-path.ps1"
+                wrapper.write_text(
+                    "param([string]$StopScript, [string]$Target)\n"
+                    "function Get-CimInstance { [pscustomobject]@{ ExecutablePath = $null; CommandLine = '' } }\n"
+                    "& $StopScript -InstallDirectory $Target\n", encoding="utf-8",
+                )
+                result = subprocess.run(
+                    [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(wrapper),
+                     "-StopScript", str(ROOT / "installer" / "managed_agent_stop.ps1"), "-Target", directory],
+                    capture_output=True, timeout=20,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+                process.wait(timeout=5)
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                process.wait(timeout=10)
+                process.stdin.close()
+                process.stdout.close()
 
 
 if __name__ == "__main__":

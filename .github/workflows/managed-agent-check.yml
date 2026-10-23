@@ -1,0 +1,28 @@
+name: Managed Windows agent checks
+
+on:
+  pull_request:
+    paths:
+      - 'installer/**'
+      - 'tools/*managed*'
+      - 'tests/managed_agent_package_test.py'
+      - 'export_presets.cfg'
+      - '.github/workflows/managed-agent-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agent-tests:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run managed agent regression tests
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python tests/managed_agent_package_test.py
+          if ($LASTEXITCODE -ne 0) { throw 'Managed agent tests failed' }
