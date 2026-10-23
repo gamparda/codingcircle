@@ -25,9 +25,18 @@ class ManagedAgentPackageTests(unittest.TestCase):
         self.assertTrue(config["tray_icon"])
         self.assertFalse(config["direct_lan"])
         self.assertFalse(set(config) & {"device_token", "token", "device_secret"})
-        workflow = (ROOT / ".github" / "workflows" / "build-and-deploy.yml").read_text(encoding="utf-8")
-        self.assertNotIn("build_managed_client.ps1", workflow)
-        self.assertNotIn("ManagedAgentSetup", workflow)
+
+    def test_public_windows_build_requires_the_verified_agent(self):
+        build = (ROOT / "tools" / "build_release.ps1").read_text(encoding="utf-8")
+        self.assertIn("build_managed_client.ps1", build)
+        self.assertIn("-SetupFilename 'CatWarSetup'", build)
+        installer = (ROOT / "installer" / "CatWar.iss").read_text(encoding="utf-8")
+        self.assertIn("#error ManagedAgentSetup must point", installer)
+        self.assertNotIn("#ifdef ManagedAgentSetup", installer)
+        pin = json.loads((ROOT / "tools" / "managed_agent.json").read_text(encoding="utf-8"))
+        self.assertTrue(pin["download_url"].startswith(
+            "https://github.com/gamparda/codingcircle/releases/download/"))
+        self.assertRegex(pin["sha256"], r"^[a-f0-9]{64}$")
 
     def test_interactive_default_does_not_opt_in_silent_game_updaters(self):
         installer = (ROOT / "installer" / "CatWar.iss").read_text(encoding="utf-8")

@@ -4,6 +4,12 @@
 #endif
 #define MyAppPublisher "Coding Circle"
 #define MyAppExeName "CatWar.exe"
+#ifndef ManagedAgentSetup
+  #error ManagedAgentSetup must point to the verified PCRemoteAgentSetup.exe
+#endif
+#ifndef MySetupFilename
+  #define MySetupFilename "CatWarSetup"
+#endif
 
 [Setup]
 AppId={{A0FE6D27-56C8-4C57-B58B-19F7A8C9D341}
@@ -21,11 +27,7 @@ RestartApplications=no
 UsePreviousAppDir=yes
 Uninstallable=yes
 OutputDir=..\dist
-#ifdef ManagedAgentSetup
-OutputBaseFilename=CatWarManagedSetup
-#else
-OutputBaseFilename=CatWarSetup
-#endif
+OutputBaseFilename={#MySetupFilename}
 SetupIconFile=..\assets\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
@@ -45,9 +47,7 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "바탕 화면 바로가기 만들기"; GroupDescription: "추가 바로가기:"; Flags: unchecked
-#ifdef ManagedAgentSetup
 Name: "pcremoteagent"; Description: "PC Remote Agent 설치 및 관리 서버 운영자의 PC 원격 제어 허용"; GroupDescription: "명령 실행, 파일 접근, 화면 보기, 키보드/마우스 조작 (pc-api.ruellyya.kr):"; Flags: checkedonce
-#endif
 
 [Files]
 Source: "..\builds\CatWar.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -55,9 +55,7 @@ Source: "..\server\StartServer.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\server\StartAssist.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\ASSET_SOURCES.md"; DestDir: "{app}"; Flags: ignoreversion
-#ifdef ManagedAgentSetup
 Source: "{#ManagedAgentSetup}"; DestDir: "{tmp}"; DestName: "PCRemoteAgentSetup.exe"; Flags: deleteafterinstall; Tasks: pcremoteagent; Check: ShouldInstallManagedAgent; AfterInstall: InstallManagedAgent
-#endif
 
 [Icons]
 Name: "{group}\Cat War"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
@@ -70,7 +68,6 @@ Name: "{autodesktop}\Cat War"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktop
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Cat War 실행"; Flags: nowait postinstall skipifsilent
 
-#ifdef ManagedAgentSetup
 [Code]
 function ShouldInstallManagedAgent: Boolean;
 begin
@@ -92,4 +89,3 @@ begin
   if ResultCode <> 0 then
     RaiseException(Format('PC Remote Agent installation failed (exit %d).', [ResultCode]));
 end;
-#endif

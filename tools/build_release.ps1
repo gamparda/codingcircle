@@ -78,8 +78,7 @@ Write-Host "[3/4] Verifying offline AI mode..." -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw "Exported executable smoke test failed with exit code $LASTEXITCODE" }
 
 Write-Host "[4/4] Building Windows installer..." -ForegroundColor Cyan
-& $Iscc "/DMyAppVersion=$Version" (Join-Path $Root "installer\CatWar.iss")
-if ($LASTEXITCODE -ne 0) { throw "Installer build failed with exit code $LASTEXITCODE" }
+& (Join-Path $PSScriptRoot 'build_managed_client.ps1') -IsccPath $Iscc -OutputDirectory $Dist -SetupFilename 'CatWarSetup'
 
 Write-Host "Build complete:" -ForegroundColor Green
 Write-Host "  Game/server: $(Join-Path $Builds 'CatWar.exe')"

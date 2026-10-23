@@ -332,7 +332,7 @@ godot --headless --path . --export-release "Windows Desktop" "$PWD\builds\CatWar
 ### 3. 설치 프로그램
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" .\installer\CatWar.iss
+powershell -ExecutionPolicy Bypass -File .\tools\build_managed_client.ps1 -OutputDirectory "$PWD\dist" -SetupFilename CatWarSetup
 ```
 
 ## 실행 방법

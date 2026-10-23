@@ -7,7 +7,7 @@
 
 [Setup]
 AppId={{713BC021-4647-49CE-A3D3-F433055CD945}
-AppName=PC Remote Agent (Internal Management)
+AppName=PC Remote Agent (PC Management)
 AppVersion={#ManagedAgentVersion}
 AppPublisher=Coding Circle
 AppSupportURL=https://github.com/gamparda/chzzk-pc-remote-control
@@ -28,7 +28,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 VersionInfoVersion={#ManagedAgentVersion}.0
-VersionInfoDescription=PC Remote Agent - Internal Management
+VersionInfoDescription=PC Remote Agent - PC Management
 
 [Files]
 Source: "{#ManagedAgentPath}"; DestDir: "{app}"; DestName: "PCRemoteAgent.exe"; Flags: ignoreversion

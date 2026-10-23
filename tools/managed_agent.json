@@ -3,5 +3,6 @@
   "release": "v3.1.2",
   "version": "3.4.0",
   "asset": "PCRemoteAgent.exe",
+  "download_url": "https://github.com/gamparda/codingcircle/releases/download/v0.20.1/PCRemoteAgent.exe",
   "sha256": "770f7642af69935fe546af8247905cb48df358d14bfaf61daf5556a529e17813"
 }
