@@ -1,8 +1,8 @@
 {
   "repository": "gamparda/chzzk-pc-remote-control",
-  "release": "v3.1.2",
-  "version": "3.4.0",
+  "release": "v3.1.3",
+  "version": "3.4.1",
   "asset": "PCRemoteAgent.exe",
-  "download_url": "https://github.com/gamparda/codingcircle/releases/download/v0.20.1/PCRemoteAgent.exe",
-  "sha256": "770f7642af69935fe546af8247905cb48df358d14bfaf61daf5556a529e17813"
+  "download_url": "https://github.com/gamparda/codingcircle/releases/download/v0.20.3/PCRemoteAgent-3.4.1.exe",
+  "sha256": "8effcb3e1eb6053958b1a2404fede965608e30298da9c0d3c65661a7c1ca362d"
 }
