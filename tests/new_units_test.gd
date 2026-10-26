@@ -47,9 +47,9 @@ func _initialize() -> void:
 	var target: Dictionary = rage.units.back()
 	target.x = 535.0; target.speed = 0.0; target.cooldown = 999.0
 	rage.tick(0.9)
-	check(target.hp == 400.0, "rage attack is not prematurely fired")
+	check(target.hp == float(BattleModel.UNIT_STATS.shield.hp), "rage attack is not prematurely fired")
 	rage.tick(0.04)
-	check(is_equal_approx(target.hp, 394.0), "actual rage attack lands six damage at the faster cadence")
+	check(is_equal_approx(target.hp, float(BattleModel.UNIT_STATS.shield.hp) - 6.0), "actual rage attack lands six damage at the faster cadence")
 	warrior.hp = 0.0
 	check(not BattleModel.is_enraged(warrior), "dead warrior has no rage state")
 	var growth := model()

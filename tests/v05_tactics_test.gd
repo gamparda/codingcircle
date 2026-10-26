@@ -74,17 +74,17 @@ func _initialize() -> void:
 	var saving := fixture(1,3)
 	saving.spawn_unit(1,"shield"); saving.spawn_unit(1,"warlock")
 	saving.spawn_cooldowns[1].clear()
-	saving.resources[1]=40.0
+	saving.resources[1]=float(BattleModel.UNIT_STATS.shield.cost)
 	var buyer := ServerAI.new(1,3)
 	buyer._try_spawn(saving)
-	check(saving.units.size()==2 and saving.resources[1]==40.0,"safe AI reserves its bank for preferred ranged damage instead of another cheap tank")
-	saving.resources[1]=50.0
+	check(saving.units.size()==2 and saving.resources[1]==float(BattleModel.UNIT_STATS.shield.cost),"safe AI reserves its bank for preferred ranged damage instead of another cheap tank")
+	saving.resources[1]=float(BattleModel.UNIT_STATS.archer.cost)
 	buyer._try_spawn(saving)
 	check(saving.units.size()==3 and saving.units.back().kind=="archer","AI buys its saved damage dealer as soon as it is affordable")
 	var emergency := fixture(1,3)
 	emergency.spawn_unit(1,"shield"); emergency.spawn_unit(1,"warlock")
 	emergency.spawn_cooldowns[1].clear()
-	emergency.resources[1]=45.0
+	emergency.resources[1]=float(BattleModel.UNIT_STATS.shield.cost)
 	enemy(emergency,1,BattleModel.FIELD_RIGHT-200.0)
 	buyer._try_spawn(emergency)
 	check(emergency.units.back().side==1 and emergency.units.back().kind=="shield" and emergency.resources[1]==0.0,"base danger overrides saving and purchases immediate defense")

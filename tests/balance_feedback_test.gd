@@ -15,7 +15,7 @@ func _init() -> void:
 func run() -> void:
 	check(is_equal_approx(BattleModel.FIELD_RIGHT - BattleModel.FIELD_LEFT, 1265.0), "battlefield travel length increases 15 percent")
 	check(BattleModel.UNIT_STATS.swordsman.range == 40.0, "swordsman fights behind the tank at range 40")
-	check(BattleModel.UNIT_STATS.shield.speed > BattleModel.UNIT_STATS.swordsman.speed and BattleModel.UNIT_STATS.shield.cost == 45.0, "tank arrives before swordsman at its calibrated cost")
+	check(BattleModel.UNIT_STATS.shield.speed > BattleModel.UNIT_STATS.swordsman.speed and BattleModel.UNIT_STATS.shield.cost == 50.0, "tank arrives before swordsman at its calibrated cost")
 	check(BattleModel.UNIT_STATS.shield.damage == 2.0, "tank base damage is nerfed to two")
 	check(BattleModel.RESOURCE_RATE == 8.0 and BattleModel.MAX_RESOURCE == 180.0, "base economy improves without campaign bonuses")
 	var swamp := BattleModel.new()
