@@ -73,6 +73,10 @@ func run() -> void:
 		check(viewer.player.ticks <= 361, "the playhead never runs past the end mark (%d)" % viewer.player.ticks)
 	check(wrapped, "playback wraps back to the start mark")
 	viewer.toggle_pause()
+	# Seeks are time-budgeted per frame; a slow runner may still be wrapping back.
+	for frame in 2000:
+		if not viewer.is_seeking(): break
+		viewer._process(0.0)
 	check(not viewer.toggle_loop() and not viewer.loop_enabled, "looping can be switched off")
 	check(viewer.graph.loop_start == 300 and viewer.graph.loop_end == 360 and not viewer.graph.loop_on, "the timeline shows the segment")
 
