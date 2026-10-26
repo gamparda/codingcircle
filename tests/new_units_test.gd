@@ -117,6 +117,20 @@ func _initialize() -> void:
 	summon.tick(5.0)
 	check(summon.units.size() == 3, "subsequent skeleton appears every five seconds")
 	check(is_equal_approx(summon.resources[1], BattleModel.RESOURCE_RATE * 5.0), "skeleton summon spends no extra resources")
+	var capped := model()
+	capped.spawn_unit(1, "necromancer")
+	capped.units[0].x = 1000.0; capped.units[0].speed = 0.0
+	for i in BattleModel.MAX_SKELETONS_PER_NECROMANCER + 2:
+		capped.tick(5.0)
+		for unit in capped.units: unit.speed = 0.0
+	check(capped.units.size() == 1 + BattleModel.MAX_SKELETONS_PER_NECROMANCER, "one necromancer keeps at most the skeleton cap alive")
+	check(is_equal_approx(capped.units[0].summon_remaining, BattleModel.SUMMON_INTERVAL), "a full necromancer still restarts its summon timer")
+	capped.units[1].hp = 0.0
+	capped.tick(0.01)
+	check(capped.units.size() == BattleModel.MAX_SKELETONS_PER_NECROMANCER, "a lost skeleton frees a slot without an instant replacement")
+	capped.tick(4.99)
+	for unit in capped.units: unit.speed = 0.0
+	check(capped.units.size() == 1 + BattleModel.MAX_SKELETONS_PER_NECROMANCER, "the freed slot refills on the next summon cycle")
 	necro.hp = 0.0
 	summon.tick(5.0)
 	check(summon.units.size() == 2 and summon.summon_timers.is_empty(), "dead necromancer stops summoning while existing skeletons remain")

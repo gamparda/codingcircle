@@ -30,6 +30,8 @@ const CURSE_RADIUS := 30.0
 const CURSE_DURATION := 5.0
 const CURSE_DAMAGE_SCALE := 0.70
 const SUMMON_INTERVAL := 5.0
+# Live skeletons one necromancer may keep; a full summoner skips that cycle.
+const MAX_SKELETONS_PER_NECROMANCER := 3
 const RAGE_HP_FRACTION := 0.5
 const RAGE_SPEED_MULTIPLIER := 1.5
 const MAX_ACTIVE_UNITS := 256
@@ -62,6 +64,7 @@ var structure_expirations: Dictionary = {}
 var campaign_levels: Array = [0, 0]
 var curses: Array = []
 var summon_timers: Dictionary = {}
+var summon_owners: Dictionary = {}
 var battle_report: Array = [Report.empty_side(),Report.empty_side()]
 
 ## What one cleared campaign stage adds (first clear only).
@@ -115,6 +118,7 @@ func reset() -> void:
 	structure_expirations.clear()
 	curses.clear()
 	summon_timers.clear()
+	summon_owners.clear()
 	battle_report = [Report.empty_side(),Report.empty_side()]
 
 static func _valid_deck(values: Array, allowed: Dictionary) -> bool:
@@ -184,7 +188,7 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 		output += "\n공격 대상에 반경 %d 장판 · 적 공격력 -%d%%\n%d초 유지 · 시전자당 1개 · 중첩 없음" % [int(CURSE_RADIUS), roundi((1.0 - CURSE_DAMAGE_SCALE) * 100.0), int(CURSE_DURATION)]
 	elif kind == "necromancer":
 		var skeleton: Dictionary = SUMMON_STATS.skeleton
-		output += "\n%d초마다 해골 소환 · 추가 자원 없음\n해골 체력 %d · 공격 %d · 사거리 %d" % [int(SUMMON_INTERVAL), int(float(skeleton.hp) * stat_scale), int(float(skeleton.damage) * stat_scale), int(skeleton.range)]
+		output += "\n%d초마다 해골 소환 · 최대 %d기 유지 · 추가 자원 없음\n해골 체력 %d · 공격 %d · 사거리 %d" % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER, int(float(skeleton.hp) * stat_scale), int(float(skeleton.damage) * stat_scale), int(skeleton.range)]
 	return output
 
 ## One-line role description shown on deck cards. Numbers come from the rule constants/data.
@@ -196,7 +200,7 @@ static func unit_role(kind: String) -> String:
 		"swordsman": return Localization.text("근접 공격")
 		"berserker": return Localization.text("체력 %d%% 이하: 광폭화") % roundi(RAGE_HP_FRACTION * 100.0)
 		"warlock": return Localization.text("공격력 -%d%% 장판") % roundi((1.0 - CURSE_DAMAGE_SCALE) * 100.0)
-		"necromancer": return Localization.text("%d초마다 해골 소환") % int(SUMMON_INTERVAL)
+		"necromancer": return Localization.text("%d초마다 해골 소환 · 최대 %d기") % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER]
 	return ""
 
 ## Short swamp description for battle cards, e.g. "80% 감속 · 5초".
@@ -315,6 +319,10 @@ func tick(delta: float) -> void:
 	var pending_moves: Array = []
 	_tick_turrets(delta, pending_attacks)
 	var pending_summons: Array = []
+	var live_skeletons := {}
+	for unit in units:
+		if unit.kind == "skeleton" and float(unit.hp) > 0.0 and summon_owners.has(unit.id):
+			live_skeletons[summon_owners[unit.id]] = int(live_skeletons.get(summon_owners[unit.id], 0)) + 1
 	for unit in units:
 		unit.cooldown = max(0.0, float(unit.cooldown) - delta * support_attack_speed(unit))
 		if unit.hp <= 0.0:
@@ -322,7 +330,8 @@ func tick(delta: float) -> void:
 		if unit.kind == "necromancer":
 			summon_timers[unit.id] = float(summon_timers.get(unit.id, SUMMON_INTERVAL)) - delta
 			if float(summon_timers[unit.id]) <= 0.000001:
-				pending_summons.append(unit)
+				if int(live_skeletons.get(unit.id, 0)) < MAX_SKELETONS_PER_NECROMANCER:
+					pending_summons.append(unit)
 				summon_timers[unit.id] = SUMMON_INTERVAL
 			unit["summon_remaining"] = maxf(0.0, float(summon_timers[unit.id]))
 		if unit.kind == "healer":
@@ -384,6 +393,7 @@ func tick(delta: float) -> void:
 		var damage_scale := float(owner.damage) / float(UNIT_STATS.necromancer.damage)
 		battle_report[int(owner.side)].units.necromancer.summoned += 1
 		_create_unit(int(owner.side), "skeleton", SUMMON_STATS.skeleton, hp_scale, damage_scale, float(owner.x) + (22.0 if int(owner.side) == 0 else -22.0))
+		summon_owners[units.back().id] = owner.id
 		combat_events.append({"type": "SUMMON", "source_id": owner.id, "unit_id": units.back().id, "x": units.back().x})
 	var live_ids := {}
 	for unit in units:
@@ -391,6 +401,9 @@ func tick(delta: float) -> void:
 	for id in summon_timers.keys():
 		if not live_ids.has(id):
 			summon_timers.erase(id)
+	for id in summon_owners.keys():
+		if not live_ids.has(id):
+			summon_owners.erase(id)
 	for id in structure_expirations.keys():
 		if not structures.any(func(structure): return structure.id == id):
 			structure_expirations.erase(id)
