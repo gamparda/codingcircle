@@ -258,19 +258,23 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-    timeout-minutes: 14
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - name: Prepare preview renderer
-        timeout-minutes: 7
+        timeout-minutes: 13
         shell: bash
         run: |
           set -euxo pipefail
           # Refresh Ubuntu packages without waiting on unrelated third-party repositories.
           apt_options=(-o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=-)
           sudo timeout 90s apt-get "${apt_options[@]}" update
-          # fonts-noto-cjk is ~60 MB; slow runner mirrors need more than a minute.
-          sudo timeout 300s apt-get "${apt_options[@]}" install -y xvfb libgl1-mesa-dri fonts-noto-cjk
+          # fonts-noto-cjk is ~60 MB. If the runner's Azure mirror stalls on it, retry from the main Ubuntu archive.
+          if ! sudo timeout 180s apt-get "${apt_options[@]}" install -y xvfb libgl1-mesa-dri fonts-noto-cjk; then
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+            sudo timeout 90s apt-get "${apt_options[@]}" update
+            sudo timeout 300s apt-get "${apt_options[@]}" install -y xvfb libgl1-mesa-dri fonts-noto-cjk
+          fi
       - name: Render actual multiplayer scenes
         shell: bash
         run: |
