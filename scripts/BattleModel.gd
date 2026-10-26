@@ -200,7 +200,7 @@ static func unit_role(kind: String) -> String:
 		"swordsman": return Localization.text("근접 공격")
 		"berserker": return Localization.text("체력 %d%% 이하: 광폭화") % roundi(RAGE_HP_FRACTION * 100.0)
 		"warlock": return Localization.text("공격력 -%d%% 장판") % roundi((1.0 - CURSE_DAMAGE_SCALE) * 100.0)
-		"necromancer": return Localization.text("%d초마다 해골 소환 · 최대 %d기") % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER]
+		"necromancer": return Localization.text("%d초 해골 소환·최대 %d") % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER]
 	return ""
 
 ## Short swamp description for battle cards, e.g. "80% 감속 · 5초".
