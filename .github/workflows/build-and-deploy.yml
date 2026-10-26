@@ -271,6 +271,8 @@ jobs:
           sudo timeout 90s apt-get "${apt_options[@]}" update
           # fonts-noto-cjk is ~60 MB. If the runner's Azure mirror stalls on it, retry from the main Ubuntu archive.
           if ! sudo timeout 180s apt-get "${apt_options[@]}" install -y xvfb libgl1-mesa-dri fonts-noto-cjk; then
+            # Runner sources resolve through a mirror list; point both at the main archive.
+            echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt
             sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
             sudo timeout 90s apt-get "${apt_options[@]}" update
             sudo timeout 300s apt-get "${apt_options[@]}" install -y xvfb libgl1-mesa-dri fonts-noto-cjk
