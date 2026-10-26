@@ -8,7 +8,7 @@ const RECONNECT_GRACE := 20.0
 const MAX_SNAPSHOT_UNITS := 256
 const MAX_SNAPSHOT_STRUCTURES := 16
 const TRANSPORT_MAX_PEERS := 4095 # ENet protocol ceiling, not an application admission quota.
-const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "skeleton"]
+const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "skeleton"]
 const VALID_STRUCTURE_KINDS := ["wall", "swamp", "turret", "generator"]
 const ROOM_LIST_PAGE_SIZE := 12
 const ROOM_NAME_LENGTH := 24
@@ -83,7 +83,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		return false
 	var unit_ids := {}
 	for unit in units:
-		if not unit is Dictionary or not _has_required_optional_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"], ["support_stacks", "summon_remaining"]):
+		if not unit is Dictionary or not _has_required_optional_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"], ["support_stacks", "summon_remaining", "revive_remaining", "skill_remaining"]):
 			return false
 		var unit_id = unit.id
 		var unit_side = unit.side
@@ -102,6 +102,10 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		if unit.has("support_stacks") and (not unit.support_stacks is int or int(unit.support_stacks) < 0 or int(unit.support_stacks) > BattleModel.SUPPORT_MAX_STACKS):
 			return false
 		if unit.has("summon_remaining") and (unit.kind != "necromancer" or not _number_in_range(unit.summon_remaining, 0.0, BattleModel.SUMMON_INTERVAL)):
+			return false
+		if unit.has("skill_remaining") and (BattleModel.trait_value(String(unit.kind), "skill_cooldown") == null or not _number_in_range(unit.skill_remaining, 0.0, float(BattleModel.trait_value(String(unit.kind), "skill_cooldown")))):
+			return false
+		if unit.has("revive_remaining") and (not BattleModel.can_revive(String(unit.kind)) or float(unit.hp) > 0.0 or not _number_in_range(unit.revive_remaining, 0.0, float(BattleModel.trait_value(String(unit.kind), "revive_delay")))):
 			return false
 	var structure_ids := {}
 	for structure in structures:

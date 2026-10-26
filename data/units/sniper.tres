@@ -1,0 +1,20 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "sniper"
+display_name = "저격수"
+order = 9
+summon_only = false
+cost = 70.0
+hp = 50.0
+damage = 30.0
+interval = 4.5
+speed = 30.0
+range = 400.0
+extra = {
+"target_rearmost": true
+}
+tags = PackedStringArray()

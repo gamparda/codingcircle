@@ -63,5 +63,56 @@
       "attack": 3,
       "summon": 3
     }
+  },
+  "zombie": {
+    "cutout_version": 2,
+    "walk_anchor_version": 1,
+    "portrait": [
+      167,
+      250
+    ],
+    "animation_canvas": [
+      358,
+      253
+    ],
+    "frames": {
+      "walk": 8,
+      "attack": 5,
+      "death": 5,
+      "revive": 6
+    }
+  },
+  "paladin": {
+    "cutout_version": 2,
+    "walk_anchor_version": 1,
+    "portrait": [
+      176,
+      211
+    ],
+    "animation_canvas": [
+      366,
+      257
+    ],
+    "frames": {
+      "walk": 8,
+      "attack": 5,
+      "skill": 7
+    }
+  },
+  "sniper": {
+    "cutout_version": 2,
+    "walk_anchor_version": 1,
+    "portrait": [
+      173,
+      203
+    ],
+    "animation_canvas": [
+      280,
+      205
+    ],
+    "frames": {
+      "walk": 8,
+      "attack": 4
+    }
   }
 }

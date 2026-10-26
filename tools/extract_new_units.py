@@ -31,7 +31,30 @@ POSES = {
         'attack': [(316,116,519,477),(932,614,1298,838),(26,181,249,477)],
         'summon': [(316,116,519,477),(550,167,887,477),(26,181,249,477)],
     },
+    # These sheets arrive already transparent (see TRANSPARENT_SOURCES).
+    'zombie': {
+        'idle': (49,65,200,299),
+        'walk': [(49,65,200,299),(214,66,380,296),(396,62,556,296),(578,62,734,296),(761,62,915,299),(937,65,1102,296),(1123,65,1274,299),(1309,64,1465,299)],
+        'attack': [(86,338,259,544),(357,344,582,543),(614,346,879,543),(931,343,1161,544),(1220,340,1404,544)],
+        'death': [(104,579,286,770),(333,598,537,770),(591,639,800,765),(856,669,1049,768),(1120,691,1360,768)],
+        'revive': [(63,911,272,991),(342,865,523,991),(585,854,762,991),(832,835,996,989),(1081,801,1245,990),(1310,772,1469,991)],
+    },
+    'paladin': {
+        'idle': (31,56,191,251),
+        'walk': [(24,304,180,501),(218,306,372,500),(408,307,559,501),(596,307,748,501),(785,306,938,500),(972,307,1124,501),(1163,307,1312,501),(1352,307,1504,501)],
+        'attack': [(25,547,320,742),(354,532,527,749),(576,562,852,747),(853,556,1158,746),(1191,550,1372,746)],
+        'skill': [(38,751,219,992),(253,803,431,992),(464,818,641,992),(668,827,907,992),(916,830,1103,992),(1141,803,1330,992),(1354,803,1513,992)],
+    },
+    'sniper': {
+        'idle': (19,327,176,514),
+        'walk': [(31,76,210,249),(210,71,388,249),(388,63,566,249),(566,63,747,249),(747,60,936,249),(937,62,1125,249),(1125,62,1316,249),(1319,62,1507,249)],
+        'attack': [(699,340,890,513),(102,583,345,746),(290,580,540,746),(591,578,792,749)],
+    },
 }
+
+TRANSPARENT_SOURCES = {'zombie', 'paladin', 'sniper'}
+# Holy pillar frames on the paladin effect sheet are not on a grid; crop around each pillar centre.
+EFFECTS = {'holy_pillar': ('paladin_effects_sheet.png', [(x-62,150,x+62,335) for x in (65,160,264,378,483,610,756,892,1032)])}
 
 def cutout(path):
     im = Image.open(path).convert('RGBA')
@@ -74,8 +97,30 @@ def body_anchor(image):
         if cumulative >= total / 2: return box[0] + x
     return (box[0] + box[2]) // 2
 
+def drop_fragments(image, keep=0.05):
+    """Clears detached pixel islands (a neighbour's rifle tip) smaller than `keep` of the largest."""
+    alpha = image.getchannel('A'); w, h = image.size; px = alpha.load(); seen = bytearray(w*h); islands = []
+    for start in range(w*h):
+        if seen[start] or px[start % w, start // w] <= 40: continue
+        stack = [start]; seen[start] = 1; members = []
+        while stack:
+            i = stack.pop(); members.append(i); x, y = i % w, i // w
+            for nx, ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)):
+                j = ny*w+nx
+                if 0 <= nx < w and 0 <= ny < h and not seen[j] and px[nx,ny] > 40:
+                    seen[j] = 1; stack.append(j)
+        islands.append(members)
+    if not islands: return image
+    largest = max(len(m) for m in islands)
+    for members in islands:
+        if len(members) < largest*keep:
+            for i in members: px[i % w, i // w] = 0
+    image.putalpha(alpha); return image
+
 def extract(sheet, bounds, role, group, index):
     crop = sheet.crop(bounds)
+    if role in TRANSPARENT_SOURCES and role == 'sniper':
+        crop = drop_fragments(crop, keep=0.5)
     # Neighboring large attack effects cross a nominal sprite-cell boundary.
     if role == 'berserker' and group == 'attack':
         draw = ImageDraw.Draw(crop)
@@ -98,7 +143,7 @@ def extract(sheet, bounds, role, group, index):
 
 def main():
     OUT.mkdir(parents=True,exist_ok=True)
-    preview = Image.new('RGBA',(960,350),(10,13,22,255))
+    preview = Image.new('RGBA',(240*len(POSES),350),(10,13,22,255))
     metadata = {}
     previous_path = SOURCE/'new_units_frames.json'
     previous = json.loads(previous_path.read_text(encoding='utf-8')) if previous_path.exists() else {}
@@ -109,7 +154,7 @@ def main():
         if (OUT/(role+'.png')).exists() and all(path.exists() for path in expected):
             print('reuse completed cutout',role,flush=True)
             continue
-        sheet = cutout(SOURCE/(role+'_sheet.png'))
+        sheet = Image.open(SOURCE/(role+'_sheet.png')).convert('RGBA') if role in TRANSPARENT_SOURCES else cutout(SOURCE/(role+'_sheet.png'))
         idle,_ = extract(sheet,poses['idle'],role,'idle',0)
         portrait = Image.new('RGBA',(idle.width+16,idle.height+16),(0,0,0,0))
         portrait.alpha_composite(idle,(8,8)); portrait.save(OUT/(role+'.png'))
@@ -126,7 +171,7 @@ def main():
         print('extracted',role,flush=True)
         regenerated.add(role)
     for row,(role,poses) in enumerate(POSES.items()):
-        if role in regenerated or previous.get(role,{}).get('cutout_version') != 2:
+        if role not in TRANSPARENT_SOURCES and (role in regenerated or previous.get(role,{}).get('cutout_version') != 2):
             for path in [OUT/(role+'.png'), *(OUT/'animations'/role).glob('*.png')]:
                 image=Image.open(path).convert('RGBA')
                 r,g,b,alpha=image.split()
@@ -156,6 +201,11 @@ def main():
         view=portrait.copy(); view.thumbnail((210,280),Image.Resampling.NEAREST)
         preview.alpha_composite(view,(row*240+(240-view.width)//2,315-view.height))
         ImageDraw.Draw(preview).text((row*240+25,325),role,fill=(220,225,235,255))
+    for effect,(source,boxes) in EFFECTS.items():
+        sheet=Image.open(SOURCE/source).convert('RGBA'); folder=OUT/'effects'; folder.mkdir(parents=True,exist_ok=True)
+        for index,box in enumerate(boxes):
+            sheet.crop(box).save(folder/(effect+'_'+str(index)+'.png'))
+        print('effect',effect,len(boxes),flush=True)
     preview.save(OUT/'new_units_preview.png')
     (SOURCE/'new_units_frames.json').write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(metadata,indent=2))

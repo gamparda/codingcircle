@@ -1,0 +1,23 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "paladin"
+display_name = "성기사"
+order = 8
+summon_only = false
+cost = 60.0
+hp = 200.0
+damage = 9.0
+interval = 1.5
+speed = 40.0
+range = 45.0
+extra = {
+"skill_cooldown": 20.0,
+"skill_damage": 25.0,
+"skill_radius": 60.0,
+"undead_bonus": 1.5
+}
+tags = PackedStringArray("holy")

@@ -62,7 +62,7 @@ func run() -> void:
 	main._build_deck_screen(0)
 	await process_frame
 	var grid = main.find_child("DeckUnitGrid",true,false)
-	check(grid != null and grid.get_child_count() == 7, "seven purchasable units are available")
+	check(grid != null and grid.get_child_count() == BattleModel.UNIT_STATS.size(), "every purchasable unit is available")
 	check(main.find_child("DeckUnit_skeleton",true,false) == null, "skeleton has no deck-selection card")
 	for kind in ["berserker","warlock","necromancer"]:
 		var card = main.find_child("DeckUnit_"+kind,true,false)

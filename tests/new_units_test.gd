@@ -67,15 +67,16 @@ func _initialize() -> void:
 	curse.tick(0.01)
 	check(is_equal_approx(victim.hp, 151.0), "warlock's actual attack deals four damage")
 	check(curse.curses.size() == 1 and curse.curses[0].x == victim.x, "attack installs the curse at the target, not the caster")
-	check(is_equal_approx(curse.unit_attack_damage(victim), 6.0 * 0.7), "enemy attack damage is reduced by thirty percent")
-	check(is_equal_approx(curse.curse_damage_scale(1, 810.0), 0.7) and curse.curse_damage_scale(1, 810.01) == 1.0, "curse radius is exactly thirty")
-	check(curse.curse_damage_scale(0, 780.0) == 1.0, "curse never weakens friendly units")
+	check(is_equal_approx(curse.unit_attack_damage(victim), 6.0), "curse no longer reduces enemy attack damage")
+	check(is_equal_approx(curse.support_attack_speed(victim), BattleModel.CURSE_SPEED_SCALE), "curse slows the enemy attack speed")
+	check(is_equal_approx(curse.curse_speed_scale(1, 810.0), BattleModel.CURSE_SPEED_SCALE) and curse.curse_speed_scale(1, 810.01) == 1.0, "curse radius is exactly thirty")
+	check(curse.curse_speed_scale(0, 780.0) == 1.0, "curse never slows friendly units")
 	curse.spawn_cooldowns[0].clear()
 	curse.spawn_unit(0, "warlock")
 	var second: Dictionary = curse.units.back()
 	second.speed = 0.0; second.cooldown = 999.0
 	curse._install_curse(second, 780.0)
-	check(curse.curses.size() == 2 and is_equal_approx(curse.unit_attack_damage(victim), 6.0 * 0.7), "overlapping casters do not multiply the reduction")
+	check(curse.curses.size() == 2 and is_equal_approx(curse.support_attack_speed(victim), BattleModel.CURSE_SPEED_SCALE), "overlapping casters do not multiply the slow")
 	curse._install_curse(caster, 900.0)
 	check(curse.curses.size() == 2 and curse.curses.any(func(zone): return zone.source_id == caster.id and zone.x == 900.0), "a caster replaces its previous zone")
 	check(Network.is_valid_snapshot(curse.snapshot()), "real occupied model snapshot, permanent stacks and curse zones pass online validation")
@@ -99,6 +100,73 @@ func _initialize() -> void:
 	victim.damage = 0.0
 	curse.tick(4.99)
 	check(curse.curses.is_empty(), "curse expires at five seconds")
+	var undead := model()
+	undead.configure_deck(0, ["zombie", "warlock", "necromancer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	check(undead.spawn_unit(0, "zombie") and BattleModel.has_tag("zombie", "undead") and BattleModel.has_tag("skeleton", "undead") and not BattleModel.has_tag("shield", "undead"), "zombie is purchasable and tagged undead")
+	var zombie: Dictionary = undead.units[0]
+	zombie.x = 500.0; zombie.speed = 0.0
+	var revive_delay := float(BattleModel.trait_value("zombie", "revive_delay"))
+	zombie.hp = 0.0
+	undead.tick(0.01)
+	check(undead.units.size() == 1 and zombie.has("revive_remaining") and undead.drain_combat_events().any(func(event): return event.type == "DOWNED"), "first death downs the zombie instead of removing it")
+	check(Network.is_valid_snapshot(undead.snapshot()), "downed zombie snapshots pass online validation")
+	undead.configure_deck(1, BattleModel.DEFAULT_UNIT_DECK, BattleModel.DEFAULT_STRUCTURE_DECK)
+	undead.spawn_unit(1, "swordsman")
+	undead.units.back().x = 520.0; undead.units.back().speed = 0.0
+	check(undead._find_target(undead.units.back()) == null, "downed zombie cannot be targeted")
+	undead.units.pop_back()
+	undead.tick(revive_delay - 0.02)
+	check(zombie.has("revive_remaining") and float(zombie.hp) == 0.0, "zombie stays down until the delay ends")
+	undead.tick(0.02)
+	check(not zombie.has("revive_remaining") and is_equal_approx(float(zombie.hp), float(zombie.max_hp) * float(BattleModel.trait_value("zombie", "revive_hp_fraction"))), "zombie revives once at the data health fraction")
+	check(undead.drain_combat_events().any(func(event): return event.type == "REVIVE"), "revive emits an event for the view")
+	zombie.hp = 0.0
+	undead.tick(0.01)
+	check(undead.units.is_empty() and undead.revive_used.is_empty(), "second death is final and clears revive state")
+	var forged := model().snapshot()
+	forged.units = [{"id": 1, "side": 0, "kind": "swordsman", "x": 300.0, "hp": 0.0, "max_hp": 82.0, "damage": 11.0, "heal": 0.0, "interval": 1.4, "cooldown": 0.0, "speed": 44.0, "range": 40.0, "revive_remaining": 1.0}]
+	check(not Network.is_valid_snapshot(forged), "only revivable units may carry a revive timer")
+	var holy := model()
+	holy.configure_deck(0, ["paladin", "sniper", "zombie"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	holy.configure_deck(1, ["zombie", "swordsman", "archer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	check(holy.spawn_unit(0, "paladin"), "paladin is purchasable")
+	var paladin: Dictionary = holy.units[0]
+	check(is_equal_approx(float(paladin.skill_remaining), float(BattleModel.trait_value("paladin", "skill_cooldown"))), "paladin starts with its skill on cooldown")
+	paladin.x = 600.0; paladin.speed = 0.0
+	holy.spawn_unit(1, "zombie"); holy.spawn_cooldowns[1].clear(); holy.spawn_unit(1, "swordsman")
+	var risen: Dictionary = holy.units[1]
+	var blade: Dictionary = holy.units[2]
+	risen.x = 640.0; risen.speed = 0.0; risen.cooldown = 999.0
+	blade.x = 650.0; blade.speed = 0.0; blade.cooldown = 999.0
+	paladin.cooldown = 999.0; paladin.skill_remaining = 0.0
+	holy.tick(0.01)
+	var skill_damage := float(BattleModel.trait_value("paladin", "skill_damage"))
+	var bonus := float(BattleModel.trait_value("paladin", "undead_bonus"))
+	check(is_equal_approx(float(blade.hp), float(blade.max_hp) - skill_damage), "skill hits every enemy in the radius")
+	check(is_equal_approx(float(risen.hp), float(risen.max_hp) - skill_damage * bonus), "skill deals bonus damage to undead")
+	check(is_equal_approx(float(paladin.skill_remaining), float(BattleModel.trait_value("paladin", "skill_cooldown"))), "casting restarts the skill cooldown")
+	check(holy.drain_combat_events().any(func(event): return event.type == "SKILL"), "skill emits an event for the view")
+	check(Network.is_valid_snapshot(holy.snapshot()), "skill timers pass online validation")
+	risen.hp = 1.0; paladin.cooldown = 0.0
+	holy.tick(0.01)
+	check(not holy.units.has(risen), "an undead slain by the paladin does not revive")
+	var forged_skill := holy.snapshot(); forged_skill.units[0].skill_remaining = 999.0
+	check(not Network.is_valid_snapshot(forged_skill), "reject skill timers beyond the cooldown")
+	var scope := model()
+	scope.configure_deck(0, ["paladin", "sniper", "zombie"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	scope.configure_deck(1, ["zombie", "swordsman", "archer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	scope.spawn_unit(0, "sniper")
+	var sniper: Dictionary = scope.units[0]
+	sniper.x = 400.0; sniper.speed = 0.0
+	scope.spawn_unit(1, "swordsman"); scope.spawn_cooldowns[1].clear(); scope.spawn_unit(1, "archer")
+	var front: Dictionary = scope.units[1]
+	var back: Dictionary = scope.units[2]
+	front.x = 600.0; back.x = 780.0
+	check(scope._find_target(sniper) == back, "sniper picks the in-range enemy farthest behind the line")
+	scope.structures.append({"id": 99, "side": 1, "kind": "wall", "x": 500.0, "hp": 230.0, "max_hp": 230.0})
+	check(scope._find_target(sniper) == back, "sniper fires over walls")
+	back.x = 900.0
+	check(scope._find_target(sniper) == front, "sniper ignores enemies beyond its range")
 	var summon := model()
 	summon.spawn_unit(1, "necromancer")
 	var necro: Dictionary = summon.units[0]

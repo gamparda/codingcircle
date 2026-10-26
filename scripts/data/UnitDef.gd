@@ -13,10 +13,12 @@ extends Resource
 @export var interval := 1.5
 @export var speed := 40.0
 @export var range := 40.0
-## Optional keys that only some units carry (e.g. "heal").
+## Optional keys that only some units carry (e.g. "heal", trait numbers like "revive_delay").
 @export var extra := {}
+## Group tags (e.g. "undead") that traits and counters can target.
+@export var tags := PackedStringArray()
 
 func to_stats() -> Dictionary:
-	var stats := {"cost": cost, "hp": hp, "damage": damage, "interval": interval, "speed": speed, "range": range}
+	var stats := {"cost": cost, "hp": hp, "damage": damage, "interval": interval, "speed": speed, "range": range, "tags": Array(tags)}
 	stats.merge(extra)
 	return stats

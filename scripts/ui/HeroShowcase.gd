@@ -5,13 +5,16 @@ extends Control
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const Localization = preload("res://scripts/Localization.gd")
 
-const ORDER := ["shield", "archer", "berserker", "healer", "warlock", "swordsman", "necromancer"]
+const ORDER := ["shield", "archer", "berserker", "healer", "warlock", "swordsman", "necromancer", "zombie", "paladin", "sniper"]
 const TEXTURES := {"shield": "tanker", "swordsman": "swordsman", "archer": "archer", "healer": "healer",
-	"berserker": "berserker", "warlock": "warlock", "necromancer": "necromancer"}
+	"berserker": "berserker", "warlock": "warlock", "necromancer": "necromancer", "zombie": "zombie", "paladin": "paladin", "sniper": "sniper"}
 const ROLES := {
 	"shield": "전열을 지키는 든든한 방패", "swordsman": "균형 잡힌 근접 전사", "archer": "먼 거리에서 쏘아 맞히는 사수",
 	"healer": "아군의 공격 속도를 끌어올리는 지원가", "berserker": "상처 입을수록 사나워지는 돌격수",
-	"warlock": "저주 장판으로 적을 약화시키는 술사", "necromancer": "해골 병사를 불러내는 흑마법사",
+	"warlock": "저주 장판으로 적의 공격을 늦추는 술사", "necromancer": "해골 병사를 불러내는 흑마법사",
+	"zombie": "쓰러져도 한 번 다시 일어나는 언데드",
+	"paladin": "십자가로 내려찍어 언데드를 정화하는 기사",
+	"sniper": "맨 뒤의 적을 노리는 저격수",
 }
 const INTERVAL := 3.6
 

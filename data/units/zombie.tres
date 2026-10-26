@@ -1,0 +1,21 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "zombie"
+display_name = "좀비"
+order = 7
+summon_only = false
+cost = 40.0
+hp = 150.0
+damage = 7.0
+interval = 1.6
+speed = 30.0
+range = 40.0
+extra = {
+"revive_delay": 2.0,
+"revive_hp_fraction": 0.5
+}
+tags = PackedStringArray("undead")

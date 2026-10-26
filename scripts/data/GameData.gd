@@ -6,7 +6,7 @@ extends RefCounted
 const UnitDef = preload("res://scripts/data/UnitDef.gd")
 const StructureDef = preload("res://scripts/data/StructureDef.gd")
 
-const UNIT_FILES := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer"]
+const UNIT_FILES := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper"]
 const SUMMON_FILES := ["skeleton"]
 const STRUCTURE_FILES := ["wall", "swamp", "turret", "generator"]
 

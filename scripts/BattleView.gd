@@ -26,6 +26,9 @@ const UNIT_TEXTURES := {
 	"warlock": preload("res://assets/units/warlock.png"),
 	"necromancer": preload("res://assets/units/necromancer.png"),
 	"skeleton": preload("res://assets/units/skeleton.png"),
+	"zombie": preload("res://assets/units/zombie.png"),
+	"paladin": preload("res://assets/units/paladin.png"),
+	"sniper": preload("res://assets/units/sniper.png"),
 }
 const UNIT_WALK_TEXTURES := {
 	"shield": [
@@ -52,13 +55,29 @@ const UNIT_WALK_TEXTURES := {
 	"warlock": [preload("res://assets/units/animations/warlock/walk_0.png"), preload("res://assets/units/animations/warlock/walk_1.png"), preload("res://assets/units/animations/warlock/walk_2.png"), preload("res://assets/units/animations/warlock/walk_3.png"), preload("res://assets/units/animations/warlock/walk_4.png"), preload("res://assets/units/animations/warlock/walk_5.png")],
 	"necromancer": [preload("res://assets/units/animations/necromancer/walk_0.png"), preload("res://assets/units/animations/necromancer/walk_1.png"), preload("res://assets/units/animations/necromancer/walk_2.png"), preload("res://assets/units/animations/necromancer/walk_3.png"), preload("res://assets/units/animations/necromancer/walk_4.png"), preload("res://assets/units/animations/necromancer/walk_5.png")],
 	"skeleton": [preload("res://assets/units/animations/skeleton/walk_0.png"), preload("res://assets/units/animations/skeleton/walk_1.png"), preload("res://assets/units/animations/skeleton/walk_2.png"), preload("res://assets/units/animations/skeleton/walk_3.png"), preload("res://assets/units/animations/skeleton/walk_4.png"), preload("res://assets/units/animations/skeleton/walk_5.png")],
+	"zombie": [preload("res://assets/units/animations/zombie/walk_0.png"), preload("res://assets/units/animations/zombie/walk_1.png"), preload("res://assets/units/animations/zombie/walk_2.png"), preload("res://assets/units/animations/zombie/walk_3.png"), preload("res://assets/units/animations/zombie/walk_4.png"), preload("res://assets/units/animations/zombie/walk_5.png"), preload("res://assets/units/animations/zombie/walk_6.png"), preload("res://assets/units/animations/zombie/walk_7.png")],
+	"paladin": [preload("res://assets/units/animations/paladin/walk_0.png"), preload("res://assets/units/animations/paladin/walk_1.png"), preload("res://assets/units/animations/paladin/walk_2.png"), preload("res://assets/units/animations/paladin/walk_3.png"), preload("res://assets/units/animations/paladin/walk_4.png"), preload("res://assets/units/animations/paladin/walk_5.png"), preload("res://assets/units/animations/paladin/walk_6.png"), preload("res://assets/units/animations/paladin/walk_7.png")],
+	"sniper": [preload("res://assets/units/animations/sniper/walk_0.png"), preload("res://assets/units/animations/sniper/walk_1.png"), preload("res://assets/units/animations/sniper/walk_2.png"), preload("res://assets/units/animations/sniper/walk_3.png"), preload("res://assets/units/animations/sniper/walk_4.png"), preload("res://assets/units/animations/sniper/walk_5.png"), preload("res://assets/units/animations/sniper/walk_6.png"), preload("res://assets/units/animations/sniper/walk_7.png")],
 }
 const UNIT_ATTACK_TEXTURES := {
+	"paladin": [preload("res://assets/units/animations/paladin/attack_0.png"), preload("res://assets/units/animations/paladin/attack_1.png"), preload("res://assets/units/animations/paladin/attack_2.png"), preload("res://assets/units/animations/paladin/attack_3.png"), preload("res://assets/units/animations/paladin/attack_4.png")],
+	"sniper": [preload("res://assets/units/animations/sniper/attack_0.png"), preload("res://assets/units/animations/sniper/attack_1.png"), preload("res://assets/units/animations/sniper/attack_2.png"), preload("res://assets/units/animations/sniper/attack_3.png")],
+	"zombie": [preload("res://assets/units/animations/zombie/attack_0.png"), preload("res://assets/units/animations/zombie/attack_1.png"), preload("res://assets/units/animations/zombie/attack_2.png"), preload("res://assets/units/animations/zombie/attack_3.png"), preload("res://assets/units/animations/zombie/attack_4.png")],
 	"berserker": [preload("res://assets/units/animations/berserker/attack_0.png"), preload("res://assets/units/animations/berserker/attack_1.png"), preload("res://assets/units/animations/berserker/attack_2.png")],
 	"warlock": [preload("res://assets/units/animations/warlock/attack_0.png"), preload("res://assets/units/animations/warlock/attack_1.png"), preload("res://assets/units/animations/warlock/attack_2.png")],
 	"necromancer": [preload("res://assets/units/animations/necromancer/attack_0.png"), preload("res://assets/units/animations/necromancer/attack_1.png"), preload("res://assets/units/animations/necromancer/attack_2.png")],
 	"skeleton": [preload("res://assets/units/animations/skeleton/attack_0.png"), preload("res://assets/units/animations/skeleton/attack_1.png"), preload("res://assets/units/animations/skeleton/attack_2.png")],
 }
+# A downed unit plays death, lies still, then plays revive before standing again.
+const UNIT_DOWNED_TEXTURES := {
+	"zombie": {"death": [preload("res://assets/units/animations/zombie/death_0.png"), preload("res://assets/units/animations/zombie/death_1.png"), preload("res://assets/units/animations/zombie/death_2.png"), preload("res://assets/units/animations/zombie/death_3.png"), preload("res://assets/units/animations/zombie/death_4.png")], "revive": [preload("res://assets/units/animations/zombie/revive_0.png"), preload("res://assets/units/animations/zombie/revive_1.png"), preload("res://assets/units/animations/zombie/revive_2.png"), preload("res://assets/units/animations/zombie/revive_3.png"), preload("res://assets/units/animations/zombie/revive_4.png"), preload("res://assets/units/animations/zombie/revive_5.png")]},
+}
+const DOWNED_FALL_SECONDS := 0.5
+const UNIT_SKILL_TEXTURES := {
+	"paladin": [preload("res://assets/units/animations/paladin/skill_0.png"), preload("res://assets/units/animations/paladin/skill_1.png"), preload("res://assets/units/animations/paladin/skill_2.png"), preload("res://assets/units/animations/paladin/skill_3.png"), preload("res://assets/units/animations/paladin/skill_4.png"), preload("res://assets/units/animations/paladin/skill_5.png"), preload("res://assets/units/animations/paladin/skill_6.png")],
+}
+const HOLY_PILLAR_TEXTURES := [preload("res://assets/units/effects/holy_pillar_0.png"), preload("res://assets/units/effects/holy_pillar_1.png"), preload("res://assets/units/effects/holy_pillar_2.png"), preload("res://assets/units/effects/holy_pillar_3.png"), preload("res://assets/units/effects/holy_pillar_4.png"), preload("res://assets/units/effects/holy_pillar_5.png"), preload("res://assets/units/effects/holy_pillar_6.png"), preload("res://assets/units/effects/holy_pillar_7.png"), preload("res://assets/units/effects/holy_pillar_8.png")]
+const DOWNED_RISE_SECONDS := 1.0
 const UNIT_SUMMON_TEXTURES := [
 preload("res://assets/units/animations/necromancer/summon_0.png"), preload("res://assets/units/animations/necromancer/summon_1.png"), preload("res://assets/units/animations/necromancer/summon_2.png")
 ]
@@ -248,7 +267,7 @@ func push_combat_events(events: Array) -> void:
 						existing.amount = float(existing.amount)+float(event.get("amount",0.0)); merged = true; break
 			if merged: continue
 			var visual: Dictionary = event.duplicate(true)
-			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else 0.7
+			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else (1.0 if String(event.get("type", "")) == "SKILL" else 0.7)
 			if String(event.get("type","")) in ["DAMAGE","HEAL","BASE_HIT"]:
 				visual["text_lane"] = damage_lane_cursor % 4
 				damage_lane_cursor += 1
@@ -256,6 +275,8 @@ func push_combat_events(events: Array) -> void:
 			if visual_events.size()>MAX_VISUAL_EVENTS: visual_events.pop_front()
 			if event.get("type") == "SUMMON":
 				unit_actions[event.source_id] = {"type": "SUMMON", "started": animation_time}
+			elif event.get("type") == "SKILL":
+				unit_actions[event.source_id] = {"type": "SKILL", "started": animation_time}
 			elif event.get("type") == "ATTACK" and UNIT_ATTACK_TEXTURES.has(String(event.get("attack_kind", ""))):
 				unit_actions[event.attacker_id] = {"type": "ATTACK", "started": animation_time}
 	queue_redraw()
@@ -569,6 +590,9 @@ func _draw_finale(lane_y: float) -> void:
 		draw_rect(Rect2(-view_offset / view_zoom, size / view_zoom), Color(1, 1, 1, flash))
 
 func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
+	if unit.has("revive_remaining") and UNIT_DOWNED_TEXTURES.has(String(unit.kind)):
+		_draw_downed_unit(unit, lane_y)
+		return
 	var x := world_to_screen_x(motion.position(int(unit.id), float(unit.x)))
 	var side := display_side(int(unit.side))
 	var facing := 1.0 if side == 0 else -1.0
@@ -586,7 +610,7 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	var action_blend := 0.0
 	if unit_actions.has(unit.id) and UNIT_ATTACK_TEXTURES.has(kind):
 		var action: Dictionary = unit_actions[unit.id]
-		var frames: Array = UNIT_SUMMON_TEXTURES if action.type == "SUMMON" and kind == "necromancer" else UNIT_ATTACK_TEXTURES[kind]
+		var frames: Array = UNIT_SUMMON_TEXTURES if action.type == "SUMMON" and kind == "necromancer" else (UNIT_SKILL_TEXTURES[kind] if action.type == "SKILL" and UNIT_SKILL_TEXTURES.has(kind) else UNIT_ATTACK_TEXTURES[kind])
 		var index := clampi(int((animation_time - float(action.started)) / 0.7 * frames.size()), 0, frames.size() - 1)
 		texture = frames[index]
 		action_blend = action_opacity(animation_time - float(action.started))
@@ -631,13 +655,40 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	if BattleModel.is_enraged(unit):
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 18.0), "광폭", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ff9a61"))
 	if cursed_units.has(unit.id):
-		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "▼%d%%" % roundi((1.0 - BattleModel.CURSE_DAMAGE_SCALE) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c592ff"))
+		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "공속▼%d%%" % roundi((1.0 - BattleModel.CURSE_SPEED_SCALE) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c592ff"))
 	if show_battle_effects and kind != "healer":
 		var stacks := int(unit.get("support_stacks", 0))
 		if stacks > 0:
 			for dot in BattleModel.SUPPORT_MAX_STACKS:
 				draw_circle(Vector2(x - 18.0 + dot * 4.0, bar_y + 10.0), 1.3, Color("#86f7ad") if dot < stacks else Color("#293d39"))
 			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - (32.0 if cursed_units.has(unit.id) else 4.0)), "▲%d%%" % (mini(stacks, BattleModel.SUPPORT_MAX_STACKS) * roundi(BattleModel.SUPPORT_INCREMENT * 100.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
+
+func _draw_downed_unit(unit: Dictionary, lane_y: float) -> void:
+	var kind := String(unit.kind)
+	var x := world_to_screen_x(motion.position(int(unit.id), float(unit.x)))
+	var color := BLUE if display_side(int(unit.side)) == 0 else RED
+	var delay := float(BattleModel.trait_value(kind, "revive_delay", 1.0))
+	var remaining := maxf(0.0, float(unit.revive_remaining) - minf(snapshot_age, 0.25))
+	var down_for := delay - remaining
+	var frames: Dictionary = UNIT_DOWNED_TEXTURES[kind]
+	var death: Array = frames.death
+	var revive: Array = frames.revive
+	var texture: Texture2D = death.back()
+	if down_for < DOWNED_FALL_SECONDS:
+		texture = death[clampi(int(down_for / DOWNED_FALL_SECONDS * death.size()), 0, death.size() - 1)]
+	elif remaining < DOWNED_RISE_SECONDS:
+		texture = revive[clampi(int((1.0 - remaining / DOWNED_RISE_SECONDS) * revive.size()), 0, revive.size() - 1)]
+	var height := 86.0 * float(texture.get_height()) / float(UNIT_TEXTURES[kind].get_height())
+	var width := height * float(texture.get_width()) / maxf(float(texture.get_height()), 1.0)
+	var facing := 1.0 if display_side(int(unit.side)) == 0 else -1.0
+	draw_ellipse(Vector2(x, lane_y - 2.0), width * 0.37, 6.0, Color(0.0, 0.0, 0.0, 0.38))
+	draw_set_transform_matrix(_view_transform() * Transform2D(0.0, Vector2(facing, 1.0), 0.0, Vector2(x, lane_y)))
+	draw_texture_rect(texture, Rect2(-width * 0.5, -height, width, height), false, Color(1, 1, 1, 0.92))
+	draw_set_transform_matrix(_view_transform())
+	var bar_y := lane_y - 40.0
+	draw_rect(Rect2(x - 20.0, bar_y, 40.0, 3.0), Color("#242038"))
+	draw_rect(Rect2(x - 20.0, bar_y, 40.0 * clampf(down_for / maxf(delay, 0.01), 0.0, 1.0), 3.0), Color("#9fd18b"))
+	draw_circle(Vector2(x - 25.0, bar_y - 4.0), 4.0, color)
 
 func _draw_unit_bar(rect: Rect2, ratio: float, team: Color) -> void:
 	var back := StyleBoxFlat.new()
@@ -751,6 +802,13 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 				draw_circle(Vector2(x, lane_y - 60.0), 18.0, Color(0.35, 1.0, 0.58, life * effect_intensity))
 			elif event_type in ["DEATH", "STRUCTURE_DESTROYED"]:
 				draw_circle(Vector2(x, lane_y - 35.0), 32.0 * (1.0 - life), Color(0.8, 0.84, 0.92, life * effect_intensity))
+			elif event_type == "SKILL":
+				var pillar: Texture2D = HOLY_PILLAR_TEXTURES[clampi(int((1.0 - life) * HOLY_PILLAR_TEXTURES.size()), 0, HOLY_PILLAR_TEXTURES.size() - 1)]
+				var pillar_height := 150.0
+				var pillar_width := pillar_height * float(pillar.get_width()) / maxf(1.0, float(pillar.get_height()))
+				draw_texture_rect(pillar, Rect2(x - pillar_width * 0.5, lane_y + 6.0 - pillar_height, pillar_width, pillar_height), false, Color(1, 1, 1, clampf(life * 2.0, 0.0, 1.0) * effect_intensity))
+				var radius := float(event.get("radius", 0.0)) * scale_x
+				draw_arc(Vector2(x, lane_y - 2.0), radius, 0.0, TAU, 32, Color(1.0, 0.86, 0.36, life * 0.6 * effect_intensity), 2.0)
 			elif event_type == "JUMP":
 				draw_arc(Vector2(x, lane_y - 28.0), 34.0, PI, TAU, 24, Color(1.0, 0.82, 0.32, life), 4.0)
 		if show_damage_numbers and event_type in ["DAMAGE", "HEAL", "BASE_HIT"]:

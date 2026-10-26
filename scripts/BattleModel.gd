@@ -28,7 +28,8 @@ const SUPPORT_COOLDOWN := 4.0
 const SUPPORT_FOLLOW_DISTANCE := 65.0
 const CURSE_RADIUS := 30.0
 const CURSE_DURATION := 5.0
-const CURSE_DAMAGE_SCALE := 0.70
+# Cursed enemies (units, mages and turrets) recover their attacks this much slower.
+const CURSE_SPEED_SCALE := 0.75
 const SUMMON_INTERVAL := 5.0
 # Live skeletons one necromancer may keep; a full summoner skips that cycle.
 const MAX_SKELETONS_PER_NECROMANCER := 3
@@ -65,6 +66,8 @@ var campaign_levels: Array = [0, 0]
 var curses: Array = []
 var summon_timers: Dictionary = {}
 var summon_owners: Dictionary = {}
+# Units that already spent their one revive (trait "revive_delay" in data).
+var revive_used: Dictionary = {}
 var battle_report: Array = [Report.empty_side(),Report.empty_side()]
 
 ## What one cleared campaign stage adds (first clear only).
@@ -119,6 +122,7 @@ func reset() -> void:
 	curses.clear()
 	summon_timers.clear()
 	summon_owners.clear()
+	revive_used.clear()
 	battle_report = [Report.empty_side(),Report.empty_side()]
 
 static func _valid_deck(values: Array, allowed: Dictionary) -> bool:
@@ -164,6 +168,8 @@ func _create_unit(side: int, kind: String, stats: Dictionary, hp_scale: float, d
 	if kind == "necromancer":
 		summon_timers[next_unit_id] = SUMMON_INTERVAL
 		units.back()["summon_remaining"] = SUMMON_INTERVAL
+	if trait_value(kind, "skill_cooldown") != null:
+		units.back()["skill_remaining"] = float(trait_value(kind, "skill_cooldown"))
 	next_unit_id += 1
 
 static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
@@ -185,10 +191,20 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 	if kind == "berserker":
 		output += "\n체력 %d%% 이하: 공속 +%d%% · 공격력 %d" % [roundi(RAGE_HP_FRACTION * 100.0), roundi((RAGE_SPEED_MULTIPLIER - 1.0) * 100.0), int(float(stats.damage) * stat_scale)]
 	elif kind == "warlock":
-		output += "\n공격 대상에 반경 %d 장판 · 적 공격력 -%d%%\n%d초 유지 · 시전자당 1개 · 중첩 없음" % [int(CURSE_RADIUS), roundi((1.0 - CURSE_DAMAGE_SCALE) * 100.0), int(CURSE_DURATION)]
+		output += "\n공격 대상에 반경 %d 장판 · 적 공속 -%d%%\n%d초 유지 · 시전자당 1개 · 중첩 없음 · 포탑 포함" % [int(CURSE_RADIUS), roundi((1.0 - CURSE_SPEED_SCALE) * 100.0), int(CURSE_DURATION)]
 	elif kind == "necromancer":
 		var skeleton: Dictionary = SUMMON_STATS.skeleton
 		output += "\n%d초마다 해골 소환 · 최대 %d기 유지 · 추가 자원 없음\n해골 체력 %d · 공격 %d · 사거리 %d" % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER, int(float(skeleton.hp) * stat_scale), int(float(skeleton.damage) * stat_scale), int(skeleton.range)]
+	if trait_value(kind, "skill_cooldown") != null:
+		output += "\n%d초마다 심판의 십자가 · 반경 %d 적 전체 피해 %d" % [int(trait_value(kind, "skill_cooldown")), int(trait_value(kind, "skill_radius", 0.0)), int(float(trait_value(kind, "skill_damage", 0.0)) * stat_scale)]
+	if trait_value(kind, "undead_bonus") != null:
+		output += "\n언데드에게 피해 ×%.1f · 처치한 언데드는 부활하지 못함" % float(trait_value(kind, "undead_bonus"))
+	if trait_value(kind, "target_rearmost", false):
+		output += "\n사거리 안에서 가장 뒤에 있는 적을 노림 · 방벽 너머 저격"
+	if can_revive(kind):
+		output += "\n첫 사망 시 %.0f초 뒤 체력 %d%%로 1회 부활 · 쓰러진 동안 공격받지 않음" % [float(trait_value(kind, "revive_delay")), roundi(float(trait_value(kind, "revive_hp_fraction", 0.5)) * 100.0)]
+	if has_tag(kind, "undead"):
+		output += "\n언데드"
 	return output
 
 ## One-line role description shown on deck cards. Numbers come from the rule constants/data.
@@ -199,7 +215,10 @@ static func unit_role(kind: String) -> String:
 		"shield": return Localization.text("방어")
 		"swordsman": return Localization.text("근접 공격")
 		"berserker": return Localization.text("체력 %d%% 이하: 광폭화") % roundi(RAGE_HP_FRACTION * 100.0)
-		"warlock": return Localization.text("공격력 -%d%% 장판") % roundi((1.0 - CURSE_DAMAGE_SCALE) * 100.0)
+		"warlock": return Localization.text("적 공속 -%d%% 장판") % roundi((1.0 - CURSE_SPEED_SCALE) * 100.0)
+		"paladin": return Localization.text("%d초 십자가 강타") % int(trait_value(kind, "skill_cooldown"))
+		"sniper": return Localization.text("맨 뒤의 적 저격")
+		"zombie": return Localization.text("체력 %d%%로 1회 부활") % roundi(float(trait_value(kind, "revive_hp_fraction", 0.5)) * 100.0)
 		"necromancer": return Localization.text("%d초 해골 소환·최대 %d") % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER]
 	return ""
 
@@ -312,6 +331,8 @@ func tick(delta: float) -> void:
 		for kind in spawn_cooldowns[side].keys():
 			spawn_cooldowns[side][kind] = max(0.0, float(spawn_cooldowns[side][kind]) - delta)
 
+	_tick_revives(delta)
+
 	# All combatants choose from the same positions/health. Applying an attack
 	# while choosing the next one gave earlier array entries a free lethal hit.
 	var pending_attacks: Array = []
@@ -334,14 +355,20 @@ func tick(delta: float) -> void:
 					pending_summons.append(unit)
 				summon_timers[unit.id] = SUMMON_INTERVAL
 			unit["summon_remaining"] = maxf(0.0, float(summon_timers[unit.id]))
+		if unit.has("skill_remaining"):
+			unit.skill_remaining = maxf(0.0, float(unit.skill_remaining) - delta)
 		if unit.kind == "healer":
 			_tick_support(unit, delta)
 			continue
+	var pending_skills: Array = []
 	for unit in units:
 		if float(unit.hp) <= 0.0 or unit.kind == "healer":
 			continue
 		var target = _find_target(unit)
 		if target != null:
+			if unit.has("skill_remaining") and float(unit.skill_remaining) <= 0.0:
+				pending_skills.append({"caster": unit, "x": float(target.x)})
+				unit.skill_remaining = float(trait_value(String(unit.kind), "skill_cooldown"))
 			if unit.cooldown <= 0.0:
 				pending_attacks.append({"attacker":unit, "target":target, "damage":unit_attack_damage(unit)})
 				unit.cooldown = unit.interval
@@ -362,6 +389,8 @@ func tick(delta: float) -> void:
 		var direction := 1.0 if unit.side == 0 else -1.0
 		pending_moves.append({"unit":unit, "x":clamp(float(unit.x) + direction * float(unit.speed) * _swamp_scale(unit) * delta, FIELD_LEFT, FIELD_RIGHT)})
 
+	for skill in pending_skills:
+		_cast_skill(skill.caster, float(skill.x))
 	for attack in pending_attacks:
 		if attack.attacker.has("speed"):
 			_damage_target(attack.attacker, attack.target, attack.damage)
@@ -383,8 +412,9 @@ func tick(delta: float) -> void:
 	if base_hp[0] <= 0.0 or base_hp[1] <= 0.0:
 		winner = 2 if base_hp[0] <= 0.0 and base_hp[1] <= 0.0 else 1 if base_hp[0] <= 0.0 else 0
 
+	_down_revivable_units()
 	_emit_death_events()
-	units = units.filter(func(unit): return unit.hp > 0.0)
+	units = units.filter(func(unit): return unit.hp > 0.0 or unit.has("revive_remaining"))
 	structures = structures.filter(func(structure): return structure.hp > 0.0)
 	for owner in pending_summons:
 		if winner != -1 or float(owner.hp) <= 0.0 or units.size() >= MAX_ACTIVE_UNITS:
@@ -404,27 +434,67 @@ func tick(delta: float) -> void:
 	for id in summon_owners.keys():
 		if not live_ids.has(id):
 			summon_owners.erase(id)
+	for id in revive_used.keys():
+		if not live_ids.has(id):
+			revive_used.erase(id)
 	for id in structure_expirations.keys():
 		if not structures.any(func(structure): return structure.id == id):
 			structure_expirations.erase(id)
 
 func support_attack_speed(unit: Dictionary) -> float:
-	if unit.kind == "healer" or float(unit.hp) <= 0.0:
+	if float(unit.hp) <= 0.0:
 		return 1.0
+	var curse := curse_speed_scale(int(unit.side), float(unit.x))
+	if unit.kind == "healer":
+		return curse
 	var multiplier := 1.0 + mini(SUPPORT_MAX_STACKS, maxi(0, int(unit.get("support_stacks", 0)))) * SUPPORT_INCREMENT
-	return multiplier * (RAGE_SPEED_MULTIPLIER if is_enraged(unit) else 1.0)
+	return multiplier * (RAGE_SPEED_MULTIPLIER if is_enraged(unit) else 1.0) * curse
+
+## Data tags (e.g. "undead") let traits and future counters target groups of units.
+static func unit_tags(kind: String) -> Array:
+	return Array(UNIT_STATS.get(kind, SUMMON_STATS.get(kind, {})).get("tags", []))
+
+static func has_tag(kind: String, tag: String) -> bool:
+	return unit_tags(kind).has(tag)
+
+## Optional per-unit trait numbers stored in the unit's data `extra`.
+static func trait_value(kind: String, key: String, fallback = null):
+	return UNIT_STATS.get(kind, SUMMON_STATS.get(kind, {})).get(key, fallback)
+
+static func can_revive(kind: String) -> bool:
+	return trait_value(kind, "revive_delay") != null
+
+func _down_revivable_units() -> void:
+	for unit in units:
+		if float(unit.hp) > 0.0 or unit.has("revive_remaining") or revive_used.has(unit.id) or not can_revive(String(unit.kind)):
+			continue
+		revive_used[unit.id] = true
+		unit["revive_remaining"] = float(trait_value(String(unit.kind), "revive_delay"))
+		unit.support_stacks = 0
+		combat_events.append({"type": "DOWNED", "unit_id": unit.id, "x": unit.x})
+
+func _tick_revives(delta: float) -> void:
+	for unit in units:
+		if not unit.has("revive_remaining"):
+			continue
+		unit.revive_remaining = maxf(0.0, float(unit.revive_remaining) - delta)
+		if float(unit.revive_remaining) > 0.000001:
+			continue
+		unit.erase("revive_remaining")
+		unit.hp = float(unit.max_hp) * float(trait_value(String(unit.kind), "revive_hp_fraction", 0.5))
+		unit.cooldown = max(MIN_ATTACK_INTERVAL, float(unit.interval))
+		combat_events.append({"type": "REVIVE", "unit_id": unit.id, "x": unit.x})
 
 static func is_enraged(unit: Dictionary) -> bool:
 	return unit.kind == "berserker" and float(unit.hp) > 0.0 and float(unit.hp) <= float(unit.max_hp) * RAGE_HP_FRACTION
 
 func unit_attack_damage(unit: Dictionary) -> float:
-	var damage := float(unit.damage)
-	return damage * curse_damage_scale(int(unit.side), float(unit.x))
+	return float(unit.damage)
 
-func curse_damage_scale(side: int, x: float) -> float:
+func curse_speed_scale(side: int, x: float) -> float:
 	for curse in curses:
 		if int(curse.side) != side and float(curse.expires_at) > elapsed and absf(float(curse.x) - x) <= CURSE_RADIUS:
-			return CURSE_DAMAGE_SCALE
+			return CURSE_SPEED_SCALE
 	return 1.0
 
 func _install_curse(caster: Dictionary, x: float) -> void:
@@ -466,12 +536,30 @@ func _tick_support(unit: Dictionary, delta: float) -> void:
 	unit.x = clamp(destination, FIELD_LEFT, FIELD_RIGHT)
 
 
-func _damage_target(attacker: Dictionary, target: Dictionary, damage: float) -> void:
+## Ground slam around `x`: every living enemy unit in the radius takes the skill damage.
+func _cast_skill(caster: Dictionary, x: float) -> void:
+	var kind := String(caster.kind)
+	var growth := float(caster.damage) / maxf(0.01, float(UNIT_STATS[kind].damage))
+	var radius := float(trait_value(kind, "skill_radius", 0.0))
+	combat_events.append({"type": "SKILL", "source_id": caster.id, "x": x, "radius": radius})
+	for enemy in units:
+		if int(enemy.side) != int(caster.side) and float(enemy.hp) > 0.0 and absf(float(enemy.x) - x) <= radius:
+			_damage_target(caster, enemy, float(trait_value(kind, "skill_damage", 0.0)) * growth, false)
+
+func _damage_target(attacker: Dictionary, target: Dictionary, damage: float, show_attack: bool = true) -> void:
+	var undead_bonus = trait_value(String(attacker.kind), "undead_bonus")
+	var smites_undead: bool = undead_bonus != null and target.has("speed") and has_tag(String(target.kind), "undead")
+	if smites_undead:
+		damage *= float(undead_bonus)
 	var before := maxf(0.0,float(target.hp))
 	var effective := minf(before,maxf(0.0,damage))
 	_record_damage(int(attacker.side),String(attacker.kind),effective,target.has("speed") and before>0.0 and effective>=before)
 	target.hp = max(0.0, float(target.hp) - damage)
-	combat_events.append({"type": "ATTACK", "attacker_id": attacker.id, "target_id": target.id, "attack_kind": attacker.kind, "x": attacker.x})
+	# Undead struck down by holy damage stay down (no zombie revive).
+	if smites_undead and float(target.hp) <= 0.0:
+		revive_used[target.id] = true
+	if show_attack:
+		combat_events.append({"type": "ATTACK", "attacker_id": attacker.id, "target_id": target.id, "attack_kind": attacker.kind, "x": attacker.x})
 	combat_events.append({"type": "DAMAGE", "target_id": target.id, "amount": damage, "x": target.x})
 	if attacker.kind == "warlock":
 		_install_curse(attacker, float(target.x))
@@ -492,6 +580,10 @@ func _blocking_wall(attacker: Dictionary, target_x: float):
 	return best
 
 func _find_target(unit: Dictionary):
+	if trait_value(String(unit.kind), "target_rearmost", false):
+		var rearmost = _rearmost_enemy(unit)
+		if rearmost != null:
+			return rearmost
 	var best_unit = null
 	var best_distance := INF
 	for enemy in units:
@@ -519,12 +611,25 @@ func _find_target(unit: Dictionary):
 	return best_structure
 
 
+## Snipers fire over walls at the in-range enemy unit farthest behind the enemy line.
+func _rearmost_enemy(unit: Dictionary):
+	var best = null
+	var best_distance := -1.0
+	for enemy in units:
+		if enemy.side == unit.side or float(enemy.hp) <= 0.0:
+			continue
+		var distance: float = absf(float(enemy.x) - float(unit.x))
+		if distance <= float(unit.range) and distance > best_distance:
+			best = enemy
+			best_distance = distance
+	return best
+
 func _tick_turrets(delta: float, pending_attacks: Array) -> void:
 	for structure in structures:
 		if String(structure.kind) != "turret" or float(structure.hp) <= 0.0:
 			continue
 		var id := int(structure.id)
-		structure_cooldowns[id] = max(0.0, float(structure_cooldowns.get(id, STRUCTURE_STATS.turret.interval)) - delta)
+		structure_cooldowns[id] = max(0.0, float(structure_cooldowns.get(id, STRUCTURE_STATS.turret.interval)) - delta * curse_speed_scale(int(structure.side), float(structure.x)))
 		if structure_cooldowns[id] > 0.0:
 			continue
 		var target = null
@@ -542,7 +647,7 @@ func _tick_turrets(delta: float, pending_attacks: Array) -> void:
 				target = candidate
 				nearest = candidate_distance
 		if target != null:
-			var damage := float(STRUCTURE_STATS.turret.damage) * curse_damage_scale(int(structure.side), float(structure.x))
+			var damage := float(STRUCTURE_STATS.turret.damage)
 			pending_attacks.append({"attacker":structure, "target":target, "damage":damage})
 			structure_cooldowns[id] = float(STRUCTURE_STATS.turret.interval)
 
@@ -555,7 +660,7 @@ func _swamp_scale(unit: Dictionary) -> float:
 
 func _emit_death_events() -> void:
 	for unit in units:
-		if float(unit.hp) <= 0.0 and not announced_deaths.has(unit.id):
+		if float(unit.hp) <= 0.0 and not unit.has("revive_remaining") and not announced_deaths.has(unit.id):
 			announced_deaths[unit.id] = true
 			combat_events.append({"type": "DEATH", "unit_id": unit.id, "x": unit.x})
 	for structure in structures:

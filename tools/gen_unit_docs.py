@@ -28,6 +28,8 @@ def parse_tres(path: pathlib.Path) -> dict:
 
 def _scalar(raw: str):
     raw = raw.strip()
+    if raw.startswith("PackedStringArray("):
+        return re.findall(r'"([^"]*)"', raw)
     if raw.startswith('"'):
         return raw.strip('"')
     if raw in ("true", "false"):

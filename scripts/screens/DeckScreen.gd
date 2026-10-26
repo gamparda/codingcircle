@@ -32,15 +32,15 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	for kind in BattleModel.UNIT_STATS.keys():
 		var stats: Dictionary = BattleModel.UNIT_STATS[kind]
 		var role: String = BattleModel.unit_role(kind)
-		var card_text := Localization.text("%s\n비용 %d · HP %d · 공격 %d\nDPS %.1f · 사거리 %d\n%s") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), float(stats.damage) / float(stats.interval), int(stats.range), role]
+		var card_text := Localization.text("%s · 비용 %d\nHP %d · 공격 %d · 사거리 %d\n%s") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), int(stats.range), role]
 		if kind == "healer":
-			card_text = Localization.text("%s\n비용 %d · HP %d · 범위 %d\n공속 +%d%% 영구 · 상한 +%d%% · 쿨 %d초") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.range), roundi(BattleModel.SUPPORT_INCREMENT * 100.0), roundi(BattleModel.SUPPORT_INCREMENT * BattleModel.SUPPORT_MAX_STACKS * 100.0), int(stats.interval)]
+			card_text = Localization.text("%s · 비용 %d\nHP %d · 범위 %d · 쿨 %d초\n공속 +%d%% 영구 · 상한 +%d%%") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.range), int(stats.interval), roundi(BattleModel.SUPPORT_INCREMENT * 100.0), roundi(BattleModel.SUPPORT_INCREMENT * BattleModel.SUPPORT_MAX_STACKS * 100.0)]
 		var card = main._styled_button(card_text, Color("#5b8cff"), false)
 		card.name = "DeckUnit_" + kind
 		card.tooltip_text = BattleModel.unit_stat_summary(kind)
 		card.add_theme_font_size_override("font_size", 13)
 		main._configure_deck_card(card, card_text, Color("#5b8cff"), selected.units.has(kind))
-		card.custom_minimum_size = Vector2(240, 108)
+		card.custom_minimum_size = Vector2(240, 84)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_dress_card(card, UIKit.UNIT_COLORS[kind], kind, true)
@@ -63,7 +63,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		card.name = "DeckStructure_" + kind
 		card.add_theme_font_size_override("font_size", 13)
 		main._configure_deck_card(card, card_text, Color("#3d8f83"), selected.structures.has(kind))
-		card.custom_minimum_size = Vector2(240, 108)
+		card.custom_minimum_size = Vector2(240, 84)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_dress_card(card, Color("#3ec6b0"), kind, false)
@@ -167,7 +167,7 @@ static func _configure_deck_card(main, card: Button, base_text: String, color: C
 static func _dress_card(card: Button, color: Color, kind: String, is_unit: bool) -> void:
 	card.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART # wrapped text must not widen the grid beyond the panel
-	card.add_theme_font_size_override("font_size", 12)
+	card.add_theme_font_size_override("font_size", 11)
 	card.add_theme_color_override("font_pressed_color", Color.WHITE)
 	card.add_theme_color_override("font_hover_pressed_color", Color.WHITE)
 	var normal := UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.10), UIKit.SURFACE.darkened(0.14), Color(color.r, color.g, color.b, 0.45), 14, 1.0, 0.45, Color(0, 0, 0, 0), 0.08)

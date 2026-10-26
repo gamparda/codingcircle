@@ -5,8 +5,8 @@ const UIKit = preload("res://scripts/ui/UIKit.gd")
 
 # Shared with the live army panel so a kind has the same role in both views.
 const ROLES := {
-	"front": {"title": "근접 전열", "kinds": ["shield", "swordsman", "berserker", "skeleton"], "description": "근거리에서 공격하고 전열을 구성합니다. 해골도 이 역할에 포함합니다."},
-	"ranged": {"title": "원거리 공격", "kinds": ["archer", "warlock"], "description": "원거리에서 공격합니다. 흑마법사는 공격 대상에 적 공격력을 낮추는 장판도 만듭니다."},
+	"front": {"title": "근접 전열", "kinds": ["shield", "swordsman", "berserker", "zombie", "paladin", "skeleton"], "description": "근거리에서 공격하고 전열을 구성합니다. 좀비와 해골도 이 역할에 포함합니다."},
+	"ranged": {"title": "원거리 공격", "kinds": ["archer", "warlock", "sniper"], "description": "원거리에서 공격합니다. 흑마법사는 공격 대상에 적 공격 속도를 늦추는 장판도 만들고, 저격수는 가장 뒤의 적을 노립니다."},
 	"support": {"title": "공속 지원", "kinds": ["healer"], "description": "마법사는 아군의 공격속도를 높입니다. 직접 피해를 주거나 체력을 회복하지 않습니다."},
 	"summoner": {"title": "소환 지휘", "kinds": ["necromancer"], "description": "네크로맨서는 공격하면서 해골을 소환합니다. 소환된 해골은 근접 전열에 따로 집계합니다."},
 }

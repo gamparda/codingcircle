@@ -34,7 +34,7 @@ func _initialize() -> void:
 		var ai := ServerAI.new(1, stage)
 		ai._try_spawn(model)
 		check(model.units.size() == 1, "stage %d can make its opening purchase" % stage)
-	check(used.size() == BattleModel.UNIT_STATS.size(), "campaign decks cover all seven current purchasable units")
+	check(used.size() == BattleModel.UNIT_STATS.size(), "campaign decks cover every current purchasable unit")
 	var hp := fixture(1, 1)
 	hp.configure_base_health(1,320.0); hp.base_hp[1]=250.0
 	check(hp.snapshot().base_max_hp[1] == 320.0, "damage never changes the base maximum")
@@ -63,7 +63,7 @@ func _initialize() -> void:
 	planner._try_place_structure(economy)
 	check(economy.structures.size()==1 and economy.structures[0].kind=="generator" and economy.structures[0].x>=BattleModel.RED_REAR_MIN, "AI protects an early generator in its legal rear zone")
 	var support := fixture(1,6)
-	support.spawn_unit(1,"berserker"); support.spawn_cooldowns[1].clear(); support.spawn_unit(1,"berserker")
+	support.spawn_unit(1,"zombie"); support.spawn_cooldowns[1].clear(); support.spawn_unit(1,"zombie")
 	support.resources[1]=180.0
 	planner._try_spawn(support)
 	check(support.units.back().kind=="healer", "AI prioritizes permanent speed support for an unbuffed formation")

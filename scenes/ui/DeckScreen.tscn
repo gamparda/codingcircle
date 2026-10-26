@@ -26,7 +26,7 @@ theme_override_constants/separation = 10
 
 [node name="DeckUnitGrid" type="GridContainer" parent="Column/DeckChoices" index="0"]
 layout_mode = 2
-size_flags_vertical = 3
+size_flags_vertical = 1
 size_flags_stretch_ratio = 2.0
 theme_override_constants/h_separation = 8
 theme_override_constants/v_separation = 8
@@ -35,7 +35,7 @@ columns = 4
 [node name="DeckStructureGrid" type="GridContainer" parent="Column/DeckChoices" index="1"]
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_vertical = 3
+size_flags_vertical = 1
 theme_override_constants/h_separation = 8
 columns = 4
 

@@ -9,14 +9,14 @@ const STAGE_NAMES := [
 	"입문", "견습", "전진", "수비", "전술",
 	"공세", "정예", "최종전",
 ]
-const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer", "berserker", "warlock", "necromancer"]
+const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper"]
 const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret"]
 const LONG_BATTLE_START := 180.0
 const LONG_BATTLE_STEP := 60.0
 const LONG_BATTLE_MAX_TIER := 6
-const STAGE_HP_SCALE := [0.50, 0.68, 0.86, 0.84, 1.12, 1.23, 1.12, 1.20]
-const STAGE_DAMAGE_SCALE := [0.50, 0.64, 0.83, 0.83, 1.08, 1.18, 1.07, 1.16]
-const STAGE_BONUS_INCOME := [0.00, 0.20, 0.60, 0.90, 1.60, 3.00, 2.70, 2.40]
+const STAGE_HP_SCALE := [0.50, 0.68, 0.93, 0.86, 1.15, 1.30, 1.05, 1.45]
+const STAGE_DAMAGE_SCALE := [0.50, 0.64, 0.89, 0.84, 1.10, 1.23, 1.00, 1.36]
+const STAGE_BONUS_INCOME := [0.00, 0.20, 0.81, 0.90, 1.60, 3.00, 2.70, 3.07]
 const STAGE_SPAWN_INTERVAL := [3.0, 2.3, 1.62, 1.50, 1.40, 1.30, 1.20, 1.10]
 
 var side: int
@@ -35,14 +35,14 @@ static func stage_name(difficulty_stage: int) -> String:
 	return Localization.text(String(STAGE_NAMES[index]))
 
 static func stage_summary(difficulty_stage: int) -> String:
-	return ["기본 전투", "광전사 공세", "장판·방어", "공속 지원", "전선 공세", "해골 군단", "방어·소환", "복합 전술"][clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1]
+	return ["기본 전투", "광전사 공세", "장판·방어", "공속 지원", "전선 공세", "언데드 군단", "방어·소환", "복합 전술"][clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1]
 
 static func stage_unit_deck(difficulty_stage: int) -> Array:
 	var decks := [
 		["swordsman", "shield", "archer"], ["swordsman", "berserker", "archer"],
 		["shield", "archer", "warlock"], ["shield", "archer", "healer"],
-		["shield", "archer", "berserker"], ["berserker", "healer", "necromancer"],
-		["shield", "swordsman", "necromancer"], ["shield", "archer", "necromancer"],
+		["shield", "archer", "berserker"], ["zombie", "healer", "necromancer"],
+		["paladin", "shield", "necromancer"], ["shield", "sniper", "necromancer"],
 	]
 	return decks[clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1].duplicate()
 
@@ -74,7 +74,7 @@ func update(model: BattleModel, delta: float) -> void:
 # Decisions scan the live field only when a purchase/build decision is due.
 func tactical_state(model: BattleModel) -> Dictionary:
 	var state := {"own": 0, "enemy": 0, "frontline": 0, "buff_need": 0,
-		"enemy_melee": 0, "counts": {}, "nearest_enemy": -1.0, "distance": INF, "danger": false}
+		"enemy_melee": 0, "enemy_undead": 0, "enemy_backline": 0, "counts": {}, "nearest_enemy": -1.0, "distance": INF, "danger": false}
 	var base_x := BattleModel.FIELD_LEFT if side == 0 else BattleModel.FIELD_RIGHT
 	for unit in model.units:
 		if float(unit.hp) <= 0.0: continue
@@ -82,11 +82,13 @@ func tactical_state(model: BattleModel) -> Dictionary:
 		if int(unit.side) == side:
 			state.own += 1
 			state.counts[kind] = int(state.counts.get(kind, 0)) + 1
-			if float(unit.range) <= 40.0: state.frontline += 1
+			if float(unit.range) <= 50.0: state.frontline += 1
 			if float(unit.damage) > 0.0 and int(unit.get("support_stacks", 0)) < BattleModel.SUPPORT_MAX_STACKS: state.buff_need += 1
 		else:
 			state.enemy += 1
-			if float(unit.range) <= 40.0: state.enemy_melee += 1
+			if float(unit.range) <= 50.0: state.enemy_melee += 1
+			else: state.enemy_backline += 1
+			if BattleModel.has_tag(kind, "undead"): state.enemy_undead += 1
 			var distance := absf(float(unit.x) - base_x)
 			if distance < float(state.distance):
 				state.distance = distance
@@ -101,6 +103,9 @@ func _unit_score(kind: String, state: Dictionary) -> float:
 		"swordsman": return 49.0 - count * 5.0
 		"berserker": return (65.0 if state.frontline == 0 else 55.0) - count * 7.0
 		"archer": return (68.0 if state.frontline > 0 else 50.0) - count * 7.0
+		"paladin": return (74.0 if state.enemy_undead > 0 else 56.0) - count * 8.0
+		"sniper": return (66.0 if state.frontline > 0 and state.enemy_backline > 0 else 44.0) - count * 12.0
+		"zombie": return (70.0 if state.danger or state.frontline == 0 else 52.0) - count * 7.0
 		"warlock": return (82.0 if state.enemy_melee >= 2 else 62.0) - count * 18.0
 		"necromancer": return (88.0 if count == 0 and not state.danger else 58.0) - count * 18.0
 		"healer":

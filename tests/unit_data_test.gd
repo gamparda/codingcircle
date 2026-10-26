@@ -10,7 +10,7 @@ func check(condition: bool, message: String) -> void:
 func _init() -> void:
 	var GameData = load("res://scripts/data/GameData.gd")
 	var stats: Dictionary = BattleModel.UNIT_STATS
-	check(stats.keys() == ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer"], "unit order comes from the data 'order' field: %s" % [stats.keys()])
+	check(stats.keys() == ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper"], "unit order comes from the data 'order' field: %s" % [stats.keys()])
 	check(BattleModel.SUMMON_STATS.keys() == ["skeleton"], "skeleton is summon-only data")
 	check(BattleModel.STRUCTURE_STATS.keys() == ["wall", "swamp", "turret", "generator"], "structure order comes from data")
 	for kind in stats:

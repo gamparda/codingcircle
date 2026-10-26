@@ -55,7 +55,7 @@ func run() -> void:
 	var save = main.find_child("DeckSaveButton", true, false)
 	check(main.find_child("DeckCardsScroll", true, false) == null, "deck has no scroll container")
 	check(panel != null and panel.position.y >= 0 and panel.position.y + panel.size.y <= 720.0, "taller deck panel fits the logical 720p canvas")
-	check(units != null and units.get_child_count() == 7, "all seven purchasable units remain")
+	check(units != null and units.get_child_count() == BattleModel.UNIT_STATS.size(), "every purchasable unit remains")
 	check(structures != null and structures.columns == 4 and structures.get_child_count() == 4, "all four structures fill a four-column row")
 	if panel == null or units == null or structures == null or save == null: quit(1); return
 	for index in 4:

@@ -68,16 +68,16 @@ static func draw(view, unit: Dictionary, spectator: bool, navigation_hint: Strin
 	view.draw_rect(Rect2(left + 12.0, 90.0, width - 24.0, 6.0), Color("#313a4a"))
 	view.draw_rect(Rect2(left + 12.0, 90.0, (width - 24.0) * fraction, 6.0), health_tone)
 	var cursed_for := curse_remaining(view, unit)
-	var damage_scale: float = BattleModel.CURSE_DAMAGE_SCALE if cursed_for > 0.0 else 1.0
+	var curse_scale: float = BattleModel.CURSE_SPEED_SCALE if cursed_for > 0.0 else 1.0
 	var stacks := clampi(int(unit.get("support_stacks", 0)), 0, BattleModel.SUPPORT_MAX_STACKS) if kind != "healer" else 0
 	var enraged := BattleModel.is_enraged(unit)
-	var speed := (1.0 + stacks * BattleModel.SUPPORT_INCREMENT) * (BattleModel.RAGE_SPEED_MULTIPLIER if enraged else 1.0)
-	var attack := "공속 지원 병력 · 직접 공격 없음" if kind == "healer" else "현재 공격력 %.1f · 공속 ×%.2f" % [float(unit.get("damage", 0.0)) * damage_scale, speed]
+	var speed := (1.0 + stacks * BattleModel.SUPPORT_INCREMENT) * (BattleModel.RAGE_SPEED_MULTIPLIER if enraged else 1.0) * curse_scale
+	var attack := "공속 지원 병력 · 직접 공격 없음" if kind == "healer" else "현재 공격력 %.1f · 공속 ×%.2f" % [float(unit.get("damage", 0.0)), speed]
 	_line(view, left, width, 120.0, attack, 15, Color("#e8edf5"))
 	_line(view, left, width, 144.0, "공속 지원 %d / %d중첩 · +%d%%" % [stacks, BattleModel.SUPPORT_MAX_STACKS, roundi(stacks * BattleModel.SUPPORT_INCREMENT * 100.0)] if kind != "healer" else "마법사는 공속 지원을 받지 않습니다", 14, Color("#86f7ad"))
 	var curse_text := "저주 없음"
 	if cursed_for > 0.0:
-		curse_text = "저주 · 공격력 -%d%% · 장판 %.1f초" % [roundi((1.0 - BattleModel.CURSE_DAMAGE_SCALE) * 100.0), maxf(0.1, cursed_for)]
+		curse_text = "저주 · 공속 -%d%% · 장판 %.1f초" % [roundi((1.0 - BattleModel.CURSE_SPEED_SCALE) * 100.0), maxf(0.1, cursed_for)]
 	_line(view, left, width, 168.0, curse_text, 14, Color("#c592ff") if cursed_for > 0.0 else Color("#b0bbcf"))
 	var ability := "현재 수치 · 성장과 전장 효과 반영"
 	var ability_tone := Color("#b0bbcf")
@@ -89,6 +89,17 @@ static func draw(view, unit: Dictionary, spectator: bool, navigation_hint: Strin
 		if unit.has("summon_remaining"):
 			var remaining := float(unit.summon_remaining)
 			ability = "다음 해골 소환 %.1f초" % maxf(0.1, remaining) if remaining > 0.0 else "해골 소환 준비됨"
+	elif unit.has("skill_remaining"):
+		var ready_in := float(unit.skill_remaining)
+		ability = "심판의 십자가 %.1f초 뒤" % maxf(0.1, ready_in) if ready_in > 0.0 else "심판의 십자가 준비됨"
+		ability_tone = Color("#ffd36a")
+	elif BattleModel.trait_value(kind, "target_rearmost", false):
+		ability = "사거리 안 가장 뒤의 적을 저격"
+	elif unit.has("revive_remaining"):
+		ability = "쓰러짐 · %.1f초 뒤 부활" % maxf(0.1, float(unit.revive_remaining))
+		ability_tone = Color("#9fd18b")
+	elif BattleModel.can_revive(kind):
+		ability = "첫 사망 시 1회 부활 · 언데드"
 	elif cursed_for > 0.0:
 		ability = "저주는 장판을 벗어나면 해제됩니다"
 	_line(view, left, width, 192.0, ability, 14, ability_tone)

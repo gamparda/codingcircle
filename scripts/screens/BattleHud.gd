@@ -180,7 +180,7 @@ static func _build_battle_screen(main) -> void:
 	controls.add_child(row)
 	var preset = main.battle_preset if not main.battle_preset.is_empty() else main._active_preset()
 	var unit_names := BattleModel.UNIT_NAMES
-	var unit_colors := {"shield": Color("#5b8cff"), "healer": Color("#d8b85a"), "archer": Color("#8b72df"), "swordsman": Color("#d56b5f"), "berserker": Color("#db7254"), "warlock": Color("#a775e6"), "necromancer": Color("#906bd1")}
+	var unit_colors := {"shield": Color("#5b8cff"), "healer": Color("#d8b85a"), "archer": Color("#8b72df"), "swordsman": Color("#d56b5f"), "berserker": Color("#db7254"), "warlock": Color("#a775e6"), "necromancer": Color("#906bd1"), "zombie": Color("#7fa36b"), "paladin": Color("#e8c45a"), "sniper": Color("#8f9a6a")}
 	for kind in preset.units:
 		main._add_spawn_button(row, unit_names[kind], kind, unit_colors[kind])
 	var separator := VSeparator.new()
