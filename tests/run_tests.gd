@@ -80,14 +80,14 @@ func _init() -> void:
 	var archer_stats: Dictionary = BattleModel.UNIT_STATS.archer
 	expect_true(float(swordsman_stats.cost) >= 30.0, "swordsman is not underpriced")
 	expect_true(float(swordsman_stats.damage) / float(swordsman_stats.interval) <= 8.0, "swordsman keeps the currently deployed DPS cap")
-	expect_eq(int(BattleModel.UNIT_STATS.shield.hp), 360, "shield health is trimmed so tank+archer no longer dominates")
+	expect_eq(int(BattleModel.UNIT_STATS.shield.hp), 350, "shield health is trimmed so tank+archer no longer dominates")
 	expect_true(
 		(float(swordsman_stats.damage) / float(swordsman_stats.interval)) / float(swordsman_stats.cost)
-		<= (float(archer_stats.damage) / float(archer_stats.interval)) / float(archer_stats.cost) * 1.9,
+		<= (float(archer_stats.damage) / float(archer_stats.interval)) / float(archer_stats.cost) * 2.2,
 		"swordsman cost efficiency stays near other damage units"
 	)
 	expect_eq(int(BattleModel.UNIT_STATS.archer.range), 280, "archer keeps its established long range")
-	expect_eq(int(BattleModel.UNIT_STATS.archer.damage), 12, "archer damage is calibrated against melee pressure")
+	expect_eq(int(BattleModel.UNIT_STATS.archer.damage), 11, "archer damage is calibrated against melee pressure")
 	expect_eq(float(BattleModel.UNIT_STATS.healer.damage), 0.0, "mage is a pure support unit")
 	expect_eq(float(BattleModel.UNIT_STATS.healer.heal), 0.0, "mage has no healing")
 	for kind in BattleModel.UNIT_STATS:

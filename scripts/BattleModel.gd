@@ -26,10 +26,10 @@ const SUPPORT_INCREMENT := 0.05
 const SUPPORT_MAX_STACKS := 10
 const SUPPORT_COOLDOWN := 4.0
 const SUPPORT_FOLLOW_DISTANCE := 65.0
-const CURSE_RADIUS := 30.0
+const CURSE_RADIUS := 45.0
 const CURSE_DURATION := 5.0
 # Cursed enemies (units, mages and turrets) recover their attacks this much slower.
-const CURSE_SPEED_SCALE := 0.75
+const CURSE_SPEED_SCALE := 0.7
 const SUMMON_INTERVAL := 5.0
 # Live skeletons one necromancer may keep; a full summoner skips that cycle.
 const MAX_SKELETONS_PER_NECROMANCER := 3

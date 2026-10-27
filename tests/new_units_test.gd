@@ -19,7 +19,7 @@ func model() -> BattleModel:
 	return result
 
 func _initialize() -> void:
-	for entry in [["berserker",155.0,6.0,40.0,40.0], ["warlock",50.0,4.0,280.0,35.0], ["necromancer",50.0,2.0,125.0,100.0]]:
+	for entry in [["berserker",155.0,8.0,40.0,40.0], ["warlock",50.0,4.0,280.0,35.0], ["necromancer",50.0,2.0,125.0,100.0]]:
 		var battle := model()
 		check(battle.spawn_unit(0, entry[0]), "new unit is purchasable: " + entry[0])
 		check(battle.units[0].max_hp == entry[1] and battle.units[0].damage == entry[2] and battle.units[0].range == entry[3], "requested stats: " + entry[0])
@@ -33,10 +33,10 @@ func _initialize() -> void:
 	rage.spawn_unit(0, "berserker")
 	var warrior: Dictionary = rage.units[0]
 	warrior.hp = warrior.max_hp * 0.5 + 0.01
-	check(not BattleModel.is_enraged(warrior) and is_equal_approx(rage.unit_attack_damage(warrior), 6.0), "above 50 percent retains normal damage")
+	check(not BattleModel.is_enraged(warrior) and is_equal_approx(rage.unit_attack_damage(warrior), 8.0), "above 50 percent retains normal damage")
 	warrior.hp = warrior.max_hp * 0.5
 	check(BattleModel.is_enraged(warrior), "exactly 50 percent activates rage")
-	check(is_equal_approx(rage.unit_attack_damage(warrior), 6.0), "rage retains attack damage of six")
+	check(is_equal_approx(rage.unit_attack_damage(warrior), 8.0), "rage retains attack damage of eight")
 	check(is_equal_approx(rage.support_attack_speed(warrior), 1.5), "rage increases attack speed by 50 percent")
 	warrior.support_stacks = 10
 	check(is_equal_approx(rage.support_attack_speed(warrior), 1.5 * (1.0 + BattleModel.SUPPORT_INCREMENT * BattleModel.SUPPORT_MAX_STACKS)), "rage combines with the separate capped mage buff")
@@ -49,14 +49,14 @@ func _initialize() -> void:
 	rage.tick(0.9)
 	check(target.hp == float(BattleModel.UNIT_STATS.shield.hp), "rage attack is not prematurely fired")
 	rage.tick(0.04)
-	check(is_equal_approx(target.hp, float(BattleModel.UNIT_STATS.shield.hp) - 6.0), "actual rage attack lands six damage at the faster cadence")
+	check(is_equal_approx(target.hp, float(BattleModel.UNIT_STATS.shield.hp) - 8.0), "actual rage attack lands eight damage at the faster cadence")
 	warrior.hp = 0.0
 	check(not BattleModel.is_enraged(warrior), "dead warrior has no rage state")
 	var growth := model()
 	growth.configure_campaign_growth(0, 3)
 	growth.spawn_unit(0, "berserker")
 	growth.units[0].hp = growth.units[0].max_hp * 0.5
-	check(is_equal_approx(growth.unit_attack_damage(growth.units[0]), 6.0 * float(BattleModel.campaign_bonuses(3).stat_scale)), "rage damage retains campaign growth")
+	check(is_equal_approx(growth.unit_attack_damage(growth.units[0]), 8.0 * float(BattleModel.campaign_bonuses(3).stat_scale)), "rage damage retains campaign growth")
 	var curse := model()
 	curse.spawn_unit(0, "warlock")
 	curse.spawn_unit(1, "berserker")
@@ -67,9 +67,9 @@ func _initialize() -> void:
 	curse.tick(0.01)
 	check(is_equal_approx(victim.hp, 151.0), "warlock's actual attack deals four damage")
 	check(curse.curses.size() == 1 and curse.curses[0].x == victim.x, "attack installs the curse at the target, not the caster")
-	check(is_equal_approx(curse.unit_attack_damage(victim), 6.0), "curse no longer reduces enemy attack damage")
+	check(is_equal_approx(curse.unit_attack_damage(victim), 8.0), "curse no longer reduces enemy attack damage")
 	check(is_equal_approx(curse.support_attack_speed(victim), BattleModel.CURSE_SPEED_SCALE), "curse slows the enemy attack speed")
-	check(is_equal_approx(curse.curse_speed_scale(1, 810.0), BattleModel.CURSE_SPEED_SCALE) and curse.curse_speed_scale(1, 810.01) == 1.0, "curse radius is exactly thirty")
+	check(is_equal_approx(curse.curse_speed_scale(1, 780.0 + BattleModel.CURSE_RADIUS), BattleModel.CURSE_SPEED_SCALE) and curse.curse_speed_scale(1, 780.01 + BattleModel.CURSE_RADIUS) == 1.0, "curse radius matches CURSE_RADIUS")
 	check(curse.curse_speed_scale(0, 780.0) == 1.0, "curse never slows friendly units")
 	curse.spawn_cooldowns[0].clear()
 	curse.spawn_unit(0, "warlock")
@@ -177,7 +177,7 @@ func _initialize() -> void:
 	summon.tick(0.01)
 	check(summon.units.size() == 2, "first skeleton appears at exactly five seconds")
 	var skull: Dictionary = summon.units.back()
-	check(skull.kind == "skeleton" and skull.max_hp == 36.0 and skull.damage == 10.0 and skull.range == 40.0, "skeleton has all requested stats")
+	check(skull.kind == "skeleton" and skull.max_hp == 36.0 and skull.damage == 9.0 and skull.range == 40.0, "skeleton has all requested stats")
 	check(skull.side == 1 and skull.x < necro.x, "red-side summons appear ahead in the authoritative direction")
 	check(Network.is_valid_snapshot(summon.snapshot()), "skeleton snapshots are accepted online")
 	check(not summon.spawn_unit(1, "skeleton"), "skeleton cannot be purchased directly")
@@ -211,7 +211,7 @@ func _initialize() -> void:
 	check(ai_model.units.size() == 1 and ai_model.units[0].kind == "necromancer", "AI can use a selected new-unit deck")
 	ai_model.units[0].speed = 0.0
 	ai_model.tick(5.0)
-	check(ai_model.units.size() == 2 and is_equal_approx(ai_model.units[1].max_hp, 36.0 * float(ai_model.units[0].max_hp) / 50.0) and is_equal_approx(ai_model.units[1].damage, 10.0 * float(ai_model.units[0].damage) / 2.0), "skeleton inherits the summoner's campaign/AI growth")
+	check(ai_model.units.size() == 2 and is_equal_approx(ai_model.units[1].max_hp, 36.0 * float(ai_model.units[0].max_hp) / 50.0) and is_equal_approx(ai_model.units[1].damage, 9.0 * float(ai_model.units[0].damage) / 2.0), "skeleton inherits the summoner's campaign/AI growth")
 	if failures == 0:
 		print("PASS: %d new-unit mechanics and wire checks" % checks)
 	quit(0 if failures == 0 else 1)

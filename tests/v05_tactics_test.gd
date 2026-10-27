@@ -59,7 +59,7 @@ func _initialize() -> void:
 	economy.units[0].speed=0.0
 	economy.tick(5.0)
 	check(economy.units.any(func(unit): return unit.kind=="skeleton"), "AI summoner actually deploys skeletons")
-	economy.resources[1]=50.0
+	economy.resources[1]=float(BattleModel.STRUCTURE_STATS.generator.cost)
 	planner._try_place_structure(economy)
 	check(economy.structures.size()==1 and economy.structures[0].kind=="generator" and economy.structures[0].x>=BattleModel.RED_REAR_MIN, "AI protects an early generator in its legal rear zone")
 	var support := fixture(1,6)

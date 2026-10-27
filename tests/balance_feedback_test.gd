@@ -15,7 +15,7 @@ func _init() -> void:
 func run() -> void:
 	check(is_equal_approx(BattleModel.FIELD_RIGHT - BattleModel.FIELD_LEFT, 1265.0), "battlefield travel length increases 15 percent")
 	check(BattleModel.UNIT_STATS.swordsman.range == 40.0, "swordsman fights behind the tank at range 40")
-	check(BattleModel.UNIT_STATS.shield.speed > BattleModel.UNIT_STATS.swordsman.speed and BattleModel.UNIT_STATS.shield.cost == 50.0, "tank arrives before swordsman at its calibrated cost")
+	check(BattleModel.UNIT_STATS.shield.speed > BattleModel.UNIT_STATS.swordsman.speed and BattleModel.UNIT_STATS.shield.cost == 55.0, "tank arrives before swordsman at its calibrated cost")
 	check(BattleModel.UNIT_STATS.shield.damage == 2.0, "tank base damage is nerfed to two")
 	check(BattleModel.RESOURCE_RATE == 8.0 and BattleModel.MAX_RESOURCE == 180.0, "base economy improves without campaign bonuses")
 	var swamp := BattleModel.new()
@@ -93,9 +93,9 @@ func run() -> void:
 	var generator := BattleModel.new()
 	generator.resources[0] = 100.0
 	generator.configure_deck(0, ["shield", "swordsman", "archer"], ["generator", "wall", "swamp"])
-	check(generator.place_structure(0, "generator", 280.0), "generator still costs fifty resources")
+	check(generator.place_structure(0, "generator", 280.0), "generator costs sixty-five resources")
 	generator.tick(1.0)
-	check(generator.resources[0] == 60.0 and BattleModel.STRUCTURE_STATS.generator.income == 2.0, "eight base income plus two generator income are applied")
+	check(generator.resources[0] == 45.0 and BattleModel.STRUCTURE_STATS.generator.income == 2.0, "eight base income plus two generator income are applied")
 	var save := SaveData.default_data()
 	var legacy := SaveData.default_data()
 	for _removed_stage in 2:
