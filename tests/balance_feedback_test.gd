@@ -60,20 +60,20 @@ func run() -> void:
 	support.units.append(outside)
 	var wounded_hp := float(ally.hp)
 	support.tick(0.01)
-	check(support.support_attack_speed(ally) == 1.03, "mage restores range 125 and grants three percent per cast")
+	check(is_equal_approx(support.support_attack_speed(ally), 1.0 + BattleModel.SUPPORT_INCREMENT), "mage restores range 125 and grants one increment per cast")
 	check(support.support_attack_speed(outside) == 1.0 and support.support_attack_speed(opponent) == 1.0, "outside allies and enemies receive no stack")
 	check(float(ally.hp) == wounded_hp and float(healer.heal) == 0.0 and float(healer.damage) == 0.0, "mage neither heals nor deals damage")
 	check(is_equal_approx(float(healer.cooldown), 4.0), "mage uses its calibrated four-second cast cooldown")
 	var before := float(ally.cooldown)
 	support.tick(0.1)
-	check(is_equal_approx(before - float(ally.cooldown), 0.103), "permanent stack changes actual attack cooldown progression")
+	check(is_equal_approx(before - float(ally.cooldown), 0.1 * (1.0 + BattleModel.SUPPORT_INCREMENT)), "permanent stack changes actual attack cooldown progression")
 	check(int(ally.support_stacks) == 1, "mage cannot add stacks while on cooldown")
 	healer.x = 1000.0
 	support.tick(10.0)
-	check(support.support_attack_speed(ally) == 1.03, "stacks do not expire or depend on remaining inside cast radius")
+	check(is_equal_approx(support.support_attack_speed(ally), 1.0 + BattleModel.SUPPORT_INCREMENT), "stacks do not expire or depend on remaining inside cast radius")
 	healer.hp = 0.0
 	support.tick(0.01)
-	check(support.support_attack_speed(ally) == 1.03, "caster death does not remove stacks from a living recipient")
+	check(is_equal_approx(support.support_attack_speed(ally), 1.0 + BattleModel.SUPPORT_INCREMENT), "caster death does not remove stacks from a living recipient")
 	support.resources[0] = 180.0
 	support.spawn_unit(0, "healer")
 	var replacement: Dictionary = support.units.back()
@@ -81,7 +81,7 @@ func run() -> void:
 	for _cast in 15:
 		replacement.cooldown = 0.0
 		support._tick_support(replacement, 0.0)
-	check(int(ally.support_stacks) == 10 and is_equal_approx(support.support_attack_speed(ally), 1.30), "multiple casters share the recipient's thirty-percent cap")
+	check(int(ally.support_stacks) == 10 and is_equal_approx(support.support_attack_speed(ally), 1.0 + BattleModel.SUPPORT_INCREMENT * BattleModel.SUPPORT_MAX_STACKS), "multiple casters share the recipient's capped bonus")
 	check(not support.drain_combat_events().any(func(event): return event.type == "HEAL"), "support emits no healing events")
 	support.spawn_unit(0, "shield")
 	check(int(support.units.back().support_stacks) == 0, "new units never inherit another unit's permanent stacks")

@@ -153,7 +153,7 @@ func _init() -> void:
 	var ally_hp_before: float = mage_heal.units[0].hp
 	mage_heal.tick(0.01)
 	expect_eq(mage_heal.units[0].hp, ally_hp_before, "mage never heals a wounded ally")
-	expect_eq(mage_heal.support_attack_speed(mage_heal.units[0]), 1.03, "mage grants timed attack speed instead of healing")
+	expect_eq(mage_heal.support_attack_speed(mage_heal.units[0]), 1.0 + BattleModel.SUPPORT_INCREMENT, "mage grants timed attack speed instead of healing")
 
 	var mage_wall = BattleModel.new()
 	mage_wall.resources = [150.0, 200.0]
