@@ -4,6 +4,7 @@ extends SceneTree
 const DataReset = preload("res://scripts/DataReset.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
+const ClientAccount = preload("res://scripts/accounts/ClientAccount.gd")
 var failures := 0
 
 func check(condition: bool, message: String) -> void:
@@ -28,6 +29,8 @@ func run() -> void:
 	DataReset.save_path = base + "/save.json"
 	BattleReplay.save_dir = base + "/replays"
 	MetaStats.cache_path = base + "/meta.json"
+	ClientAccount.save_path = base + "/account.json"
+	_touch(ClientAccount.save_path, JSON.stringify({"session": "a".repeat(64), "nickname": "계정"}))
 	_touch(DataReset.save_path, "{}")
 	_touch(DataReset.save_path + ".tmp")
 	DirAccess.make_dir_recursive_absolute(SaveData.recovery_dir(DataReset.save_path))
@@ -127,6 +130,7 @@ func run() -> void:
 	check(FileAccess.file_exists(base + "/content/pack.pck") and FileAccess.file_exists(base + "/unrelated.txt"), "content packs and other files are left alone")
 	check(main.save_data.stats.ai_wins == 0 and main.save_data.achievements.is_empty() and not bool(main.save_data.tutorial_completed) and main.save_data.nickname == "플레이어", "the in-memory data is back to defaults")
 	check(main.network.client_nickname == "플레이어" and MetaStats.snapshot.is_empty() and MetaStats.boards.is_empty(), "the nickname and statistics caches are reset too")
+	check(not main.account.is_signed_in() and not FileAccess.file_exists(ClientAccount.save_path), "the device forgets its account sign-in")
 	check(main.pending_battle_replays.is_empty() and main.replay_recording_error.is_empty() and main.last_replay_path.is_empty(), "reset also discards unsaved replay data and stale warnings")
 	check(main.find_child("SettingsSaveButton", true, false) == null and main.find_child("MultiplayerButton", true, false) != null, "the game returns to the main menu")
 	check(main.status_label.text.contains("초기화했습니다") and main.status_label.text.contains("3개"), "success reports all actually deleted replays, including nested files")

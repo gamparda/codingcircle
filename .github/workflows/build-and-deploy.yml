@@ -99,6 +99,42 @@ jobs:
           # Always ship a fresh signed APK, without forcing native upgrades for PCK-only changes.
           "BUILD_ANDROID=true" | Out-File $env:GITHUB_ENV -Append
 
+      - name: Set up Java 17 for the Gradle Android build
+        if: env.BUILD_ANDROID == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Prepare Gradle Android build and sign-in plugin
+        if: env.BUILD_ANDROID == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # Versions follow the Godot build template (android/build/config.gradle).
+          $sdkmanager = Join-Path $env:ANDROID_HOME "cmdline-tools/latest/bin/sdkmanager.bat"
+          "y`ny`ny`ny`ny`ny`n" | & $sdkmanager --licenses | Out-Null
+          & $sdkmanager "platforms;android-36" "build-tools;36.1.0" "ndk;29.0.14206865" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Android SDK component install failed" }
+
+          $templateDir = Join-Path $env:APPDATA "Godot/export_templates/${env:GODOT_VERSION}.stable"
+          Remove-Item android/build -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive (Join-Path $templateDir "android_source.zip") -DestinationPath android/build -Force
+          [System.IO.File]::WriteAllText((Join-Path $PWD "android/.build_version"), "${env:GODOT_VERSION}.stable", [System.Text.UTF8Encoding]::new($false))
+          New-Item -ItemType File -Force android/build/.gdignore | Out-Null
+
+          # Maven Central rate-limits now and then; retry the plugin build.
+          Push-Location android/plugins/keepfall_signin
+          $built = $false
+          for ($attempt = 1; $attempt -le 3 -and -not $built; $attempt++) {
+            & ./gradlew.bat --no-daemon assembleRelease
+            if ($LASTEXITCODE -eq 0) { $built = $true } else { Start-Sleep -Seconds 60 }
+          }
+          Pop-Location
+          if (-not $built) { throw "Sign-in plugin build failed" }
+          New-Item -ItemType Directory -Force addons/keepfall_signin/bin | Out-Null
+          Copy-Item android/plugins/keepfall_signin/build/outputs/aar/keepfall_signin-release.aar addons/keepfall_signin/bin/ -Force
+
       - name: Configure signed Android export
         if: env.BUILD_ANDROID == 'true'
         shell: pwsh
@@ -125,7 +161,9 @@ jobs:
           export/android/java_sdk_path = "$javaHome"
           export/android/android_sdk_path = "$androidHome"
           "@
-          [System.IO.File]::WriteAllText((Join-Path $settingsDir "editor_settings-4.tres"), $settings, [System.Text.UTF8Encoding]::new($false))
+          foreach ($name in @("editor_settings-4.tres", "editor_settings-4.7.tres")) {
+            [System.IO.File]::WriteAllText((Join-Path $settingsDir $name), $settings, [System.Text.UTF8Encoding]::new($false))
+          }
           "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$($keystore -replace '\\', '/')" | Out-File $env:GITHUB_ENV -Append
           "GODOT_ANDROID_KEYSTORE_RELEASE_USER=$env:ANDROID_KEY_ALIAS" | Out-File $env:GITHUB_ENV -Append
           "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=$env:ANDROID_KEY_PASSWORD" | Out-File $env:GITHUB_ENV -Append
@@ -148,13 +186,20 @@ jobs:
 
           New-Item -ItemType Directory -Force dist | Out-Null
           if ($env:BUILD_ANDROID -eq "true") {
-            & $env:GODOT_CONSOLE --headless --path . --export-release Android dist/CatWar.apk
+            # Gradle export: fetches the sign-in plugin's Maven dependencies, so retry on rate limits.
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              & $env:GODOT_CONSOLE --headless --path . --export-release Android dist/CatWar.apk
+              if ($LASTEXITCODE -eq 0 -and (Test-Path dist/CatWar.apk)) { break }
+              Start-Sleep -Seconds 60
+            }
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWar.apk)) { throw "Android APK export failed" }
             $buildTools = Get-ChildItem (Join-Path $env:ANDROID_HOME "build-tools") -Directory | Sort-Object Name -Descending | Select-Object -First 1
             & (Join-Path $buildTools.FullName "apksigner.bat") verify --verbose --print-certs dist/CatWar.apk
             if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed" }
             & (Join-Path $buildTools.FullName "aapt2.exe") dump badging dist/CatWar.apk
             if ($LASTEXITCODE -ne 0) { throw "APK package inspection failed" }
+            $manifest = & (Join-Path $buildTools.FullName "aapt2.exe") dump xmltree --file AndroidManifest.xml dist/CatWar.apk | Out-String
+            if ($manifest -notmatch "org\.godotengine\.plugin\.v2\.KeepfallSignIn") { throw "Sign-in plugin missing from the APK" }
           }
           & $env:GODOT_CONSOLE --headless --path . --export-pack Android dist/CatWarContent.pck
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWarContent.pck)) { throw "Android content pack export failed" }

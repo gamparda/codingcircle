@@ -33,6 +33,7 @@ const BATTLE_BGM := preload("res://assets/audio/battle_bgm.wav")
 
 @onready var network: NetworkController = $NetworkController
 @onready var updater: UpdateManager = $UpdateManager
+var account := preload("res://scripts/accounts/ClientAccount.gd").new()
 
 var own_side := 0
 var battle_view: BattleView
@@ -209,6 +210,9 @@ func _ready() -> void:
 	network.reconnect_status.connect(_on_reconnect_status)
 	network.recovery_changed.connect(_on_recovery_changed)
 	network.client_nickname = String(save_data.get("nickname","플레이어"))
+	account.name = "ClientAccount"
+	add_child(account)
+	account.setup(network)
 	updater.update_started.connect(_on_update_started)
 	updater.update_status.connect(_on_update_status)
 	updater.update_failed.connect(_on_update_failed)
@@ -526,7 +530,7 @@ func _clear_screen() -> void:
 	base_warning_label = null; cancel_build_button = null
 	session_roster = null; session_title = null
 	for child in get_children():
-		if child != network and child != updater and child != bgm_player:
+		if child != network and child != updater and child != bgm_player and child != account:
 			child.queue_free()
 	battle_view = null
 	status_label = null
