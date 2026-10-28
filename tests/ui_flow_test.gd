@@ -108,10 +108,6 @@ func run() -> void:
 	await process_frame
 	expect_true(tree_text(main.update_overlay).contains("APK 업데이트가 필요합니다."), "older Android APKs receive the required update message")
 	expect_true(find_button(main.update_overlay, "APK 다운로드") != null, "APK update notice exposes a download action")
-	var Store = preload("res://scripts/AndroidStore.gd")
-	expect_true(Store.binary_update_url("https://example.invalid/CatWar.apk", true) == Store.PLAY_STORE_URL and Store.binary_update_button(true) != "APK 다운로드" and not Store.binary_update_note(true).contains("APK"), "Play builds send players to the store listing, never to a side-loaded APK")
-	expect_true(Store.binary_update_url("https://example.invalid/CatWar.apk", false) == "https://example.invalid/CatWar.apk", "side-loaded builds keep the APK download")
-	expect_true(Store.PACKAGE_NAME in FileAccess.get_file_as_string("res://export_presets.cfg"), "the store link uses the exported package name")
 	main.update_overlay.queue_free()
 	main.update_overlay = null
 	if main.has_method("_input"):

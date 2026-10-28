@@ -2,7 +2,6 @@ extends RefCounted
 ## UpdateOverlay: screen/UI code moved out of Main.gd. `main` is the Main node; state stays on Main.
 
 const Localization = preload("res://scripts/Localization.gd")
-const AndroidStore = preload("res://scripts/AndroidStore.gd")
 const ANDROID_APK_URL := "https://gamparda.github.io/codingcircle/CatWar.apk"
 
 static func _on_update_started(main, version: String) -> void:
@@ -73,14 +72,13 @@ static func _show_android_apk_notice(main) -> void:
 	main._on_update_started(main.build_binary_version())
 	if not is_instance_valid(main.update_overlay):
 		return
-	var play_build := AndroidStore.is_play_build()
-	main.update_message_label.text = AndroidStore.binary_update_message(play_build)
+	main.update_message_label.text = Localization.text("APK 업데이트가 필요합니다.")
 	main.update_progress_bar.visible = false
-	main.update_note_label.text = AndroidStore.binary_update_note(play_build)
-	var download_button = main._styled_button(AndroidStore.binary_update_button(play_build), Color("#7170ff"), true)
+	main.update_note_label.text = Localization.text("새 APK를 설치한 뒤 게임을 다시 실행해 주세요.")
+	var download_button = main._styled_button(Localization.text("APK 다운로드"), Color("#7170ff"), true)
 	download_button.position = Vector2(580, 420)
 	download_button.size = Vector2(120, 50)
-	download_button.pressed.connect(func(): OS.shell_open(AndroidStore.binary_update_url(ANDROID_APK_URL, play_build)))
+	download_button.pressed.connect(func(): OS.shell_open(ANDROID_APK_URL))
 	main.update_overlay.add_child(download_button)
 
 static func _on_update_status(main, message: String, progress: float) -> void:

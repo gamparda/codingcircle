@@ -1,7 +1,6 @@
 extends Control
 
 const Localization = preload("res://scripts/Localization.gd")
-const AndroidStore = preload("res://scripts/AndroidStore.gd")
 
 const MAIN_SCENE := "res://scenes/Main.tscn"
 const BUILD_INFO_PATH := "res://build_info.json"
@@ -127,9 +126,9 @@ func _build_interface() -> void:
 	offline_button.pressed.connect(_launch_game)
 	buttons.add_child(offline_button)
 	apk_button = Button.new()
-	apk_button.text = AndroidStore.binary_update_button(AndroidStore.is_play_build())
+	apk_button.text = Localization.text("APK 다운로드")
 	apk_button.visible = false
-	apk_button.pressed.connect(func(): OS.shell_open(AndroidStore.binary_update_url(String(manifest.get("android_apk_url", "")), AndroidStore.is_play_build())))
+	apk_button.pressed.connect(func(): OS.shell_open(String(manifest.get("android_apk_url", ""))))
 	buttons.add_child(apk_button)
 
 func _check_for_update() -> void:
@@ -340,8 +339,7 @@ func _show_recoverable_error(message: String) -> void:
 
 func _show_apk_update_required() -> void:
 	state = "apk_required"
-	var play_build := AndroidStore.is_play_build()
-	status_label.text = AndroidStore.binary_update_message(play_build) + "\n" + AndroidStore.binary_update_note(play_build)
+	status_label.text = Localization.text("APK 업데이트가 필요합니다.\n새 APK를 설치한 뒤 다시 실행해 주세요.")
 	progress_bar.value = 0.0
 	retry_button.visible = false
 	offline_button.visible = false

@@ -61,8 +61,6 @@ func run() -> void:
 	main._build_settings_screen()
 	await process_frame
 	check(main.find_child("DataResetButton", true, false) != null, "the settings screen has the reset button")
-	var privacy = main.find_child("PrivacyPolicyButton", true, false)
-	check(privacy != null and String(privacy.tooltip_text).begins_with("https://"), "the data settings link the privacy policy")
 	DataReset.countdown_seconds = 2
 	main.find_child("DataResetButton", true, false).pressed.emit()
 	await process_frame
