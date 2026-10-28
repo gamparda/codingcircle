@@ -133,6 +133,9 @@ func _build() -> void:
 	view.unit_clicked.connect(_on_unit_clicked)
 	view.zoom_changed.connect(func(zoom): zoom_reset_button.visible = zoom > 1.001)
 	add_child(view)
+	# Same as the live battle: all the room between the top bar and the timeline tray.
+	view.set_anchor_and_offset(SIDE_RIGHT, 1.0, 0.0)
+	view.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -140.0)
 	_build_top_bar()
 	_build_bottom_bar()
 	_build_unit_panel()

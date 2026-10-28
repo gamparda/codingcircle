@@ -74,6 +74,9 @@ static func _build_battle_screen(main) -> void:
 	main.battle_view.battlefield_clicked.connect(main._on_battlefield_clicked)
 	main.battle_view.build_touch_cancelled.connect(func(): main._show_placement_status("설치 동작을 취소했습니다. 전장에서 다시 위치를 선택하세요."))
 	main.root_background.add_child(main.battle_view)
+	# The battlefield takes all the room between the top bar and the card tray on any screen shape.
+	main.battle_view.set_anchor_and_offset(SIDE_RIGHT, 1.0, 0.0)
+	main.battle_view.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -140.0)
 	main.placement_status_label = ToastLabel.new()
 	main.placement_status_label.tone = UIKit.DANGER
 	main.root_background.add_child(main.placement_status_label)
