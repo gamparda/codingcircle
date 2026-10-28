@@ -7,7 +7,7 @@ script = ExtResource("1_def")
 kind = "turret"
 display_name = "포탑"
 order = 2
-cost = 50.0
+cost = 45.0
 hp = 115.0
 params = {
 "damage": 9.0,
