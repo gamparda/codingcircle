@@ -1187,7 +1187,9 @@ func configure_accounts(directory: String, fetch_keys: bool = true) -> void:
 
 func _backup_state() -> void:
 	if not state_dir.is_empty():
-		ServerBackup.snapshot(state_dir, int(Time.get_unix_time_from_system()))
+		var now := int(Time.get_unix_time_from_system())
+		ServerBackup.snapshot(state_dir, now)
+		reports.prune(now)
 
 # ---------- Accounts (Google sign-in) ----------
 

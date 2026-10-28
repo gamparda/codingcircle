@@ -2,11 +2,12 @@ extends RefCounted
 ## Player reports, appended one JSON object per line to <state>/reports.jsonl for the operator to review.
 ## A report names the reporter's account, the reported player (account when signed in, and the nickname shown
 ## in that match), the match and a reason. Each account may report each match once and at most DAILY_LIMIT
-## times a day.
+## times a day. Reports older than KEEP_SECONDS are deleted (prune, run daily with the backups).
 
 const FILE_NAME := "reports.jsonl"
 const REASONS := ["nickname", "manner", "cheat"]
 const DAILY_LIMIT := 10
+const KEEP_SECONDS := 365 * 86400
 
 var path := ""
 ## reporter account id -> {"day": String, "count": int, "matches": {match key: true}}
@@ -36,6 +37,32 @@ func add(reporter: String, target: Dictionary, match_key: String, reason: String
 	recent[reporter] = mine
 	print("PLAYER_REPORT reason=%s match=%s" % [reason, match_key])
 	return ""
+
+## Rewrites the file without reports older than KEEP_SECONDS. Returns how many were removed.
+func prune(now: int) -> int:
+	if path.is_empty() or not FileAccess.file_exists(path):
+		return 0
+	var kept: Array = []
+	var removed := 0
+	for line in FileAccess.get_file_as_string(path).split("\n", false):
+		var entry = JSON.parse_string(line)
+		if entry is Dictionary and (entry.get("at") is float or entry.get("at") is int) and now - int(entry.at) > KEEP_SECONDS:
+			removed += 1
+		else:
+			kept.append(line)
+	if removed == 0:
+		return 0
+	var temp := path + ".tmp"
+	var file := FileAccess.open(temp, FileAccess.WRITE)
+	if file == null:
+		return 0
+	file.store_string("\n".join(kept) + ("\n" if not kept.is_empty() else ""))
+	file.close()
+	if DirAccess.rename_absolute(temp, path) != OK:
+		DirAccess.remove_absolute(temp)
+		return 0
+	print("REPORTS_PRUNED count=%d" % removed)
+	return removed
 
 func _append(line: String) -> bool:
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())

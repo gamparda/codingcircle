@@ -167,7 +167,8 @@ list, for example to accept a future desktop client as well.
 - **Reports** are appended to `<state dir>/reports.jsonl`, one JSON object per line: time, reporter account,
   reported account and nickname, match (`room-code-match-id`) and reason (`nickname`, `manner`, `cheat`).
   Each account can report each match once and ten times a day. Log: `PLAYER_REPORT`. Review the file by hand;
-  nothing is acted on automatically.
+  nothing is acted on automatically. Reports older than a year are deleted daily (`REPORTS_PRUNED`), as the
+  privacy policy states.
 
 ### Backups and damaged files
 

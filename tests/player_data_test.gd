@@ -78,6 +78,9 @@ func _initialize() -> void:
 	check(reports.add(alice, target, "next-day", "nickname", now + day) == "", "the limit resets the next day")
 	var lines := FileAccess.get_file_as_string(dir.path_join("reports.jsonl")).strip_edges().split("\n")
 	check(lines.size() == ReportLog.DAILY_LIMIT + 1 and JSON.parse_string(lines[0]).target_nickname == "용사", "reports are appended one per line")
+	check(reports.prune(now + day) == 0, "recent reports are kept")
+	check(reports.prune(now + ReportLog.KEEP_SECONDS + day / 2) == ReportLog.DAILY_LIMIT, "reports older than a year are deleted")
+	check(FileAccess.get_file_as_string(dir.path_join("reports.jsonl")).strip_edges().split("\n").size() == 1, "the newer report stays")
 
 	# Elo.
 	check(Rating.updated(1000, 1000, 1.0, 20) == 1016 and Rating.updated(1000, 1000, 0.0, 20) == 984, "an even game moves 16 points")
