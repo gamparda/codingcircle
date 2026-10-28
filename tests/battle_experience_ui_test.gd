@@ -30,7 +30,7 @@ func run()->void:
 	var repeated:=key(KEY_2);repeated.echo=true
 	check(not main._handle_battle_hotkey(repeated) and main.local_model.units.size()==1,"key-repeat cannot spam purchases")
 	var input:=LineEdit.new();main.root_background.add_child(input);input.grab_focus();await process_frame
-	check(not main._handle_battle_hotkey(key(KEY_1)) and main.local_model.units.size()==1,"text and chat focus block battle hotkeys")
+	check(not main._handle_battle_hotkey(key(KEY_1)) and main.local_model.units.size()==1,"text focus blocks battle hotkeys")
 	input.release_focus();input.queue_free();await process_frame
 	main.local_model.resources[0]=180;main.local_model.tick(0.4);main.client_purchase_gates.clear();main._on_snapshot(main.local_model.snapshot())
 	check(main._handle_battle_hotkey(key(KEY_Q)) and main.battle_view.selected_structure=="wall","structure hotkey selects structure")

@@ -1,8 +1,6 @@
 extends RefCounted
 
 const MAX_NICKNAME := 16
-const MAX_CHAT := 160
-const CHAT_HISTORY := 40
 var rooms: Dictionary = {}
 var peer_to_room: Dictionary = {}
 
@@ -29,7 +27,7 @@ static func equal_secret(a: String, b: String) -> bool:
 
 func create(peer_id: int, code: String, title: String, nickname: String, salt: String, secret: String, deck: Dictionary) -> bool:
 	if peer_to_room.has(peer_id) or rooms.has(code): return false
-	rooms[code] = {"code":code,"name":title,"owner":peer_id,"salt":salt,"secret":secret,"phase":"waiting","match_id":0,"members":{},"messages":[],"next_message":1}
+	rooms[code] = {"code":code,"name":title,"owner":peer_id,"salt":salt,"secret":secret,"phase":"waiting","match_id":0,"members":{}}
 	rooms[code].members[peer_id] = _member(nickname,"player",deck,true)
 	peer_to_room[peer_id] = code
 	return true
@@ -69,7 +67,7 @@ func public_state(code: String) -> Dictionary:
 	for id in room.members:
 		var member: Dictionary = room.members[id]
 		members.append({"id":int(id),"nickname":member.nickname,"role":member.role,"ready":member.ready,"returned":member.returned,"deck":member.deck.duplicate(true),"connected":member.connected,"reconnect_remaining":maxf(0.0,(int(member.reconnect_deadline)-Time.get_ticks_msec())/1000.0)})
-	return {"code":code,"name":room.name,"owner":room.owner,"phase":room.phase,"locked":not room.secret.is_empty(),"members":members,"messages":room.messages.duplicate(true)}
+	return {"code":code,"name":room.name,"owner":room.owner,"phase":room.phase,"locked":not room.secret.is_empty(),"members":members}
 
 func set_ready(peer_id: int, ready: bool) -> bool:
 	var room := room_for(peer_id)
@@ -114,15 +112,6 @@ func return_from_battle(peer_id: int) -> bool:
 	room.phase = "waiting"
 	for member in room.members.values(): member.returned = true
 	return true
-
-func append_chat(peer_id: int, text: String) -> Dictionary:
-	var room := room_for(peer_id)
-	if room.is_empty() or not safe_text(text,MAX_CHAT): return {}
-	var message: Dictionary = {"id":room.next_message,"nickname":room.members[peer_id].nickname,"role":room.members[peer_id].role,"text":text.strip_edges()}
-	room.next_message += 1
-	room.messages.append(message)
-	if room.messages.size() > CHAT_HISTORY: room.messages.pop_front()
-	return message
 
 # Credentials are private; public_state deliberately never copies them.
 func issue_reconnect_token(peer_id: int) -> String:

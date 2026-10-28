@@ -166,10 +166,6 @@ var session_deck_selector: OptionButton
 var session_deck_names: Label
 var session_ready_button: Button
 var session_start_button: Button
-var session_chat_log: RichTextLabel
-var session_chat_input: LineEdit
-var battle_chat_panel: PanelContainer
-var last_chat_sent_msec := -1000
 var room_create_dialog: ConfirmationDialog
 var battle_preset: Dictionary = {}
 var tutorial_step := -1
@@ -207,7 +203,6 @@ func _ready() -> void:
 	network.result_report_saved.connect(_on_result_report_saved)
 	network.daily_score_saved.connect(_on_daily_score_saved)
 	network.quick_match_status.connect(_on_quick_match_status)
-	network.session_chat.connect(_on_session_chat)
 	network.spectate_started.connect(_on_spectate_started)
 	network.session_closed.connect(_on_session_closed)
 	network.latency_updated.connect(_on_latency_updated)
@@ -321,13 +316,6 @@ func _process(delta: float) -> void:
 		for deadline in client_purchase_gates.values():
 			if float(deadline)>Time.get_ticks_msec(): active_gate = true; break
 		if active_gate: _refresh_purchase_buttons(latest_resources)
-	if OS.has_feature("android"):
-		var keyboard := DisplayServer.virtual_keyboard_get_height()
-		var logical := float(keyboard)*720.0/maxf(1.0,float(DisplayServer.window_get_size().y))
-		var focused := is_instance_valid(session_chat_input) and session_chat_input.has_focus()
-		if is_instance_valid(battle_chat_panel): battle_chat_panel.position.y = clampf(720.0-logical-battle_chat_panel.size.y-12.0,88.0,204.0) if focused and keyboard>0 else 204.0
-		elif multiplayer_screen=="session" and is_instance_valid(root_background):
-			root_background.position.y = -minf(logical,300.0) if focused and keyboard>0 else 0.0
 	if running_as_server:
 		_update_server_lifecycle(delta)
 		updater.set_safe_to_update(_server_can_update())
@@ -403,7 +391,7 @@ func _input(event: InputEvent) -> void:
 	if battle_active and is_instance_valid(battle_view) and battle_view.build_touch_index >= 0:
 		# Only capture a gesture that the battlefield itself started. HUD and modal
 		# touches must reach their controls, even while a structure is selected.
-		if not _battle_purchase_block_reason().is_empty() or placement_pending or is_instance_valid(stats_overlay) or is_instance_valid(report_overlay) or is_instance_valid(action_overlay) or (is_instance_valid(battle_chat_panel) and battle_chat_panel.visible):
+		if not _battle_purchase_block_reason().is_empty() or placement_pending or is_instance_valid(stats_overlay) or is_instance_valid(report_overlay) or is_instance_valid(action_overlay):
 			battle_view.reset_build_touch()
 		elif event is InputEventScreenDrag:
 			var local_position: Vector2 = battle_view.get_global_transform_with_canvas().affine_inverse() * event.position
@@ -549,9 +537,7 @@ func _clear_screen() -> void:
 	_dismiss_battle_report()
 	practice_pause_button = null; practice_speed_button = null; latency_label = null; recovery_label = null
 	base_warning_label = null; cancel_build_button = null
-	session_chat_log = null; session_chat_input = null; session_roster = null; session_title = null
-	if is_instance_valid(battle_chat_panel): battle_chat_panel.queue_free()
-	battle_chat_panel = null
+	session_roster = null; session_title = null
 	for child in get_children():
 		if child != network and child != updater and child != bgm_player:
 			child.queue_free()
@@ -1127,17 +1113,8 @@ func _on_session_error(text: String) -> void:
 func _on_session_closed(text: String) -> void:
 	LobbyFlow._on_session_closed(self, text)
 
-func _on_session_chat(_message: Dictionary) -> void:
-	MultiplayerUI.chat(self)
-
-func _send_session_chat() -> void:
-	LobbyFlow._send_session_chat(self)
-
 func _on_spectate_started() -> void:
 	LobbyFlow._on_spectate_started(self)
-
-func _add_battle_chat() -> void:
-	BattleHud._add_battle_chat(self)
 
 func _battle_text_has_focus() -> bool:
 	var focused := get_viewport().gui_get_focus_owner()

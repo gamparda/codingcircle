@@ -96,10 +96,9 @@ func run()->void:
 	observer.request_spawn.rpc_id(1,"swordsman")
 	await create_timer(0.2).timeout
 	if not production:check(server.registry.get_match_id(observer.multiplayer.get_unique_id())==0 and server.models.values()[0].units.size()==1,"forged spectator purchase rejected by server")
-	observer.request_session_chat.rpc_id(1,"[b]관전 채팅[/b]")
-	if not await require(func():return clients.all(func(control):return control.client_session.messages.any(func(message):return message.text=="[b]관전 채팅[/b]")),"room chat reaches players and spectators during combat"):return
+	check(not observer.has_method("request_session_chat"),"no chat RPC exists")
 	if not production:
-		check(not server.can_create_match() and host.client_in_match and server.models.values()[0].elapsed>0.0,"storage backlog leaves live simulation, purchases, chat and spectator admission running")
+		check(not server.can_create_match() and host.client_in_match and server.models.values()[0].elapsed>0.0,"storage backlog leaves live simulation, purchases and spectator admission running")
 		server.replays.pending.clear()
 		var mid:int=server.sessions.rooms[code].match_id
 		server.models[mid].winner=0
@@ -117,5 +116,5 @@ func run()->void:
 	guest.request_session_leave.rpc_id(1)
 	if not await require(func():return guest.client_connection_state=="lobby" and observer.client_connection_state=="lobby" and late_observer.client_connection_state=="lobby","last player leave closes spectator room and returns everyone to lobby"):return
 	if not production:check(server.sessions.rooms.is_empty() and server.session_matches.is_empty() and server.models.is_empty(),"server cleans every persistent-room and match reference")
-	if failures==0:print("PASS: %d real ENet persistent-room, password, readiness, replay, chat and spectator checks"%checks)
+	if failures==0:print("PASS: %d real ENet persistent-room, password, readiness, replay and spectator checks"%checks)
 	await finish(0 if failures==0 else 1)

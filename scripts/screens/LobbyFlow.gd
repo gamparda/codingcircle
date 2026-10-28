@@ -195,15 +195,6 @@ static func _on_session_closed(main, text: String) -> void:
 	main._build_lobby_screen()
 	if not text.is_empty(): main.status_label.text = text
 
-static func _send_session_chat(main) -> void:
-	if not is_instance_valid(main.session_chat_input) or main.network.client_session.is_empty(): return
-	var text = main.session_chat_input.text.strip_edges()
-	if not preload("res://scripts/RoomSessions.gd").safe_text(text,160): return
-	var now := Time.get_ticks_msec()
-	if now-main.last_chat_sent_msec<750: return
-	main.last_chat_sent_msec = now
-	main.network.request_session_chat.rpc_id(1,text); main.session_chat_input.text = ""
-
 static func _on_spectate_started(main) -> void:
 	if not main.resuming_battle_ui:
 		main._reset_battle_result()

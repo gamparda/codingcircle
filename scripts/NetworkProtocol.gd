@@ -198,10 +198,10 @@ static func _hex_string(value: String, length: int) -> bool:
 	return true
 
 static func valid_session_state(data: Dictionary) -> bool:
-	if not _has_exact_keys(data,["code","name","owner","phase","locked","members","messages"]): return false
+	if not _has_exact_keys(data,["code","name","owner","phase","locked","members"]): return false
 	if not data.code is String or not is_valid_room_code(data.code) or not data.name is String or not is_valid_room_name(data.name): return false
-	if not data.locked is bool or data.phase not in ["waiting","playing","finished"] or not data.members is Array or not data.messages is Array: return false
-	if data.members.size()<1 or data.members.size()>TRANSPORT_MAX_PEERS or data.messages.size()>SessionStore.CHAT_HISTORY: return false
+	if not data.locked is bool or data.phase not in ["waiting","playing","finished"] or not data.members is Array: return false
+	if data.members.size()<1 or data.members.size()>TRANSPORT_MAX_PEERS: return false
 	var players := 0; var ids: Dictionary = {}
 	for member in data.members:
 		if not member is Dictionary or not _has_required_optional_keys(member,["id","nickname","role","ready","returned","deck"],["connected","reconnect_remaining"]): return false
@@ -213,12 +213,7 @@ static func valid_session_state(data: Dictionary) -> bool:
 		ids[int(member.id)] = true
 		if member.role == "player": players += 1
 	if players<1 or players>2 or not _number_in_range(data.owner,1,2147483647) or float(data.owner)!=floor(float(data.owner)) or not ids.has(int(data.owner)): return false
-	for message in data.messages:
-		if not valid_chat_message(message): return false
 	return true
-
-static func valid_chat_message(message: Variant) -> bool:
-	return message is Dictionary and _has_exact_keys(message,["id","nickname","role","text"]) and _number_in_range(message.id,1,1e9) and message.nickname is String and SessionStore.safe_text(message.nickname,SessionStore.MAX_NICKNAME) and message.role in ["player","spectator"] and message.text is String and SessionStore.safe_text(message.text,SessionStore.MAX_CHAT)
 
 static func valid_recovery_state(data: Variant) -> bool:
 	return data is Dictionary and _has_exact_keys(data,["paused","reconnect_remaining"]) and data.paused is bool and _number_in_range(data.reconnect_remaining,0.0,RECONNECT_GRACE)

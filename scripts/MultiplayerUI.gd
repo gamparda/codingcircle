@@ -155,13 +155,6 @@ static func room(main) -> void:
 		var member: Dictionary = main._self_session_member()
 		main.network.request_session_ready.rpc_id(1,not bool(member.get("ready",false))))
 	main.session_start_button = button(main,actions,"전투 시작","SessionStartButton",func(): main.network.request_session_start.rpc_id(1),true)
-	var chat_column := VBoxContainer.new(); chat_column.custom_minimum_size.x = 360; chat_column.add_theme_constant_override("separation",10); body.add_child(chat_column)
-	chat_column.add_child(label("방 채팅",16,GOLD))
-	main.session_chat_log = RichTextLabel.new(); main.session_chat_log.name = "SessionChatLog"; main.session_chat_log.bbcode_enabled = false; main.session_chat_log.scroll_following = true; main.session_chat_log.size_flags_vertical = Control.SIZE_EXPAND_FILL; main.session_chat_log.add_theme_font_size_override("normal_font_size",14); main.session_chat_log.add_theme_stylebox_override("normal",UIKit.with_margins(UIKit.box(Color("#0b1220"),Color("#09101c"),UIKit.EDGE_SOFT,12,1.0,0.0,Color(0,0,0,0),0.0),12,10)); chat_column.add_child(main.session_chat_log)
-	var chat_row := HBoxContainer.new(); chat_row.add_theme_constant_override("separation",8); chat_column.add_child(chat_row)
-	main.session_chat_input = LineEdit.new(); main.session_chat_input.name = "SessionChatInput"; main.session_chat_input.placeholder_text = "메시지 입력"; main.session_chat_input.max_length = 160; main.session_chat_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL; main.session_chat_input.custom_minimum_size.y = 44; chat_row.add_child(main.session_chat_input)
-	main.session_chat_input.text_submitted.connect(func(_text): main._send_session_chat())
-	button(main,chat_row,"전송","SendChatButton",main._send_session_chat)
 	update_room(main,main.network.client_session); main.updater.set_safe_to_update(false)
 
 static func update_room(main, data: Dictionary) -> void:
@@ -208,14 +201,6 @@ static func update_room(main, data: Dictionary) -> void:
 	main.session_start_button.visible = int(data.owner)==main.network.multiplayer.get_unique_id()
 	main.session_start_button.disabled = data.phase != "waiting" or players.size()!=2 or not players.all(func(member): return member.ready)
 	main.status_label.text = "관전 중에는 병력 구매와 건설을 할 수 없습니다." if observer else ("상대가 결과 확인을 마치기를 기다리는 중..." if data.phase == "finished" else "준비 후 방장이 전투를 시작합니다.")
-	chat(main)
-
-static func chat(main) -> void:
-	if not is_instance_valid(main.session_chat_log): return
-	var lines := PackedStringArray()
-	for message in main.network.client_session.get("messages",[]):
-		lines.append(("[관전] " if message.role == "spectator" else "")+String(message.nickname)+": "+String(message.text))
-	main.session_chat_log.text = "\n".join(lines)
 
 static func create_dialog(main) -> void:
 	if main.network.client_connection_state != "lobby" or is_instance_valid(main.room_create_dialog): return

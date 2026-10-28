@@ -179,7 +179,7 @@ static func _on_match_found(main, side: int) -> void:
 		main.network.send_spawn("swordsman")
 
 static func _on_battlefield_clicked(main, world_x: float) -> void:
-	if not main._battle_purchase_block_reason().is_empty() or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay) or (is_instance_valid(main.battle_chat_panel) and main.battle_chat_panel.visible): return
+	if not main._battle_purchase_block_reason().is_empty() or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay): return
 	if not is_instance_valid(main.battle_view) or main.battle_view.selected_structure.is_empty() or main.placement_pending:
 		return
 	var kind = main.battle_view.selected_structure
@@ -414,7 +414,7 @@ static func _exit_ai_battle(main) -> void:
 ## fine placement even when arrows or Home/End were rebound to purchase cards.
 static func _handle_build_key(main, event: InputEventKey) -> bool:
 	if not main.battle_active or not is_instance_valid(main.battle_view) or main.battle_view.selected_structure.is_empty(): return false
-	if main._battle_text_has_focus() or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay) or (is_instance_valid(main.battle_chat_panel) and main.battle_chat_panel.visible): return false
+	if main._battle_text_has_focus() or is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay): return false
 	if event.ctrl_pressed or event.alt_pressed or event.meta_pressed: return false
 	var key := event.physical_keycode if event.physical_keycode != 0 else event.keycode
 	if key not in [KEY_LEFT, KEY_RIGHT, KEY_HOME, KEY_END, KEY_ENTER, KEY_KP_ENTER]: return false

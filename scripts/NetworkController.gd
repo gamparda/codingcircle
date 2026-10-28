@@ -45,7 +45,6 @@ signal room_created(code: String)
 signal room_list_received(data: Dictionary)
 signal session_changed(data: Dictionary)
 signal session_error(text: String)
-signal session_chat(message: Dictionary)
 signal spectate_started
 signal session_closed(text: String)
 signal room_join_failed(error: String)
@@ -135,7 +134,6 @@ var lobby_refresh_elapsed := 0.0
 var sessions = SessionStore.new()
 var session_matches: Dictionary = {}
 var join_challenges: Dictionary = {}
-var chat_times: Dictionary = {}
 var client_session: Dictionary = {}
 var client_is_spectator := false
 var client_nickname := "플레이어"
@@ -524,13 +522,12 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	var session_peer: bool = sessions.peer_to_room.has(peer_id)
 	if session_peer and sessions.suspend(peer_id,Time.get_ticks_msec()+int(RECONNECT_GRACE*1000)):
 		_push_session(sessions.peer_to_room[peer_id])
-		lobby_pages.erase(peer_id); lobby_filters.erase(peer_id); join_challenges.erase(peer_id); chat_times.erase(peer_id)
+		lobby_pages.erase(peer_id); lobby_filters.erase(peer_id); join_challenges.erase(peer_id)
 		request_windows.erase(peer_id); release_peer_address(peer_id)
 		lobby_dirty = true
 		return
 	if session_peer: _leave_session(peer_id,true)
 	join_challenges.erase(peer_id)
-	chat_times.erase(peer_id)
 	var match_id := registry.get_match_id(peer_id)
 	var players := registry.remove_player(peer_id)
 	lobby_pages.erase(peer_id)
@@ -942,15 +939,8 @@ func request_session_return() -> void:
 func request_session_leave() -> void:
 	SessionFlow.request_session_leave(self)
 
-@rpc("any_peer", "call_remote", "reliable")
-func request_session_chat(text: String) -> void:
-	SessionFlow.request_session_chat(self, text)
-
 static func valid_session_state(data: Dictionary) -> bool:
 	return Protocol.valid_session_state(data)
-
-static func valid_chat_message(message: Variant) -> bool:
-	return Protocol.valid_chat_message(message)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_session_state(data: Dictionary) -> void:
@@ -967,10 +957,6 @@ func receive_session_error(text: String) -> void:
 @rpc("authority", "call_remote", "reliable")
 func receive_session_closed(text: String) -> void:
 	ClientSessionFlow.receive_session_closed(self, text)
-
-@rpc("authority", "call_remote", "reliable")
-func receive_session_chat(message: Dictionary) -> void:
-	ClientSessionFlow.receive_session_chat(self, message)
 
 @rpc("authority", "call_remote", "reliable")
 func session_spectate() -> void:
