@@ -122,6 +122,9 @@ jobs:
           Expand-Archive (Join-Path $templateDir "android_source.zip") -DestinationPath android/build -Force
           [System.IO.File]::WriteAllText((Join-Path $PWD "android/.build_version"), "${env:GODOT_VERSION}.stable", [System.Text.UTF8Encoding]::new($false))
           New-Item -ItemType File -Force android/build/.gdignore | Out-Null
+          # A Gradle daemon keeps Godot's output pipe open on Windows, so the headless export never returns.
+          Add-Content android/build/gradle.properties "`norg.gradle.daemon=false"
+          "GRADLE_OPTS=-Dorg.gradle.daemon=false" | Out-File $env:GITHUB_ENV -Append
 
           # Maven Central rate-limits now and then; retry the plugin build.
           Push-Location android/plugins/keepfall_signin
@@ -187,12 +190,18 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           if ($env:BUILD_ANDROID -eq "true") {
             # Gradle export: fetches the sign-in plugin's Maven dependencies, so retry on rate limits.
-            for ($attempt = 1; $attempt -le 3; $attempt++) {
-              & $env:GODOT_CONSOLE --headless --path . --export-release Android dist/CatWar.apk
-              if ($LASTEXITCODE -eq 0 -and (Test-Path dist/CatWar.apk)) { break }
-              Start-Sleep -Seconds 60
+            # Each attempt is time-limited, so a stuck build fails the job instead of hanging it.
+            $exported = $false
+            for ($attempt = 1; $attempt -le 3 -and -not $exported; $attempt++) {
+              $export = Start-Process -FilePath $env:GODOT_CONSOLE -ArgumentList "--headless", "--path", ".", "--export-release", "Android", "dist/CatWar.apk" -NoNewWindow -PassThru
+              $null = $export.Handle
+              if (-not $export.WaitForExit(1200000)) {
+                & taskkill /T /F /PID $export.Id | Out-Null
+                throw "Android APK export timed out"
+              }
+              if ($export.ExitCode -eq 0 -and (Test-Path dist/CatWar.apk)) { $exported = $true } else { Start-Sleep -Seconds 60 }
             }
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWar.apk)) { throw "Android APK export failed" }
+            if (-not $exported) { throw "Android APK export failed" }
             $buildTools = Get-ChildItem (Join-Path $env:ANDROID_HOME "build-tools") -Directory | Sort-Object Name -Descending | Select-Object -First 1
             & (Join-Path $buildTools.FullName "apksigner.bat") verify --verbose --print-certs dist/CatWar.apk
             if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed" }
