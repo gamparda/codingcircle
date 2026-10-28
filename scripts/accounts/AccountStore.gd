@@ -1,18 +1,24 @@
 extends RefCounted
 ## Server-side accounts, kept in one JSON file written atomically. Stores no Google data except a
-## salted hash of the account's Google subject, and sessions only as hashes of their tokens.
+## salted hash of the account's Google subject, and sessions only as hashes of their tokens. A file that
+## cannot be read is set aside and restored from the newest daily backup (ServerBackup), never overwritten.
 
 const ServerStats = preload("res://scripts/ServerStats.gd")
+const ServerBackup = preload("res://scripts/ServerBackup.gd")
 const SessionStore = preload("res://scripts/RoomSessions.gd")
 
 const FILE_NAME := "accounts.json"
 const SESSION_SECONDS := 30 * 86400
 const MAX_SESSIONS := 5
 const MAX_ACCOUNTS := 200000
+const START_RATING := 1000
 
 var path := ""
-## account id -> {"subject": hash, "nickname": String, "created": int, "last_login": int, "sessions": {token hash: expires}}
+## account id -> {"subject": hash, "nickname": String, "created": int, "last_login": int, "sessions": {token hash: expires},
+##   "rating": int, "ranked": {"wins": int, "losses": int, "draws": int}}
 var accounts: Dictionary = {}
+## session token hash -> account id
+var by_session: Dictionary = {}
 ## subject hash -> account id
 var by_subject: Dictionary = {}
 ## lowercase nickname -> account id
@@ -23,9 +29,9 @@ var dirty := false
 
 func configure(directory: String) -> void:
 	path = "" if directory.is_empty() else directory.path_join(FILE_NAME)
-	accounts = {}; by_subject = {}; by_nickname = {}
+	accounts = {}; by_subject = {}; by_nickname = {}; by_session = {}
 	salt = ""
-	var stored = ServerStats.read_json(path)
+	var stored = ServerBackup.read_store(path).value
 	if stored is Dictionary:
 		if stored.get("salt") is String and String(stored.salt).length() == 64:
 			salt = String(stored.salt)
@@ -48,9 +54,19 @@ func _adopt(id: String, record: Variant) -> void:
 	var nickname := String(record.nickname)
 	if by_subject.has(record.subject) or by_nickname.has(nickname.to_lower()):
 		return
-	accounts[id] = {"subject": String(record.subject), "nickname": nickname, "created": int(record.get("created", 0)), "last_login": int(record.get("last_login", 0)), "sessions": sessions}
+	var ranked := {"wins": 0, "losses": 0, "draws": 0}
+	if record.get("ranked") is Dictionary:
+		for key in ranked:
+			if _is_number(record.ranked.get(key)) and int(record.ranked[key]) >= 0:
+				ranked[key] = int(record.ranked[key])
+	var rating := START_RATING
+	if _is_number(record.get("rating")) and int(record.rating) > 0 and int(record.rating) < 10000:
+		rating = int(record.rating)
+	accounts[id] = {"subject": String(record.subject), "nickname": nickname, "created": int(record.get("created", 0)), "last_login": int(record.get("last_login", 0)), "sessions": sessions, "rating": rating, "ranked": ranked}
 	by_subject[String(record.subject)] = id
 	by_nickname[nickname.to_lower()] = id
+	for token_hash in sessions:
+		by_session[token_hash] = id
 
 static func valid_nickname(nickname: String) -> bool:
 	return nickname == nickname.strip_edges() and SessionStore.safe_text(nickname, SessionStore.MAX_NICKNAME)
@@ -76,7 +92,7 @@ func create(subject: String, nickname: String, now: int) -> Dictionary:
 	if accounts.size() >= MAX_ACCOUNTS:
 		return {"error": "full"}
 	var id := Crypto.new().generate_random_bytes(16).hex_encode()
-	accounts[id] = {"subject": subject_hash(subject), "nickname": nickname, "created": now, "last_login": now, "sessions": {}}
+	accounts[id] = {"subject": subject_hash(subject), "nickname": nickname, "created": now, "last_login": now, "sessions": {}, "rating": START_RATING, "ranked": {"wins": 0, "losses": 0, "draws": 0}}
 	by_subject[accounts[id].subject] = id
 	by_nickname[nickname.to_lower()] = id
 	dirty = true
@@ -104,14 +120,17 @@ func issue_session(id: String, now: int) -> String:
 	for token_hash in sessions.keys():
 		if int(sessions[token_hash]) <= now:
 			sessions.erase(token_hash)
+			by_session.erase(token_hash)
 	while sessions.size() >= MAX_SESSIONS:
 		var oldest := ""
 		for token_hash in sessions:
 			if oldest.is_empty() or int(sessions[token_hash]) < int(sessions[oldest]):
 				oldest = token_hash
 		sessions.erase(oldest)
+		by_session.erase(oldest)
 	var token := Crypto.new().generate_random_bytes(32).hex_encode()
 	sessions[token.sha256_text()] = now + SESSION_SECONDS
+	by_session[token.sha256_text()] = id
 	accounts[id].last_login = now
 	dirty = true
 	return token
@@ -121,26 +140,26 @@ func resume(token: String, now: int) -> String:
 	if not _hex(token, 64):
 		return ""
 	var token_hash := token.sha256_text()
-	for id in accounts:
-		var expires = accounts[id].sessions.get(token_hash)
-		if expires != null:
-			if int(expires) > now:
-				accounts[id].last_login = now
-				dirty = true
-				return String(id)
-			accounts[id].sessions.erase(token_hash)
-			dirty = true
-			return ""
+	var id := String(by_session.get(token_hash, ""))
+	if id.is_empty() or not accounts.has(id):
+		return ""
+	if int(accounts[id].sessions.get(token_hash, 0)) > now:
+		accounts[id].last_login = now
+		dirty = true
+		return id
+	accounts[id].sessions.erase(token_hash)
+	by_session.erase(token_hash)
+	dirty = true
 	return ""
 
 func revoke(token: String) -> void:
 	if not _hex(token, 64):
 		return
 	var token_hash := token.sha256_text()
-	for id in accounts:
-		if accounts[id].sessions.erase(token_hash):
-			dirty = true
-			return
+	var id := String(by_session.get(token_hash, ""))
+	by_session.erase(token_hash)
+	if accounts.has(id) and accounts[id].sessions.erase(token_hash):
+		dirty = true
 
 ## Removes the account and every session; the Google subject can sign up again as a new account.
 func delete(id: String) -> bool:
@@ -148,6 +167,8 @@ func delete(id: String) -> bool:
 		return false
 	by_subject.erase(accounts[id].subject)
 	by_nickname.erase(String(accounts[id].nickname).to_lower())
+	for token_hash in accounts[id].sessions:
+		by_session.erase(token_hash)
 	accounts.erase(id)
 	dirty = true
 	return true
@@ -155,7 +176,26 @@ func delete(id: String) -> bool:
 func profile(id: String) -> Dictionary:
 	if not accounts.has(id):
 		return {}
-	return {"nickname": String(accounts[id].nickname), "created": int(accounts[id].created)}
+	return {"nickname": String(accounts[id].nickname), "created": int(accounts[id].created), "rating": int(accounts[id].rating), "ranked": accounts[id].ranked.duplicate()}
+
+## Records one ranked result for `id`: the new rating and the win/loss/draw count. `outcome` is "wins", "losses" or "draws".
+func record_ranked(id: String, rating: int, outcome: String) -> void:
+	if not accounts.has(id) or outcome not in ["wins", "losses", "draws"]:
+		return
+	accounts[id].rating = clampi(rating, 1, 9999)
+	accounts[id].ranked[outcome] = int(accounts[id].ranked[outcome]) + 1
+	dirty = true
+
+## Highest ratings among accounts that played at least one ranked game.
+func leaderboard(limit: int) -> Array:
+	var rows: Array = []
+	for id in accounts:
+		var ranked: Dictionary = accounts[id].ranked
+		var games := int(ranked.wins) + int(ranked.losses) + int(ranked.draws)
+		if games > 0:
+			rows.append({"nickname": String(accounts[id].nickname), "rating": int(accounts[id].rating), "wins": int(ranked.wins), "losses": int(ranked.losses), "draws": int(ranked.draws)})
+	rows.sort_custom(func(a, b): return int(a.rating) > int(b.rating) or (int(a.rating) == int(b.rating) and String(a.nickname) < String(b.nickname)))
+	return rows.slice(0, limit)
 
 ## Writes when changed. Returns false while the write keeps failing (the caller retries).
 func flush() -> bool:

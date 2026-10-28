@@ -85,6 +85,7 @@ static func _begin_session_match(main, owner_id: int, mode: String) -> void:
 		model.configure_deck(side,deck.units,deck.structures)
 	main.models[match_id] = model; main.session_matches[match_id] = room.code
 	main.replays.begin(match_id, model, {"mode": mode})
+	main.RankedFlow.on_match_begin(main, match_id, ids, room, mode)
 	main._push_session(room.code); main.lobby_dirty = true
 	for side in 2: main.match_started.rpc_id(int(ids[side]),side)
 	for id in room.members:
@@ -161,6 +162,7 @@ static func _cleanup_session_match(main, match_id: int) -> void:
 	main.registry.matches.erase(match_id); main.models.erase(match_id); main.replays.drop(match_id); main.rematch_ready.erase(match_id); main.session_matches.erase(match_id)
 
 static func _leave_session(main, peer_id: int, disconnected: bool = false, preserve_result: bool = false) -> void:
+	main.RankedFlow.forfeit(main, peer_id)
 	var result = main.sessions.leave(peer_id,preserve_result)
 	if result.is_empty(): return
 	if result.interrupted or result.closed: main._cleanup_session_match(int(result.match_id))
@@ -178,4 +180,4 @@ static func _leave_session(main, peer_id: int, disconnected: bool = false, prese
 	if not disconnected and main._peer_is_connected(peer_id): main.receive_session_closed.rpc_id(peer_id,"")
 
 static func _can_enter_session(main, peer_id: int) -> bool:
-	return main.accepting_players and main.peer_decks.has(peer_id) and not main.registry.has_match(peer_id) and not main.registry.peer_to_room.has(peer_id) and not main.sessions.peer_to_room.has(peer_id) and not main.quick_queue.has(peer_id)
+	return main.accepting_players and main.peer_decks.has(peer_id) and not main.registry.has_match(peer_id) and not main.registry.peer_to_room.has(peer_id) and not main.sessions.peer_to_room.has(peer_id) and not main.quick_queue.has(peer_id) and not main.ranked_queue.has(peer_id)

@@ -136,6 +136,8 @@ static func request_delete(main) -> void:
 	main.peer_accounts.erase(sender)
 	for peer in main.peer_accounts.keys():
 		if main.peer_accounts[peer] == id: main.peer_accounts.erase(peer)
+	main.cloud.delete(id)
+	main.last_opponents.erase(id)
 	main.accounts.flush()
 	print("ACCOUNT_DELETED")
 	_answer(main, sender, "delete", "")

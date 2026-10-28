@@ -67,7 +67,10 @@ static func browser(main) -> void:
 	main.quick_button_ref = button(main,side,"⚡ 빠른 대전","QuickMatchButton",main._toggle_quick_match,true)
 	main.quick_button_ref.custom_minimum_size.y = 56
 	side.add_child(label("버튼 하나로 상대를 자동 매칭합니다.",12,MUTED))
-	side.add_child(label("잠긴 방은 비밀번호로 입장합니다.",12,MUTED))
+	main.ranked_button_ref = button(main,side,"🏆 랭크 대전","RankedMatchButton",main._toggle_ranked_match)
+	main.ranked_button_ref.custom_minimum_size.y = 56
+	main.ranked_label = label("",12,MUTED); main.ranked_label.name = "RankedRatingLabel"; main.ranked_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; side.add_child(main.ranked_label)
+	button(main,side,"랭킹 보기","RankedBoardButton",main._show_ranked_board)
 	main.status_label = label("서버에 연결 중...",13,MUTED); main.status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; column.add_child(main.status_label)
 	var footer := HBoxContainer.new(); footer.add_theme_constant_override("separation",10); column.add_child(footer)
 	button(main,footer,"← 메인 메뉴","LobbyBackButton",func(): main.network.disconnect_from_server(); main._build_connect_screen())

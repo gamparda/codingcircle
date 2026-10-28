@@ -315,6 +315,41 @@ static func to_backup_text(data: Dictionary) -> String:
 	portable.pending_daily = {}
 	return JSON.stringify(sanitize(portable), "\t")
 
+## The progress a cloud save carries: the portable profile without this device's settings. Compact and
+## key-sorted, so the same progress always gives the same text (CloudSync compares hashes).
+static func cloud_text(data: Dictionary) -> String:
+	var portable: Dictionary = JSON.parse_string(to_backup_text(data))
+	portable.settings = default_data().settings
+	return JSON.stringify(portable, "", true)
+
+## No progress worth keeping yet (a new install): a cloud save replaces it without asking.
+static func is_fresh(data: Dictionary) -> bool:
+	var stats: Dictionary = data.get("stats", {})
+	return int(stats.get("ai_matches", 0)) == 0 and int(stats.get("online_completed", 0)) == 0 and int(data.get("campaign_unlocked", 1)) <= 1 \
+		and data.get("achievements", {}).is_empty() and data.get("daily", {}).is_empty() and data.get("weekly", {}).is_empty()
+
+## Replaces the progress with a cloud save, keeping this device's settings, identity and unsent results, and
+## keeping a recovery copy of the current progress first. Returns {"ok", "data", "error"}.
+static func apply_cloud(current: Dictionary, text: String, path: String = SAVE_PATH) -> Dictionary:
+	var result := {"ok": false, "data": {}, "error": ""}
+	var parsed = JSON.parse_string(text)
+	if not parsed is Dictionary or not _recoverable(parsed):
+		result.error = "서버의 진행도를 읽을 수 없습니다."
+		return result
+	var live := sanitize(current)
+	if create_backup(live, path).is_empty():
+		result.error = "현재 진행도를 보관하지 못해 불러오기를 중단했습니다. 저장 공간을 확인하세요."
+		return result
+	var restored := sanitize(parsed)
+	for key in ["settings", "install_id", "pending_reports", "pending_daily", "next_report_sequence"]:
+		restored[key] = live[key]
+	if not save_data(restored, path):
+		result.error = "불러온 진행도를 저장하지 못했습니다. 현재 진행도는 유지됩니다."
+		return result
+	result.ok = true
+	result.data = restored
+	return result
+
 static func backup_export(candidate: String, fingerprint: String, path: String = SAVE_PATH) -> Dictionary:
 	var result := {"ok": false, "text": "", "error": ""}
 	if candidate.get_base_dir() != recovery_dir(path):

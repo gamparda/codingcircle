@@ -343,6 +343,15 @@ static func _match_strip(main, winner: int, at: Vector2, width: float) -> Contro
 	nickname.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	nickname.add_theme_font_size_override("font_size", 16)
 	names.add_child(nickname)
+	if not spectator and main.account.online:
+		var report := Button.new()
+		report.name = "ReportOpponentButton"
+		report.text = Localization.text("신고")
+		report.flat = true
+		report.add_theme_font_size_override("font_size", 11)
+		report.add_theme_color_override("font_color", UIKit.TEXT_DIM)
+		report.pressed.connect(func(): preload("res://scripts/screens/ReportDialog.gd").show(main))
+		card_row.add_child(report)
 	var deck_row := HBoxContainer.new()
 	deck_row.add_theme_constant_override("separation", 0)
 	card_row.add_child(deck_row)
@@ -390,7 +399,28 @@ static func _match_strip(main, winner: int, at: Vector2, width: float) -> Contro
 	percent.add_theme_font_size_override("font_size", 11)
 	percent.add_theme_color_override("font_color", UIKit.GOLD)
 	record_box.add_child(percent)
+	if main.network.client_match_ranked:
+		var ranked := Label.new()
+		ranked.name = "RankedResultLabel"
+		ranked.add_theme_font_size_override("font_size", 12)
+		ranked.add_theme_color_override("font_color", UIKit.GOLD)
+		record_box.add_child(ranked)
+		_fill_ranked_label(main, ranked)
 	return strip
+
+## The rating change arrives from the server separately; fills in the result screen when it does.
+static func _show_ranked_result(main) -> void:
+	if is_instance_valid(main.root_background):
+		var ranked := main.root_background.find_child("RankedResultLabel", true, false) as Label
+		if ranked != null:
+			_fill_ranked_label(main, ranked)
+
+static func _fill_ranked_label(main, ranked: Label) -> void:
+	var data: Dictionary = main.last_ranked_result
+	if data.is_empty():
+		ranked.text = Localization.text("랭크 점수 계산 중...")
+	else:
+		ranked.text = Localization.text("랭크 점수 %d (%s%d)") % [int(data.rating), "+" if int(data.delta) >= 0 else "", int(data.delta)]
 
 ## Queue only countable solo battles. The caller saves the queue before sending it.
 static func _share_result(main, winner: int) -> bool:

@@ -22,6 +22,7 @@ const PatchNotes = preload("res://scripts/PatchNotes.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 
 const TransportSecurity = preload("res://scripts/net/TransportSecurity.gd")
+const CloudConflict = preload("res://scripts/screens/CloudConflict.gd")
 
 const OFFICIAL_SERVER_ADDRESS := TransportSecurity.OFFICIAL_HOSTNAME
 const OFFICIAL_SERVER_FALLBACK_ADDRESS := TransportSecurity.OFFICIAL_FALLBACK_ADDRESS
@@ -34,6 +35,7 @@ const BATTLE_BGM := preload("res://assets/audio/battle_bgm.wav")
 @onready var network: NetworkController = $NetworkController
 @onready var updater: UpdateManager = $UpdateManager
 var account := preload("res://scripts/accounts/ClientAccount.gd").new()
+var cloud_sync := preload("res://scripts/accounts/CloudSync.gd").new()
 
 var own_side := 0
 var battle_view: BattleView
@@ -56,6 +58,12 @@ var smoke_mode := false
 var smoke_elapsed := 0.0
 var connect_button_ref: Button
 var quick_button_ref: Button
+var ranked_button_ref: Button
+var ranked_label: Label
+## Last ranked profile from the server ({rating, wins, losses, draws, rank, leaderboard}); empty until one arrives.
+var ranked_profile: Dictionary = {}
+## Rating change of the last ranked match ({rating, delta, outcome}); empty until the server sends it.
+var last_ranked_result: Dictionary = {}
 var join_button_ref: Button
 var local_ai_mode := false
 var ai_smoke_mode := false
@@ -204,6 +212,9 @@ func _ready() -> void:
 	network.result_report_saved.connect(_on_result_report_saved)
 	network.daily_score_saved.connect(_on_daily_score_saved)
 	network.quick_match_status.connect(_on_quick_match_status)
+	network.ranked_profile_received.connect(func(data): LobbyFlow._on_ranked_profile(self, data))
+	network.ranked_result_received.connect(_on_ranked_result)
+	network.match_found.connect(func(_side): last_ranked_result = {})
 	network.spectate_started.connect(_on_spectate_started)
 	network.session_closed.connect(_on_session_closed)
 	network.latency_updated.connect(_on_latency_updated)
@@ -213,6 +224,13 @@ func _ready() -> void:
 	account.name = "ClientAccount"
 	add_child(account)
 	account.setup(network)
+	cloud_sync.name = "CloudSync"
+	add_child(cloud_sync)
+	cloud_sync.setup(self)
+	cloud_sync.conflict.connect(func(text: String):
+		if not battle_active and is_instance_valid(root_background): CloudConflict.show(self, text))
+	cloud_sync.applied.connect(_on_cloud_applied)
+	account.changed.connect(_refresh_quick_button)
 	updater.update_started.connect(_on_update_started)
 	updater.update_status.connect(_on_update_status)
 	updater.update_failed.connect(_on_update_failed)
@@ -446,6 +464,7 @@ func _active_match_count() -> int:
 
 ## Once a server is reachable: send what was queued while offline and refresh the community statistics.
 func _on_server_ready() -> void:
+	network.send_ranked_profile_request()
 	lobby_filter = "all" # a new connection starts with the unfiltered list
 	if MetaStats.sharing(save_data):
 		MetaStats.install_id(save_data)
@@ -530,7 +549,7 @@ func _clear_screen() -> void:
 	base_warning_label = null; cancel_build_button = null
 	session_roster = null; session_title = null
 	for child in get_children():
-		if child != network and child != updater and child != bgm_player and child != account:
+		if child != network and child != updater and child != bgm_player and child != account and child != cloud_sync:
 			child.queue_free()
 	battle_view = null
 	status_label = null
@@ -745,6 +764,15 @@ func _build_connect_screen(message: String = "") -> void:
 		preload("res://scripts/screens/LoginGate.gd").show(self, message)
 		return
 	MenuScreens._build_connect_screen(self, message)
+	if cloud_sync.phase == "conflict":
+		CloudConflict.show(self, cloud_sync.conflict_text)
+
+## Progress loaded from the server: refresh the menu so it shows it; other screens keep going.
+func _on_cloud_applied(message: String) -> void:
+	if not battle_active and multiplayer_screen == "" and is_instance_valid(root_background) and root_background.find_child("MenuColumn", true, false) != null:
+		_build_connect_screen(message)
+	elif is_instance_valid(status_label):
+		status_label.text = message
 
 func _normalize_room_code_input(value: String) -> void:
 	if not is_instance_valid(room_code_input) or value == value.to_upper():
@@ -1035,6 +1063,17 @@ func _toggle_quick_match() -> void:
 
 func _on_quick_match_status(state: String) -> void:
 	LobbyFlow._on_quick_match_status(self, state)
+
+func _toggle_ranked_match() -> void:
+	LobbyFlow._toggle_ranked_match(self)
+
+func _show_ranked_board() -> void:
+	LobbyFlow._show_ranked_board(self)
+
+func _on_ranked_result(data: Dictionary) -> void:
+	last_ranked_result = data
+	ResultScreens._show_ranked_result(self)
+	network.send_ranked_profile_request()
 
 func _refresh_quick_button() -> void:
 	LobbyFlow._refresh_quick_button(self)

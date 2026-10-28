@@ -13,6 +13,11 @@ const MetaStats = preload("res://scripts/MetaStats.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const TransportSecurity = preload("res://scripts/net/TransportSecurity.gd")
 const AccountFlow = preload("res://scripts/net/AccountFlow.gd")
+const RankedFlow = preload("res://scripts/net/RankedFlow.gd")
+const CloudFlow = preload("res://scripts/net/CloudFlow.gd")
+const CloudSaves = preload("res://scripts/accounts/CloudSaves.gd")
+const ReportLog = preload("res://scripts/accounts/ReportLog.gd")
+const ServerBackup = preload("res://scripts/ServerBackup.gd")
 const AccountStore = preload("res://scripts/accounts/AccountStore.gd")
 const GoogleIdToken = preload("res://scripts/accounts/GoogleIdToken.gd")
 const ServerReplayShelf = preload("res://scripts/ServerReplayShelf.gd")
@@ -97,6 +102,17 @@ var peer_accounts: Dictionary = {}
 var pending_logins: Array = []
 var jwks_http: HTTPRequest = null
 var jwks_elapsed := 0.0
+## Ranked games, cloud saves and reports; see RankedFlow and CloudFlow.
+var ranked_queue := QuickQueue.new()
+var ranked_matches: Dictionary = {}
+var last_opponents: Dictionary = {}
+var cloud := CloudSaves.new()
+var cloud_store_times: Dictionary = {}
+var reports := ReportLog.new()
+## Daily copies of the state directory (ServerBackup); empty when the server keeps no files.
+var state_dir := ""
+var backup_elapsed := 0.0
+const BACKUP_CHECK_SECONDS := 600.0
 var upload_counts: Dictionary = {}
 const MAX_UPLOADS_PER_CONNECTION := 10
 const MAX_REPORTS_PER_WINDOW := 40
@@ -414,6 +430,13 @@ func _process(delta: float) -> void:
 	_expire_recovery()
 	_advance_persistence(delta)
 	AccountFlow.advance(self, delta)
+	backup_elapsed += delta
+	if backup_elapsed >= BACKUP_CHECK_SECONDS:
+		backup_elapsed = 0.0
+		_backup_state()
+	for waiting_peer in ranked_queue.expire(Time.get_ticks_msec()):
+		if _peer_is_connected(int(waiting_peer)):
+			receive_quick_status.rpc_id(int(waiting_peer),"timeout"); request_room_list_for(int(waiting_peer))
 	for id in join_challenges.keys():
 		if Time.get_ticks_msec()>int(join_challenges[id].deadline): join_challenges.erase(id)
 	for waiting_peer in quick_queue.expire(Time.get_ticks_msec()):
@@ -438,6 +461,8 @@ func _process(delta: float) -> void:
 	_refresh_backlog_status()
 	for tick in step.ticks:
 		var match_id: int = tick.match_id
+		if tick.finished and ranked_matches.has(match_id):
+			RankedFlow.settle(self, match_id, models[match_id].winner)
 		if tick.finished and session_matches.has(match_id):
 			var code: String = session_matches[match_id]
 			if sessions.rooms.has(code) and sessions.rooms[code].phase == "playing":
@@ -522,6 +547,8 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	if not server_mode:
 		return
 	quick_queue.cancel(peer_id)
+	ranked_queue.cancel(peer_id)
+	cloud_store_times.erase(peer_id)
 	AccountFlow.forget_peer(self, peer_id)
 	report_counts.erase(peer_id)
 	report_window_started.erase(peer_id)
@@ -741,6 +768,8 @@ func _broadcast_combat_events(match_id: int, events: Array) -> void:
 @rpc("authority", "call_remote", "reliable")
 func match_started(side: int) -> void:
 	if is_valid_match_side(side):
+		client_match_ranked = client_queue_ranked
+		client_queue_ranked = false
 		client_connection_state = "in_match"
 		client_in_match = true
 		match_found.emit(side)
@@ -1005,6 +1034,7 @@ func _finish_match(match_id: int, winner: int) -> void:
 	if not models.has(match_id) or models[match_id].winner != -1: return
 	models[match_id].winner = winner
 	replays.settle(match_id, models[match_id])
+	RankedFlow.settle(self, match_id, winner)
 	if session_matches.has(match_id):
 		sessions.finish(String(session_matches[match_id])); _push_session(String(session_matches[match_id]))
 	_broadcast_snapshot(match_id); lobby_dirty = true
@@ -1149,7 +1179,15 @@ func configure_stats(directory: String) -> void:
 
 ## `fetch_keys` false keeps tests offline; they load signing keys into `google` themselves.
 func configure_accounts(directory: String, fetch_keys: bool = true) -> void:
+	state_dir = directory
+	_backup_state() # before anything is written, so today's copy holds yesterday's data
 	AccountFlow.configure(self, directory, fetch_keys)
+	cloud.configure(directory)
+	reports.configure(directory)
+
+func _backup_state() -> void:
+	if not state_dir.is_empty():
+		ServerBackup.snapshot(state_dir, int(Time.get_unix_time_from_system()))
 
 # ---------- Accounts (Google sign-in) ----------
 
@@ -1232,6 +1270,99 @@ func receive_account_nonce(nonce: String) -> void:
 func receive_account_result(result: Dictionary) -> void:
 	if AccountFlow.valid_result(result):
 		account_result_received.emit(result)
+
+# ---------- Ranked games, reports and cloud saves (signed-in accounts) ----------
+
+signal ranked_profile_received(data: Dictionary)
+signal ranked_result_received(data: Dictionary)
+signal report_result_received(error: String)
+signal cloud_save_received(revision: int, text: String)
+signal cloud_save_stored(ok: bool, revision: int, error: String)
+
+## Whether the queue the client waits in is the ranked one, and whether the current match came from it.
+var client_queue_ranked := false
+var client_match_ranked := false
+
+func start_ranked_match() -> bool:
+	if not account_ready() or client_connection_state != "lobby": return false
+	client_connection_state = "queued"; client_phase_elapsed = 0.0
+	client_queue_ranked = true
+	request_ranked_match.rpc_id(1)
+	return true
+
+func cancel_ranked_match() -> bool:
+	if client_connection_state != "queued" or not client_queue_ranked: return false
+	request_cancel_ranked_match.rpc_id(1)
+	return true
+
+func send_ranked_profile_request() -> bool:
+	if not client_is_online(): return false
+	request_ranked_profile.rpc_id(1)
+	return true
+
+func send_report(reason: String) -> bool:
+	if not account_ready() or reason not in ReportLog.REASONS: return false
+	request_report.rpc_id(1, reason)
+	return true
+
+func send_cloud_load() -> bool:
+	if not account_ready(): return false
+	request_cloud_load.rpc_id(1)
+	return true
+
+func send_cloud_store(expected: int, text: String) -> bool:
+	if not account_ready() or text.length() > CloudFlow.MAX_CHARS: return false
+	request_cloud_store.rpc_id(1, expected, text)
+	return true
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_ranked_match() -> void:
+	RankedFlow.request_match(self)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_cancel_ranked_match() -> void:
+	RankedFlow.request_cancel(self)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_ranked_profile() -> void:
+	RankedFlow.request_profile(self)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_report(reason: String) -> void:
+	RankedFlow.request_report(self, reason)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_cloud_load() -> void:
+	CloudFlow.request_load(self)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_cloud_store(expected: int, text: String) -> void:
+	CloudFlow.request_store(self, expected, text)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_ranked_profile(data: Dictionary) -> void:
+	if RankedFlow.valid_profile(data):
+		ranked_profile_received.emit(data)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_ranked_result(data: Dictionary) -> void:
+	if RankedFlow.valid_result(data):
+		ranked_result_received.emit(data)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_report_result(error: String) -> void:
+	if error.length() <= 32:
+		report_result_received.emit(error)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_cloud_save(revision: int, text: String) -> void:
+	if CloudFlow.valid_load(revision, text):
+		cloud_save_received.emit(revision, text)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_cloud_stored(ok: bool, revision: int, error: String) -> void:
+	if CloudFlow.valid_stored(ok, revision, error):
+		cloud_save_stored.emit(ok, revision, error)
 
 func client_is_online() -> bool:
 	return not (client_connection_state in ["idle", "connecting", "recovering"]) and not client_reconnecting

@@ -60,16 +60,19 @@ static func join_session_room(main, code: String, password: String = "", spectat
 static func start_quick_match(main) -> bool:
 	if main.client_connection_state != "lobby" or not SessionStore.safe_text(main.client_nickname,SessionStore.MAX_NICKNAME): return false
 	main.client_connection_state = "queued"; main.client_phase_elapsed = 0.0
+	main.client_queue_ranked = false
 	main.request_quick_match.rpc_id(1,main.client_nickname)
 	return true
 
 static func cancel_quick_match(main) -> bool:
 	if main.client_connection_state != "queued": return false
+	if main.client_queue_ranked: return main.cancel_ranked_match()
 	main.request_cancel_quick_match.rpc_id(1)
 	return true
 
 static func receive_quick_status(main, state: String) -> void:
 	if state not in ["queued","cancelled","timeout"] or main.client_connection_state not in ["lobby","queued"]: return
 	main.client_connection_state = "queued" if state == "queued" else "lobby"
+	if state != "queued": main.client_queue_ranked = false
 	main.client_phase_elapsed = 0.0
 	main.quick_match_status.emit(state)

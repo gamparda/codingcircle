@@ -20,7 +20,8 @@
     "tests/replay_shelf_test.gd",
     "tests/ime_fix_test.gd",
     "tests/account_test.gd",
-    "tests/pack_selfcheck.gd"
+    "tests/pack_selfcheck.gd",
+    "tests/player_data_test.gd"
   ],
   "network": [
     "tests/transport_security_test.gd",
@@ -35,7 +36,9 @@
     "tests/quick_match_test.gd",
     "tests/community_stats_wire_test.gd",
     "tests/live_room_list_test.gd",
-    "tests/server_link_test.gd"
+    "tests/server_link_test.gd",
+    "tests/ranked_wire_test.gd",
+    "tests/cloud_sync_test.gd"
   ],
   "ui": [
     "tests/ui_flow_test.gd",

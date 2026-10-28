@@ -13,6 +13,8 @@ const PLUGIN := "KeepfallSignIn"
 const PRIVACY_URL := "https://gampa.xyz/privacy_policy.html"
 ## Long enough for the Google account picker; a stuck request goes back to the guest state.
 const REQUEST_SECONDS := 120.0
+## After the server last confirmed the account, Android plays offline this long without reaching it.
+const OFFLINE_GRACE_SECONDS := 7 * 86400
 
 ## Tests point it somewhere harmless.
 static var save_path := "user://account.json"
@@ -29,6 +31,11 @@ var nickname := ""
 var online := false
 ## True once the server accepted the account during this run of the game; opens the game on Android.
 var verified := false
+## Unix time the server last confirmed the account (saved), for offline play.
+var verified_at := 0
+## Cloud save bookkeeping for this account (CloudSync): the revision and content hash last in sync.
+var cloud_revision := 0
+var cloud_hash := ""
 var message := ""
 var busy_elapsed := 0.0
 var _busy_return := "guest"
@@ -67,7 +74,11 @@ static func required() -> bool:
 	return OS.has_feature("android") if required_override < 0 else required_override == 1
 
 func unlocked() -> bool:
-	return verified or not required()
+	return verified or not required() or offline_grace(int(Time.get_unix_time_from_system()))
+
+## A saved account the server confirmed within OFFLINE_GRACE_SECONDS opens the game without a connection.
+func offline_grace(now: int) -> bool:
+	return not session.is_empty() and verified_at > 0 and now >= verified_at and now - verified_at <= OFFLINE_GRACE_SECONDS
 
 func can_sign_in() -> bool:
 	return plugin != null
@@ -144,6 +155,9 @@ func forget() -> void:
 	nickname = ""
 	online = false
 	verified = false
+	verified_at = 0
+	cloud_revision = 0
+	cloud_hash = ""
 	state = "guest"
 	if FileAccess.file_exists(save_path):
 		DirAccess.remove_absolute(save_path)
@@ -205,8 +219,7 @@ func _on_result(result: Dictionary) -> void:
 			if error.is_empty():
 				online = true
 				verified = true
-				if not String(result.nickname).is_empty() and String(result.nickname) != nickname:
-					_save_session(session, String(result.nickname))
+				_save_session(session, String(result.nickname) if not String(result.nickname).is_empty() else nickname)
 				_finish("signed_in", "")
 			else:
 				forget()
@@ -269,15 +282,25 @@ func _refuse(text: String) -> bool:
 	return false
 
 func _save_session(token: String, name_text: String) -> void:
+	if token != session:
+		cloud_revision = 0
+		cloud_hash = ""
 	session = token
 	nickname = name_text
 	online = true
 	verified = true
+	verified_at = int(Time.get_unix_time_from_system())
+	if not save():
+		message = "로그인 정보를 저장하지 못했습니다. 다음 실행 때 다시 로그인해야 합니다."
+
+func save() -> bool:
+	if session.is_empty():
+		return false
 	var file := FileAccess.open(save_path, FileAccess.WRITE)
 	if file == null:
-		message = "로그인 정보를 저장하지 못했습니다. 다음 실행 때 다시 로그인해야 합니다."
-		return
-	file.store_string(JSON.stringify({"session": session, "nickname": nickname}))
+		return false
+	file.store_string(JSON.stringify({"session": session, "nickname": nickname, "verified_at": verified_at, "cloud_revision": cloud_revision, "cloud_hash": cloud_hash}))
+	return true
 
 func _load() -> void:
 	if not FileAccess.file_exists(save_path):
@@ -290,3 +313,8 @@ func _load() -> void:
 	session = String(data.session)
 	nickname = String(data.nickname)
 	state = "signed_in"
+	if data.get("verified_at") is float or data.get("verified_at") is int:
+		verified_at = int(data.verified_at)
+	if (data.get("cloud_revision") is float or data.get("cloud_revision") is int) and data.get("cloud_hash") is String:
+		cloud_revision = maxi(0, int(data.cloud_revision))
+		cloud_hash = String(data.cloud_hash)

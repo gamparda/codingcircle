@@ -144,7 +144,7 @@ refuse it.
 
 ## Accounts (Google sign-in)
 
-Accounts are optional for players and live in `<state dir>/accounts.json` (written atomically,
+Accounts are required to play on Android (the PC version plays without one) and live in `<state dir>/accounts.json` (written atomically,
 retried with the other stores). The file holds a random per-server salt, a salted SHA-256 of each
 account's Google subject, the nickname, creation and last-login times, and SHA-256 hashes of up to
 five 30-day session tokens. It never holds e-mail addresses, raw Google IDs or raw session tokens.
@@ -157,6 +157,27 @@ outbound HTTPS to `www.googleapis.com`. Logs: `ACCOUNT_CREATED`, `ACCOUNT_DELETE
 `ACCOUNT_KEYS_FETCH_FAILED`. Tokens must be issued for the web OAuth client in
 `scripts/accounts/GoogleIdToken.gd`; `CATWAR_GOOGLE_CLIENT_IDS` (comma-separated) replaces that
 list, for example to accept a future desktop client as well.
+
+### Ranked games, reports and cloud saves
+
+- **Ranked ratings** are kept in each account record (`rating`, `ranked` win/loss/draw counts) in
+  `accounts.json`. Logs: `RANKED_MATCH`, `RANKED_RESULT`.
+- **Cloud saves** live in `<state dir>/saves/<first two id characters>/<account id>.json`, one file per account
+  (the player's portable progress, at most 512 KB, with a revision number). Deleting an account deletes its save.
+- **Reports** are appended to `<state dir>/reports.jsonl`, one JSON object per line: time, reporter account,
+  reported account and nickname, match (`room-code-match-id`) and reason (`nickname`, `manner`, `cheat`).
+  Each account can report each match once and ten times a day. Log: `PLAYER_REPORT`. Review the file by hand;
+  nothing is acted on automatically.
+
+### Backups and damaged files
+
+At start and then once a day the server copies the player data in the state directory (every top-level
+`*.json`/`*.jsonl` file and the `saves/` folder; not replay archives) to `<state dir>/backups/<YYYY-MM-DD>/`
+and keeps the last 14 days. Logs: `BACKUP_DONE`, `BACKUP_FAILED`. If `accounts.json` cannot be read at start,
+the server renames it to `accounts.json.corrupt-<unix time>` and restores the newest readable backup
+(`STORE_CORRUPT`, `STORE_RESTORED`; `STORE_NOT_RESTORED` means no backup could be read and the server starts
+with no accounts — stop it and restore by hand). Copy `backups/` off the machine as well; a disk failure takes
+both.
 
 ## Production Linux server
 
