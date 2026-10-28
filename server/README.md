@@ -83,7 +83,7 @@ Public flags are kept per existing code, and promotion still requires a successf
 
 If completed replays awaiting persistence reach 16 recordings or 100,000 commands, the
 server pauses new battles (quick matches, room starts and rematches) with a retryable storage
-message. Existing battles, reconnects, spectators and room chat continue. Waiting quick-match
+message. Existing battles, reconnects and spectators continue. Waiting quick-match
 players keep their queue position and pairing resumes after the periodic writes recover.
 This prevents an ongoing outage from accepting more battles once the backlog reaches its
 threshold; already active battles may still finish and add pending records. It is not a hard
@@ -112,12 +112,35 @@ disk permissions will not free receipt slots. Keep the current ruleset's receipt
 can count queued retries again. Each new content ruleset has its own receipt store and capacity;
 keep older files for audit rather than clearing them or changing rules solely to free slots.
 
-## Assist servers and helper PCs
+## Encrypted connections (DTLS)
 
-Assist servers and helper PCs may connect and take over batch work such as balance experiments. There is no token;
-only light limits apply. Set `CATWAR_ASSIST=off` (for example in `/etc/catwar/server.env`) to refuse them. The main server still does the
-work itself at low priority when nobody helps. Finished job results are written to `<state dir>/jobs/`. See
-`docs/ASSIST_DESIGN.md`.
+Every ENet connection is DTLS-encrypted; unencrypted clients cannot connect. Official clients
+connect to `ruellyya.kr`, `211.176.222.145` or `192.168.0.4` and verify the server certificate as
+`ruellyya.kr` against the public CA list, so a production server needs a CA-signed certificate
+for that name (Let's Encrypt works). Point the server at the PEM files, for example in
+`/etc/catwar/server.env` (read by the server service as an `EnvironmentFile`):
+
+```
+CATWAR_TLS_CERT=/etc/catwar/tls/fullchain.pem
+CATWAR_TLS_KEY=/etc/catwar/tls/privkey.pem
+```
+
+The `catwar` service account must be able to read both files. Let's Encrypt keeps its keys
+root-only, so copy them with a certbot deploy hook (`/etc/letsencrypt/renewal-hooks/deploy/catwar`):
+
+```sh
+#!/bin/sh
+install -o catwar -g catwar -m 600 "$RENEWED_LINEAGE/privkey.pem" /etc/catwar/tls/privkey.pem
+install -o catwar -g catwar -m 644 "$RENEWED_LINEAGE/fullchain.pem" /etc/catwar/tls/fullchain.pem
+```
+
+The server reads the certificate at start. Renewals happen 30 days before expiry, so the next
+restart (any update does one) picks up the new files; restart manually in a quiet moment if no
+update ships in that window. If the variables are set but either file cannot be read, the server
+refuses to start (`TLS_CONFIG_INVALID`) rather than fall back. Without the variables it uses the
+public development identity in `scripts/net/TransportSecurity.gd` and logs
+`TLS_CERTIFICATE development`: local and test clients still connect encrypted, official clients
+refuse it.
 
 ## Production Linux server
 

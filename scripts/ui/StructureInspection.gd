@@ -44,7 +44,6 @@ func sync(main) -> void:
 	enabled = main.battle_active and not main.result_shown and not main.finale_active and not main.current_snapshot.is_empty() and int(main.current_snapshot.get("winner", -1)) == -1
 	enabled = enabled and view.selected_structure.is_empty() and not view.inspect_mode and not main.placement_pending and not main.local_battle_backgrounded
 	enabled = enabled and not is_instance_valid(main.stats_overlay) and not is_instance_valid(main.report_overlay) and not is_instance_valid(main.action_overlay) and not is_instance_valid(main.local_pause_overlay)
-	enabled = enabled and not (is_instance_valid(main.battle_chat_panel) and main.battle_chat_panel.visible)
 	if main.local_ai_mode:
 		enabled = enabled and not main.practice.paused
 	else:

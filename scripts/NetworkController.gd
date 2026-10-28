@@ -11,10 +11,9 @@ const ServerStats = preload("res://scripts/ServerStats.gd")
 const ServerDailyBoard = preload("res://scripts/ServerDailyBoard.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
+const TransportSecurity = preload("res://scripts/net/TransportSecurity.gd")
 const ServerReplayShelf = preload("res://scripts/ServerReplayShelf.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
-const AssistHub = preload("res://scripts/jobs/AssistHub.gd")
-const JobRunner = preload("res://scripts/jobs/JobRunner.gd")
 const QuickQueue = preload("res://scripts/QuickQueue.gd")
 const SessionFlow = preload("res://scripts/net/SessionFlow.gd")
 const ReconnectFlow = preload("res://scripts/net/ReconnectFlow.gd")
@@ -26,13 +25,6 @@ signal meta_stats_received(data: Dictionary)
 signal daily_board_received(data: Dictionary)
 signal result_report_saved(id: String, sequence: int)
 signal daily_score_saved(id: String, date: String, score: int, seconds: float, ruleset: String)
-signal assist_welcomed(ok: bool, message: String)
-signal assist_assigned(job_id: int, chunk_index: int, type: String, params: Dictionary, lease: float)
-signal assist_idle_received
-signal assist_wrap_up_received
-signal assist_overview_received(data: Dictionary)
-signal assist_submit_answered(ok: bool, job_id: int, error: String)
-signal assist_job_result_received(job_id: int, result: Dictionary)
 signal replay_code_received(code: String)
 signal shared_replay_received(code: String, text: String)
 signal recent_replays_received(list: Array)
@@ -45,7 +37,6 @@ signal room_created(code: String)
 signal room_list_received(data: Dictionary)
 signal session_changed(data: Dictionary)
 signal session_error(text: String)
-signal session_chat(message: Dictionary)
 signal spectate_started
 signal session_closed(text: String)
 signal room_join_failed(error: String)
@@ -94,8 +85,6 @@ var daily_board := ServerDailyBoard.new()
 var report_counts: Dictionary = {}
 var report_window_started: Dictionary = {}
 var shelf := ServerReplayShelf.new()
-var assist := AssistHub.new()
-var client_assist_mode := false # a helper program connects without joining the lobby
 var upload_counts: Dictionary = {}
 const MAX_UPLOADS_PER_CONNECTION := 10
 const MAX_REPORTS_PER_WINDOW := 40
@@ -123,6 +112,8 @@ var client_connection_state := "idle"
 var client_connection_candidates: Array = []
 var client_connection_index := -1
 var client_connection_port := DEFAULT_PORT
+## True only while connected to an official address whose certificate was verified; credentials require it.
+var client_transport_verified := false
 var client_room_mode := "create"
 var client_room_code := ""
 var client_room_name := ""
@@ -135,7 +126,6 @@ var lobby_refresh_elapsed := 0.0
 var sessions = SessionStore.new()
 var session_matches: Dictionary = {}
 var join_challenges: Dictionary = {}
-var chat_times: Dictionary = {}
 var client_session: Dictionary = {}
 var client_is_spectator := false
 var client_nickname := "플레이어"
@@ -163,12 +153,6 @@ static func connection_candidates(primary_address: String, fallback_address: Str
 	return candidates
 
 func _on_connected_to_server() -> void:
-	if client_assist_mode:
-		client_connection_state = "assist"
-		client_phase_elapsed = 0.0
-		connection_status.emit(Localization.text("서버에 연결됨"))
-		server_ready.emit()
-		return
 	client_connection_state = "connected"
 	client_phase_elapsed = 0.0
 	connection_status.emit(Localization.text("서버에 연결됨 · 덱 검증 중..."))
@@ -225,9 +209,15 @@ func _on_server_disconnected() -> void:
 
 func start_dedicated_server(port: int = DEFAULT_PORT) -> bool:
 	allow_test_room_codes = OS.get_cmdline_user_args().has("--allow-test-room-codes")
+	var tls := TransportSecurity.server_options()
+	if tls == null:
+		return false
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_server(port, TRANSPORT_MAX_PEERS)
+	if error == OK:
+		error = peer.host.dtls_server_setup(tls)
 	if error != OK:
+		peer.close()
 		printerr(Localization.text("서버 시작 실패: %s") % error_string(error))
 		return false
 	multiplayer.multiplayer_peer = peer
@@ -261,6 +251,9 @@ func _start_client_attempt(address: String) -> bool:
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_client(address, client_connection_port)
+	if error == OK:
+		error = peer.host.dtls_client_setup(TransportSecurity.client_hostname(address), TransportSecurity.client_options(address))
+	client_transport_verified = error == OK and TransportSecurity.is_official_address(address)
 	if error != OK:
 		if _retry_next_connection_candidate():
 			return true
@@ -290,6 +283,7 @@ func disconnect_from_server() -> void:
 		request_session_leave.rpc_id(1)
 	client_reconnect_token = ""; client_reconnect_code = ""; client_reconnecting = false
 	client_latency_ms = -1; pending_ping.clear()
+	client_transport_verified = false
 	client_connection_generation += 1
 	client_in_match = false
 	client_is_spectator = false
@@ -427,7 +421,6 @@ func _process(delta: float) -> void:
 				lobby_pages.erase(peer_id)
 			elif _peer_is_connected(int(peer_id)):
 				_send_room_listing(int(peer_id), int(lobby_pages[peer_id]), listing)
-	_advance_assist(delta)
 	var step := battle.advance(delta, _match_paused)
 	_refresh_backlog_status()
 	for tick in step.ticks:
@@ -516,21 +509,18 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	if not server_mode:
 		return
 	quick_queue.cancel(peer_id)
-	if assist.is_registered(peer_id):
-		assist.peer_gone(peer_id, _assist_now())
 	report_counts.erase(peer_id)
 	report_window_started.erase(peer_id)
 	upload_counts.erase(peer_id)
 	var session_peer: bool = sessions.peer_to_room.has(peer_id)
 	if session_peer and sessions.suspend(peer_id,Time.get_ticks_msec()+int(RECONNECT_GRACE*1000)):
 		_push_session(sessions.peer_to_room[peer_id])
-		lobby_pages.erase(peer_id); lobby_filters.erase(peer_id); join_challenges.erase(peer_id); chat_times.erase(peer_id)
+		lobby_pages.erase(peer_id); lobby_filters.erase(peer_id); join_challenges.erase(peer_id)
 		request_windows.erase(peer_id); release_peer_address(peer_id)
 		lobby_dirty = true
 		return
 	if session_peer: _leave_session(peer_id,true)
 	join_challenges.erase(peer_id)
-	chat_times.erase(peer_id)
 	var match_id := registry.get_match_id(peer_id)
 	var players := registry.remove_player(peer_id)
 	lobby_pages.erase(peer_id)
@@ -942,15 +932,8 @@ func request_session_return() -> void:
 func request_session_leave() -> void:
 	SessionFlow.request_session_leave(self)
 
-@rpc("any_peer", "call_remote", "reliable")
-func request_session_chat(text: String) -> void:
-	SessionFlow.request_session_chat(self, text)
-
 static func valid_session_state(data: Dictionary) -> bool:
 	return Protocol.valid_session_state(data)
-
-static func valid_chat_message(message: Variant) -> bool:
-	return Protocol.valid_chat_message(message)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_session_state(data: Dictionary) -> void:
@@ -967,10 +950,6 @@ func receive_session_error(text: String) -> void:
 @rpc("authority", "call_remote", "reliable")
 func receive_session_closed(text: String) -> void:
 	ClientSessionFlow.receive_session_closed(self, text)
-
-@rpc("authority", "call_remote", "reliable")
-func receive_session_chat(message: Dictionary) -> void:
-	ClientSessionFlow.receive_session_chat(self, message)
 
 @rpc("authority", "call_remote", "reliable")
 func session_spectate() -> void:
@@ -1286,8 +1265,6 @@ func upload_replay(text: String) -> void:
 	if text.length() <= ServerReplayShelf.MAX_TEXT and int(upload_counts.get(sender, 0)) < MAX_UPLOADS_PER_CONNECTION:
 		upload_counts[sender] = int(upload_counts.get(sender, 0)) + 1
 		code = shelf.add(text, false)
-		if not code.is_empty():
-			assist.audit_replay(code, text, _assist_now())
 	receive_replay_code.rpc_id(sender, code)
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -1346,156 +1323,3 @@ func receive_recent_replays(list: Array) -> void:
 			summary["stored_at_estimated"] = not estimated is bool or bool(estimated)
 		clean.append(summary)
 	recent_replays_received.emit(clean)
-
-# ---------- Helper programs: assist servers and helper PCs ----------
-## They connect to the main server, introduce themselves and ask for work one chunk at a time. There is no password
-## (the programs only run on the operator's computers); CATWAR_ASSIST=off on the server switches it all off.
-
-const ASSIST_BUSY_MATCHES := 40 # the main server stops doing jobs itself while this many matches are running
-
-func configure_assist(directory: String, allow: bool = true) -> void:
-	assist.configure(directory, allow, _assist_now())
-
-func _assist_now() -> float:
-	return float(Time.get_ticks_msec()) / 1000.0
-
-func _advance_assist(delta: float) -> void:
-	if not assist.enabled():
-		return
-	assist.tick(_assist_now(), delta, models.size() >= ASSIST_BUSY_MATCHES)
-	for event in assist.drain_events():
-		_report_assist_event(event)
-
-func _report_assist_event(event: Dictionary) -> void:
-	match String(event.type):
-		"joined": print("ASSIST_JOINED name=%s role=%s capabilities=%s" % [event.name, event.role, event.capabilities])
-		"left": print("ASSIST_LEFT name=%s released_chunks=%d" % [event.name, int(event.released)])
-		"reclaimed": print("ASSIST_RECLAIMED chunks=%d" % int(event.chunks))
-		"audit":
-			if not bool(event.ok):
-				print("REPLAY_AUDIT_FAILED code=%s" % event.code)
-		"submitted": print("JOB_SUBMITTED id=%d by=%s title=%s" % [int(event.job), event.name, event.title])
-		"job_done":
-			print("JOB_DONE id=%d title=%s" % [int(event.job), event.title])
-			var submitter := int(String(event.submitter))
-			if submitter > 0 and _peer_is_connected(submitter):
-				assist_job_result.rpc_id(submitter, int(event.job), assist.result_for(int(event.job)))
-
-## Asks one helper to finish what it is doing and leave (used when the main server wants to restart it).
-func ask_assist_wrap_up(peer: int) -> bool:
-	if assist.request_wrap_up(peer) and _peer_is_connected(peer):
-		assist_wrap_up.rpc_id(peer)
-		return true
-	return false
-
-@rpc("any_peer", "call_remote", "reliable")
-func assist_hello(name: String, version: int, capabilities: Array, cores: int, role: String) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender): return
-	var answer := assist.hello(sender, name, version, capabilities, cores, role, _assist_now())
-	assist_welcome.rpc_id(sender, bool(answer.ok), String(answer.message))
-	if not bool(answer.ok):
-		print("ASSIST_REJECTED peer=%d reason=%s" % [sender, answer.message])
-		_disconnect_peer.call_deferred(sender)
-
-@rpc("any_peer", "call_remote", "reliable")
-func assist_claim() -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not assist.is_registered(sender): return
-	var assignment := assist.claim(sender, _assist_now())
-	if assignment.is_empty():
-		assist_idle.rpc_id(sender)
-	else:
-		assist_assign.rpc_id(sender, int(assignment.job), int(assignment.chunk), String(assignment.type), assignment.params, float(assignment.lease))
-
-@rpc("any_peer", "call_remote", "reliable")
-func assist_heartbeat() -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not assist.is_registered(sender): return
-	assist.heartbeat(sender, _assist_now())
-	assist_overview.rpc_id(sender, assist.overview())
-
-@rpc("any_peer", "call_remote", "reliable")
-func assist_chunk_done(job_id: int, chunk_index: int, result: Dictionary) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not assist.is_registered(sender): return
-	assist.chunk_done(sender, job_id, chunk_index, result, _assist_now())
-
-@rpc("any_peer", "call_remote", "reliable")
-func assist_goodbye() -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if assist.is_registered(sender):
-		assist.goodbye(sender, _assist_now())
-
-@rpc("any_peer", "call_remote", "reliable")
-func assist_submit(type: String, params: Dictionary, title: String) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not assist.is_registered(sender): return
-	var outcome := assist.submit(sender, type, params, title.left(60), _assist_now())
-	assist_submitted.rpc_id(sender, bool(outcome.ok), int(outcome.id), String(outcome.error))
-
-@rpc("any_peer", "call_remote", "reliable")
-func assist_fetch_result(job_id: int) -> void:
-	if not server_mode: return
-	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not assist.is_registered(sender): return
-	assist_job_result.rpc_id(sender, job_id, assist.result_for(job_id))
-
-# client side
-func assist_send_hello(name: String, capabilities: Array, cores: int, role: String = "assist") -> void:
-	if client_is_online():
-		assist_hello.rpc_id(1, name, AssistHub.PROTOCOL, capabilities, cores, role)
-
-func assist_send_claim() -> void:
-	if client_is_online(): assist_claim.rpc_id(1)
-
-func assist_send_heartbeat() -> void:
-	if client_is_online(): assist_heartbeat.rpc_id(1)
-
-func assist_send_chunk(job_id: int, chunk_index: int, result: Dictionary) -> void:
-	if client_is_online(): assist_chunk_done.rpc_id(1, job_id, chunk_index, result)
-
-func assist_send_goodbye() -> void:
-	if client_is_online(): assist_goodbye.rpc_id(1)
-
-func assist_send_submit(type: String, params: Dictionary, title: String) -> void:
-	if client_is_online(): assist_submit.rpc_id(1, type, params, title)
-
-func assist_send_fetch(job_id: int) -> void:
-	if client_is_online(): assist_fetch_result.rpc_id(1, job_id)
-
-@rpc("authority", "call_remote", "reliable")
-func assist_welcome(ok: bool, message: String) -> void:
-	if message.length() <= 200:
-		assist_welcomed.emit(ok, message)
-
-@rpc("authority", "call_remote", "reliable")
-func assist_assign(job_id: int, chunk_index: int, type: String, params: Dictionary, lease: float) -> void:
-	if JobRunner.known(type) and is_finite(lease):
-		assist_assigned.emit(job_id, chunk_index, type, params, lease)
-
-@rpc("authority", "call_remote", "reliable")
-func assist_idle() -> void:
-	assist_idle_received.emit()
-
-@rpc("authority", "call_remote", "reliable")
-func assist_wrap_up() -> void:
-	assist_wrap_up_received.emit()
-
-@rpc("authority", "call_remote", "reliable")
-func assist_overview(data: Dictionary) -> void:
-	assist_overview_received.emit(data)
-
-@rpc("authority", "call_remote", "reliable")
-func assist_submitted(ok: bool, job_id: int, error: String) -> void:
-	assist_submit_answered.emit(ok, job_id, error.left(200))
-
-@rpc("authority", "call_remote", "reliable")
-func assist_job_result(job_id: int, result: Dictionary) -> void:
-	assist_job_result_received.emit(job_id, result)

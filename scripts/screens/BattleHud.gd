@@ -242,7 +242,6 @@ static func _build_battle_screen(main) -> void:
 		main.recovery_label = ToastLabel.new(); main.recovery_label.name = "NetworkRecoveryStatus"; main.recovery_label.tone = UIKit.GOLD; main.root_background.add_child(main.recovery_label)
 		main.recovery_label.place_center(640.0, 156.0)
 		main.recovery_label.text = "최신 전투 상태를 받는 중"
-	if not main.network.client_session.is_empty(): main._add_battle_chat()
 	if not main.local_ai_mode: main._on_latency_updated(main.network.latency_ms)
 
 	main.base_warning_label = ToastLabel.new(); main.base_warning_label.name = "BaseDangerWarning"; main.base_warning_label.text = "기지 체력 위험"; main.base_warning_label.tone = UIKit.DANGER; main.base_warning_label.visible = false; main.root_background.add_child(main.base_warning_label)
@@ -664,20 +663,6 @@ static func _show_stats_panel(main, reference: Dictionary = {}) -> void:
 		main.local_battle_skip_delta = true
 		main.battle_view.set_process(false)
 		main._refresh_purchase_buttons(main.latest_resources)
-
-static func _add_battle_chat(main) -> void:
-	var toggle = main._styled_button("방 채팅",Color("#3d647d")); toggle.name = "BattleChatButton"; toggle.position = Vector2(970,190); toggle.size = Vector2(144,44); toggle.z_index = 10; main.root_background.add_child(toggle)
-	main.battle_chat_panel = PanelContainer.new(); main.battle_chat_panel.name = "BattleChatPanel"; main.battle_chat_panel.position = Vector2(750,204); main.battle_chat_panel.size = Vector2(360,320); main.battle_chat_panel.z_index = 20
-	var style = main._panel_style(Color("#101a29"),Color("#2b415c"),12); style.content_margin_left = 12; style.content_margin_right = 12; style.content_margin_top = 12; style.content_margin_bottom = 12; main.battle_chat_panel.add_theme_stylebox_override("panel",style); main.root_background.add_child(main.battle_chat_panel)
-	var content := VBoxContainer.new(); content.add_theme_constant_override("separation",8); main.battle_chat_panel.add_child(content)
-	main.session_chat_log = RichTextLabel.new(); main.session_chat_log.bbcode_enabled = false; main.session_chat_log.scroll_following = true; main.session_chat_log.size_flags_vertical = Control.SIZE_EXPAND_FILL; content.add_child(main.session_chat_log)
-	main.session_chat_input = LineEdit.new(); main.session_chat_input.placeholder_text = "메시지 입력 · Enter 전송"; main.session_chat_input.max_length = 160; main.session_chat_input.custom_minimum_size.y = 40; main.session_chat_input.text_submitted.connect(func(_value): main._send_session_chat()); content.add_child(main.session_chat_input)
-	main.battle_chat_panel.visible = false
-	toggle.pressed.connect(func():
-		main.unit_purchase_hold.cancel()
-		if is_instance_valid(main.battle_view): main.battle_view.reset_build_touch()
-		main.battle_chat_panel.visible = not main.battle_chat_panel.visible)
-	MultiplayerUI.chat(main)
 
 static func _refresh_structure_selection(main) -> void:
 	var selected: bool = is_instance_valid(main.battle_view) and not main.battle_view.selected_structure.is_empty()

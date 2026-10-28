@@ -38,12 +38,6 @@ static func receive_session_closed(main, text: String) -> void:
 	main.session_closed.emit(text)
 	main.request_room_list.rpc_id(1,0)
 
-static func receive_session_chat(main, message: Dictionary) -> void:
-	if main.client_session.is_empty() or not main.valid_chat_message(message): return
-	main.client_session.messages.append(message)
-	if main.client_session.messages.size()>SessionStore.CHAT_HISTORY: main.client_session.messages.pop_front()
-	main.session_chat.emit(message)
-
 static func session_spectate(main) -> void:
 	if main.client_session.is_empty() or not main.client_is_spectator: return
 	main.client_in_match = true; main.client_connection_state = "in_match"

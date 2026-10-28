@@ -147,18 +147,6 @@ static func request_session_return(main) -> void:
 static func request_session_leave(main) -> void:
 	if main.server_mode and main.can_process_request(main.multiplayer.get_remote_sender_id()): main._leave_session(main.multiplayer.get_remote_sender_id())
 
-static func request_session_chat(main, text: String) -> void:
-	if not main.server_mode: return
-	var sender = main.multiplayer.get_remote_sender_id()
-	if not main.can_process_request(sender) or not main.sessions.peer_to_room.has(sender) or not SessionStore.safe_text(text,SessionStore.MAX_CHAT): return
-	var now := Time.get_ticks_msec()
-	if now-int(main.chat_times.get(sender,-1000)) < 750: return
-	main.chat_times[sender] = now
-	var message: Dictionary = main.sessions.append_chat(sender,text)
-	if message.is_empty(): return
-	for id in main.sessions.room_for(sender).members:
-		if main._peer_is_connected(int(id)): main.receive_session_chat.rpc_id(int(id),message)
-
 static func _push_session(main, code: String) -> void:
 	var state = main.sessions.public_state(code)
 	if state.is_empty(): return

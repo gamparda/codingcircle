@@ -19,8 +19,7 @@ func can_hold(main) -> bool:
 	if not main.battle_active or main.local_battle_backgrounded or not main._battle_purchase_block_reason().is_empty(): return false
 	if main.placement_pending or main._battle_text_has_focus(): return false
 	if is_instance_valid(main.stats_overlay) or is_instance_valid(main.report_overlay) or is_instance_valid(main.action_overlay): return false
-	if is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.update_overlay): return false
-	return not (is_instance_valid(main.battle_chat_panel) and main.battle_chat_panel.visible)
+	return not (is_instance_valid(main.local_pause_overlay) or is_instance_valid(main.update_overlay))
 
 func cancel() -> void:
 	if is_instance_valid(button):

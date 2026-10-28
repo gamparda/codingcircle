@@ -12,7 +12,6 @@ const SETTINGS_PAGES := [
 	{"id": "display", "title": "화면", "hint": "화질, 창 크기, 프레임"},
 	{"id": "battle", "title": "전투 연출", "hint": "피해 숫자와 효과"},
 	{"id": "keys", "title": "전투 단축키", "hint": "카드를 사는 키"},
-	{"id": "helper", "title": "계산 돕기", "hint": "남는 CPU로 서버 돕기"},
 	{"id": "data", "title": "데이터", "hint": "저장된 정보 관리"},
 ]
 
@@ -194,38 +193,6 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	# ---- key bindings (builds its own heading and grid)
 	main._add_binding_settings(pages.keys)
 
-	# ---- helper
-	_add_settings_section(main, pages.helper, "계산 돕기")
-	var helper_note := Label.new()
-	helper_note.text = Localization.text("서버가 큰 계산을 맡길 때, 이 컴퓨터의 남는 CPU를 빌려줍니다. 메뉴 화면에서만 일하고 전투 중에는 쉬며, 포트를 열 필요는 없습니다.")
-	helper_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	helper_note.add_theme_font_size_override("font_size", 14)
-	helper_note.add_theme_color_override("font_color", Color("#9aa5c0"))
-	pages.helper.add_child(helper_note)
-	var helper_toggle := CheckButton.new()
-	helper_toggle.name = "HelperToggle"
-	helper_toggle.text = Localization.text("남는 CPU로 서버의 계산 돕기")
-	helper_toggle.button_pressed = bool(settings.get("helper_enabled", false))
-	pages.helper.add_child(helper_toggle)
-	var helper_row := HBoxContainer.new()
-	pages.helper.add_child(helper_row)
-	var helper_label := Label.new()
-	helper_label.name = "HelperCoresLabel"
-	helper_label.custom_minimum_size.x = 220
-	helper_row.add_child(helper_label)
-	var helper_cores := HSlider.new()
-	helper_cores.name = "HelperCores"
-	helper_cores.min_value = 1
-	helper_cores.max_value = maxi(1, OS.get_processor_count() / 2)
-	helper_cores.step = 1
-	helper_cores.value = clampi(int(settings.get("helper_cores", 1)), 1, int(helper_cores.max_value))
-	helper_cores.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	helper_cores.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	helper_row.add_child(helper_cores)
-	var update_helper_label := func(): helper_label.text = Localization.text("사용할 CPU 코어  %d / %d") % [int(helper_cores.value), int(helper_cores.max_value)]
-	helper_cores.value_changed.connect(func(_value): update_helper_label.call())
-	update_helper_label.call()
-
 	# ---- data
 	_add_settings_section(main, pages.data, "데이터")
 	var data_note := Label.new()
@@ -247,12 +214,11 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	reset_button.pressed.connect(func(): DataReset.show_confirm(main))
 	pages.data.add_child(reset_button)
 
-	for control in [fullscreen, vsync, damage_numbers, shake, effects, helper_toggle]:
+	for control in [fullscreen, vsync, damage_numbers, shake, effects]:
 		control.toggled.connect(mark_dirty)
 	for control in [quality, window_size, fps_limit]:
 		control.item_selected.connect(mark_dirty)
-	for control in [intensity, helper_cores]:
-		control.value_changed.connect(mark_dirty)
+	intensity.value_changed.connect(mark_dirty)
 
 	# ---- footer: unsaved-changes note, cancel, save
 	var footer := HBoxContainer.new()
@@ -283,15 +249,13 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 					updated.graphics_quality = "custom"
 					break
 		updated.language = "ko"
-		updated.helper_enabled = helper_toggle.button_pressed
-		updated.helper_cores = int(helper_cores.value)
 		updated.battle_keys = main.binding_draft.duplicate()
 		if not SaveData.save_data(draft):
 			dirty.text = Localization.text("설정을 저장하지 못했습니다. 저장 공간과 파일 권한을 확인하고 다시 시도하세요.")
 			return
 		main.save_data = draft
 		main._profile_saved()
-		Localization.install(String(updated.language)); main._apply_settings(); main._apply_helper_settings()
+		Localization.install(String(updated.language)); main._apply_settings()
 		main._build_connect_screen(Localization.text("설정을 저장했습니다."))
 	)
 	footer.add_child(save_button)
