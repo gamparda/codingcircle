@@ -21,9 +21,11 @@ const UnitPurchaseHold = preload("res://scripts/screens/UnitPurchaseHold.gd")
 const PatchNotes = preload("res://scripts/PatchNotes.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 
-const OFFICIAL_SERVER_ADDRESS := "ruellyya.kr"
-const OFFICIAL_SERVER_FALLBACK_ADDRESS := "211.176.222.145"
-const OFFICIAL_SERVER_LAN_ADDRESS := "192.168.0.4"
+const TransportSecurity = preload("res://scripts/net/TransportSecurity.gd")
+
+const OFFICIAL_SERVER_ADDRESS := TransportSecurity.OFFICIAL_HOSTNAME
+const OFFICIAL_SERVER_FALLBACK_ADDRESS := TransportSecurity.OFFICIAL_FALLBACK_ADDRESS
+const OFFICIAL_SERVER_LAN_ADDRESS := TransportSecurity.OFFICIAL_LAN_ADDRESS
 const OFFICIAL_SERVER_PORT := 7777
 const ANDROID_APK_URL := "https://gamparda.github.io/codingcircle/CatWar.apk"
 const DEFAULT_SMOKE_ROOM_CODE := "CAT234"
@@ -230,12 +232,13 @@ func _ready() -> void:
 		Engine.max_fps = 60
 		visible = false
 		var port := _arg_int(args, "--port=", NetworkController.DEFAULT_PORT)
-		if not network.start_dedicated_server(port):
-			get_tree().quit(1)
 		server_state_dir = OS.get_environment("CATWAR_STATE_DIR").strip_edges()
 		if server_state_dir.is_empty():
 			server_state_dir = "user://server_state"
 		DirAccess.make_dir_recursive_absolute(server_state_dir)
+		if not network.start_dedicated_server(port):
+			get_tree().quit(1)
+			return
 		network.configure_stats(server_state_dir)
 		network.configure_assist(server_state_dir, OS.get_environment("CATWAR_ASSIST").strip_edges().to_lower() != "off")
 		_update_server_lifecycle(1.0)

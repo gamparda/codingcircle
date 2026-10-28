@@ -379,7 +379,8 @@ scripts/screens/              Main에서 분리한 화면과 흐름: MenuScreens
                               BattleHud, BattleFlow, LobbyFlow, ResultScreens, ReplayScreens,
                               UpdateOverlay, Tutorial, PracticeUI
 scripts/net/                  NetworkController에서 분리한 서버·클라이언트 흐름:
-                              SessionFlow, ReconnectFlow, ClientSessionFlow
+                              SessionFlow, ReconnectFlow, ClientSessionFlow,
+                              TransportSecurity(DTLS 인증서·검증 정책)
 scripts/ui/                   UIKit(팔레트·테마·그라데이션 스타일), UISounds, HeroShowcase, HpBar,
                               ToastLabel, ReplayViewer, MomentumGraph, .tscn 화면에 붙는 스크립트
 assets/fonts/                 Black Han Sans(OFL)와 라이선스
@@ -485,4 +486,4 @@ python -m pip install -r .\tools\requirements.txt; python .\tools\extract_sprite
 
 ## 방 기반 멀티플레이
 
-멀티플레이 → 닉네임·덱 선택 → 방 생성/참가 → 준비 → 방장 시작 → 결과 → 같은 방에서 재대전. 비밀번호는 선택이며 관전 입장에도 적용됩니다. 진행 중인 경기에도 관전할 수 있습니다. 방 채팅은 없습니다. 관전자에게 전투 조작 권한이나 개인 승패 기록은 부여하지 않습니다. 방장 이탈 시 남은 플레이어에게 소유권을 넘기고, 마지막 플레이어가 나가면 방을 정리합니다. 방 비밀번호는 게임 입장용이며 ENet 게임 통신 전체의 TLS/종단간 암호화를 의미하지 않습니다.
+멀티플레이 → 닉네임·덱 선택 → 방 생성/참가 → 준비 → 방장 시작 → 결과 → 같은 방에서 재대전. 비밀번호는 선택이며 관전 입장에도 적용됩니다. 진행 중인 경기에도 관전할 수 있습니다. 방 채팅은 없습니다. 관전자에게 전투 조작 권한이나 개인 승패 기록은 부여하지 않습니다. 방장 이탈 시 남은 플레이어에게 소유권을 넘기고, 마지막 플레이어가 나가면 방을 정리합니다. 방 비밀번호는 게임 입장용입니다. 게임 통신은 비밀번호와 별개로 모두 DTLS로 암호화되며, 공식 서버에 접속할 때는 서버 인증서도 검증합니다(서버 설정은 `server/README.md`).

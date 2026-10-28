@@ -11,6 +11,7 @@ const ServerStats = preload("res://scripts/ServerStats.gd")
 const ServerDailyBoard = preload("res://scripts/ServerDailyBoard.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
+const TransportSecurity = preload("res://scripts/net/TransportSecurity.gd")
 const ServerReplayShelf = preload("res://scripts/ServerReplayShelf.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const AssistHub = preload("res://scripts/jobs/AssistHub.gd")
@@ -122,6 +123,8 @@ var client_connection_state := "idle"
 var client_connection_candidates: Array = []
 var client_connection_index := -1
 var client_connection_port := DEFAULT_PORT
+## True only while connected to an official address whose certificate was verified; credentials require it.
+var client_transport_verified := false
 var client_room_mode := "create"
 var client_room_code := ""
 var client_room_name := ""
@@ -223,9 +226,15 @@ func _on_server_disconnected() -> void:
 
 func start_dedicated_server(port: int = DEFAULT_PORT) -> bool:
 	allow_test_room_codes = OS.get_cmdline_user_args().has("--allow-test-room-codes")
+	var tls := TransportSecurity.server_options()
+	if tls == null:
+		return false
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_server(port, TRANSPORT_MAX_PEERS)
+	if error == OK:
+		error = peer.host.dtls_server_setup(tls)
 	if error != OK:
+		peer.close()
 		printerr(Localization.text("서버 시작 실패: %s") % error_string(error))
 		return false
 	multiplayer.multiplayer_peer = peer
@@ -259,6 +268,9 @@ func _start_client_attempt(address: String) -> bool:
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_client(address, client_connection_port)
+	if error == OK:
+		error = peer.host.dtls_client_setup(TransportSecurity.client_hostname(address), TransportSecurity.client_options(address))
+	client_transport_verified = error == OK and TransportSecurity.is_official_address(address)
 	if error != OK:
 		if _retry_next_connection_candidate():
 			return true
@@ -288,6 +300,7 @@ func disconnect_from_server() -> void:
 		request_session_leave.rpc_id(1)
 	client_reconnect_token = ""; client_reconnect_code = ""; client_reconnecting = false
 	client_latency_ms = -1; pending_ping.clear()
+	client_transport_verified = false
 	client_connection_generation += 1
 	client_in_match = false
 	client_is_spectator = false
