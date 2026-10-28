@@ -10,6 +10,6 @@ order = 3
 cost = 75.0
 hp = 90.0
 params = {
-"income": 2.0,
+"income": 1.7,
 "max_count": 1
 }

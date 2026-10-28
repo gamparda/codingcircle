@@ -235,7 +235,7 @@ static func spell_target(model: BattleModel, side: int, kind: String) -> float:
 				if count > best_count:
 					best_count = count
 					best_x = float(ally.x)
-			return best_x if best_count >= 3 else NAN
+			return best_x if best_count >= 2 else NAN
 		"resurrect":
 			if model.fallen[side].size() < 4:
 				return NAN

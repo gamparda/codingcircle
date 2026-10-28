@@ -16,6 +16,6 @@ speed = 30.0
 range = 40.0
 extra = {
 "revive_delay": 2.0,
-"revive_hp_fraction": 0.5
+"revive_hp_fraction": 0.4
 }
 tags = PackedStringArray("undead")
