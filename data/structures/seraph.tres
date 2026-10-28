@@ -17,6 +17,6 @@ params = {
 "delay": 1.0,
 "radius": 60.0,
 "revive_count": 5,
-"revive_fraction": 0.4,
+"revive_fraction": 0.35,
 "max_uses": 2
 }
