@@ -7,7 +7,7 @@ script = ExtResource("1_def")
 kind = "generator"
 display_name = "발전기"
 order = 3
-cost = 65.0
+cost = 75.0
 hp = 90.0
 params = {
 "income": 2.0,

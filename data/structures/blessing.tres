@@ -7,7 +7,7 @@ script = ExtResource("1_def")
 kind = "blessing"
 display_name = "축복"
 order = 7
-cost = 40.0
+cost = 35.0
 hp = 1.0
 params = {
 "spell": true,
@@ -16,6 +16,6 @@ params = {
 "cooldown": 12.0,
 "delay": 0.0,
 "radius": 110.0,
-"duration": 5.0,
-"attack_speed": 1.3
+"duration": 7.0,
+"attack_speed": 1.5
 }

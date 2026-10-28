@@ -13,9 +13,9 @@ params = {
 "spell": true,
 "effect": "blast",
 "zone": "any",
-"cooldown": 10.0,
+"cooldown": 12.0,
 "delay": 0.25,
 "speed": 900.0,
 "radius": 75.0,
-"damage": 45.0
+"damage": 40.0
 }
