@@ -12,6 +12,9 @@ const ServerDailyBoard = preload("res://scripts/ServerDailyBoard.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const TransportSecurity = preload("res://scripts/net/TransportSecurity.gd")
+const AccountFlow = preload("res://scripts/net/AccountFlow.gd")
+const AccountStore = preload("res://scripts/accounts/AccountStore.gd")
+const GoogleIdToken = preload("res://scripts/accounts/GoogleIdToken.gd")
 const ServerReplayShelf = preload("res://scripts/ServerReplayShelf.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const QuickQueue = preload("res://scripts/QuickQueue.gd")
@@ -85,6 +88,15 @@ var daily_board := ServerDailyBoard.new()
 var report_counts: Dictionary = {}
 var report_window_started: Dictionary = {}
 var shelf := ServerReplayShelf.new()
+var accounts := AccountStore.new()
+var google := GoogleIdToken.new()
+## Per-peer account state on the server; see AccountFlow.
+var account_nonces: Dictionary = {}
+var verified_subjects: Dictionary = {}
+var peer_accounts: Dictionary = {}
+var pending_logins: Array = []
+var jwks_http: HTTPRequest = null
+var jwks_elapsed := 0.0
 var upload_counts: Dictionary = {}
 const MAX_UPLOADS_PER_CONNECTION := 10
 const MAX_REPORTS_PER_WINDOW := 40
@@ -401,6 +413,7 @@ func _process(delta: float) -> void:
 		return
 	_expire_recovery()
 	_advance_persistence(delta)
+	AccountFlow.advance(self, delta)
 	for id in join_challenges.keys():
 		if Time.get_ticks_msec()>int(join_challenges[id].deadline): join_challenges.erase(id)
 	for waiting_peer in quick_queue.expire(Time.get_ticks_msec()):
@@ -509,6 +522,7 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	if not server_mode:
 		return
 	quick_queue.cancel(peer_id)
+	AccountFlow.forget_peer(self, peer_id)
 	report_counts.erase(peer_id)
 	report_window_started.erase(peer_id)
 	upload_counts.erase(peer_id)
@@ -1111,6 +1125,7 @@ func flush_persistence() -> void:
 	shelf._trim()
 	stats.flush(true)
 	daily_board.flush()
+	accounts.flush()
 	_refresh_backlog_status()
 	if server_mode and can_create_match():
 		_pair_quick_queue()
@@ -1124,13 +1139,99 @@ func _refresh_backlog_status() -> void:
 
 ## Memory-only stores need no disk write. Finished replay archives always do.
 func pending_persistence_count() -> int:
-	return replays.pending.size() + int(not stats.path.is_empty() and stats.dirty) + int(not daily_board.path.is_empty() and daily_board.dirty)
+	return replays.pending.size() + int(not stats.path.is_empty() and stats.dirty) + int(not daily_board.path.is_empty() and daily_board.dirty) + int(not accounts.path.is_empty() and accounts.dirty)
 
 func configure_stats(directory: String) -> void:
 	stats.configure(directory)
 	daily_board.configure(directory)
 	shelf.configure(directory)
 	replays.stats = stats
+
+## `fetch_keys` false keeps tests offline; they load signing keys into `google` themselves.
+func configure_accounts(directory: String, fetch_keys: bool = true) -> void:
+	AccountFlow.configure(self, directory, fetch_keys)
+
+# ---------- Accounts (Google sign-in) ----------
+
+signal account_nonce_received(nonce: String)
+signal account_result_received(result: Dictionary)
+
+## Credentials (Google tokens, session tokens) go only to a server whose certificate was verified.
+func account_ready() -> bool:
+	return client_is_online() and client_transport_verified
+
+func account_request_nonce() -> bool:
+	if not account_ready(): return false
+	request_account_nonce.rpc_id(1)
+	return true
+
+func account_sign_in(google_token: String) -> bool:
+	if not account_ready(): return false
+	request_account_login.rpc_id(1, google_token)
+	return true
+
+func account_create(nickname: String) -> bool:
+	if not account_ready(): return false
+	request_account_create.rpc_id(1, nickname)
+	return true
+
+func account_resume(session: String) -> bool:
+	if not account_ready(): return false
+	request_account_resume.rpc_id(1, session)
+	return true
+
+func account_rename(nickname: String) -> bool:
+	if not account_ready(): return false
+	request_account_rename.rpc_id(1, nickname)
+	return true
+
+func account_delete() -> bool:
+	if not account_ready(): return false
+	request_account_delete.rpc_id(1)
+	return true
+
+func account_sign_out(session: String) -> bool:
+	if not account_ready(): return false
+	request_account_logout.rpc_id(1, session)
+	return true
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_account_nonce() -> void:
+	AccountFlow.request_nonce(self)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_account_login(google_token: String) -> void:
+	AccountFlow.request_login(self, google_token)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_account_create(nickname: String) -> void:
+	AccountFlow.request_create(self, nickname)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_account_resume(session: String) -> void:
+	AccountFlow.request_resume(self, session)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_account_rename(nickname: String) -> void:
+	AccountFlow.request_rename(self, nickname)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_account_delete() -> void:
+	AccountFlow.request_delete(self)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_account_logout(session: String) -> void:
+	AccountFlow.request_logout(self, session)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_account_nonce(nonce: String) -> void:
+	if nonce.length() == 32:
+		account_nonce_received.emit(nonce)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_account_result(result: Dictionary) -> void:
+	if AccountFlow.valid_result(result):
+		account_result_received.emit(result)
 
 func client_is_online() -> bool:
 	return not (client_connection_state in ["idle", "connecting", "recovering"]) and not client_reconnecting

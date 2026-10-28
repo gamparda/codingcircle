@@ -238,6 +238,7 @@ func _ready() -> void:
 			get_tree().quit(1)
 			return
 		network.configure_stats(server_state_dir)
+		network.configure_accounts(server_state_dir)
 		_update_server_lifecycle(1.0)
 		updater.set_safe_to_update(_server_can_update())
 		updater.check_for_update()
