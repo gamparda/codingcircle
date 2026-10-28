@@ -7,7 +7,7 @@ script = ExtResource("1_def")
 kind = "fireball"
 display_name = "화염구"
 order = 5
-cost = 45.0
+cost = 50.0
 hp = 1.0
 params = {
 "spell": true,

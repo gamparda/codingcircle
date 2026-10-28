@@ -267,7 +267,7 @@ static func tactic_role(kind: String) -> String:
 		"lightning": return Localization.text("반경 %d 안 가장 튼튼한 적 1기에 %d 피해") % [int(stats.radius), int(stats.damage)]
 		"fireball": return Localization.text("반경 %d 적 전체 %d 피해") % [int(stats.radius), int(stats.damage)]
 		"frost": return Localization.text("반경 %d 적 %.1f초 정지") % [int(stats.radius), float(stats.duration)]
-		"blessing": return Localization.text("반경 %d 아군 공속 +%d%% %d초") % [int(stats.radius), roundi((float(stats.attack_speed) - 1.0) * 100.0), int(stats.duration)]
+		"blessing": return Localization.text("반경 %d 아군 체력 %d%% 회복 · 공속 +%d%% %d초") % [int(stats.radius), roundi(float(stats.get("heal_fraction", 0.0)) * 100.0), roundi((float(stats.attack_speed) - 1.0) * 100.0), int(stats.duration)]
 		"seraph": return Localization.text("쓰러진 아군 %d명 %d%%로 부활 · 판당 %d회") % [int(stats.revive_count), roundi(float(stats.revive_fraction) * 100.0), int(stats.max_uses)]
 	return ""
 
@@ -416,6 +416,7 @@ func _land_spell(cast: Dictionary) -> void:
 				if int(ally.side) == side and float(ally.hp) > 0.0 and absf(float(ally.x) - x) <= radius:
 					targets.append(ally.id)
 					ally["blessed_remaining"] = float(stats.duration)
+					ally.hp = minf(float(ally.max_hp), float(ally.hp) + float(ally.max_hp) * float(stats.get("heal_fraction", 0.0)))
 		"resurrect":
 			var count := mini(int(stats.revive_count), fallen[side].size())
 			var raised: Array = fallen[side].slice(fallen[side].size() - count)
