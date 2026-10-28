@@ -52,15 +52,18 @@ Name: "pcremoteagent"; Description: "PC Remote Agent 설치 및 관리 서버 �
 [Files]
 Source: "..\builds\CatWar.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\server\StartServer.cmd"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\server\StartAssist.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\ASSET_SOURCES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ManagedAgentSetup}"; DestDir: "{tmp}"; DestName: "PCRemoteAgentSetup.exe"; Flags: deleteafterinstall; Tasks: pcremoteagent; Check: ShouldInstallManagedAgent; AfterInstall: InstallManagedAgent
 
+[InstallDelete]
+; The assist server was removed; clear what older installers left behind.
+Type: files; Name: "{app}\StartAssist.cmd"
+Type: files; Name: "{group}\Keepfall Assist Server.lnk"
+
 [Icons]
 Name: "{group}\Cat War"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{group}\Cat War Dedicated Server"; Filename: "{app}\StartServer.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
-Name: "{group}\Keepfall Assist Server"; Filename: "{app}\StartAssist.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\사용 설명서"; Filename: "{app}\README.md"
 Name: "{group}\Cat War 제거"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Cat War"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; WorkingDir: "{app}"

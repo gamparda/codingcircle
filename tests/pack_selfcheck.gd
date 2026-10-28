@@ -16,7 +16,7 @@ func _init() -> void:
 	elif not expected.is_empty() and String(info.get("commit", "")).to_lower() != expected:
 		failures += 1
 		printerr("PACK_SELFCHECK commit %s is not the expected %s" % [info.get("commit", ""), expected])
-	for path in ["res://scenes/Main.tscn", "res://scripts/NetworkController.gd", "res://scripts/jobs/AssistHub.gd", "res://scripts/BattleModel.gd"]:
+	for path in ["res://scenes/Main.tscn", "res://scripts/NetworkController.gd", "res://scripts/ServerStats.gd", "res://scripts/BattleModel.gd"]:
 		if load(path) == null:
 			failures += 1
 			printerr("PACK_SELFCHECK cannot load %s" % path)

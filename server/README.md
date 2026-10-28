@@ -142,13 +142,6 @@ public development identity in `scripts/net/TransportSecurity.gd` and logs
 `TLS_CERTIFICATE development`: local and test clients still connect encrypted, official clients
 refuse it.
 
-## Assist servers and helper PCs
-
-Assist servers and helper PCs may connect and take over batch work such as balance experiments. There is no token;
-only light limits apply. Set `CATWAR_ASSIST=off` (for example in `/etc/catwar/server.env`) to refuse them. The main server still does the
-work itself at low priority when nobody helps. Finished job results are written to `<state dir>/jobs/`. See
-`docs/ASSIST_DESIGN.md`.
-
 ## Production Linux server
 
 The official Linux service runs Godot headlessly under `catwar-server.service`. Install

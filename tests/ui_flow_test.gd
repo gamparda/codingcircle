@@ -77,7 +77,7 @@ func run() -> void:
 	var settings_cancel := find_button(main, "취소")
 	var viewport_bounds := Rect2(Vector2.ZERO, Vector2(1280, 720))
 	var frame_width := -1.0
-	for page_id in ["audio", "display", "battle", "keys", "helper", "data"]:
+	for page_id in ["audio", "display", "battle", "keys", "data"]:
 		main.find_child("SettingsTab_" + page_id, true, false).pressed.emit()
 		await process_frame
 		await process_frame

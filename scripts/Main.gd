@@ -100,8 +100,6 @@ var ghost_context: Dictionary = {}   # {"mode": "ghost" | "branch", "replay": Di
 var finale_seconds := 1.4 # real seconds of base-collapse slow motion before the result; 0 disables it
 var finale_active := false
 var finale_serial := 0 # Invalidates delayed callbacks when the battle view changes.
-var helper_service = null # lends spare CPU to the main server's job queue when "계산 돕기" is on
-var running_as_assist := false # started with --assist: the assist server window instead of the game
 var draft_context: Dictionary = {} # stage and decks while a drafted battle is running
 var daily_challenge: Dictionary = {} # today's challenge while a daily battle is running
 var curve_next_elapsed := 0.0
@@ -240,24 +238,11 @@ func _ready() -> void:
 			get_tree().quit(1)
 			return
 		network.configure_stats(server_state_dir)
-		network.configure_assist(server_state_dir, OS.get_environment("CATWAR_ASSIST").strip_edges().to_lower() != "off")
 		_update_server_lifecycle(1.0)
 		updater.set_safe_to_update(_server_can_update())
 		updater.check_for_update()
 		return
-	if args.has("--assist"):
-		running_as_assist = true
-		get_tree().auto_accept_quit = false # closing the window first hands unfinished work back to the main server
-		if DisplayServer.get_name() != "headless":
-			DisplayServer.window_set_title("Keepfall 보조 서버")
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			DisplayServer.window_set_size(Vector2i(1280, 720))
-		var app = preload("res://scripts/assist/AssistApp.gd").new()
-		add_child(app)
-		app.setup(network)
-		return
 	_apply_settings()
-	call_deferred("_apply_helper_settings")
 	_setup_bgm()
 	_build_connect_screen()
 	if apk_update_required(OS.get_name(), String(ProjectSettings.get_setting("application/config/version", "0.0.0")), build_binary_version()):
@@ -456,8 +441,6 @@ func _active_match_count() -> int:
 
 ## Once a server is reachable: send what was queued while offline and refresh the community statistics.
 func _on_server_ready() -> void:
-	if running_as_assist:
-		return
 	lobby_filter = "all" # a new connection starts with the unfiltered list
 	if MetaStats.sharing(save_data):
 		MetaStats.install_id(save_data)
@@ -471,7 +454,7 @@ func _on_server_ready() -> void:
 	network.send_daily_board_request("w" + daily.week_key(), identity)
 
 func _advance_result_sharing(delta: float) -> void:
-	if running_as_server or running_as_assist:
+	if running_as_server:
 		return
 	result_sharing_elapsed += delta
 	if result_sharing_elapsed < MetaStats.RETRY_SECONDS:
@@ -603,25 +586,6 @@ static func build_binary_version() -> String:
 
 func _active_preset() -> Dictionary:
 	return save_data.deck_presets[clampi(int(save_data.last_deck), 0, 2)]
-
-## Starts, restarts or stops the "계산 돕기" service to match the saved settings.
-func _apply_helper_settings() -> void:
-	var settings: Dictionary = save_data.settings
-	var wanted: bool = bool(settings.get("helper_enabled", false)) and DisplayServer.get_name() != "headless" and not running_as_assist and not running_as_server
-	if not wanted:
-		if helper_service != null:
-			helper_service.stop()
-			helper_service.queue_free()
-			helper_service = null
-		return
-	if helper_service == null:
-		helper_service = preload("res://scripts/assist/HelperService.gd").new()
-		helper_service.name = "HelperService"
-		add_child(helper_service)
-		helper_service.pause_check = func(): return battle_active
-	var port: int = link_port if link_port > 0 else LobbyFlow.OFFICIAL_SERVER_PORT
-	helper_service.start({"candidates": official_connection_candidates(IP.get_local_addresses()), "port": port,
-		"name": "%s (PC)" % String(save_data.get("nickname", "플레이어")), "cores": int(settings.get("helper_cores", 1))})
 
 func _apply_settings() -> void:
 	var settings: Dictionary = save_data.settings
