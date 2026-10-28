@@ -77,7 +77,7 @@ func run() -> void:
 	for frame in 3: await process_frame
 	var errors := []
 	for node in main.find_children("*", "Label", true, false):
-		if node.text == "유닛과 구조물을 각각 정확히 3종 선택해야 합니다.": errors.append(node)
+		if node.text == "유닛과 전술을 각각 정확히 3종 선택해야 합니다.": errors.append(node)
 	check(errors.size() == 1, "invalid deck shows the existing selection-count message")
 	check(panel.position.y + panel.size.y <= 720.0 and structures.get_global_rect().end.y < save.get_global_rect().position.y, "validation message does not push cards outside the panel")
 	await click(card)

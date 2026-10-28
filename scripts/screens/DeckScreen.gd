@@ -62,6 +62,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		main._configure_deck_card(card, card_text, Color("#3d8f83"), selected.structures.has(kind))
 		card.tooltip_text = "%s\n%s" % [card_text, BattleModel.tactic_role(kind)]
 		card.custom_minimum_size = Vector2(180, 48)
+		card.set_meta("touch_min_height", 56.0) # the touch minimum (touch_layout_test), a little under the default
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_dress_card(card, Color("#c9a0ff") if BattleModel.is_spell(kind) else Color("#3ec6b0"), kind, false)
@@ -81,6 +82,8 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		unit_row.size_flags_stretch_ratio = 2.0 + row_gap / row_height
 	)
 	var status: Label = column.get_node("Status")
+	# Shown only with a message: the deck has to fit a phone's screen with touch-sized buttons.
+	status.visible = false
 	var save_button: Button = column.get_node("Actions/DeckSaveButton")
 	UIKit.style_button(save_button, Color("#5e6ad2"), true, 16)
 	save_button.text = Localization.text("덱 저장 및 사용")
@@ -92,7 +95,8 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		for kind in structure_buttons:
 			if structure_buttons[kind].button_pressed: selected_structures.append(kind)
 		if not NetworkController.validate_deck_payload(selected_units, selected_structures):
-			status.text = Localization.text("유닛과 구조물을 각각 정확히 3종 선택해야 합니다.")
+			status.text = Localization.text("유닛과 전술을 각각 정확히 3종 선택해야 합니다.")
+			status.visible = not status.text.is_empty()
 			return
 		var draft: Dictionary = main.save_data.duplicate(true)
 		draft.deck_presets[index] = {"name": name_edit.text.strip_edges().left(20) if not name_edit.text.strip_edges().is_empty() else Localization.text("덱 %d") % (index + 1), "units": selected_units, "structures": selected_structures}
@@ -100,6 +104,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		preload("res://scripts/Goals.gd").mark(draft, "edit_deck")
 		if not SaveData.save_data(draft):
 			status.text = Localization.text("덱을 저장하지 못했습니다. 저장 공간과 파일 권한을 확인하고 다시 시도하세요.")
+			status.visible = not status.text.is_empty()
 			return
 		main.save_data = draft
 		main._profile_saved()
@@ -120,9 +125,11 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		for kind in structure_buttons:
 			if structure_buttons[kind].button_pressed: picked_structures.append(kind)
 		if not NetworkController.validate_deck_payload(picked_units, picked_structures):
-			status.text = Localization.text("유닛과 구조물을 각각 정확히 3종 선택해야 합니다.")
+			status.text = Localization.text("유닛과 전술을 각각 정확히 3종 선택해야 합니다.")
+			status.visible = not status.text.is_empty()
 			return
 		status.text = ""
+		status.visible = not status.text.is_empty()
 		ServerLink.run(main, func(): main.network.send_stats_request([picked_units]), Callable(), false)
 		var dialog = main._action_panel("덱 시뮬레이션", Rect2(190, 70, 900, 580))
 		var panel := DeckSimulatorPanel.new()

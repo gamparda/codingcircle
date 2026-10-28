@@ -61,6 +61,12 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	hero.position = Vector2(660, 84)
 	hero.size = Vector2(560, 560)
 	main.root_background.add_child(hero)
+	# Lays out its own children: keep it one block, 60 px from the right edge, centered vertically.
+	# Far anchors first: an anchor may not pass its opposite one.
+	hero.set_anchor_and_offset(SIDE_RIGHT, 1.0, -60.0)
+	hero.set_anchor_and_offset(SIDE_LEFT, 1.0, -620.0)
+	hero.set_anchor_and_offset(SIDE_BOTTOM, 0.5, 284.0)
+	hero.set_anchor_and_offset(SIDE_TOP, 0.5, -276.0)
 
 	# Left column: brand + navigation.
 	var column := VBoxContainer.new()

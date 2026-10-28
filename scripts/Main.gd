@@ -23,6 +23,7 @@ const MetaStats = preload("res://scripts/MetaStats.gd")
 
 const TransportSecurity = preload("res://scripts/net/TransportSecurity.gd")
 const CloudConflict = preload("res://scripts/screens/CloudConflict.gd")
+const ResponsiveLayout = preload("res://scripts/ui/ResponsiveLayout.gd")
 
 const OFFICIAL_SERVER_ADDRESS := TransportSecurity.OFFICIAL_HOSTNAME
 const OFFICIAL_SERVER_FALLBACK_ADDRESS := TransportSecurity.OFFICIAL_FALLBACK_ADDRESS
@@ -197,6 +198,15 @@ func _ready() -> void:
 	theme = UIKit.build_theme()
 	if UIKit.is_touch():
 		get_tree().node_added.connect(_enlarge_for_touch)
+	# Wider or taller screens than 1280x720: hand-placed controls follow the screen edges.
+	# Headless runs (tests, the server) have no real window: keep the fixed 1280x720 canvas there.
+	# Set here too, not only in project.godot: installed apps take updates as content packs, which do
+	# not replace the project settings the app started with.
+	get_tree().root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP if DisplayServer.get_name() == "headless" else Window.CONTENT_SCALE_ASPECT_EXPAND
+	ResponsiveLayout.mark(self)
+	get_tree().node_added.connect(ResponsiveLayout.on_node_added)
+	_fit_to_viewport()
+	get_viewport().size_changed.connect(_fit_to_viewport)
 	network.connection_status.connect(_on_connection_status)
 	network.match_found.connect(_on_match_found)
 	network.snapshot_received.connect(_on_snapshot)
@@ -648,10 +658,18 @@ func _set_fullscreen(enabled: bool) -> void:
 		toggle.set_pressed_no_signal(enabled)
 	_save_profile()
 
+## Main always covers the visible canvas (1280x720, or wider/taller with aspect "expand"),
+## whatever its parent's size: screens anchor to it.
+func _fit_to_viewport() -> void:
+	set_anchors_preset(Control.PRESET_TOP_LEFT)
+	position = Vector2.ZERO
+	size = get_viewport_rect().size
+
 func _make_background() -> ColorRect:
 	var bg := ColorRect.new()
 	bg.color = Color("#0b121c")
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ResponsiveLayout.mark(bg)
 	add_child(bg)
 	_refresh_save_warning(bg)
 	return bg
@@ -819,7 +837,7 @@ func _build_deck_screen(preset_index: int = -1) -> void:
 func _enlarge_for_touch(node: Node) -> void:
 	if node is BaseButton and is_ancestor_of(node):
 		var button := node as BaseButton
-		button.custom_minimum_size.y = maxf(button.custom_minimum_size.y, UIKit.TOUCH_MIN_HEIGHT)
+		button.custom_minimum_size.y = maxf(button.custom_minimum_size.y, float(button.get_meta("touch_min_height", UIKit.TOUCH_MIN_HEIGHT)))
 	elif node is Slider and is_ancestor_of(node):
 		(node as Slider).custom_minimum_size.y = maxf((node as Slider).custom_minimum_size.y, 44.0)
 

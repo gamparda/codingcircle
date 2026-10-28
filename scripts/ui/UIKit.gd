@@ -202,8 +202,10 @@ static func reveal(node: CanvasItem, duration: float = 0.28, rise: float = 10.0)
 	if node is Control and rise != 0.0:
 		var control := node as Control
 		var rest := control.position
+		control.set_meta("reveal_rest", rest) # ResponsiveLayout places by where it comes to rest
 		control.position = rest + Vector2(0, rise)
-		tween.tween_property(control, "position", rest, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		# Only y moves, so a control re-anchored meanwhile (ResponsiveLayout) keeps its x.
+		tween.tween_property(control, "position:y", rest.y, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 # ---------------------------------------------------------------- procedural icons
 static func _circle_icon(diameter: int, fill: Color, ring: Color, ring_w: float) -> ImageTexture:

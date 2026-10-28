@@ -21,10 +21,12 @@ shadow_color = Color(0, 0, 0, 0.24)
 shadow_size = 8
 
 [node name="SubMenuFrame" type="PanelContainer"]
+anchor_right = 1.0
+anchor_bottom = 1.0
 offset_left = 110.0
 offset_top = 35.0
-offset_right = 1170.0
-offset_bottom = 685.0
+offset_right = -110.0
+offset_bottom = -35.0
 theme_override_styles/panel = SubResource("Style_panel")
 script = ExtResource("1_frame")
 
