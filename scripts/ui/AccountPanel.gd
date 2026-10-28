@@ -52,7 +52,7 @@ func refresh() -> void:
 	if gate:
 		add_child(_note("Google 계정으로 로그인해야 플레이할 수 있습니다. 계정은 만 14세 이상만 만들 수 있고, Google 계정 식별값(암호화해 저장)과 닉네임만 보관합니다."))
 	else:
-		add_child(_note("계정이 있으면 랭크 게임(준비 중)에 참여하고 다른 기기에서도 같은 계정을 쓸 수 있습니다. 게스트도 다른 모드는 모두 할 수 있습니다." if not signed_in else "계정에는 Google 계정 식별값(암호화해 저장)과 닉네임만 보관합니다. 이메일과 이름은 받지 않습니다."))
+		add_child(_note("랭크 대전과 진행도 이어하기는 Android 앱에서 Google 계정으로 로그인해 이용할 수 있습니다. 이 기기에서는 계정 없이 모든 일반 모드를 할 수 있습니다." if not signed_in else "계정에는 Google 계정 식별값(암호화해 저장)과 닉네임만 보관합니다. 이메일과 이름은 받지 않습니다."))
 	var blocker: String = account.blocker()
 	if not blocker.is_empty() and account.state != "busy":
 		add_child(_note(blocker, Color("#f0d592")))
