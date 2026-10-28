@@ -216,6 +216,20 @@ static func _dress_card(card: Button, color: Color, kind: String, is_unit: bool)
 		emblem.add_theme_color_override("font_color", color.lightened(0.25))
 		emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		art.add_child(emblem)
+		var icon: Texture2D = preload("res://scripts/ui/SpellArt.gd").icon(kind)
+		if icon != null:
+			emblem.text = ""
+			var picture := TextureRect.new()
+			picture.name = "TacticIcon"
+			picture.texture = icon
+			picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			picture.size = Vector2(36, 36)
+			picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			art.add_child(picture)
+			var place_icon := func(): picture.position = Vector2(4, (card.size.y - 36.0) * 0.5)
+			card.resized.connect(place_icon)
+			place_icon.call()
 	var badge := Label.new()
 	badge.name = "SelectedBadge"
 	badge.text = "✓"

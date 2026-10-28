@@ -532,6 +532,18 @@ static func _add_structure_button(main, row: HBoxContainer, title: String, kind:
 	emblem.add_theme_color_override("font_color", color.lightened(0.2))
 	emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.add_child(emblem)
+	var icon: Texture2D = preload("res://scripts/ui/SpellArt.gd").icon(kind)
+	if icon != null:
+		emblem.text = ""
+		var art := TextureRect.new()
+		art.name = "TacticIcon"
+		art.texture = icon
+		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		art.position = Vector2(48, 6)
+		art.size = Vector2(40, 40)
+		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(art)
 	button.pressed.connect(func():
 		main.unit_purchase_hold.cancel()
 		if is_instance_valid(main.battle_view) and not main.placement_pending and main._battle_purchase_block_reason().is_empty() and not button.disabled:

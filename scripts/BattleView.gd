@@ -291,58 +291,66 @@ func push_combat_events(events: Array) -> void:
 				unit_actions[event.attacker_id] = {"type": "ATTACK", "started": animation_time}
 	queue_redraw()
 
-## Spell colors for the placeholder effects (until the spell artwork arrives).
+const SpellArt = preload("res://scripts/ui/SpellArt.gd")
+## Ring colors for spell areas on the ground.
 const SPELL_COLORS := {"lightning": Color(0.62, 0.8, 1.0), "fireball": Color(1.0, 0.5, 0.18), "frost": Color(0.6, 0.9, 1.0), "blessing": Color(1.0, 0.84, 0.36), "seraph": Color(1.0, 0.95, 0.8)}
 
-## A cast waiting to land: its area on the ground, and a thrown fireball on its way.
+## Draws `texture` standing on `ground_y`, centered on `x`, `width` wide (height keeps the aspect).
+func _draw_art(texture: Texture2D, x: float, ground_y: float, width: float, alpha: float = 1.0, flip: bool = false) -> void:
+	var height := width * float(texture.get_height()) / maxf(1.0, float(texture.get_width()))
+	if flip:
+		draw_set_transform_matrix(_view_transform() * Transform2D(0.0, Vector2(-1.0, 1.0), 0.0, Vector2(x, 0.0)))
+		draw_texture_rect(texture, Rect2(-width * 0.5, ground_y - height, width, height), false, Color(1, 1, 1, alpha))
+		draw_set_transform_matrix(_view_transform())
+	else:
+		draw_texture_rect(texture, Rect2(x - width * 0.5, ground_y - height, width, height), false, Color(1, 1, 1, alpha))
+
+## A cast waiting to land: its area on the ground, the first frames of its effect, and a thrown fireball.
 func _draw_spell_cast(cast: Dictionary, scale_x: float, lane_y: float) -> void:
 	var kind := String(cast.kind)
 	var color: Color = SPELL_COLORS.get(kind, Color.WHITE)
 	var x := world_to_screen_x(float(cast.x))
-	var radius := float(BattleModel.STRUCTURE_STATS.get(kind, {}).get("radius", 40.0)) * scale_x
-	var pulse := 0.5 + 0.5 * sin(animation_time * 10.0)
-	draw_circle(Vector2(x, lane_y - 2.0), radius, Color(color.r, color.g, color.b, 0.10 + 0.08 * pulse))
-	draw_arc(Vector2(x, lane_y - 2.0), radius, 0.0, TAU, 40, Color(color.r, color.g, color.b, 0.75), 2.0)
 	var stats: Dictionary = BattleModel.STRUCTURE_STATS.get(kind, {})
-	if stats.has("speed"):
-		var remaining := maxf(0.0, float(cast.lands_at) - (float(snapshot.get("elapsed", 0.0)) + snapshot_age))
-		var origin := BattleModel.FIELD_LEFT if int(cast.side) == 0 else BattleModel.FIELD_RIGHT
-		var direction := signf(float(cast.x) - origin)
-		var ball_x := world_to_screen_x(float(cast.x) - direction * remaining * float(stats.speed))
-		var height := lane_y - 40.0 - remaining * 60.0
-		draw_circle(Vector2(ball_x, height), 11.0, Color(1.0, 0.45, 0.12, 0.9))
-		draw_circle(Vector2(ball_x, height), 6.0, Color(1.0, 0.9, 0.5, 1.0))
-	elif kind == "seraph":
-		draw_line(Vector2(x, 0.0), Vector2(x, lane_y), Color(1.0, 0.95, 0.75, 0.25 + 0.25 * pulse), 10.0)
-
-## A landed spell (placeholder shapes until the spell artwork arrives).
-func _draw_spell_land(event: Dictionary, x: float, life: float, scale_x: float, lane_y: float) -> void:
-	var kind := String(event.get("kind", ""))
-	var color: Color = SPELL_COLORS.get(kind, Color.WHITE)
-	var radius := float(event.get("radius", 40.0)) * scale_x
-	var alpha := clampf(life * 1.4, 0.0, 1.0) * effect_intensity
+	var radius := float(stats.get("radius", 40.0)) * scale_x
+	var pulse := 0.5 + 0.5 * sin(animation_time * 10.0)
+	var remaining := maxf(0.0, float(cast.lands_at) - (float(snapshot.get("elapsed", 0.0)) + snapshot_age))
+	draw_arc(Vector2(x, lane_y + 4.0), radius, 0.0, TAU, 40, Color(color.r, color.g, color.b, 0.35 + 0.3 * pulse), 2.0)
 	match kind:
 		"lightning":
-			var points := PackedVector2Array()
-			var steps := 7
-			for step in steps + 1:
-				var t := float(step) / float(steps)
-				var jitter := 0.0 if step == 0 or step == steps else sin(float(step) * 12.9 + float(event.get("x", 0.0))) * 14.0
-				points.append(Vector2(x + jitter, lerpf(0.0, lane_y - 30.0, t)))
-			draw_polyline(points, Color(color.r, color.g, color.b, alpha), 5.0)
-			draw_polyline(points, Color(1, 1, 1, alpha), 2.0)
-			draw_circle(Vector2(x, lane_y - 40.0), 26.0 * life, Color(0.85, 0.95, 1.0, alpha * 0.6))
-		"fireball":
-			draw_circle(Vector2(x, lane_y - 20.0), radius * (1.15 - life * 0.5), Color(1.0, 0.45, 0.12, alpha * 0.45))
-			draw_circle(Vector2(x, lane_y - 20.0), radius * (0.7 - life * 0.3), Color(1.0, 0.82, 0.35, alpha * 0.7))
+			_draw_art(SpellArt.LIGHTNING[0], x, lane_y + 10.0, 180.0, 0.6 + 0.4 * pulse)
 		"frost":
-			draw_arc(Vector2(x, lane_y - 2.0), radius, 0.0, TAU, 40, Color(color.r, color.g, color.b, alpha), 3.0)
-			for spike in 5:
-				var spike_x := x + (float(spike) - 2.0) * radius * 0.35
-				draw_colored_polygon(PackedVector2Array([Vector2(spike_x - 6.0, lane_y), Vector2(spike_x, lane_y - 34.0 - float(spike % 2) * 14.0), Vector2(spike_x + 6.0, lane_y)]), Color(0.75, 0.95, 1.0, alpha * 0.8))
-		"blessing", "seraph":
-			draw_rect(Rect2(x - radius * 0.25, 0.0, radius * 0.5, lane_y), Color(color.r, color.g, color.b, alpha * 0.22))
-			draw_arc(Vector2(x, lane_y - 2.0), radius, 0.0, TAU, 40, Color(color.r, color.g, color.b, alpha), 3.0)
+			_draw_art(SpellArt.FROST[0], x, lane_y + 10.0, radius * 2.4, 0.6 + 0.4 * pulse)
+		"fireball":
+			var origin := BattleModel.FIELD_LEFT if int(cast.side) == 0 else BattleModel.FIELD_RIGHT
+			var direction := signf(float(cast.x) - origin)
+			var ball_x := world_to_screen_x(float(cast.x) - direction * remaining * float(stats.get("speed", 900.0)))
+			# The artwork flies right; screen direction depends on the viewer's side.
+			var screen_direction := signf(x - world_to_screen_x(origin))
+			_draw_art(SpellArt.loop(SpellArt.FIREBALL, animation_time, 12.0), ball_x, lane_y - 30.0 - remaining * 70.0, 110.0, 1.0, screen_direction < 0.0)
+		"seraph":
+			var delay := maxf(0.01, float(stats.get("delay", 1.0)))
+			_draw_art(SpellArt.frame(SpellArt.SERAPH_DESCEND, 1.0 - remaining / delay), x, lane_y + 6.0, 170.0)
+
+## A landed spell.
+func _draw_spell_land(event: Dictionary, x: float, life: float, scale_x: float, lane_y: float) -> void:
+	var kind := String(event.get("kind", ""))
+	var radius := float(event.get("radius", 40.0)) * scale_x
+	var progress := clampf(1.0 - life, 0.0, 1.0)
+	var alpha := effect_intensity
+	match kind:
+		"lightning":
+			_draw_art(SpellArt.frame(SpellArt.LIGHTNING.slice(1), progress), x, lane_y + 10.0, 240.0, alpha)
+		"fireball":
+			_draw_art(SpellArt.frame(SpellArt.FIREBALL_BURST, progress), x, lane_y + 10.0, radius * 2.8, alpha)
+		"frost":
+			_draw_art(SpellArt.frame(SpellArt.FROST.slice(1), progress), x, lane_y + 10.0, radius * 2.4, alpha)
+		"blessing":
+			_draw_art(SpellArt.frame(SpellArt.BLESSING, progress), x, lane_y + 10.0, radius * 2.0, alpha)
+		"seraph":
+			_draw_art(SpellArt.frame(SpellArt.SERAPH_CAST, progress), x, lane_y + 6.0, 170.0, alpha)
+			for unit in snapshot.get("units", []):
+				if Array(event.get("targets", [])).has(unit.id):
+					_draw_art(SpellArt.frame(SpellArt.SERAPH_REVIVE, progress), world_to_screen_x(motion.position(int(unit.id), float(unit.x))), lane_y + 8.0, 90.0, alpha)
 
 func placement_error(kind: String, world_x: float) -> String:
 	if not BattleModel.STRUCTURE_STATS.has(kind):
@@ -747,12 +755,10 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	if cursed_units.has(unit.id):
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "공속▼%d%%" % roundi((1.0 - BattleModel.CURSE_SPEED_SCALE) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c592ff"))
 	if unit.has("frozen_remaining"):
-		# Placeholder until the frost artwork: an ice block around the unit.
-		draw_rect(Rect2(x - 22.0, lane_y - 74.0, 44.0, 74.0), Color(0.55, 0.85, 1.0, 0.28))
-		draw_rect(Rect2(x - 22.0, lane_y - 74.0, 44.0, 74.0), Color(0.75, 0.95, 1.0, 0.8), false, 2.0)
+		_draw_art(SpellArt.FROST[3], x, lane_y + 6.0, 74.0, 0.85)
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 32.0), "빙결", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#a8e6ff"))
 	if unit.has("blessed_remaining"):
-		draw_arc(Vector2(x, lane_y + 2.0), 18.0 + sin(animation_time * 6.0) * 2.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.4, 0.75), 2.0)
+		_draw_art(SpellArt.loop(SpellArt.BLESSING_AURA, animation_time, 8.0), x, lane_y + 8.0, 64.0, 0.9)
 	if unit.get("revived", false):
 		draw_circle(Vector2(x, lane_y - 82.0), 3.0, Color(1.0, 0.95, 0.75, 0.9))
 	if show_battle_effects and kind != "healer":
