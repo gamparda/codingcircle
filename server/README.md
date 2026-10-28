@@ -142,6 +142,22 @@ public development identity in `scripts/net/TransportSecurity.gd` and logs
 `TLS_CERTIFICATE development`: local and test clients still connect encrypted, official clients
 refuse it.
 
+## Accounts (Google sign-in)
+
+Accounts are optional for players and live in `<state dir>/accounts.json` (written atomically,
+retried with the other stores). The file holds a random per-server salt, a salted SHA-256 of each
+account's Google subject, the nickname, creation and last-login times, and SHA-256 hashes of up to
+five 30-day session tokens. It never holds e-mail addresses, raw Google IDs or raw session tokens.
+Back it up with the rest of the state directory and keep it readable only by `catwar`.
+
+Clients send a Google ID token only over a verified connection. The server checks it against
+Google's signing keys, which it downloads from `https://www.googleapis.com/oauth2/v3/certs` at
+start, hourly, and when a token names an unknown key (at most once a minute), so the server needs
+outbound HTTPS to `www.googleapis.com`. Logs: `ACCOUNT_CREATED`, `ACCOUNT_DELETED`,
+`ACCOUNT_KEYS_FETCH_FAILED`. Tokens must be issued for the web OAuth client in
+`scripts/accounts/GoogleIdToken.gd`; `CATWAR_GOOGLE_CLIENT_IDS` (comma-separated) replaces that
+list, for example to accept a future desktop client as well.
+
 ## Production Linux server
 
 The official Linux service runs Godot headlessly under `catwar-server.service`. Install

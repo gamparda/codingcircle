@@ -4,3 +4,10 @@ dist/
 *.tmp
 __pycache__/
 *.py[cod]
+# Android Gradle export: the build template is installed by CI/the editor, the sign-in plugin AAR is built from android/plugins.
+android/build/
+android/.build_version
+android/plugins/*/build/
+android/plugins/*/.gradle/
+android/plugins/*/local.properties
+addons/keepfall_signin/bin/

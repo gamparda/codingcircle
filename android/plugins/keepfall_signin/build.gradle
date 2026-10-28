@@ -1,0 +1,36 @@
+// Godot Android plugin (v2) for Google sign-in through Credential Manager.
+// Build: ./gradlew assembleRelease, then copy build/outputs/aar/keepfall_signin-release.aar to
+// addons/keepfall_signin/bin/ (CI does both; see .github/workflows/build-and-deploy.yml).
+// Versions follow the Godot 4.7.2 Android build template (android/build/config.gradle).
+plugins {
+    id 'com.android.library' version '8.6.1'
+    id 'org.jetbrains.kotlin.android' version '2.1.21'
+}
+
+android {
+    namespace 'kr.ruellyya.keepfall.signin'
+    compileSdk 36
+    buildToolsVersion '36.1.0'
+
+    defaultConfig {
+        minSdk 24
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    compileOnly 'org.godotengine:godot:4.7.2.stable'
+    // Keep in sync with addons/keepfall_signin/plugin.gd, which adds them to the exported app.
+    // googleid 1.2+ is built with Kotlin metadata newer than the template's Kotlin 2.1 can read.
+    implementation 'androidx.credentials:credentials:1.5.0'
+    implementation 'androidx.credentials:credentials-play-services-auth:1.5.0'
+    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
+}

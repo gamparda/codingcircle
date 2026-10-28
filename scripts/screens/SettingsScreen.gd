@@ -13,6 +13,7 @@ const SETTINGS_PAGES := [
 	{"id": "battle", "title": "전투 연출", "hint": "피해 숫자와 효과"},
 	{"id": "keys", "title": "전투 단축키", "hint": "카드를 사는 키"},
 	{"id": "data", "title": "데이터", "hint": "저장된 정보 관리"},
+	{"id": "account", "title": "계정", "hint": "Google 로그인과 닉네임"},
 ]
 
 static func _build_settings_screen(main, mobile_layout_override: bool = false) -> void:
@@ -213,6 +214,10 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	reset_button.tooltip_text = Localization.text("이 기기에 저장된 전적·덱·설정·리플레이를 모두 지웁니다")
 	reset_button.pressed.connect(func(): DataReset.show_confirm(main))
 	pages.data.add_child(reset_button)
+
+	# ---- account (applies at once, not on save)
+	_add_settings_section(main, pages.account, "계정")
+	pages.account.add_child(preload("res://scripts/ui/AccountPanel.gd").create(main))
 
 	for control in [fullscreen, vsync, damage_numbers, shake, effects]:
 		control.toggled.connect(mark_dirty)

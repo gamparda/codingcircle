@@ -37,6 +37,7 @@ static func wipe(main) -> Dictionary:
 	main.profile_load_warning = ""
 	main.profile_load_details = ""
 	main.network.client_nickname = String(main.save_data.nickname)
+	main.account.forget() # this device's sign-in only; the account stays on the server
 	main.battle_preset = {}
 	main.campaign_mode = false
 	Localization.install(String(main.save_data.settings.language))
