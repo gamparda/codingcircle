@@ -5,9 +5,9 @@ extends Control
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const Localization = preload("res://scripts/Localization.gd")
 
-const ORDER := ["shield", "archer", "berserker", "healer", "warlock", "swordsman", "necromancer", "zombie", "paladin", "sniper"]
+const ORDER := ["shield", "archer", "berserker", "healer", "warlock", "swordsman", "necromancer", "zombie", "paladin", "sniper", "demon_lord"]
 const TEXTURES := {"shield": "tanker", "swordsman": "swordsman", "archer": "archer", "healer": "healer",
-	"berserker": "berserker", "warlock": "warlock", "necromancer": "necromancer", "zombie": "zombie", "paladin": "paladin", "sniper": "sniper"}
+	"berserker": "berserker", "warlock": "warlock", "necromancer": "necromancer", "zombie": "zombie", "paladin": "paladin", "sniper": "sniper", "demon_lord": "demon_lord"}
 const ROLES := {
 	"shield": "전열을 지키는 든든한 방패", "swordsman": "균형 잡힌 근접 전사", "archer": "먼 거리에서 쏘아 맞히는 사수",
 	"healer": "아군의 공격 속도를 끌어올리는 지원가", "berserker": "상처 입을수록 사나워지는 돌격수",
@@ -15,6 +15,7 @@ const ROLES := {
 	"zombie": "쓰러져도 한 번 다시 일어나는 언데드",
 	"paladin": "십자가로 내려찍어 언데드를 정화하는 기사",
 	"sniper": "맨 뒤의 적을 노리는 저격수",
+	"demon_lord": "쓰러진 적의 영혼을 거두는 전장의 군주",
 }
 const INTERVAL := 3.6
 

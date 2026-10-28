@@ -25,7 +25,7 @@ const SUCCESS := Color("#6ee7a1")
 
 const UNIT_COLORS := {"shield": Color("#5b8cff"), "swordsman": Color("#f0765f"), "archer": Color("#9b7cf0"),
 	"healer": Color("#e6c25e"), "berserker": Color("#ef7a4f"), "warlock": Color("#b57cf0"),
-	"necromancer": Color("#8e6fd8"), "zombie": Color("#7fa36b"), "paladin": Color("#e8c45a"), "sniper": Color("#8f9a6a"), "skeleton": Color("#b9c2d6")}
+	"necromancer": Color("#8e6fd8"), "zombie": Color("#7fa36b"), "paladin": Color("#e8c45a"), "sniper": Color("#8f9a6a"), "demon_lord": Color("#d8443a"), "skeleton": Color("#b9c2d6")}
 
 static var _cache: Dictionary = {}
 ## Phones need bigger hit areas (about 48dp). Tests flip this to check the touch layout on desktop.

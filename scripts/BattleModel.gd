@@ -146,6 +146,8 @@ func configure_deck(side: int, selected_units: Array, selected_structures: Array
 func spawn_unit(side: int, kind: String) -> bool:
 	if winner != -1 or side < 0 or side > 1 or units.size() >= MAX_ACTIVE_UNITS or not UNIT_STATS.has(kind) or not unit_decks[side].has(kind):
 		return false
+	if not field_limit_error(units, side, kind).is_empty():
+		return false
 	var stats: Dictionary = UNIT_STATS[kind]
 	var stat_scale := float(campaign_bonuses(int(campaign_levels[side])).stat_scale)
 	if resources[side] < stats.cost or float(spawn_cooldowns[side].get(kind, 0.0)) > 0.0:
@@ -170,6 +172,8 @@ func _create_unit(side: int, kind: String, stats: Dictionary, hp_scale: float, d
 		units.back()["summon_remaining"] = SUMMON_INTERVAL
 	if trait_value(kind, "skill_cooldown") != null:
 		units.back()["skill_remaining"] = float(trait_value(kind, "skill_cooldown"))
+	if trait_value(kind, "soul_max") != null:
+		units.back()["souls"] = 0
 	next_unit_id += 1
 
 static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
@@ -196,15 +200,23 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 		var skeleton: Dictionary = SUMMON_STATS.skeleton
 		output += "\n%d초마다 해골 소환 · 최대 %d기 유지 · 추가 자원 없음\n해골 체력 %d · 공격 %d · 사거리 %d" % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER, int(float(skeleton.hp) * stat_scale), int(float(skeleton.damage) * stat_scale), int(skeleton.range)]
 	if trait_value(kind, "skill_cooldown") != null:
-		output += "\n%d초마다 심판의 십자가 · 반경 %d 적 전체 피해 %d" % [int(trait_value(kind, "skill_cooldown")), int(trait_value(kind, "skill_radius", 0.0)), int(float(trait_value(kind, "skill_damage", 0.0)) * stat_scale)]
+		output += "\n%d초마다 %s · 반경 %d 적 전체 피해 %d" % [int(trait_value(kind, "skill_cooldown")), skill_name(kind), int(trait_value(kind, "skill_radius", 0.0)), int(float(trait_value(kind, "skill_damage", 0.0)) * stat_scale)]
+		if trait_value(kind, "skill_knockback") != null:
+			output += " · %d만큼 밀쳐냄" % int(trait_value(kind, "skill_knockback"))
+	if trait_value(kind, "soul_max") != null:
+		output += "\n영혼 수확 · 반경 %d 안의 적이 쓰러질 때마다 체력 %d%% 회복\n영혼 1개당 공격력 +%d%% · 최대 %d개 (+%d%%)" % [int(trait_value(kind, "soul_radius", 0.0)), roundi(float(trait_value(kind, "soul_heal_fraction", 0.0)) * 100.0), roundi(float(trait_value(kind, "soul_damage_step", 0.0)) * 100.0), int(trait_value(kind, "soul_max")), roundi(float(trait_value(kind, "soul_damage_step", 0.0)) * float(trait_value(kind, "soul_max")) * 100.0)]
+	if field_limit(kind) > 0:
+		output += "\n전장에 %d기만 둘 수 있음" % field_limit(kind)
 	if trait_value(kind, "undead_bonus") != null:
-		output += "\n언데드에게 피해 ×%.1f · 처치한 언데드는 부활하지 못함" % float(trait_value(kind, "undead_bonus"))
+		output += "\n%s에게 피해 ×%.1f · 처치한 언데드는 부활하지 못함" % ["·".join(PackedStringArray(smite_tags(kind).map(func(tag): return TAG_NAMES.get(tag, tag)))), float(trait_value(kind, "undead_bonus"))]
 	if trait_value(kind, "target_rearmost", false):
 		output += "\n사거리 안에서 가장 뒤에 있는 적을 노림 · 방벽 너머 저격"
 	if can_revive(kind):
 		output += "\n첫 사망 시 %.0f초 뒤 체력 %d%%로 1회 부활 · 쓰러진 동안 공격받지 않음" % [float(trait_value(kind, "revive_delay")), roundi(float(trait_value(kind, "revive_hp_fraction", 0.5)) * 100.0)]
 	if has_tag(kind, "undead"):
 		output += "\n언데드"
+	if has_tag(kind, "demon"):
+		output += "\n마족"
 	return output
 
 ## One-line role description shown on deck cards. Numbers come from the rule constants/data.
@@ -220,6 +232,7 @@ static func unit_role(kind: String) -> String:
 		"sniper": return Localization.text("맨 뒤의 적 저격")
 		"zombie": return Localization.text("체력 %d%%로 1회 부활") % roundi(float(trait_value(kind, "revive_hp_fraction", 0.5)) * 100.0)
 		"necromancer": return Localization.text("%d초 해골 소환·최대 %d") % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER]
+		"demon_lord": return Localization.text("영혼 수확·%d초 포효·1기") % int(trait_value(kind, "skill_cooldown"))
 	return ""
 
 ## Short swamp description for battle cards, e.g. "80% 감속 · 5초".
@@ -457,6 +470,32 @@ static func unit_tags(kind: String) -> Array:
 static func has_tag(kind: String, tag: String) -> bool:
 	return unit_tags(kind).has(tag)
 
+const TAG_NAMES := {"undead": "언데드", "demon": "마족"}
+
+## Tags a holy attacker's bonus applies to (data "smite_tags"; undead by default).
+static func smite_tags(kind: String) -> Array:
+	return Array(trait_value(kind, "smite_tags", ["undead"]))
+
+static func skill_name(kind: String) -> String:
+	return "공포의 포효" if trait_value(kind, "skill_knockback") != null else "심판의 십자가"
+
+## How many of `kind` one side may field at once (data "field_limit"); 0 means no limit.
+static func field_limit(kind: String) -> int:
+	return int(trait_value(kind, "field_limit", 0))
+
+## Shared by authoritative purchases and the purchase cards. Downed units still hold their slot.
+static func field_limit_error(values: Array, side: int, kind: String) -> String:
+	var limit := field_limit(kind)
+	if limit <= 0:
+		return ""
+	var fielded := 0
+	for unit in values:
+		if int(unit.side) == side and String(unit.kind) == kind and (float(unit.hp) > 0.0 or unit.has("revive_remaining")):
+			fielded += 1
+	if fielded < limit:
+		return ""
+	return Localization.text("%s은(는) 전장에 %d기만 둘 수 있습니다.") % [String(UNIT_NAMES.get(kind, kind)), limit]
+
 ## Optional per-unit trait numbers stored in the unit's data `extra`.
 static func trait_value(kind: String, key: String, fallback = null):
 	return UNIT_STATS.get(kind, SUMMON_STATS.get(kind, {})).get(key, fallback)
@@ -489,7 +528,7 @@ static func is_enraged(unit: Dictionary) -> bool:
 	return unit.kind == "berserker" and float(unit.hp) > 0.0 and float(unit.hp) <= float(unit.max_hp) * RAGE_HP_FRACTION
 
 func unit_attack_damage(unit: Dictionary) -> float:
-	return float(unit.damage)
+	return float(unit.damage) * (1.0 + int(unit.get("souls", 0)) * float(trait_value(String(unit.kind), "soul_damage_step", 0.0)))
 
 func curse_speed_scale(side: int, x: float) -> float:
 	for curse in curses:
@@ -536,19 +575,25 @@ func _tick_support(unit: Dictionary, delta: float) -> void:
 	unit.x = clamp(destination, FIELD_LEFT, FIELD_RIGHT)
 
 
-## Ground slam around `x`: every living enemy unit in the radius takes the skill damage.
+## Ground slam around `x` (or the caster): every living enemy unit in the radius takes the
+## skill damage, and survivors are pushed back toward their own base when the skill knocks back.
 func _cast_skill(caster: Dictionary, x: float) -> void:
 	var kind := String(caster.kind)
+	if trait_value(kind, "skill_on_self", false):
+		x = float(caster.x)
 	var growth := float(caster.damage) / maxf(0.01, float(UNIT_STATS[kind].damage))
 	var radius := float(trait_value(kind, "skill_radius", 0.0))
-	combat_events.append({"type": "SKILL", "source_id": caster.id, "x": x, "radius": radius})
+	var knockback := float(trait_value(kind, "skill_knockback", 0.0)) * (1.0 if int(caster.side) == 0 else -1.0)
+	combat_events.append({"type": "SKILL", "source_id": caster.id, "kind": kind, "x": x, "radius": radius})
 	for enemy in units:
 		if int(enemy.side) != int(caster.side) and float(enemy.hp) > 0.0 and absf(float(enemy.x) - x) <= radius:
 			_damage_target(caster, enemy, float(trait_value(kind, "skill_damage", 0.0)) * growth, false)
+			if knockback != 0.0 and float(enemy.hp) > 0.0:
+				enemy.x = clampf(float(enemy.x) + knockback, FIELD_LEFT, FIELD_RIGHT)
 
 func _damage_target(attacker: Dictionary, target: Dictionary, damage: float, show_attack: bool = true) -> void:
 	var undead_bonus = trait_value(String(attacker.kind), "undead_bonus")
-	var smites_undead: bool = undead_bonus != null and target.has("speed") and has_tag(String(target.kind), "undead")
+	var smites_undead: bool = undead_bonus != null and target.has("speed") and smite_tags(String(attacker.kind)).any(func(tag): return has_tag(String(target.kind), tag))
 	if smites_undead:
 		damage *= float(undead_bonus)
 	var before := maxf(0.0,float(target.hp))
@@ -663,10 +708,26 @@ func _emit_death_events() -> void:
 		if float(unit.hp) <= 0.0 and not unit.has("revive_remaining") and not announced_deaths.has(unit.id):
 			announced_deaths[unit.id] = true
 			combat_events.append({"type": "DEATH", "unit_id": unit.id, "x": unit.x})
+			_harvest_soul(unit)
 	for structure in structures:
 		if float(structure.hp) <= 0.0 and not announced_structure_deaths.has(structure.id):
 			announced_structure_deaths[structure.id] = true
 			combat_events.append({"type": "STRUCTURE_DESTROYED", "structure_id": structure.id, "kind": structure.kind, "x": structure.x})
+
+## A living soul harvester near a fallen enemy heals and gains one soul (up to its maximum).
+func _harvest_soul(fallen: Dictionary) -> void:
+	for lord in units:
+		if int(lord.side) == int(fallen.side) or float(lord.hp) <= 0.0 or not lord.has("souls"):
+			continue
+		var kind := String(lord.kind)
+		if absf(float(lord.x) - float(fallen.x)) > float(trait_value(kind, "soul_radius", 0.0)):
+			continue
+		lord.souls = mini(int(trait_value(kind, "soul_max", 0)), int(lord.souls) + 1)
+		var healed := minf(float(lord.max_hp) - float(lord.hp), float(lord.max_hp) * float(trait_value(kind, "soul_heal_fraction", 0.0)))
+		lord.hp = float(lord.hp) + healed
+		combat_events.append({"type": "SOUL", "source_id": lord.id, "unit_id": fallen.id, "x": lord.x, "from_x": fallen.x, "souls": lord.souls})
+		if healed > 0.0:
+			combat_events.append({"type": "HEAL", "target_id": lord.id, "amount": healed, "x": lord.x})
 
 func drain_combat_events() -> Array:
 	var result := combat_events.duplicate(true)

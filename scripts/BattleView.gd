@@ -29,6 +29,7 @@ const UNIT_TEXTURES := {
 	"zombie": preload("res://assets/units/zombie.png"),
 	"paladin": preload("res://assets/units/paladin.png"),
 	"sniper": preload("res://assets/units/sniper.png"),
+	"demon_lord": preload("res://assets/units/demon_lord.png"),
 }
 const UNIT_WALK_TEXTURES := {
 	"shield": [
@@ -58,10 +59,12 @@ const UNIT_WALK_TEXTURES := {
 	"zombie": [preload("res://assets/units/animations/zombie/walk_0.png"), preload("res://assets/units/animations/zombie/walk_1.png"), preload("res://assets/units/animations/zombie/walk_2.png"), preload("res://assets/units/animations/zombie/walk_3.png"), preload("res://assets/units/animations/zombie/walk_4.png"), preload("res://assets/units/animations/zombie/walk_5.png"), preload("res://assets/units/animations/zombie/walk_6.png"), preload("res://assets/units/animations/zombie/walk_7.png")],
 	"paladin": [preload("res://assets/units/animations/paladin/walk_0.png"), preload("res://assets/units/animations/paladin/walk_1.png"), preload("res://assets/units/animations/paladin/walk_2.png"), preload("res://assets/units/animations/paladin/walk_3.png"), preload("res://assets/units/animations/paladin/walk_4.png"), preload("res://assets/units/animations/paladin/walk_5.png"), preload("res://assets/units/animations/paladin/walk_6.png"), preload("res://assets/units/animations/paladin/walk_7.png")],
 	"sniper": [preload("res://assets/units/animations/sniper/walk_0.png"), preload("res://assets/units/animations/sniper/walk_1.png"), preload("res://assets/units/animations/sniper/walk_2.png"), preload("res://assets/units/animations/sniper/walk_3.png"), preload("res://assets/units/animations/sniper/walk_4.png"), preload("res://assets/units/animations/sniper/walk_5.png"), preload("res://assets/units/animations/sniper/walk_6.png"), preload("res://assets/units/animations/sniper/walk_7.png")],
+	"demon_lord": [preload("res://assets/units/animations/demon_lord/walk_0.png"), preload("res://assets/units/animations/demon_lord/walk_1.png"), preload("res://assets/units/animations/demon_lord/walk_2.png"), preload("res://assets/units/animations/demon_lord/walk_3.png"), preload("res://assets/units/animations/demon_lord/walk_4.png"), preload("res://assets/units/animations/demon_lord/walk_5.png"), preload("res://assets/units/animations/demon_lord/walk_6.png"), preload("res://assets/units/animations/demon_lord/walk_7.png")],
 }
 const UNIT_ATTACK_TEXTURES := {
 	"paladin": [preload("res://assets/units/animations/paladin/attack_0.png"), preload("res://assets/units/animations/paladin/attack_1.png"), preload("res://assets/units/animations/paladin/attack_2.png"), preload("res://assets/units/animations/paladin/attack_3.png"), preload("res://assets/units/animations/paladin/attack_4.png")],
 	"sniper": [preload("res://assets/units/animations/sniper/attack_0.png"), preload("res://assets/units/animations/sniper/attack_1.png"), preload("res://assets/units/animations/sniper/attack_2.png"), preload("res://assets/units/animations/sniper/attack_3.png")],
+	"demon_lord": [preload("res://assets/units/animations/demon_lord/attack_0.png"), preload("res://assets/units/animations/demon_lord/attack_1.png"), preload("res://assets/units/animations/demon_lord/attack_2.png"), preload("res://assets/units/animations/demon_lord/attack_3.png"), preload("res://assets/units/animations/demon_lord/attack_4.png")],
 	"zombie": [preload("res://assets/units/animations/zombie/attack_0.png"), preload("res://assets/units/animations/zombie/attack_1.png"), preload("res://assets/units/animations/zombie/attack_2.png"), preload("res://assets/units/animations/zombie/attack_3.png"), preload("res://assets/units/animations/zombie/attack_4.png")],
 	"berserker": [preload("res://assets/units/animations/berserker/attack_0.png"), preload("res://assets/units/animations/berserker/attack_1.png"), preload("res://assets/units/animations/berserker/attack_2.png")],
 	"warlock": [preload("res://assets/units/animations/warlock/attack_0.png"), preload("res://assets/units/animations/warlock/attack_1.png"), preload("res://assets/units/animations/warlock/attack_2.png")],
@@ -75,9 +78,16 @@ const UNIT_DOWNED_TEXTURES := {
 const DOWNED_FALL_SECONDS := 0.5
 const UNIT_SKILL_TEXTURES := {
 	"paladin": [preload("res://assets/units/animations/paladin/skill_0.png"), preload("res://assets/units/animations/paladin/skill_1.png"), preload("res://assets/units/animations/paladin/skill_2.png"), preload("res://assets/units/animations/paladin/skill_3.png"), preload("res://assets/units/animations/paladin/skill_4.png"), preload("res://assets/units/animations/paladin/skill_5.png"), preload("res://assets/units/animations/paladin/skill_6.png")],
+	"demon_lord": [preload("res://assets/units/animations/demon_lord/skill_0.png"), preload("res://assets/units/animations/demon_lord/skill_1.png"), preload("res://assets/units/animations/demon_lord/skill_2.png"), preload("res://assets/units/animations/demon_lord/skill_3.png"), preload("res://assets/units/animations/demon_lord/skill_4.png"), preload("res://assets/units/animations/demon_lord/skill_5.png"), preload("res://assets/units/animations/demon_lord/skill_6.png")],
 }
 const HOLY_PILLAR_TEXTURES := [preload("res://assets/units/effects/holy_pillar_0.png"), preload("res://assets/units/effects/holy_pillar_1.png"), preload("res://assets/units/effects/holy_pillar_2.png"), preload("res://assets/units/effects/holy_pillar_3.png"), preload("res://assets/units/effects/holy_pillar_4.png"), preload("res://assets/units/effects/holy_pillar_5.png"), preload("res://assets/units/effects/holy_pillar_6.png"), preload("res://assets/units/effects/holy_pillar_7.png"), preload("res://assets/units/effects/holy_pillar_8.png")]
 const DOWNED_RISE_SECONDS := 1.0
+## The demon lord towers over the rest of the roster.
+const DEMON_LORD_HEIGHT := 112.0
+const DEMON_ROAR_TEXTURES := [preload("res://assets/units/effects/demon_roar_0.png"), preload("res://assets/units/effects/demon_roar_1.png"), preload("res://assets/units/effects/demon_roar_2.png"), preload("res://assets/units/effects/demon_roar_3.png"), preload("res://assets/units/effects/demon_roar_4.png"), preload("res://assets/units/effects/demon_roar_5.png"), preload("res://assets/units/effects/demon_roar_6.png"), preload("res://assets/units/effects/demon_roar_7.png")]
+const DEMON_SOUL_TEXTURES := [preload("res://assets/units/effects/demon_soul_0.png"), preload("res://assets/units/effects/demon_soul_1.png"), preload("res://assets/units/effects/demon_soul_2.png"), preload("res://assets/units/effects/demon_soul_3.png"), preload("res://assets/units/effects/demon_soul_4.png"), preload("res://assets/units/effects/demon_soul_5.png")]
+const DEMON_ABSORB_TEXTURES := [preload("res://assets/units/effects/demon_absorb_0.png"), preload("res://assets/units/effects/demon_absorb_1.png"), preload("res://assets/units/effects/demon_absorb_2.png"), preload("res://assets/units/effects/demon_absorb_3.png"), preload("res://assets/units/effects/demon_absorb_4.png"), preload("res://assets/units/effects/demon_absorb_5.png")]
+const DEMON_AURA_TEXTURES := [preload("res://assets/units/effects/demon_aura_0.png"), preload("res://assets/units/effects/demon_aura_1.png"), preload("res://assets/units/effects/demon_aura_2.png"), preload("res://assets/units/effects/demon_aura_3.png"), preload("res://assets/units/effects/demon_aura_4.png"), preload("res://assets/units/effects/demon_aura_5.png")]
 const UNIT_SUMMON_TEXTURES := [
 preload("res://assets/units/animations/necromancer/summon_0.png"), preload("res://assets/units/animations/necromancer/summon_1.png"), preload("res://assets/units/animations/necromancer/summon_2.png")
 ]
@@ -267,7 +277,7 @@ func push_combat_events(events: Array) -> void:
 						existing.amount = float(existing.amount)+float(event.get("amount",0.0)); merged = true; break
 			if merged: continue
 			var visual: Dictionary = event.duplicate(true)
-			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else (1.0 if String(event.get("type", "")) == "SKILL" else 0.7)
+			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else (1.0 if String(event.get("type", "")) in ["SKILL", "SOUL"] else 0.7)
 			if String(event.get("type","")) in ["DAMAGE","HEAL","BASE_HIT"]:
 				visual["text_lane"] = damage_lane_cursor % 4
 				damage_lane_cursor += 1
@@ -615,7 +625,9 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 		texture = frames[index]
 		action_blend = action_opacity(animation_time - float(action.started))
 	var sprite_height: float = 86.0
-	if unit.kind == "shield":
+	if unit.kind == "demon_lord":
+		sprite_height = DEMON_LORD_HEIGHT
+	elif unit.kind == "shield":
 		sprite_height = 92.0
 	elif unit.kind == "healer":
 		sprite_height = 90.0
@@ -628,10 +640,18 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	# Team halo and contact shadow stay independent from the supplied artwork.
 	draw_circle(Vector2(x, lane_y - 38.0), 43.0, Color(color.r, color.g, color.b, 0.08))
 	draw_ellipse(Vector2(x, lane_y - 2.0), sprite_width * 0.37, 6.0, Color(0.0, 0.0, 0.0, 0.38))
+	var souls := int(unit.get("souls", 0))
+	if souls > 0 and show_battle_effects:
+		# The aura brightens with every harvested soul.
+		var aura: Texture2D = DEMON_AURA_TEXTURES[int(animation_time * 8.0) % DEMON_AURA_TEXTURES.size()]
+		var aura_width := 120.0
+		var aura_height := aura_width * float(aura.get_height()) / float(aura.get_width())
+		var soul_max := maxf(1.0, float(BattleModel.trait_value(kind, "soul_max", 1)))
+		draw_texture_rect(aura, Rect2(x - aura_width * 0.5, lane_y + 8.0 - aura_height, aura_width, aura_height), false, Color(1, 1, 1, (0.35 + 0.55 * souls / soul_max) * effect_intensity))
 	draw_set_transform_matrix(_view_transform() * Transform2D(0.0, Vector2(facing, 1.0), 0.0, Vector2(x, lane_y)))
 	var tint := Color.WHITE.lerp(Color("#ffb37a"), 0.25) if BattleModel.is_enraged(unit) else Color.WHITE
 	if texture != walk_texture and action_blend < 1.0:
-		var walk_height := 86.0 * float(walk_texture.get_height()) / float(UNIT_TEXTURES[kind].get_height())
+		var walk_height := (DEMON_LORD_HEIGHT if kind == "demon_lord" else 86.0) * float(walk_texture.get_height()) / float(UNIT_TEXTURES[kind].get_height())
 		var walk_width := walk_height * float(walk_texture.get_width()) / float(walk_texture.get_height())
 		draw_texture_rect(walk_texture, Rect2(-walk_width * 0.5, -walk_height, walk_width, walk_height), false, Color(tint.r, tint.g, tint.b, 1.0-action_blend))
 	draw_texture_rect(texture, Rect2(-sprite_width * 0.5, -sprite_height, sprite_width, sprite_height), false, Color(tint.r, tint.g, tint.b, action_blend if texture != walk_texture else 1.0))
@@ -652,6 +672,8 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 		var remaining := maxf(0.0, float(unit.summon_remaining) - minf(snapshot_age, 0.25))
 		draw_rect(Rect2(x - 20.0, bar_y + 16.0, 40.0, 3.0), Color("#242038"))
 		draw_rect(Rect2(x - 20.0, bar_y + 16.0, 40.0 * (1.0 - remaining / BattleModel.SUMMON_INTERVAL), 3.0), Color("#b591ef"))
+	if souls > 0:
+		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 18.0), "영혼 %d" % souls, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ff6b5a"))
 	if BattleModel.is_enraged(unit):
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 18.0), "광폭", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ff9a61"))
 	if cursed_units.has(unit.id):
@@ -802,6 +824,30 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 				draw_circle(Vector2(x, lane_y - 60.0), 18.0, Color(0.35, 1.0, 0.58, life * effect_intensity))
 			elif event_type in ["DEATH", "STRUCTURE_DESTROYED"]:
 				draw_circle(Vector2(x, lane_y - 35.0), 32.0 * (1.0 - life), Color(0.8, 0.84, 0.92, life * effect_intensity))
+			elif event_type == "SKILL" and String(event.get("kind", "")) == "demon_lord":
+				var roar: Texture2D = DEMON_ROAR_TEXTURES[clampi(int((1.0 - life) * DEMON_ROAR_TEXTURES.size()), 0, DEMON_ROAR_TEXTURES.size() - 1)]
+				var roar_width := float(event.get("radius", 0.0)) * scale_x * 2.6
+				var roar_height := roar_width * float(roar.get_height()) / maxf(1.0, float(roar.get_width()))
+				draw_texture_rect(roar, Rect2(x - roar_width * 0.5, lane_y + 14.0 - roar_height, roar_width, roar_height), false, Color(1, 1, 1, clampf(life * 2.0, 0.0, 1.0) * effect_intensity))
+			elif event_type == "SOUL":
+				# The fallen soul flies to the harvester, then bursts into it.
+				var progress := 1.0 - life
+				if progress < 0.5:
+					var wisp: Texture2D = DEMON_SOUL_TEXTURES[int(animation_time * 12.0) % DEMON_SOUL_TEXTURES.size()]
+					var from_x := world_to_screen_x(float(event.get("from_x", event.get("x", 640.0))))
+					var wisp_x := lerpf(from_x, x, progress * 2.0)
+					var wisp_width := 54.0
+					var wisp_height := wisp_width * float(wisp.get_height()) / maxf(1.0, float(wisp.get_width()))
+					# The artwork flies leftward; mirror it when the soul travels right.
+					var flip := -1.0 if x > from_x else 1.0
+					draw_set_transform_matrix(_view_transform() * Transform2D(0.0, Vector2(flip, 1.0), 0.0, Vector2(wisp_x, lane_y - 58.0)))
+					draw_texture_rect(wisp, Rect2(-wisp_width * 0.5, -wisp_height * 0.5, wisp_width, wisp_height), false, Color(1, 1, 1, effect_intensity))
+					draw_set_transform_matrix(_view_transform())
+				else:
+					var absorb: Texture2D = DEMON_ABSORB_TEXTURES[clampi(int((progress - 0.5) * 2.0 * DEMON_ABSORB_TEXTURES.size()), 0, DEMON_ABSORB_TEXTURES.size() - 1)]
+					var absorb_width := 92.0
+					var absorb_height := absorb_width * float(absorb.get_height()) / maxf(1.0, float(absorb.get_width()))
+					draw_texture_rect(absorb, Rect2(x - absorb_width * 0.5, lane_y - 58.0 - absorb_height * 0.5, absorb_width, absorb_height), false, Color(1, 1, 1, clampf(life * 3.0, 0.0, 1.0) * effect_intensity))
 			elif event_type == "SKILL":
 				var pillar: Texture2D = HOLY_PILLAR_TEXTURES[clampi(int((1.0 - life) * HOLY_PILLAR_TEXTURES.size()), 0, HOLY_PILLAR_TEXTURES.size() - 1)]
 				var pillar_height := 150.0

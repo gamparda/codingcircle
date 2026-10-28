@@ -1,6 +1,6 @@
 extends RefCounted
 
-const KINDS := ["shield","swordsman","archer","healer","berserker","warlock","necromancer","zombie","paladin","sniper","turret"]
+const KINDS := ["shield","swordsman","archer","healer","berserker","warlock","necromancer","zombie","paladin","sniper","demon_lord","turret"]
 static func empty_side() -> Dictionary:
 	var rows: Dictionary = {}
 	for kind in KINDS: rows[kind] = {"purchased":0,"summoned":0,"kills":0,"damage":0.0}

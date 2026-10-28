@@ -114,5 +114,22 @@
       "walk": 8,
       "attack": 4
     }
+  },
+  "demon_lord": {
+    "cutout_version": 2,
+    "walk_anchor_version": 1,
+    "portrait": [
+      213,
+      217
+    ],
+    "animation_canvas": [
+      472,
+      271
+    ],
+    "frames": {
+      "walk": 8,
+      "attack": 5,
+      "skill": 7
+    }
   }
 }

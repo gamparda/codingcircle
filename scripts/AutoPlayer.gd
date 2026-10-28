@@ -58,7 +58,7 @@ func update(model: BattleModel, delta: float) -> void:
 	if policy == "cycle" and not state.danger:
 		if model.spawn_unit(side, preferred): cursor += 1
 		return
-	var key_purchase: bool = (preferred == "necromancer" and int(state.counts.get(preferred, 0)) == 0) or (preferred == "healer" and state.buff_need >= 2 and int(state.counts.get(preferred, 0)) == 0) or (preferred == "shield" and state.frontline == 0 and state.own > 0)
+	var key_purchase: bool = (preferred in ["necromancer", "demon_lord"] and int(state.counts.get(preferred, 0)) == 0) or (preferred == "healer" and state.buff_need >= 2 and int(state.counts.get(preferred, 0)) == 0) or (preferred == "shield" and state.frontline == 0 and state.own > 0)
 	var clear_preference: bool = state.own >= 2 and score(preferred, state) >= score(String(candidates[1]), state) + 8.0
 	if not state.danger and (key_purchase or clear_preference) and model.resources[side] < BattleModel.UNIT_STATS[preferred].cost:
 		return

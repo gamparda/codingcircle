@@ -180,7 +180,7 @@ static func _build_battle_screen(main) -> void:
 	controls.add_child(row)
 	var preset = main.battle_preset if not main.battle_preset.is_empty() else main._active_preset()
 	var unit_names := BattleModel.UNIT_NAMES
-	var unit_colors := {"shield": Color("#5b8cff"), "healer": Color("#d8b85a"), "archer": Color("#8b72df"), "swordsman": Color("#d56b5f"), "berserker": Color("#db7254"), "warlock": Color("#a775e6"), "necromancer": Color("#906bd1"), "zombie": Color("#7fa36b"), "paladin": Color("#e8c45a"), "sniper": Color("#8f9a6a")}
+	var unit_colors := {"shield": Color("#5b8cff"), "healer": Color("#d8b85a"), "archer": Color("#8b72df"), "swordsman": Color("#d56b5f"), "berserker": Color("#db7254"), "warlock": Color("#a775e6"), "necromancer": Color("#906bd1"), "zombie": Color("#7fa36b"), "paladin": Color("#e8c45a"), "sniper": Color("#8f9a6a"), "demon_lord": Color("#d8443a")}
 	for kind in preset.units:
 		main._add_spawn_button(row, unit_names[kind], kind, unit_colors[kind])
 	var separator := VSeparator.new()
@@ -932,6 +932,11 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			if int(population.occupied) >= BattleModel.MAX_ACTIVE_UNITS:
 				limit_error = _unit_limit_hint()
 				limit_state = "전장 한도 %d/%d" % [int(population.occupied), BattleModel.MAX_ACTIVE_UNITS]
+			else:
+				var unit_kind := String(button.get_meta("unit_kind"))
+				limit_error = BattleModel.field_limit_error(_battle_units(main), main.own_side, unit_kind)
+				if not limit_error.is_empty():
+					limit_state = "출전 중 %d/%d" % [BattleModel.field_limit(unit_kind), BattleModel.field_limit(unit_kind)]
 		if button.has_meta("structure_kind"):
 			var kind: String = button.get_meta("structure_kind")
 			var count := int(counts.kinds.get(kind, 0))

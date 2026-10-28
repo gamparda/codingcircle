@@ -27,7 +27,7 @@ func _initialize() -> void:
 					printerr("Invalid battle state at stage ",stage)
 					quit(1);return
 			if model.winner!=-1:break
-		if (stage>=3 and counts.generators==0) or (stage==3 and counts.curses==0) or (stage>=7 and counts.summons==0):
+		if (stage>=3 and counts.generators==0) or (stage==3 and counts.curses==0) or (stage==7 and counts.summons==0) or (stage==8 and int(model.battle_report[1].units.demon_lord.purchased)==0):
 			printerr("AI economy or combined-trait purchases were starved at stage ",stage)
 			quit(1);return
 		print("BOUNDED_AI_SPOTCHECK ",JSON.stringify({"stage":stage,"elapsed":model.elapsed,"winner":model.winner,"bases":model.base_hp,"live_units":model.units.size(),"events":counts}))

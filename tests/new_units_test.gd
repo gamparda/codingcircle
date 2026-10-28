@@ -152,6 +152,64 @@ func _initialize() -> void:
 	check(not holy.units.has(risen), "an undead slain by the paladin does not revive")
 	var forged_skill := holy.snapshot(); forged_skill.units[0].skill_remaining = 999.0
 	check(not Network.is_valid_snapshot(forged_skill), "reject skill timers beyond the cooldown")
+	var lord_battle := model()
+	lord_battle.configure_deck(0, ["demon_lord", "swordsman", "archer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	lord_battle.configure_deck(1, ["paladin", "swordsman", "necromancer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	check(lord_battle.spawn_unit(0, "demon_lord"), "demon lord is purchasable")
+	var lord: Dictionary = lord_battle.units[0]
+	check(lord.max_hp == 480.0 and lord.damage == 16.0 and lord.souls == 0 and lord_battle.resources[0] == 40.0, "demon lord has its requested stats and cost")
+	lord_battle.resources[0] = 180.0; lord_battle.spawn_cooldowns[0].clear()
+	check(not lord_battle.spawn_unit(0, "demon_lord"), "only one demon lord may be fielded")
+	check(not BattleModel.field_limit_error(lord_battle.units, 0, "demon_lord").is_empty(), "purchase cards explain the field limit")
+	check(BattleModel.field_limit_error(lord_battle.units, 1, "demon_lord").is_empty(), "the field limit is per side")
+	lord.x = 600.0; lord.speed = 0.0; lord.cooldown = 999.0; lord.skill_remaining = 10.0
+	lord.hp = 100.0
+	lord_battle.spawn_unit(1, "swordsman")
+	var fallen: Dictionary = lord_battle.units[1]
+	fallen.x = 680.0; fallen.speed = 0.0; fallen.cooldown = 999.0; fallen.hp = 0.0
+	lord_battle.tick(0.01)
+	var heal := 480.0 * float(BattleModel.trait_value("demon_lord", "soul_heal_fraction"))
+	check(lord.souls == 1 and is_equal_approx(float(lord.hp), 100.0 + heal), "an enemy falling near the demon lord grants a soul and heals it")
+	check(is_equal_approx(lord_battle.unit_attack_damage(lord), 16.0 * (1.0 + float(BattleModel.trait_value("demon_lord", "soul_damage_step")))), "each soul raises the demon lord's attack")
+	var harvest_events := lord_battle.drain_combat_events()
+	check(harvest_events.any(func(event): return event.type == "SOUL" and event.souls == 1), "soul harvest emits an event for the view")
+	check(Network.is_valid_snapshot(lord_battle.snapshot()), "soul counts pass online validation")
+	var forged_souls := lord_battle.snapshot(); forged_souls.units[0].souls = 99
+	check(not Network.is_valid_snapshot(forged_souls), "reject soul counts beyond the maximum")
+	lord_battle.spawn_cooldowns[1].clear(); lord_battle.spawn_unit(1, "swordsman")
+	var far: Dictionary = lord_battle.units.back()
+	far.x = 600.0 + float(BattleModel.trait_value("demon_lord", "soul_radius")) + 20.0; far.speed = 0.0; far.cooldown = 999.0; far.hp = 0.0
+	lord_battle.tick(0.01)
+	check(lord.souls == 1, "enemies falling outside the harvest radius grant nothing")
+	lord.souls = int(BattleModel.trait_value("demon_lord", "soul_max"))
+	lord_battle.spawn_cooldowns[1].clear(); lord_battle.spawn_unit(1, "swordsman")
+	lord_battle.units.back().x = 620.0; lord_battle.units.back().speed = 0.0; lord_battle.units.back().hp = 0.0
+	lord_battle.tick(0.01)
+	check(lord.souls == int(BattleModel.trait_value("demon_lord", "soul_max")), "souls stop at the maximum")
+	var roar := model()
+	roar.configure_deck(0, ["demon_lord", "swordsman", "archer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	roar.configure_deck(1, ["swordsman", "archer", "paladin"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	roar.spawn_unit(0, "demon_lord")
+	var roarer: Dictionary = roar.units[0]
+	roarer.x = 600.0; roarer.speed = 0.0; roarer.cooldown = 999.0; roarer.skill_remaining = 0.0
+	roar.spawn_unit(1, "swordsman"); roar.spawn_cooldowns[1].clear(); roar.spawn_unit(1, "archer")
+	var near: Dictionary = roar.units[1]
+	var outside: Dictionary = roar.units[2]
+	near.x = 640.0; near.speed = 0.0; near.cooldown = 999.0
+	outside.x = 600.0 + float(BattleModel.trait_value("demon_lord", "skill_radius")) + 30.0; outside.speed = 0.0; outside.cooldown = 999.0
+	roar.tick(0.01)
+	var push := float(BattleModel.trait_value("demon_lord", "skill_knockback"))
+	check(is_equal_approx(float(near.hp), float(near.max_hp) - float(BattleModel.trait_value("demon_lord", "skill_damage"))), "the roar damages enemies around the demon lord")
+	check(is_equal_approx(float(near.x), 640.0 + push), "the roar pushes enemies back toward their base")
+	check(is_equal_approx(float(outside.hp), float(outside.max_hp)) and is_equal_approx(float(outside.x), 600.0 + float(BattleModel.trait_value("demon_lord", "skill_radius")) + 30.0), "enemies outside the roar are untouched")
+	check(roar.drain_combat_events().any(func(event): return event.type == "SKILL" and event.kind == "demon_lord"), "the roar event names its caster kind")
+	roar.spawn_cooldowns[1].clear(); roar.resources[1] = 180.0; roar.spawn_unit(1, "paladin")
+	var smiter: Dictionary = roar.units.back()
+	smiter.x = 640.0; smiter.speed = 0.0; smiter.cooldown = 0.0; smiter.skill_remaining = 999.0
+	var lord_hp := float(roarer.hp)
+	roar.tick(0.01)
+	check(is_equal_approx(lord_hp - float(roarer.hp), float(smiter.damage) * float(BattleModel.trait_value("paladin", "undead_bonus"))), "paladins deal holy bonus damage to the demon lord")
+	check(BattleModel.unit_role("demon_lord") != "" and BattleModel.unit_stat_summary("demon_lord").contains("영혼"), "deck cards describe the demon lord")
 	var scope := model()
 	scope.configure_deck(0, ["paladin", "sniper", "zombie"], BattleModel.DEFAULT_STRUCTURE_DECK)
 	scope.configure_deck(1, ["zombie", "swordsman", "archer"], BattleModel.DEFAULT_STRUCTURE_DECK)

@@ -9,13 +9,13 @@ const STAGE_NAMES := [
 	"입문", "견습", "전진", "수비", "전술",
 	"공세", "정예", "최종전",
 ]
-const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper"]
+const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord"]
 const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret"]
 const LONG_BATTLE_START := 180.0
 const LONG_BATTLE_STEP := 60.0
 const LONG_BATTLE_MAX_TIER := 6
-const STAGE_HP_SCALE := [0.50, 0.68, 1.04, 0.94, 1.16, 1.21, 1.11, 1.49]
-const STAGE_DAMAGE_SCALE := [0.50, 0.64, 0.99, 0.92, 1.12, 1.14, 1.06, 1.40]
+const STAGE_HP_SCALE := [0.50, 0.68, 1.04, 0.94, 1.16, 1.21, 1.11, 1.24]
+const STAGE_DAMAGE_SCALE := [0.50, 0.64, 0.99, 0.92, 1.12, 1.14, 1.06, 1.16]
 const STAGE_BONUS_INCOME := [0.00, 0.20, 0.81, 0.90, 1.60, 3.00, 2.70, 3.07]
 const STAGE_SPAWN_INTERVAL := [3.0, 2.3, 1.62, 1.50, 1.40, 1.30, 1.20, 1.10]
 
@@ -35,14 +35,14 @@ static func stage_name(difficulty_stage: int) -> String:
 	return Localization.text(String(STAGE_NAMES[index]))
 
 static func stage_summary(difficulty_stage: int) -> String:
-	return ["기본 전투", "광전사 공세", "장판·방어", "공속 지원", "전선 공세", "언데드 군단", "방어·소환", "복합 전술"][clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1]
+	return ["기본 전투", "광전사 공세", "장판·방어", "공속 지원", "전선 공세", "언데드 군단", "방어·소환", "마왕 강림"][clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1]
 
 static func stage_unit_deck(difficulty_stage: int) -> Array:
 	var decks := [
 		["swordsman", "shield", "archer"], ["swordsman", "berserker", "archer"],
 		["shield", "archer", "warlock"], ["shield", "archer", "healer"],
 		["shield", "archer", "berserker"], ["zombie", "healer", "necromancer"],
-		["paladin", "shield", "necromancer"], ["shield", "sniper", "necromancer"],
+		["paladin", "shield", "necromancer"], ["shield", "sniper", "demon_lord"],
 	]
 	return decks[clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1].duplicate()
 
@@ -108,6 +108,9 @@ func _unit_score(kind: String, state: Dictionary) -> float:
 		"zombie": return (70.0 if state.danger or state.frontline == 0 else 52.0) - count * 7.0
 		"warlock": return (82.0 if state.enemy_melee >= 2 else 62.0) - count * 18.0
 		"necromancer": return (88.0 if count == 0 and not state.danger else 58.0) - count * 18.0
+		"demon_lord":
+			if count >= BattleModel.field_limit(kind): return -100.0
+			return 84.0 if state.frontline > 0 or state.danger else 64.0
 		"healer":
 			if state.buff_need < 2: return 2.0
 			return (96.0 if count == 0 else 72.0 if state.buff_need > count * 5 else 8.0) - count * 8.0
@@ -141,7 +144,7 @@ func _try_spawn(model: BattleModel) -> void:
 		available.sort_custom(func(a, b): return _unit_score(a, state) > _unit_score(b, state))
 	var preferred := String(available[0])
 	# Protect the first summoner, curse counter or needed support purchase from cheap-unit spam.
-	var key_purchase: bool = (preferred == "necromancer" and int(state.counts.get(preferred, 0)) == 0) or (preferred == "warlock" and int(state.counts.get(preferred, 0)) == 0 and state.enemy_melee >= 2) or (preferred == "healer" and int(state.counts.get(preferred, 0)) == 0 and state.buff_need >= 2) or (preferred == "shield" and state.frontline == 0 and state.own > 0)
+	var key_purchase: bool = (preferred in ["necromancer", "demon_lord"] and int(state.counts.get(preferred, 0)) == 0) or (preferred == "warlock" and int(state.counts.get(preferred, 0)) == 0 and state.enemy_melee >= 2) or (preferred == "healer" and int(state.counts.get(preferred, 0)) == 0 and state.buff_need >= 2) or (preferred == "shield" and state.frontline == 0 and state.own > 0)
 	# A cheap fallback must not repeatedly spend the bank just below the price
 	# of the preferred damage dealer. Emergency defense still buys immediately.
 	var clear_preference: bool = state.own >= 2 and available.size() > 1 and _unit_score(preferred, state) >= _unit_score(String(available[1]), state) + 8.0

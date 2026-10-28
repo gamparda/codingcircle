@@ -1,0 +1,29 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "demon_lord"
+display_name = "마왕"
+order = 10
+summon_only = false
+cost = 140.0
+hp = 480.0
+damage = 16.0
+interval = 1.6
+speed = 28.0
+range = 45.0
+extra = {
+"field_limit": 1,
+"skill_cooldown": 16.0,
+"skill_damage": 12.0,
+"skill_knockback": 40.0,
+"skill_on_self": true,
+"skill_radius": 75.0,
+"soul_damage_step": 0.06,
+"soul_heal_fraction": 0.06,
+"soul_max": 8,
+"soul_radius": 110.0
+}
+tags = PackedStringArray("demon")

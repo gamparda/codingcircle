@@ -55,6 +55,63 @@ POSES = {
 TRANSPARENT_SOURCES = {'zombie', 'paladin', 'sniper'}
 # Holy pillar frames on the paladin effect sheet are not on a grid; crop around each pillar centre.
 EFFECTS = {'holy_pillar': ('paladin_effects_sheet.png', [(x-62,150,x+62,335) for x in (65,160,264,378,483,610,756,892,1032)])}
+# The demon lord sheets are transparent, but capes, sword tips and roar rings cross
+# into the neighbouring pose, so fixed boxes would cut one pose into the next.
+# Each row is an even grid of `count` poses; every pixel island goes to the cell
+# under its centre of mass, and islands crossing an explicit cut are split there.
+# (row band, count, cuts)
+COMPONENT_POSES = {
+    'demon_lord': {
+        'idle': ((0,260), 8, ()),
+        'walk': ((260,480), 8, ()),
+        'attack': ((480,760), 5, ()),
+        'skill': ((760,1024), 7, (900,)),
+    },
+}
+COMPONENT_EFFECTS = {
+    'demon_roar': ('demon_lord_effects_sheet.png', (0,225), 8, ()),
+    'demon_soul': ('demon_lord_effects_sheet.png', (440,585), 6, ()),
+    'demon_absorb': ('demon_lord_effects_sheet.png', (585,815), 6, ()),
+    'demon_aura': ('demon_lord_effects_sheet.png', (815,1000), 6, ()),
+}
+
+def component_cells(sheet, band, count, cuts=()):
+    """Splits one row of a transparent sheet into `count` full-height cell images."""
+    y0, y1 = band
+    row = sheet.crop((0, y0, sheet.width, y1))
+    # Near-invisible matte pixels only carry the generator's background colour.
+    row.putalpha(row.getchannel('A').point(lambda value: 0 if value < 8 else value))
+    w, h = row.size; cell = w / count
+    alpha = row.getchannel('A'); a = alpha.load()
+    owner = [[-1]*w for _ in range(h)]
+    def cell_of(x): return min(count-1, int(x // cell))
+    seen = bytearray(w*h)
+    for start_y in range(h):
+        for start_x in range(w):
+            if seen[start_y*w+start_x] or a[start_x,start_y] <= 40: continue
+            stack = [(start_x,start_y)]; seen[start_y*w+start_x] = 1; members = []
+            while stack:
+                x, y = stack.pop(); members.append((x,y))
+                for nx, ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)):
+                    if 0 <= nx < w and 0 <= ny < h and not seen[ny*w+nx] and a[nx,ny] > 40:
+                        seen[ny*w+nx] = 1; stack.append((nx,ny))
+            pieces = {}
+            for x, y in members:
+                pieces.setdefault(sum(1 for cut in cuts if x >= cut), []).append((x,y))
+            for piece in pieces.values():
+                centre = cell_of(sum(x for x,_ in piece)/len(piece))
+                for x, y in piece:
+                    owner[y][x] = centre
+    cells = []
+    for index in range(count):
+        image = Image.new('RGBA', (w, h), (0,0,0,0)); out = image.load(); src = row.load()
+        for y in range(h):
+            for x in range(w):
+                if a[x,y] == 0: continue
+                mine = owner[y][x] == index if owner[y][x] >= 0 else cell_of(x) == index
+                if mine: out[x,y] = src[x,y]
+        cells.append(image)
+    return cells
 
 def cutout(path):
     im = Image.open(path).convert('RGBA')
@@ -118,7 +175,7 @@ def drop_fragments(image, keep=0.05):
     image.putalpha(alpha); return image
 
 def extract(sheet, bounds, role, group, index):
-    crop = sheet.crop(bounds)
+    crop = bounds if isinstance(bounds, Image.Image) else sheet.crop(bounds)
     if role in TRANSPARENT_SOURCES and role == 'sniper':
         crop = drop_fragments(crop, keep=0.5)
     # Neighboring large attack effects cross a nominal sprite-cell boundary.
@@ -143,12 +200,17 @@ def extract(sheet, bounds, role, group, index):
 
 def main():
     OUT.mkdir(parents=True,exist_ok=True)
-    preview = Image.new('RGBA',(240*len(POSES),350),(10,13,22,255))
     metadata = {}
     previous_path = SOURCE/'new_units_frames.json'
     previous = json.loads(previous_path.read_text(encoding='utf-8')) if previous_path.exists() else {}
     regenerated = set()
-    for row,(role,poses) in enumerate(POSES.items()):
+    poses_by_role = dict(POSES)
+    for role, rows in COMPONENT_POSES.items():
+        sheet = Image.open(SOURCE/(role+'_sheet.png')).convert('RGBA')
+        poses_by_role[role] = {group: component_cells(sheet, band, count, cuts) for group,(band,count,cuts) in rows.items()}
+        poses_by_role[role]['idle'] = poses_by_role[role]['idle'][0]
+        TRANSPARENT_SOURCES.add(role)
+    for row,(role,poses) in enumerate(poses_by_role.items()):
         folder = OUT/'animations'/role
         expected = [folder/(group+'_'+str(i)+'.png') for group,rects in poses.items() if group!='idle' for i in range(len(rects))]
         if (OUT/(role+'.png')).exists() and all(path.exists() for path in expected):
@@ -170,7 +232,8 @@ def main():
                 canvas.save(folder/(group+'_'+str(index)+'.png'))
         print('extracted',role,flush=True)
         regenerated.add(role)
-    for row,(role,poses) in enumerate(POSES.items()):
+    preview = Image.new('RGBA',(240*len(poses_by_role),350),(10,13,22,255))
+    for row,(role,poses) in enumerate(poses_by_role.items()):
         if role not in TRANSPARENT_SOURCES and (role in regenerated or previous.get(role,{}).get('cutout_version') != 2):
             for path in [OUT/(role+'.png'), *(OUT/'animations'/role).glob('*.png')]:
                 image=Image.open(path).convert('RGBA')
@@ -206,6 +269,16 @@ def main():
         for index,box in enumerate(boxes):
             sheet.crop(box).save(folder/(effect+'_'+str(index)+'.png'))
         print('effect',effect,len(boxes),flush=True)
+    for effect,(source,band,count,cuts) in COMPONENT_EFFECTS.items():
+        sheet=Image.open(SOURCE/source).convert('RGBA'); folder=OUT/'effects'; folder.mkdir(parents=True,exist_ok=True)
+        cells=component_cells(sheet,band,count,cuts); width=sheet.width/count
+        # One shared box per effect keeps the frames registered to each other.
+        boxes=[(box[0]-round(i*width),box[1],box[2]-round(i*width),box[3]) for i,box in enumerate(cell.getchannel('A').getbbox() for cell in cells)]
+        union=(min(b[0] for b in boxes),min(b[1] for b in boxes),max(b[2] for b in boxes),max(b[3] for b in boxes))
+        for index,cell in enumerate(cells):
+            left=round(index*width)
+            cell.crop((left+union[0],union[1],left+union[2],union[3])).save(folder/(effect+'_'+str(index)+'.png'))
+        print('effect',effect,count,flush=True)
     preview.save(OUT/'new_units_preview.png')
     (SOURCE/'new_units_frames.json').write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(metadata,indent=2))

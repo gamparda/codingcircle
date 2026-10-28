@@ -13,6 +13,8 @@ Transparent gameplay sprites under `assets/units/` are derived from those sheets
 
 Before public redistribution or commercial use, the repository owner should confirm that the original artwork license permits it.
 
+The demon lord sheets `demon_lord_sheet.png` and `demon_lord_effects_sheet.png` (transparent) were supplied by the project owner on 2026-10-28; `tools/extract_new_units.py` cuts their gameplay frames and effects.
+
 ## Fonts
 
 - `assets/fonts/BlackHanSans-Regular.ttf` — Black Han Sans, © 2015 The Black Han Sans Project Authors

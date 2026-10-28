@@ -72,7 +72,7 @@ static func draw(view, unit: Dictionary, spectator: bool, navigation_hint: Strin
 	var stacks := clampi(int(unit.get("support_stacks", 0)), 0, BattleModel.SUPPORT_MAX_STACKS) if kind != "healer" else 0
 	var enraged := BattleModel.is_enraged(unit)
 	var speed := (1.0 + stacks * BattleModel.SUPPORT_INCREMENT) * (BattleModel.RAGE_SPEED_MULTIPLIER if enraged else 1.0) * curse_scale
-	var attack := "공속 지원 병력 · 직접 공격 없음" if kind == "healer" else "현재 공격력 %.1f · 공속 ×%.2f" % [float(unit.get("damage", 0.0)), speed]
+	var attack := "공속 지원 병력 · 직접 공격 없음" if kind == "healer" else "현재 공격력 %.1f · 공속 ×%.2f" % [float(unit.get("damage", 0.0)) * (1.0 + int(unit.get("souls", 0)) * float(BattleModel.trait_value(kind, "soul_damage_step", 0.0))), speed]
 	_line(view, left, width, 120.0, attack, 15, Color("#e8edf5"))
 	_line(view, left, width, 144.0, "공속 지원 %d / %d중첩 · +%d%%" % [stacks, BattleModel.SUPPORT_MAX_STACKS, roundi(stacks * BattleModel.SUPPORT_INCREMENT * 100.0)] if kind != "healer" else "마법사는 공속 지원을 받지 않습니다", 14, Color("#86f7ad"))
 	var curse_text := "저주 없음"
@@ -89,9 +89,13 @@ static func draw(view, unit: Dictionary, spectator: bool, navigation_hint: Strin
 		if unit.has("summon_remaining"):
 			var remaining := float(unit.summon_remaining)
 			ability = "다음 해골 소환 %.1f초" % maxf(0.1, remaining) if remaining > 0.0 else "해골 소환 준비됨"
+	elif unit.has("souls"):
+		var ready_in := float(unit.get("skill_remaining", 0.0))
+		ability = "영혼 %d / %d · %s %s" % [int(unit.souls), int(BattleModel.trait_value(kind, "soul_max", 0)), BattleModel.skill_name(kind), ("%.1f초 뒤" % maxf(0.1, ready_in)) if ready_in > 0.0 else "준비됨"]
+		ability_tone = Color("#ff6b5a")
 	elif unit.has("skill_remaining"):
 		var ready_in := float(unit.skill_remaining)
-		ability = "심판의 십자가 %.1f초 뒤" % maxf(0.1, ready_in) if ready_in > 0.0 else "심판의 십자가 준비됨"
+		ability = "%s %.1f초 뒤" % [BattleModel.skill_name(kind), maxf(0.1, ready_in)] if ready_in > 0.0 else "%s 준비됨" % BattleModel.skill_name(kind)
 		ability_tone = Color("#ffd36a")
 	elif BattleModel.trait_value(kind, "target_rearmost", false):
 		ability = "사거리 안 가장 뒤의 적을 저격"
