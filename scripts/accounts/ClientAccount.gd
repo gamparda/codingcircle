@@ -16,6 +16,8 @@ const REQUEST_SECONDS := 120.0
 
 ## Tests point it somewhere harmless.
 static var save_path := "user://account.json"
+## -1 follows the platform (sign-in required on Android); tests set 0 or 1.
+static var required_override := -1
 
 var network
 var plugin: Object = null
@@ -25,6 +27,8 @@ var session := ""
 var nickname := ""
 ## True once the server accepted the session on this connection.
 var online := false
+## True once the server accepted the account during this run of the game; opens the game on Android.
+var verified := false
 var message := ""
 var busy_elapsed := 0.0
 var _busy_return := "guest"
@@ -57,6 +61,13 @@ func _process(delta: float) -> void:
 	busy_elapsed += delta
 	if busy_elapsed >= REQUEST_SECONDS:
 		_finish(_busy_return, "응답이 없습니다. 다시 시도하세요.")
+
+## Android requires a Google account to play; the PC version (no sign-in there) does not.
+static func required() -> bool:
+	return OS.has_feature("android") if required_override < 0 else required_override == 1
+
+func unlocked() -> bool:
+	return verified or not required()
 
 func can_sign_in() -> bool:
 	return plugin != null
@@ -132,6 +143,7 @@ func forget() -> void:
 	session = ""
 	nickname = ""
 	online = false
+	verified = false
 	state = "guest"
 	if FileAccess.file_exists(save_path):
 		DirAccess.remove_absolute(save_path)
@@ -192,6 +204,7 @@ func _on_result(result: Dictionary) -> void:
 				return
 			if error.is_empty():
 				online = true
+				verified = true
 				if not String(result.nickname).is_empty() and String(result.nickname) != nickname:
 					_save_session(session, String(result.nickname))
 				_finish("signed_in", "")
@@ -259,6 +272,7 @@ func _save_session(token: String, name_text: String) -> void:
 	session = token
 	nickname = name_text
 	online = true
+	verified = true
 	var file := FileAccess.open(save_path, FileAccess.WRITE)
 	if file == null:
 		message = "로그인 정보를 저장하지 못했습니다. 다음 실행 때 다시 로그인해야 합니다."

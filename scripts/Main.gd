@@ -741,6 +741,9 @@ func _add_menu_portrait(parent: Control, texture_path: String, position_value: V
 	MenuScreens._add_menu_portrait(self, parent, texture_path, position_value, accent, label_text)
 
 func _build_connect_screen(message: String = "") -> void:
+	if not account.unlocked():
+		preload("res://scripts/screens/LoginGate.gd").show(self, message)
+		return
 	MenuScreens._build_connect_screen(self, message)
 
 func _normalize_room_code_input(value: String) -> void:

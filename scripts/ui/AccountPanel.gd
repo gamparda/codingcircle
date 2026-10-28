@@ -1,6 +1,7 @@
 extends VBoxContainer
 ## Settings → 계정: guest or signed-in state, Google sign-in (Android), sign-up nickname with the age
 ## check, rename, sign-out and account deletion. Actions take effect at once; "설정 저장" is not needed.
+## With `gate` it is the sign-in screen that Android shows before the game (LoginGate).
 
 const Localization = preload("res://scripts/Localization.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
@@ -9,10 +10,13 @@ const ClientAccount = preload("res://scripts/accounts/ClientAccount.gd")
 var main
 var account
 var delete_armed := false
+var gate := false
+var leaving := false
 
-static func create(main_node) -> VBoxContainer:
+static func create(main_node, as_gate: bool = false) -> VBoxContainer:
 	var panel = load("res://scripts/ui/AccountPanel.gd").new()
 	panel.name = "AccountPanel"
+	panel.gate = as_gate
 	panel.main = main_node
 	panel.account = main_node.account
 	panel.add_theme_constant_override("separation", 10)
@@ -23,6 +27,11 @@ static func create(main_node) -> VBoxContainer:
 
 func refresh() -> void:
 	delete_armed = false
+	# The gate opens the game once the account is confirmed; signing out or deleting on Android closes it again.
+	if not leaving and account.unlocked() == gate:
+		leaving = true
+		main._build_connect_screen.call_deferred()
+		return
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
@@ -33,12 +42,17 @@ func refresh() -> void:
 		status.text = Localization.text("처리 중입니다…")
 	elif account.state == "needs_nickname":
 		status.text = Localization.text("새 계정 만들기")
+	elif signed_in and gate:
+		status.text = Localization.text("%s 님 · 계정 확인 중") % account.nickname
 	elif signed_in:
 		status.text = Localization.text("%s 님으로 로그인됨") % account.nickname
 	else:
-		status.text = Localization.text("게스트로 플레이 중")
+		status.text = Localization.text("로그인이 필요합니다" if gate else "게스트로 플레이 중")
 	add_child(status)
-	add_child(_note("계정이 있으면 랭크 게임(준비 중)에 참여하고 다른 기기에서도 같은 계정을 쓸 수 있습니다. 게스트도 다른 모드는 모두 할 수 있습니다." if not signed_in else "계정에는 Google 계정 식별값(암호화해 저장)과 닉네임만 보관합니다. 이메일과 이름은 받지 않습니다."))
+	if gate:
+		add_child(_note("Google 계정으로 로그인해야 플레이할 수 있습니다. 계정은 만 14세 이상만 만들 수 있고, Google 계정 식별값(암호화해 저장)과 닉네임만 보관합니다."))
+	else:
+		add_child(_note("계정이 있으면 랭크 게임(준비 중)에 참여하고 다른 기기에서도 같은 계정을 쓸 수 있습니다. 게스트도 다른 모드는 모두 할 수 있습니다." if not signed_in else "계정에는 Google 계정 식별값(암호화해 저장)과 닉네임만 보관합니다. 이메일과 이름은 받지 않습니다."))
 	var blocker: String = account.blocker()
 	if not blocker.is_empty() and account.state != "busy":
 		add_child(_note(blocker, Color("#f0d592")))
@@ -47,7 +61,8 @@ func refresh() -> void:
 		"needs_nickname": _build_sign_up()
 		"busy": pass
 		_:
-			if signed_in: _build_signed_in()
+			if signed_in and gate: _build_sign_out_only()
+			elif signed_in: _build_signed_in()
 			else: _build_guest()
 
 	if not String(account.message).is_empty():
@@ -66,7 +81,14 @@ func _build_guest() -> void:
 	sign_in.pressed.connect(func(): account.sign_in())
 	add_child(sign_in)
 	if not account.can_sign_in():
-		add_child(_note("Google 로그인은 Android 앱에서만 할 수 있습니다."))
+		add_child(_note("새 Android 앱을 설치해야 로그인할 수 있습니다." if gate else "Google 로그인은 Android 앱에서만 할 수 있습니다."))
+
+## Gate with a saved account the server has not confirmed yet: it resumes on its own; this switches accounts.
+func _build_sign_out_only() -> void:
+	var sign_out = main._styled_button(Localization.text("다른 계정으로 로그인"), Color("#697386"), false)
+	sign_out.name = "AccountSignOutButton"
+	sign_out.pressed.connect(func(): account.sign_out())
+	add_child(sign_out)
 
 func _build_sign_up() -> void:
 	add_child(_note("다른 플레이어에게 보이는 이름입니다. 나중에 바꿀 수 있습니다."))
