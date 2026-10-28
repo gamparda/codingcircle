@@ -12,7 +12,7 @@ const DECK_SCREEN := preload("res://scenes/ui/DeckScreen.tscn")
 
 static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	var index := int(main.save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, 2)
-	var frame = MenuScreens._show_scene(main, DECK_SCREEN, "덱 편성", "유닛 3종 · 구조물 3종 선택")
+	var frame = MenuScreens._show_scene(main, DECK_SCREEN, "덱 편성", "유닛 3종 · 전술(구조물·주문) 3종 선택")
 	var column: VBoxContainer = frame.column
 	var tabs: HBoxContainer = column.get_node("Tabs")
 	for tab_index in 3:
@@ -48,25 +48,23 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		unit_buttons[kind] = card
 		unit_row.add_child(card)
 	var structure_grid: GridContainer = choices.get_node("DeckStructureGrid")
-	var structure_names := {"wall": Localization.text("방벽"), "swamp": Localization.text("늪"), "turret": Localization.text("포탑"), "generator": Localization.text("발전기")}
+	var structure_names := BattleModel.STRUCTURE_NAMES
 	var structure_stats: Dictionary = BattleModel.STRUCTURE_STATS
-	var roles := {
-		"wall": Localization.text("뒤 대상을 차폐 · 최대 %d") % int(structure_stats.wall.max_count),
-		"swamp": Localization.text("반경 %d · %d%% 감속 · %d초") % [int(structure_stats.swamp.radius), roundi((1.0 - float(structure_stats.swamp.speed_scale)) * 100.0), int(structure_stats.swamp.lifetime)],
-		"turret": Localization.text("사거리 %d · 최대 %d") % [int(structure_stats.turret.range), int(structure_stats.turret.max_count)],
-		"generator": Localization.text("후방 전용 · 초당 +%d") % int(structure_stats.generator.income),
-	}
-	for kind in BattleModel.STRUCTURE_STATS.keys():
-		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
-		var card_text := Localization.text("%s\n비용 %d · HP %d\n%s") % [structure_names[kind], int(stats.cost), int(stats.hp), roles[kind]]
+	for kind in structure_stats.keys():
+		var stats: Dictionary = structure_stats[kind]
+		# Compact two-line cards: nine tactic cards share two rows; the full description is the tooltip.
+		var card_text := Localization.text("%s · %d · HP %d") % [structure_names[kind], int(stats.cost), int(stats.hp)]
+		if BattleModel.is_spell(kind):
+			card_text = Localization.text("%s · %d · 쿨 %d초") % [structure_names[kind], int(stats.cost), int(stats.cooldown)]
 		var card = main._styled_button(card_text, Color("#3d8f83"), false)
 		card.name = "DeckStructure_" + kind
 		card.add_theme_font_size_override("font_size", 13)
 		main._configure_deck_card(card, card_text, Color("#3d8f83"), selected.structures.has(kind))
-		card.custom_minimum_size = Vector2(240, 84)
+		card.tooltip_text = "%s\n%s" % [card_text, BattleModel.tactic_role(kind)]
+		card.custom_minimum_size = Vector2(180, 48)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		_dress_card(card, Color("#3ec6b0"), kind, false)
+		_dress_card(card, Color("#c9a0ff") if BattleModel.is_spell(kind) else Color("#3ec6b0"), kind, false)
 		_add_community_chip(card, "structures", kind)
 		structure_buttons[kind] = card
 		structure_grid.add_child(card)
@@ -177,23 +175,24 @@ static func _dress_card(card: Button, color: Color, kind: String, is_unit: bool)
 	var map := {"normal": normal, "hover": hover, "pressed": chosen, "hover_pressed": chosen_hover, "disabled": normal}
 	for state in map:
 		var style: StyleBox = map[state].duplicate()
-		style.content_margin_left = 90
+		style.content_margin_left = 90 if is_unit else 50
 		style.content_margin_right = 8
-		style.content_margin_top = 8
-		style.content_margin_bottom = 8
+		style.content_margin_top = 8 if is_unit else 4
+		style.content_margin_bottom = 8 if is_unit else 4
 		card.add_theme_stylebox_override(state, style)
 	UIKit.juice(card, 1.015)
 	var art := Control.new()
 	art.name = "CardArt"
-	art.position = Vector2(8, 0)
-	art.size = Vector2(80, 108)
+	art.position = Vector2(8, 0) if is_unit else Vector2(4, 0)
+	art.size = Vector2(80, 108) if is_unit else Vector2(44, 60)
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(art)
 	art.draw.connect(func():
-		var center := Vector2(40, card.size.y * 0.5)
+		var center := Vector2(40 if is_unit else 22, card.size.y * 0.5)
+		var outer := 38.0 if is_unit else 20.0
 		for i in 5:
 			var t := float(i) / 4.0
-			art.draw_circle(center, 38.0 - t * 22.0, Color(color.r, color.g, color.b, 0.07 + t * 0.08)))
+			art.draw_circle(center, outer - t * outer * 0.58, Color(color.r, color.g, color.b, 0.07 + t * 0.08)))
 	card.resized.connect(art.queue_redraw)
 	if is_unit:
 		var sprite := Sprite2D.new()
@@ -207,14 +206,30 @@ static func _dress_card(card: Button, color: Color, kind: String, is_unit: bool)
 		place.call()
 	else:
 		var emblem := Label.new()
-		emblem.text = {"wall": "▤", "swamp": "≈", "turret": "⌖", "generator": "⚡"}.get(kind, "◆")
-		emblem.size = Vector2(80, 108)
+		emblem.text = {"wall": "▤", "swamp": "≈", "turret": "⌖", "generator": "⚡", "lightning": "ϟ", "fireball": "✹", "frost": "✳", "blessing": "✚", "seraph": "✧"}.get(kind, "◆")
 		emblem.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		emblem.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		emblem.add_theme_font_size_override("font_size", 40)
+		emblem.add_theme_font_size_override("font_size", 22)
+		var fit_emblem := func(): emblem.size = Vector2(44, card.size.y)
+		card.resized.connect(fit_emblem)
+		fit_emblem.call()
 		emblem.add_theme_color_override("font_color", color.lightened(0.25))
 		emblem.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		art.add_child(emblem)
+		var icon: Texture2D = preload("res://scripts/ui/SpellArt.gd").icon(kind)
+		if icon != null:
+			emblem.text = ""
+			var picture := TextureRect.new()
+			picture.name = "TacticIcon"
+			picture.texture = icon
+			picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			picture.size = Vector2(36, 36)
+			picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			art.add_child(picture)
+			var place_icon := func(): picture.position = Vector2(4, (card.size.y - 36.0) * 0.5)
+			card.resized.connect(place_icon)
+			place_icon.call()
 	var badge := Label.new()
 	badge.name = "SelectedBadge"
 	badge.text = "✓"

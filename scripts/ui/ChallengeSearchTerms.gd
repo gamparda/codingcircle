@@ -6,7 +6,7 @@ signal close_requested
 
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const FIELD_NAMES := ["전체", "내 덱 (블루)", "상대 덱 (레드)"]
-const STRUCTURE_NAMES := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
+static var STRUCTURE_NAMES: Dictionary = BattleModel.STRUCTURE_NAMES
 
 var _row: HBoxContainer
 var _buttons: Array[Control] = []

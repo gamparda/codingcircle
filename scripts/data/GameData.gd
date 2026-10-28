@@ -8,7 +8,8 @@ const StructureDef = preload("res://scripts/data/StructureDef.gd")
 
 const UNIT_FILES := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord"]
 const SUMMON_FILES := ["skeleton"]
-const STRUCTURE_FILES := ["wall", "swamp", "turret", "generator"]
+## Tactic cards: structures and spells (StructureDef with "spell" in params) share the deck slot.
+const STRUCTURE_FILES := ["wall", "swamp", "turret", "generator", "lightning", "fireball", "frost", "blessing", "seraph"]
 
 static func _load_defs(folder: String, names: Array) -> Array:
 	var defs: Array = []
@@ -35,6 +36,12 @@ static func structure_stats() -> Dictionary:
 	var out := {}
 	for def in _load_defs("structures", STRUCTURE_FILES):
 		out[String(def.kind)] = def.to_stats()
+	return out
+
+static func structure_names() -> Dictionary:
+	var out := {}
+	for def in _load_defs("structures", STRUCTURE_FILES):
+		out[String(def.kind)] = String(def.display_name)
 	return out
 
 static func unit_names() -> Dictionary:

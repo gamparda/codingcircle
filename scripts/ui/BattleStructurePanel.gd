@@ -5,7 +5,7 @@ const UIKit = preload("res://scripts/ui/UIKit.gd")
 const LocalBattlePause = preload("res://scripts/screens/LocalBattlePause.gd")
 const OverviewNavigation = preload("res://scripts/ui/BattleOverviewNavigation.gd")
 const StructureLifetime = preload("res://scripts/ui/StructureLifetime.gd")
-const NAMES := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
+static var NAMES: Dictionary = BattleModel.STRUCTURE_NAMES
 
 var main
 var status: Label

@@ -5,7 +5,7 @@ extends RefCounted
 const Lifetime = preload("res://scripts/ui/StructureLifetime.gd")
 const UnitInspection = preload("res://scripts/ui/UnitInspection.gd")
 const FONT = preload("res://assets/fonts/BlackHanSans-Regular.ttf")
-const NAMES := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
+static var NAMES: Dictionary = BattleModel.STRUCTURE_NAMES
 const DRAG_DISTANCE := 14.0
 
 var enabled := false

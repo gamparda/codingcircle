@@ -12,7 +12,7 @@ func _init() -> void:
 	var stats: Dictionary = BattleModel.UNIT_STATS
 	check(stats.keys() == ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord"], "unit order comes from the data 'order' field: %s" % [stats.keys()])
 	check(BattleModel.SUMMON_STATS.keys() == ["skeleton"], "skeleton is summon-only data")
-	check(BattleModel.STRUCTURE_STATS.keys() == ["wall", "swamp", "turret", "generator"], "structure order comes from data")
+	check(BattleModel.STRUCTURE_STATS.keys() == ["wall", "swamp", "turret", "generator", "lightning", "fireball", "frost", "blessing", "seraph"], "tactic card order (structures, then spells) comes from data")
 	for kind in stats:
 		var unit: Dictionary = stats[kind]
 		for key in ["cost", "hp", "damage", "interval", "speed", "range"]:

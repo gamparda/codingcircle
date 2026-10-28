@@ -37,6 +37,8 @@ func update(model: BattleModel, delta: float) -> void:
 	if build_timer <= 0.0:
 		build_timer = 3.0
 		tactics._try_place_structure(model)
+	if tactics.try_cast_spell(model):
+		return
 	# Reserve an early generator after establishing a small defending force.
 	if model.elapsed > 8.0 and model.elapsed < 100.0 and state.own >= 2 and not state.danger and model.structure_decks[side].has("generator") and model._owned_structure_count(side, "generator") == 0:
 		var x := BattleModel.BLUE_BUILD_MIN + 35.0 if side == 0 else BattleModel.RED_BUILD_MAX - 35.0

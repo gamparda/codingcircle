@@ -29,7 +29,7 @@ static func _summary(data: Dictionary) -> String:
 	return "%s · 캠페인 %d단계 개방 · 별 %d개\nAI %d판 · 온라인 %d판 · 업적 %d개 · 일일 기록 %d일 · 주간 기록 %d주" % [String(data.nickname), int(data.campaign_unlocked), int(data.stats.total_stars), int(data.stats.ai_matches), int(data.stats.online_completed), data.achievements.size(), data.daily.size(), data.weekly.size()]
 
 static func _deck_names(kinds: Array, units: bool) -> String:
-	var structures := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
+	var structures := BattleModel.STRUCTURE_NAMES
 	var names: PackedStringArray = []
 	for kind in kinds:
 		names.append(String(BattleModel.UNIT_NAMES.get(kind, kind) if units else structures.get(kind, kind)))

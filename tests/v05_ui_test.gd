@@ -57,7 +57,7 @@ func run() -> void:
 	main._build_deck_screen(0)
 	for frame in 3: await process_frame
 	var copy := collect_text(main.root_background)
-	check(copy.contains("유닛 3종 · 구조물 3종 선택"), "deck introduction is concise and actionable")
+	check(copy.contains("유닛 3종 · 전술(구조물·주문) 3종 선택"), "deck introduction is concise and actionable")
 	check(not copy.contains("해골은 네크로맨서") and not copy.contains("서버가 이 덱을 검증"), "redundant deck explanations are removed")
 	check(main.find_child("DeckCardsScroll",true,false)==null, "no-scroll deck layout remains")
 	if not capture_dir.is_empty() and DisplayServer.get_name()!="headless":

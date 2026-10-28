@@ -41,6 +41,7 @@ static var UNIT_STATS: Dictionary = GameData.unit_stats()
 static var SUMMON_STATS: Dictionary = GameData.summon_stats()
 static var STRUCTURE_STATS: Dictionary = GameData.structure_stats()
 static var UNIT_NAMES: Dictionary = GameData.unit_names()
+static var STRUCTURE_NAMES: Dictionary = GameData.structure_names()
 const DEFAULT_UNIT_DECK := ["shield", "swordsman", "archer"]
 const DEFAULT_STRUCTURE_DECK := ["wall", "swamp", "turret"]
 
@@ -68,6 +69,14 @@ var summon_timers: Dictionary = {}
 var summon_owners: Dictionary = {}
 # Units that already spent their one revive (trait "revive_delay" in data).
 var revive_used: Dictionary = {}
+## Spells (tactic cards with "spell" data): casts waiting to land, per-side cooldowns and uses, and the
+## allies each side lost (newest last) that a resurrection can bring back.
+var spell_casts: Array = []
+var spell_cooldowns: Array = [{}, {}]
+var spell_uses: Array = [{}, {}]
+var fallen: Array = [[], []]
+var next_cast_id := 1
+const MAX_FALLEN := 40
 var battle_report: Array = [Report.empty_side(),Report.empty_side()]
 
 ## What one cleared campaign stage adds (first clear only).
@@ -123,6 +132,11 @@ func reset() -> void:
 	summon_timers.clear()
 	summon_owners.clear()
 	revive_used.clear()
+	spell_casts.clear()
+	spell_cooldowns = [{}, {}]
+	spell_uses = [{}, {}]
+	fallen = [[], []]
+	next_cast_id = 1
 	battle_report = [Report.empty_side(),Report.empty_side()]
 
 static func _valid_deck(values: Array, allowed: Dictionary) -> bool:
@@ -235,6 +249,26 @@ static func unit_role(kind: String) -> String:
 		"demon_lord": return Localization.text("영혼 수확·%d초 포효·1기") % int(trait_value(kind, "skill_cooldown"))
 	return ""
 
+## One-line description of a tactic card (structure or spell) for deck and battle cards.
+static func tactic_role(kind: String) -> String:
+	var stats: Dictionary = STRUCTURE_STATS.get(kind, {})
+	match kind:
+		"wall": return Localization.text("뒤 대상을 차폐 · 최대 %d") % int(stats.max_count)
+		"swamp": return Localization.text("반경 %d · %d%% 감속 · %d초") % [int(stats.radius), roundi((1.0 - float(stats.speed_scale)) * 100.0), int(stats.lifetime)]
+		"turret": return Localization.text("사거리 %d · 최대 %d") % [int(stats.range), int(stats.max_count)]
+		"generator": return Localization.text("후방 전용 · 초당 +%d") % int(stats.income)
+		"lightning": return Localization.text("반경 %d 안 가장 튼튼한 적 1기에 %d 피해") % [int(stats.radius), int(stats.damage)]
+		"fireball": return Localization.text("반경 %d 적 전체 %d 피해") % [int(stats.radius), int(stats.damage)]
+		"frost": return Localization.text("반경 %d 적 %.1f초 정지") % [int(stats.radius), float(stats.duration)]
+		"blessing": return Localization.text("반경 %d 아군 공속 +%d%% %d초") % [int(stats.radius), roundi((float(stats.attack_speed) - 1.0) * 100.0), int(stats.duration)]
+		"seraph": return Localization.text("쓰러진 아군 %d명 %d%%로 부활 · 판당 %d회") % [int(stats.revive_count), roundi(float(stats.revive_fraction) * 100.0), int(stats.max_uses)]
+	return ""
+
+## Second line of a spell's battle card: cooldown, and where it can be used.
+static func spell_card_note(kind: String) -> String:
+	var stats: Dictionary = STRUCTURE_STATS[kind]
+	return Localization.text("쿨 %d초%s") % [int(stats.cooldown), " · 우리 진영" if String(stats.get("zone", "any")) == "own" else ""]
+
 ## Short swamp description for battle cards, e.g. "80% 감속 · 5초".
 static func swamp_summary() -> String:
 	var swamp: Dictionary = STRUCTURE_STATS.swamp
@@ -288,11 +322,138 @@ func _owned_structure_count(side: int, kind: String = "") -> int:
 			count += 1
 	return count
 
+# ---------- spells ----------
+
+static func is_spell(kind: String) -> bool:
+	return bool(STRUCTURE_STATS.get(kind, {}).get("spell", false))
+
+## Where a tactic card may be used: [lower, upper] world x. Spells marked "own" and structures use the
+## build zone (generators only its rear); other spells reach the whole field.
+static func tactic_zone(side: int, kind: String) -> Array:
+	if is_spell(kind) and String(STRUCTURE_STATS[kind].get("zone", "any")) != "own":
+		return [FIELD_LEFT, FIELD_RIGHT]
+	var lower := BLUE_BUILD_MIN if side == 0 else RED_BUILD_MIN
+	var upper := BLUE_BUILD_MAX if side == 0 else RED_BUILD_MAX
+	if kind == "generator":
+		if side == 0: upper = BLUE_REAR_MAX
+		else: lower = RED_REAR_MIN
+	return [lower, upper]
+
+## Shared by the model and the battle cards: why spell `kind` cannot be cast now, or "".
+## `cooldowns` and `uses` are one side's spell_cooldowns / spell_uses.
+static func spell_error(kind: String, cooldowns: Dictionary, uses: Dictionary) -> String:
+	var name := String(STRUCTURE_NAMES.get(kind, kind))
+	var remaining := float(cooldowns.get(kind, 0.0))
+	if remaining > 0.0:
+		return Localization.text("%s은(는) %d초 뒤에 다시 쓸 수 있습니다.") % [name, ceili(remaining)]
+	var limit := int(STRUCTURE_STATS[kind].get("max_uses", 0))
+	if limit > 0 and int(uses.get(kind, 0)) >= limit:
+		return Localization.text("%s은(는) 한 전투에 %d번만 쓸 수 있습니다.") % [name, limit]
+	return ""
+
+func _cast_spell(side: int, kind: String, x: float) -> void:
+	var stats: Dictionary = STRUCTURE_STATS[kind]
+	resources[side] -= float(stats.cost)
+	battle_report[side].resources_spent += float(stats.cost)
+	spell_cooldowns[side][kind] = float(stats.get("cooldown", 0.0))
+	spell_uses[side][kind] = int(spell_uses[side].get(kind, 0)) + 1
+	var delay := float(stats.get("delay", 0.0))
+	if stats.has("speed"):
+		# Thrown from the caster's base: farther targets land later.
+		delay += absf(x - (FIELD_LEFT if side == 0 else FIELD_RIGHT)) / float(stats.speed)
+	spell_casts.append({"id": next_cast_id, "side": side, "kind": kind, "x": x, "lands_at": elapsed + delay})
+	combat_events.append({"type": "SPELL_CAST", "cast_id": next_cast_id, "side": side, "kind": kind, "x": x, "delay": delay})
+	next_cast_id += 1
+
+## Lands every cast that is due, in cast order.
+func _land_spells() -> void:
+	var due: Array = spell_casts.filter(func(cast): return float(cast.lands_at) <= elapsed + 0.000001)
+	if due.is_empty():
+		return
+	spell_casts = spell_casts.filter(func(cast): return float(cast.lands_at) > elapsed + 0.000001)
+	for cast in due:
+		_land_spell(cast)
+
+func _land_spell(cast: Dictionary) -> void:
+	var side := int(cast.side)
+	var kind := String(cast.kind)
+	var x := float(cast.x)
+	var stats: Dictionary = STRUCTURE_STATS[kind]
+	var radius := float(stats.get("radius", 0.0))
+	var caster := {"id": 0, "side": side, "kind": kind, "x": x}
+	var targets: Array = []
+	match String(stats.get("effect", kind)):
+		"strike":
+			# The healthiest enemy unit in the radius takes the whole hit.
+			var strongest = null
+			for enemy in units:
+				if int(enemy.side) != side and float(enemy.hp) > 0.0 and absf(float(enemy.x) - x) <= radius:
+					if strongest == null or float(enemy.hp) > float(strongest.hp):
+						strongest = enemy
+			if strongest != null:
+				x = float(strongest.x)
+				targets.append(strongest.id)
+				_damage_target(caster, strongest, float(stats.damage), false)
+		"blast":
+			for enemy in units:
+				if int(enemy.side) != side and float(enemy.hp) > 0.0 and absf(float(enemy.x) - x) <= radius:
+					targets.append(enemy.id)
+					_damage_target(caster, enemy, float(stats.damage), false)
+		"freeze":
+			for enemy in units:
+				if int(enemy.side) != side and float(enemy.hp) > 0.0 and absf(float(enemy.x) - x) <= radius:
+					targets.append(enemy.id)
+					enemy["frozen_remaining"] = float(stats.duration)
+		"bless":
+			for ally in units:
+				if int(ally.side) == side and float(ally.hp) > 0.0 and absf(float(ally.x) - x) <= radius:
+					targets.append(ally.id)
+					ally["blessed_remaining"] = float(stats.duration)
+		"resurrect":
+			var count := mini(int(stats.revive_count), fallen[side].size())
+			var raised: Array = fallen[side].slice(fallen[side].size() - count)
+			fallen[side] = fallen[side].slice(0, fallen[side].size() - count)
+			var fraction := float(stats.revive_fraction)
+			for index in raised.size():
+				if units.size() >= MAX_ACTIVE_UNITS:
+					break
+				var entry: Dictionary = raised[index]
+				var spread := (float(index) - float(raised.size() - 1) * 0.5) * 14.0
+				_create_unit(side, String(entry.kind), UNIT_STATS[String(entry.kind)], float(entry.hp_scale) * fraction, float(entry.damage_scale) * fraction, x + spread)
+				var unit: Dictionary = units.back()
+				unit["revived"] = true
+				revive_used[unit.id] = true
+				targets.append(unit.id)
+	combat_events.append({"type": "SPELL_LAND", "side": side, "kind": kind, "x": x, "radius": radius, "targets": targets})
+
+## Remembers a fallen ally for resurrection: bought units only (no summons, nothing already raised,
+## no unit limited to one on the field).
+func _remember_fallen(unit: Dictionary) -> void:
+	var kind := String(unit.kind)
+	if not UNIT_STATS.has(kind) or unit.get("revived", false) or field_limit(kind) > 0:
+		return
+	var stats: Dictionary = UNIT_STATS[kind]
+	var side := int(unit.side)
+	var damage_scale := float(unit.damage) / float(stats.damage) if float(stats.damage) > 0.0 else 1.0
+	fallen[side].append({"kind": kind, "hp_scale": float(unit.max_hp) / maxf(0.01, float(stats.hp)), "damage_scale": damage_scale})
+	if fallen[side].size() > MAX_FALLEN:
+		fallen[side].pop_front()
+
 func structure_placement_error(side: int, kind: String, x: float) -> String:
 	if winner != -1 or side < 0 or side > 1 or not STRUCTURE_STATS.has(kind):
 		return Localization.text("설치할 수 없는 구조물입니다.")
 	if not structure_decks[side].has(kind):
 		return Localization.text("현재 덱에 없는 구조물입니다.")
+	if is_spell(kind):
+		var zone := tactic_zone(side, kind)
+		if not is_finite(x) or x < float(zone[0]) or x > float(zone[1]):
+			return Localization.text("자신의 진영에만 쓸 수 있습니다.") if String(STRUCTURE_STATS[kind].get("zone", "any")) == "own" else Localization.text("전장 안에만 쓸 수 있습니다.")
+		var spell_problem := spell_error(kind, spell_cooldowns[side], spell_uses[side])
+		if not spell_problem.is_empty():
+			return spell_problem
+		if resources[side] < float(STRUCTURE_STATS[kind].cost):
+			return Localization.text("자원이 부족합니다.")
+		return ""
 	var valid_zone := (side == 0 and x >= BLUE_BUILD_MIN and x <= BLUE_BUILD_MAX) or (side == 1 and x >= RED_BUILD_MIN and x <= RED_BUILD_MAX)
 	if not valid_zone:
 		return Localization.text("자신의 건설 구역에만 설치할 수 있습니다.")
@@ -311,6 +472,9 @@ func structure_placement_error(side: int, kind: String, x: float) -> String:
 func place_structure(side: int, kind: String, x: float) -> bool:
 	if not structure_placement_error(side, kind, x).is_empty():
 		return false
+	if is_spell(kind):
+		_cast_spell(side, kind, x)
+		return true
 	var stats: Dictionary = STRUCTURE_STATS[kind]
 	resources[side] -= stats.cost
 	battle_report[side].resources_spent += float(stats.cost)
@@ -343,8 +507,19 @@ func tick(delta: float) -> void:
 		resources[side] = min(resource_capacity(side), float(resources[side]) + income * delta)
 		for kind in spawn_cooldowns[side].keys():
 			spawn_cooldowns[side][kind] = max(0.0, float(spawn_cooldowns[side][kind]) - delta)
+		for kind in spell_cooldowns[side].keys():
+			spell_cooldowns[side][kind] = maxf(0.0, float(spell_cooldowns[side][kind]) - delta)
+			if float(spell_cooldowns[side][kind]) <= 0.0:
+				spell_cooldowns[side].erase(kind)
+	for unit in units:
+		for key in ["frozen_remaining", "blessed_remaining"]:
+			if unit.has(key):
+				unit[key] = float(unit[key]) - delta
+				if float(unit[key]) <= 0.000001:
+					unit.erase(key)
 
 	_tick_revives(delta)
+	_land_spells()
 
 	# All combatants choose from the same positions/health. Applying an attack
 	# while choosing the next one gave earlier array entries a free lethal hit.
@@ -358,6 +533,8 @@ func tick(delta: float) -> void:
 		if unit.kind == "skeleton" and float(unit.hp) > 0.0 and summon_owners.has(unit.id):
 			live_skeletons[summon_owners[unit.id]] = int(live_skeletons.get(summon_owners[unit.id], 0)) + 1
 	for unit in units:
+		if unit.has("frozen_remaining"):
+			continue
 		unit.cooldown = max(0.0, float(unit.cooldown) - delta * support_attack_speed(unit))
 		if unit.hp <= 0.0:
 			continue
@@ -375,7 +552,7 @@ func tick(delta: float) -> void:
 			continue
 	var pending_skills: Array = []
 	for unit in units:
-		if float(unit.hp) <= 0.0 or unit.kind == "healer":
+		if float(unit.hp) <= 0.0 or unit.kind == "healer" or unit.has("frozen_remaining"):
 			continue
 		var target = _find_target(unit)
 		if target != null:
@@ -461,6 +638,8 @@ func support_attack_speed(unit: Dictionary) -> float:
 	if unit.kind == "healer":
 		return curse
 	var multiplier := 1.0 + mini(SUPPORT_MAX_STACKS, maxi(0, int(unit.get("support_stacks", 0)))) * SUPPORT_INCREMENT
+	if unit.has("blessed_remaining"):
+		multiplier *= float(STRUCTURE_STATS.blessing.attack_speed)
 	return multiplier * (RAGE_SPEED_MULTIPLIER if is_enraged(unit) else 1.0) * curse
 
 ## Data tags (e.g. "undead") let traits and future counters target groups of units.
@@ -709,6 +888,7 @@ func _emit_death_events() -> void:
 			announced_deaths[unit.id] = true
 			combat_events.append({"type": "DEATH", "unit_id": unit.id, "x": unit.x})
 			_harvest_soul(unit)
+			_remember_fallen(unit)
 	for structure in structures:
 		if float(structure.hp) <= 0.0 and not announced_structure_deaths.has(structure.id):
 			announced_structure_deaths[structure.id] = true
@@ -750,7 +930,7 @@ func state_hash() -> String:
 
 func snapshot() -> Dictionary:
 	var data := {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "base_max_hp": base_max_hp.duplicate(), "units": units.duplicate(true), "structures": structures.duplicate(true), "curses": curses.duplicate(true), "winner": winner, "elapsed": elapsed,
-		"spawn_cooldowns":spawn_cooldowns.duplicate(true)}
+		"spawn_cooldowns":spawn_cooldowns.duplicate(true), "spells": spell_casts.duplicate(true), "spell_cooldowns": spell_cooldowns.duplicate(true), "spell_uses": spell_uses.duplicate(true)}
 	# Per-unit report is authoritative but sent only after the result, not at every live tick.
 	if winner != -1: data["battle_report"] = battle_report.duplicate(true)
 	return data
