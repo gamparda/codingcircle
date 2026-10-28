@@ -1,5 +1,6 @@
 extends Resource
-## One placeable structure. Edit the .tres files in res://data/structures/.
+## One tactic card: a placeable structure, or a spell when params has "spell": true (then `hp` is unused).
+## Edit the .tres files in res://data/structures/.
 
 @export var kind := ""
 @export var display_name := ""
@@ -8,6 +9,9 @@ extends Resource
 @export var hp := 1.0
 ## Structure-specific numbers: damage/interval/range (turret), income (generator),
 ## speed_scale/radius/lifetime (swamp), max_count (wall, turret, generator).
+## Spells: effect (strike/blast/freeze/bless/resurrect), zone ("any" or "own"), cooldown, delay, radius,
+## and per effect damage, speed (thrown from the base), duration, attack_speed, revive_count,
+## revive_fraction, max_uses (per battle).
 @export var params := {}
 
 func to_stats() -> Dictionary:

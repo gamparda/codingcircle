@@ -14,7 +14,7 @@ static func goal(stage: int) -> String:
 static func enemy_deck(stage: int) -> String:
 	var names: Array = []
 	for kind in ServerAI.stage_unit_deck(stage): names.append(BattleModel.UNIT_NAMES[kind])
-	var structures := {"wall":"방벽","swamp":"늪","turret":"포탑","generator":"발전기"}
+	var structures := BattleModel.STRUCTURE_NAMES
 	for kind in ServerAI.stage_structure_deck(stage): names.append(structures[kind])
 	return " · ".join(names)
 static func conditions(stage: int) -> String:

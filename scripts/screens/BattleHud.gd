@@ -187,13 +187,16 @@ static func _build_battle_screen(main) -> void:
 	separator.modulate = Color(1.0, 1.0, 1.0, 0.10)
 	separator.custom_minimum_size.x = 5
 	row.add_child(separator)
-	var structure_names := {"wall": Localization.text("방벽"), "swamp": Localization.text("늪"), "turret": Localization.text("포탑"), "generator": Localization.text("발전기")}
-	var structure_colors := {"wall": Color("#7c879d"), "swamp": Color("#906bd1"), "turret": Color("#d56b5f"), "generator": Color("#3d8f83")}
+	var structure_names := BattleModel.STRUCTURE_NAMES
+	var structure_colors := {"wall": Color("#7c879d"), "swamp": Color("#906bd1"), "turret": Color("#d56b5f"), "generator": Color("#3d8f83"),
+		"lightning": Color("#5f8fe0"), "fireball": Color("#e07a3c"), "frost": Color("#5cb8d6"), "blessing": Color("#d8b85a"), "seraph": Color("#c9b6e8")}
 	for kind in preset.structures:
 		var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 		var card_text := Localization.text("%s\n%d 자원") % [structure_names[kind], int(stats.cost)]
 		if kind == "swamp":
 			card_text = "%s · %d" % [structure_names[kind], int(stats.cost)] + char(10) + BattleModel.swamp_summary()
+		elif BattleModel.is_spell(kind):
+			card_text = "%s · %d" % [structure_names[kind], int(stats.cost)] + char(10) + BattleModel.spell_card_note(kind)
 		main._add_structure_button(row, card_text, kind, structure_colors[kind])
 	# A raised z_index draws above the battlefield, but input follows sibling order.
 	# Add these actions after BattleView so it cannot consume their pointer events.
@@ -675,8 +678,10 @@ static func _refresh_structure_selection(main) -> void:
 		main.placement_hint_label.text = ""
 		if selected:
 			var kind: String = main.battle_view.selected_structure
-			var title: String = {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}.get(kind, kind)
+			var title: String = BattleModel.STRUCTURE_NAMES.get(kind, kind)
 			main.placement_hint_label.text = "%s · 클릭 / 터치 후 놓아 설치 · 붉은 띠는 간격 부족\n←/→ 이동 · Shift 정밀/구매 키 겹침 · Home/End 양끝 · Enter 설치 · Esc 취소" % title
+			if BattleModel.is_spell(kind):
+				main.placement_hint_label.text = "%s · 쓸 곳을 클릭 / 터치 · %s\n←/→ 이동 · Home/End 양끝 · Enter 사용 · Esc 취소" % [title, BattleModel.tactic_role(kind)]
 			if main.placement_pending: main.placement_hint_label.text = "%s · 서버의 설치 결과를 기다리는 중" % title
 	for button in main.structure_buttons:
 		if is_instance_valid(button):
@@ -922,7 +927,26 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 				limit_error = BattleModel.field_limit_error(_battle_units(main), main.own_side, unit_kind)
 				if not limit_error.is_empty():
 					limit_state = "출전 중 %d/%d" % [BattleModel.field_limit(unit_kind), BattleModel.field_limit(unit_kind)]
-		if button.has_meta("structure_kind"):
+		if button.has_meta("structure_kind") and BattleModel.is_spell(String(button.get_meta("structure_kind"))):
+			var kind: String = button.get_meta("structure_kind")
+			var spell_sides: Array = main.current_snapshot.get("spell_cooldowns", [{}, {}])
+			var use_sides: Array = main.current_snapshot.get("spell_uses", [{}, {}])
+			limit_error = "" if awaiting_state else BattleModel.spell_error(kind, spell_sides[main.own_side], use_sides[main.own_side])
+			if not limit_error.is_empty():
+				var remaining := float(spell_sides[main.own_side].get(kind, 0.0))
+				limit_state = "재사용 %d초" % ceili(remaining) if remaining > 0.0 else "사용 횟수 소진"
+			tooltip = String(button.get_meta("base_text")) + "\n" + BattleModel.tactic_role(kind)
+			if not block_hint.is_empty():
+				tooltip += "\n" + block_hint
+			if waiting:
+				tooltip += "\n서버 확인 중입니다."
+			elif not limit_error.is_empty():
+				tooltip += "\n" + limit_error
+			elif missing > 0:
+				tooltip += resource_hint
+			elif block_reason.is_empty():
+				tooltip += "\n카드를 선택한 뒤 전장을 클릭·터치하거나 ←/→로 위치를 정하고 Enter로 사용하세요."
+		elif button.has_meta("structure_kind"):
 			var kind: String = button.get_meta("structure_kind")
 			var count := int(counts.kinds.get(kind, 0))
 			var maximum := int(BattleModel.STRUCTURE_STATS[kind].get("max_count", BattleModel.STRUCTURE_LIMIT))

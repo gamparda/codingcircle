@@ -56,16 +56,17 @@ func run() -> void:
 	check(main.find_child("DeckCardsScroll", true, false) == null, "deck has no scroll container")
 	check(panel != null and panel.position.y >= 0 and panel.position.y + panel.size.y <= 720.0, "taller deck panel fits the logical 720p canvas")
 	check(units != null and units.get_child_count() == BattleModel.UNIT_STATS.size(), "every purchasable unit remains")
-	check(structures != null and structures.columns == 4 and structures.get_child_count() == 4, "all four structures fill a four-column row")
+	check(structures != null and structures.columns == 5 and structures.get_child_count() == BattleModel.STRUCTURE_STATS.size(), "every tactic card (structures and spells) is offered in two rows of five")
 	if panel == null or units == null or structures == null or save == null: quit(1); return
-	for index in 4:
-		var unit: Button = units.get_child(index)
-		var structure: Button = structures.get_child(index)
-		check(absf(unit.get_global_rect().position.x - structure.get_global_rect().position.x) <= 1.0, "unit and structure column alignment %d" % index)
-		check(absf(unit.size.x - structure.size.x) <= 1.0, "equal card widths %d" % index)
-		check(absf(unit.size.y - structure.size.y) <= 1.0, "equal card heights %d" % index)
-		check(structure.size.y >= structure.get_combined_minimum_size().y, "structure text is not clipped %d" % index)
-	check(absf(structures.get_child(3).position.x + structures.get_child(3).size.x - structures.size.x) <= 1.0, "generator reaches the right edge without an empty fifth slot")
+	# Tactic cards are compact (nine in two rows of five): equal among themselves and inside the panel.
+	var first_tactic: Button = structures.get_child(0)
+	for index in structures.get_child_count():
+		var tactic: Button = structures.get_child(index)
+		check(absf(tactic.size.x - first_tactic.size.x) <= 1.0, "equal tactic card widths %d" % index)
+		check(absf(tactic.size.y - first_tactic.size.y) <= 1.0, "equal tactic card heights %d" % index)
+		check(panel.get_global_rect().encloses(tactic.get_global_rect()), "tactic card %d stays inside the panel" % index)
+		check(tactic.size.y >= tactic.get_combined_minimum_size().y, "tactic card text is not clipped %d" % index)
+	check(absf(structures.get_child(4).position.x + structures.get_child(4).size.x - structures.size.x) <= 1.0, "the fifth tactic card reaches the right edge")
 	check(units.position.y + units.size.y < structures.position.y, "the structure row does not overlap unit cards")
 	check(structures.get_global_rect().end.y < save.get_global_rect().position.y, "structure cards and action row do not overlap")
 	var card = main.find_child("DeckStructure_swamp", true, false)

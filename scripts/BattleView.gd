@@ -277,7 +277,7 @@ func push_combat_events(events: Array) -> void:
 						existing.amount = float(existing.amount)+float(event.get("amount",0.0)); merged = true; break
 			if merged: continue
 			var visual: Dictionary = event.duplicate(true)
-			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else (1.0 if String(event.get("type", "")) in ["SKILL", "SOUL"] else 0.7)
+			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else (1.0 if String(event.get("type", "")) in ["SKILL", "SOUL", "SPELL_LAND"] else 0.7)
 			if String(event.get("type","")) in ["DAMAGE","HEAL","BASE_HIT"]:
 				visual["text_lane"] = damage_lane_cursor % 4
 				damage_lane_cursor += 1
@@ -291,9 +291,75 @@ func push_combat_events(events: Array) -> void:
 				unit_actions[event.attacker_id] = {"type": "ATTACK", "started": animation_time}
 	queue_redraw()
 
+## Spell colors for the placeholder effects (until the spell artwork arrives).
+const SPELL_COLORS := {"lightning": Color(0.62, 0.8, 1.0), "fireball": Color(1.0, 0.5, 0.18), "frost": Color(0.6, 0.9, 1.0), "blessing": Color(1.0, 0.84, 0.36), "seraph": Color(1.0, 0.95, 0.8)}
+
+## A cast waiting to land: its area on the ground, and a thrown fireball on its way.
+func _draw_spell_cast(cast: Dictionary, scale_x: float, lane_y: float) -> void:
+	var kind := String(cast.kind)
+	var color: Color = SPELL_COLORS.get(kind, Color.WHITE)
+	var x := world_to_screen_x(float(cast.x))
+	var radius := float(BattleModel.STRUCTURE_STATS.get(kind, {}).get("radius", 40.0)) * scale_x
+	var pulse := 0.5 + 0.5 * sin(animation_time * 10.0)
+	draw_circle(Vector2(x, lane_y - 2.0), radius, Color(color.r, color.g, color.b, 0.10 + 0.08 * pulse))
+	draw_arc(Vector2(x, lane_y - 2.0), radius, 0.0, TAU, 40, Color(color.r, color.g, color.b, 0.75), 2.0)
+	var stats: Dictionary = BattleModel.STRUCTURE_STATS.get(kind, {})
+	if stats.has("speed"):
+		var remaining := maxf(0.0, float(cast.lands_at) - (float(snapshot.get("elapsed", 0.0)) + snapshot_age))
+		var origin := BattleModel.FIELD_LEFT if int(cast.side) == 0 else BattleModel.FIELD_RIGHT
+		var direction := signf(float(cast.x) - origin)
+		var ball_x := world_to_screen_x(float(cast.x) - direction * remaining * float(stats.speed))
+		var height := lane_y - 40.0 - remaining * 60.0
+		draw_circle(Vector2(ball_x, height), 11.0, Color(1.0, 0.45, 0.12, 0.9))
+		draw_circle(Vector2(ball_x, height), 6.0, Color(1.0, 0.9, 0.5, 1.0))
+	elif kind == "seraph":
+		draw_line(Vector2(x, 0.0), Vector2(x, lane_y), Color(1.0, 0.95, 0.75, 0.25 + 0.25 * pulse), 10.0)
+
+## A landed spell (placeholder shapes until the spell artwork arrives).
+func _draw_spell_land(event: Dictionary, x: float, life: float, scale_x: float, lane_y: float) -> void:
+	var kind := String(event.get("kind", ""))
+	var color: Color = SPELL_COLORS.get(kind, Color.WHITE)
+	var radius := float(event.get("radius", 40.0)) * scale_x
+	var alpha := clampf(life * 1.4, 0.0, 1.0) * effect_intensity
+	match kind:
+		"lightning":
+			var points := PackedVector2Array()
+			var steps := 7
+			for step in steps + 1:
+				var t := float(step) / float(steps)
+				var jitter := 0.0 if step == 0 or step == steps else sin(float(step) * 12.9 + float(event.get("x", 0.0))) * 14.0
+				points.append(Vector2(x + jitter, lerpf(0.0, lane_y - 30.0, t)))
+			draw_polyline(points, Color(color.r, color.g, color.b, alpha), 5.0)
+			draw_polyline(points, Color(1, 1, 1, alpha), 2.0)
+			draw_circle(Vector2(x, lane_y - 40.0), 26.0 * life, Color(0.85, 0.95, 1.0, alpha * 0.6))
+		"fireball":
+			draw_circle(Vector2(x, lane_y - 20.0), radius * (1.15 - life * 0.5), Color(1.0, 0.45, 0.12, alpha * 0.45))
+			draw_circle(Vector2(x, lane_y - 20.0), radius * (0.7 - life * 0.3), Color(1.0, 0.82, 0.35, alpha * 0.7))
+		"frost":
+			draw_arc(Vector2(x, lane_y - 2.0), radius, 0.0, TAU, 40, Color(color.r, color.g, color.b, alpha), 3.0)
+			for spike in 5:
+				var spike_x := x + (float(spike) - 2.0) * radius * 0.35
+				draw_colored_polygon(PackedVector2Array([Vector2(spike_x - 6.0, lane_y), Vector2(spike_x, lane_y - 34.0 - float(spike % 2) * 14.0), Vector2(spike_x + 6.0, lane_y)]), Color(0.75, 0.95, 1.0, alpha * 0.8))
+		"blessing", "seraph":
+			draw_rect(Rect2(x - radius * 0.25, 0.0, radius * 0.5, lane_y), Color(color.r, color.g, color.b, alpha * 0.22))
+			draw_arc(Vector2(x, lane_y - 2.0), radius, 0.0, TAU, 40, Color(color.r, color.g, color.b, alpha), 3.0)
+
 func placement_error(kind: String, world_x: float) -> String:
 	if not BattleModel.STRUCTURE_STATS.has(kind):
 		return Localization.text("설치할 수 없는 구조물입니다.")
+	if BattleModel.is_spell(kind):
+		var zone := BattleModel.tactic_zone(own_side, kind)
+		if world_x < float(zone[0]) or world_x > float(zone[1]):
+			return Localization.text("자신의 진영에만 쓸 수 있습니다.") if String(BattleModel.STRUCTURE_STATS[kind].get("zone", "any")) == "own" else Localization.text("전장 안에만 쓸 수 있습니다.")
+		var cooldowns: Array = snapshot.get("spell_cooldowns", [{}, {}])
+		var uses: Array = snapshot.get("spell_uses", [{}, {}])
+		var spell_problem := BattleModel.spell_error(kind, cooldowns[own_side] if cooldowns.size() > own_side else {}, uses[own_side] if uses.size() > own_side else {})
+		if not spell_problem.is_empty():
+			return spell_problem
+		var spell_resources: Array = snapshot.get("resources", [0.0, 0.0])
+		if spell_resources.size() <= own_side or float(spell_resources[own_side]) < float(BattleModel.STRUCTURE_STATS[kind].cost):
+			return Localization.text("자원이 부족합니다.")
+		return ""
 	var valid_zone := (own_side == 0 and world_x >= BattleModel.BLUE_BUILD_MIN and world_x <= BattleModel.BLUE_BUILD_MAX) or (own_side == 1 and world_x >= BattleModel.RED_BUILD_MIN and world_x <= BattleModel.RED_BUILD_MAX)
 	if not valid_zone:
 		return Localization.text("자신의 건설 구역에만 설치할 수 있습니다.")
@@ -429,6 +495,8 @@ func _draw() -> void:
 
 	for curse in snapshot.get("curses", []):
 		_draw_curse(curse, scale_x, lane_y)
+	for cast in snapshot.get("spells", []):
+		_draw_spell_cast(cast, scale_x, lane_y)
 	for structure in snapshot.get("structures", []):
 		_draw_structure(structure, scale_x, lane_y)
 	for unit in snapshot.get("units", []):
@@ -678,6 +746,15 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 18.0), "광폭", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ff9a61"))
 	if cursed_units.has(unit.id):
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "공속▼%d%%" % roundi((1.0 - BattleModel.CURSE_SPEED_SCALE) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c592ff"))
+	if unit.has("frozen_remaining"):
+		# Placeholder until the frost artwork: an ice block around the unit.
+		draw_rect(Rect2(x - 22.0, lane_y - 74.0, 44.0, 74.0), Color(0.55, 0.85, 1.0, 0.28))
+		draw_rect(Rect2(x - 22.0, lane_y - 74.0, 44.0, 74.0), Color(0.75, 0.95, 1.0, 0.8), false, 2.0)
+		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 32.0), "빙결", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#a8e6ff"))
+	if unit.has("blessed_remaining"):
+		draw_arc(Vector2(x, lane_y + 2.0), 18.0 + sin(animation_time * 6.0) * 2.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.4, 0.75), 2.0)
+	if unit.get("revived", false):
+		draw_circle(Vector2(x, lane_y - 82.0), 3.0, Color(1.0, 0.95, 0.75, 0.9))
 	if show_battle_effects and kind != "healer":
 		var stacks := int(unit.get("support_stacks", 0))
 		if stacks > 0:
@@ -855,6 +932,8 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 				draw_texture_rect(pillar, Rect2(x - pillar_width * 0.5, lane_y + 6.0 - pillar_height, pillar_width, pillar_height), false, Color(1, 1, 1, clampf(life * 2.0, 0.0, 1.0) * effect_intensity))
 				var radius := float(event.get("radius", 0.0)) * scale_x
 				draw_arc(Vector2(x, lane_y - 2.0), radius, 0.0, TAU, 32, Color(1.0, 0.86, 0.36, life * 0.6 * effect_intensity), 2.0)
+			elif event_type == "SPELL_LAND":
+				_draw_spell_land(event, x, life, scale_x, lane_y)
 			elif event_type == "JUMP":
 				draw_arc(Vector2(x, lane_y - 28.0), 34.0, PI, TAU, 24, Color(1.0, 0.82, 0.32, life), 4.0)
 		if show_damage_numbers and event_type in ["DAMAGE", "HEAL", "BASE_HIT"]:
@@ -869,12 +948,7 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 			draw_string(display, text_position, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 
 func _build_limits() -> Array:
-	var lower := BattleModel.BLUE_BUILD_MIN if own_side == 0 else BattleModel.RED_BUILD_MIN
-	var upper := BattleModel.BLUE_BUILD_MAX if own_side == 0 else BattleModel.RED_BUILD_MAX
-	if selected_structure == "generator":
-		if own_side == 0: upper = BattleModel.BLUE_REAR_MAX
-		else: lower = BattleModel.RED_REAR_MIN
-	return [lower, upper]
+	return BattleModel.tactic_zone(own_side, selected_structure)
 
 ## Vector2 stores float32; use _build_limits() wherever the exact rule constants matter.
 func _build_bounds() -> Vector2:
@@ -944,8 +1018,8 @@ func _draw_build_preview(lane_y: float) -> void:
 	var right := world_to_screen_x(float(preview.upper))
 	draw_rect(Rect2(minf(left, right), lane_y - 9.0, absf(right-left), 32.0), Color(0.30, 0.94, 0.60, 0.10))
 	# Only living friendly structures exclude placement, just as in the model.
-	# Clip their spacing bands to this kind's build zone (rear-only for generators).
-	for structure in snapshot.get("structures", []):
+	# Clip their spacing bands to this kind's build zone (rear-only for generators). Spells ignore spacing.
+	for structure in ([] if BattleModel.is_spell(selected_structure) else snapshot.get("structures", [])):
 		if int(structure.side) != own_side or float(structure.get("hp", 1.0)) <= 0.0: continue
 		var start := maxf(float(preview.lower), float(structure.x) - BattleModel.STRUCTURE_MIN_SPACING)
 		var end := minf(float(preview.upper), float(structure.x) + BattleModel.STRUCTURE_MIN_SPACING)

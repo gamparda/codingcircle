@@ -1,0 +1,22 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/StructureDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "seraph"
+display_name = "천사 강림"
+order = 8
+cost = 100.0
+hp = 1.0
+params = {
+"spell": true,
+"effect": "resurrect",
+"zone": "own",
+"cooldown": 40.0,
+"delay": 1.0,
+"radius": 60.0,
+"revive_count": 5,
+"revive_fraction": 0.4,
+"max_uses": 2
+}

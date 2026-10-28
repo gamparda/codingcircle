@@ -23,6 +23,8 @@ var side: int
 var stage: int
 var spawn_timer := 0.0
 var structure_timer := 0.0
+var spell_timer := 0.0
+const SPELL_CHECK_SECONDS := 1.0
 var unit_cursor := 0
 var structure_cursor := 0
 
@@ -70,6 +72,10 @@ func update(model: BattleModel, delta: float) -> void:
 		_try_spawn(model)
 	if stage >= 3 and structure_timer >= _structure_interval():
 		_try_place_structure(model)
+	spell_timer += delta
+	if spell_timer >= SPELL_CHECK_SECONDS:
+		spell_timer = 0.0
+		try_cast_spell(model)
 
 # Decisions scan the live field only when a purchase/build decision is due.
 func tactical_state(model: BattleModel) -> Dictionary:
@@ -169,6 +175,65 @@ func _apply_stage_unit_bonus(unit: Dictionary) -> void:
 	unit.damage = float(unit.damage) * damage_scale
 	if String(unit.kind) == "healer":
 		unit.heal = float(unit.heal) * damage_scale
+
+## Casts the first spell in the deck that has a worthwhile target now. Returns true when one was cast.
+func try_cast_spell(model: BattleModel) -> bool:
+	for kind in model.structure_decks[side]:
+		if not BattleModel.is_spell(String(kind)):
+			continue
+		var x := spell_target(model, side, String(kind))
+		if is_nan(x) or not model.structure_placement_error(side, String(kind), x).is_empty():
+			continue
+		if model.place_structure(side, String(kind), x):
+			return true
+	return false
+
+## Where `kind` would do the most good for `side` now, or NAN when it is not worth casting.
+static func spell_target(model: BattleModel, side: int, kind: String) -> float:
+	var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
+	var radius := float(stats.get("radius", 0.0))
+	var base_x := BattleModel.FIELD_LEFT if side == 0 else BattleModel.FIELD_RIGHT
+	var enemies: Array = model.units.filter(func(unit): return int(unit.side) != side and float(unit.hp) > 0.0)
+	var allies: Array = model.units.filter(func(unit): return int(unit.side) == side and float(unit.hp) > 0.0)
+	match String(stats.get("effect", "")):
+		"strike":
+			var best = null
+			for enemy in enemies:
+				if float(enemy.hp) >= 150.0 and (best == null or float(enemy.hp) > float(best.hp)):
+					best = enemy
+			return NAN if best == null else float(best.x)
+		"blast", "freeze":
+			var minimum := 3 if String(stats.effect) == "blast" else 2
+			var best_x := NAN
+			var best_count := 0
+			for enemy in enemies:
+				if String(stats.effect) == "freeze" and absf(float(enemy.x) - base_x) > 420.0:
+					continue
+				var count: int = enemies.filter(func(other): return absf(float(other.x) - float(enemy.x)) <= radius).size()
+				if count > best_count:
+					best_count = count
+					best_x = float(enemy.x)
+			return best_x if best_count >= minimum else NAN
+		"bless":
+			var best_x := NAN
+			var best_count := 0
+			for ally in allies:
+				if not enemies.any(func(enemy): return absf(float(enemy.x) - float(ally.x)) <= 220.0):
+					continue
+				var count: int = allies.filter(func(other): return absf(float(other.x) - float(ally.x)) <= radius).size()
+				if count > best_count:
+					best_count = count
+					best_x = float(ally.x)
+			return best_x if best_count >= 3 else NAN
+		"resurrect":
+			if model.fallen[side].size() < 4:
+				return NAN
+			var zone := BattleModel.tactic_zone(side, kind)
+			var front := float(zone[0]) if side == 1 else float(zone[1])
+			for ally in allies:
+				front = maxf(front, float(ally.x)) if side == 0 else minf(front, float(ally.x))
+			return clampf(front - (80.0 if side == 0 else -80.0), float(zone[0]), float(zone[1]))
+	return NAN
 
 func _try_place_structure(model: BattleModel) -> void:
 	structure_timer = 0.0

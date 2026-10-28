@@ -21,7 +21,8 @@
     "tests/ime_fix_test.gd",
     "tests/account_test.gd",
     "tests/pack_selfcheck.gd",
-    "tests/player_data_test.gd"
+    "tests/player_data_test.gd",
+    "tests/spell_test.gd"
   ],
   "network": [
     "tests/transport_security_test.gd",

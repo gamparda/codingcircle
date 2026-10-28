@@ -29,3 +29,8 @@
 | 늪 | 30 | 100 | speed_scale 0.2, radius 95, lifetime 5 |
 | 포탑 | 50 | 115 | damage 8, interval 1.5, range 240, max_count 1 |
 | 발전기 | 65 | 90 | income 2, max_count 1 |
+| 낙뢰 | 50 | 1 | spell True, effect strike, zone any, cooldown 12, delay 0.6, radius 70, damage 120 |
+| 화염구 | 45 | 1 | spell True, effect blast, zone any, cooldown 10, delay 0.25, speed 900, radius 75, damage 45 |
+| 빙결 | 40 | 1 | spell True, effect freeze, zone any, cooldown 15, delay 0.4, radius 90, duration 1.5 |
+| 축복 | 40 | 1 | spell True, effect bless, zone any, cooldown 12, delay 0, radius 110, duration 5, attack_speed 1.3 |
+| 천사 강림 | 100 | 1 | spell True, effect resurrect, zone own, cooldown 40, delay 1, radius 60, revive_count 5, revive_fraction 0.4, max_uses 2 |

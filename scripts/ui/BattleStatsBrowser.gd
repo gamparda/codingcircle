@@ -154,7 +154,7 @@ func setup(owner_main, growth_level: int, origin_reference: Dictionary = {}) -> 
 		var unit_name := String(BattleModel.UNIT_NAMES[kind])
 		_add_card(unit_name, BattleModel.unit_stat_summary(kind, int(growth_levels[0])), 0, _in_deck(kind, 0, "units"), UIKit.UNIT_COLORS.get(kind, UIKit.ACCENT), kind)
 		_configure_side_card(cards.back(), kind, "units", BattleModel.unit_stat_summary(kind, int(growth_levels[1])))
-	var structure_names := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
+	var structure_names := BattleModel.STRUCTURE_NAMES
 	for kind in BattleModel.STRUCTURE_STATS:
 		_add_card(structure_names.get(kind, kind), _structure_summary(kind), 1, _in_deck(kind, 0, "structures"), UIKit.TEAL)
 		_configure_side_card(cards.back(), kind, "structures", _structure_summary(kind))

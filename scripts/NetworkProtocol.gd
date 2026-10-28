@@ -46,8 +46,36 @@ static func _has_exact_keys(value: Dictionary, expected: Array) -> bool:
 static func _number_in_range(value: Variant, minimum: float, maximum: float) -> bool:
 	return _is_finite_number(value) and float(value) >= minimum and float(value) <= maximum
 
+## Spell casts in flight, and each side's spell cooldowns and uses (all optional in a snapshot).
+static func valid_spell_state(data: Dictionary) -> bool:
+	var casts = data.get("spells", [])
+	if not casts is Array or casts.size() > 64:
+		return false
+	for cast in casts:
+		if not cast is Dictionary or not _has_exact_keys(cast, ["id", "side", "kind", "x", "lands_at"]) or not cast.id is int or int(cast.id) <= 0:
+			return false
+		if not cast.side is int or not is_valid_match_side(int(cast.side)) or not BattleModel.is_spell(String(cast.kind)):
+			return false
+		if not _number_in_range(cast.x, BattleModel.FIELD_LEFT, BattleModel.FIELD_RIGHT) or not _number_in_range(cast.lands_at, 0.0, 1000000000.0):
+			return false
+	for key in ["spell_cooldowns", "spell_uses"]:
+		var sides = data.get(key, [{}, {}])
+		if not sides is Array or sides.size() != 2:
+			return false
+		for side in sides:
+			if not side is Dictionary or side.size() > BattleModel.STRUCTURE_STATS.size():
+				return false
+			for kind in side:
+				if not BattleModel.is_spell(String(kind)):
+					return false
+				if key == "spell_cooldowns" and not _number_in_range(side[kind], 0.0, 600.0):
+					return false
+				if key == "spell_uses" and (not side[kind] is int or int(side[kind]) < 0 or int(side[kind]) > 1000):
+					return false
+	return true
+
 static func is_valid_snapshot(data: Dictionary) -> bool:
-	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses", "base_max_hp", "spawn_cooldowns", "battle_report", "network"]):
+	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses", "base_max_hp", "spawn_cooldowns", "battle_report", "network", "spells", "spell_cooldowns", "spell_uses"]):
 		return false
 	if data.has("network") and not valid_recovery_state(data.network): return false
 	if data.has("battle_report") and (int(data.get("winner",-1)) == -1 or not preload("res://scripts/BattleReport.gd").valid(data.battle_report)): return false
@@ -57,6 +85,8 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 			if not side is Dictionary or side.size()>BattleModel.UNIT_STATS.size(): return false
 			for kind in side:
 				if not BattleModel.UNIT_STATS.has(kind) or not _number_in_range(side[kind],0.0,0.35): return false
+	if not valid_spell_state(data):
+		return false
 	var resources = data.resources
 	var base_hp = data.base_hp
 	var units = data.units
@@ -83,7 +113,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		return false
 	var unit_ids := {}
 	for unit in units:
-		if not unit is Dictionary or not _has_required_optional_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"], ["support_stacks", "summon_remaining", "revive_remaining", "skill_remaining", "souls"]):
+		if not unit is Dictionary or not _has_required_optional_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"], ["support_stacks", "summon_remaining", "revive_remaining", "skill_remaining", "souls", "frozen_remaining", "blessed_remaining", "revived"]):
 			return false
 		var unit_id = unit.id
 		var unit_side = unit.side
@@ -104,6 +134,11 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		if unit.has("summon_remaining") and (unit.kind != "necromancer" or not _number_in_range(unit.summon_remaining, 0.0, BattleModel.SUMMON_INTERVAL)):
 			return false
 		if unit.has("skill_remaining") and (BattleModel.trait_value(String(unit.kind), "skill_cooldown") == null or not _number_in_range(unit.skill_remaining, 0.0, float(BattleModel.trait_value(String(unit.kind), "skill_cooldown")))):
+			return false
+		for key in ["frozen_remaining", "blessed_remaining"]:
+			if unit.has(key) and not _number_in_range(unit[key], 0.0, 60.0):
+				return false
+		if unit.has("revived") and not unit.revived is bool:
 			return false
 		if unit.has("souls") and (BattleModel.trait_value(String(unit.kind), "soul_max") == null or not unit.souls is int or int(unit.souls) < 0 or int(unit.souls) > int(BattleModel.trait_value(String(unit.kind), "soul_max"))):
 			return false

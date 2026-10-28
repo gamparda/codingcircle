@@ -574,7 +574,7 @@ func _sync_search_terms() -> void:
 			existing.erase(node_name)
 			var title: String = term
 			if field > 0:
-				title = String(BattleModel.UNIT_NAMES.get(key, {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}.get(key, term)))
+				title = String(BattleModel.UNIT_NAMES.get(key, BattleModel.STRUCTURE_NAMES.get(key, term)))
 			var field_name := String(["전체", "블루", "레드"][field])
 			button.text = "%s: %s ×" % [field_name, title.left(22) + ("…" if title.length() > 22 else "")]
 			button.tooltip_text = "%s 검색의 ‘%s’ 단어만 해제합니다. 같은 단어의 중복·대소문자 변형도 해제하며 부분 검색어·다른 검색칸·필터·정렬은 유지합니다." % [field_name, term]
