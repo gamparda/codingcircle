@@ -25,7 +25,7 @@ func _initialize()->void:
 	check(model.battle_report[0].units.necromancer.damage==5 and model.battle_report[0].units.necromancer.kills==1,"summon performance credited to necromancer")
 	model.resources[0]=180
 	check(model.place_structure(0,"turret",BattleModel.BLUE_BUILD_MIN),"turret construction")
-	check(model.battle_report[0].structures_built==1 and model.battle_report[0].resources_spent==80,"structure spending counted without inflating unit production")
+	check(model.battle_report[0].structures_built==1 and model.battle_report[0].resources_spent==30+int(BattleModel.STRUCTURE_STATS.turret.cost),"structure spending counted without inflating unit production")
 	model.winner=0;var final:=model.snapshot()
 	check(Report.valid(final.battle_report) and NetworkController.is_valid_snapshot(final),"final report passes strict wire validation")
 	var bad:=final.duplicate(true);bad.battle_report[0].kills=99

@@ -19,7 +19,7 @@ func model() -> BattleModel:
 	return result
 
 func _initialize() -> void:
-	for entry in [["berserker",155.0,8.0,40.0,40.0], ["warlock",50.0,4.0,280.0,35.0], ["necromancer",50.0,2.0,125.0,100.0]]:
+	for entry in [["berserker",155.0,8.0,40.0,40.0], ["warlock",50.0,4.0,280.0,35.0], ["necromancer",65.0,2.0,125.0,85.0]]:
 		var battle := model()
 		check(battle.spawn_unit(0, entry[0]), "new unit is purchasable: " + entry[0])
 		check(battle.units[0].max_hp == entry[1] and battle.units[0].damage == entry[2] and battle.units[0].range == entry[3], "requested stats: " + entry[0])
@@ -235,7 +235,7 @@ func _initialize() -> void:
 	summon.tick(0.01)
 	check(summon.units.size() == 2, "first skeleton appears at exactly five seconds")
 	var skull: Dictionary = summon.units.back()
-	check(skull.kind == "skeleton" and skull.max_hp == 36.0 and skull.damage == 9.0 and skull.range == 40.0, "skeleton has all requested stats")
+	check(skull.kind == "skeleton" and skull.max_hp == 48.0 and skull.damage == 9.0 and skull.range == 40.0, "skeleton has all requested stats")
 	check(skull.side == 1 and skull.x < necro.x, "red-side summons appear ahead in the authoritative direction")
 	check(Network.is_valid_snapshot(summon.snapshot()), "skeleton snapshots are accepted online")
 	check(not summon.spawn_unit(1, "skeleton"), "skeleton cannot be purchased directly")
@@ -269,7 +269,7 @@ func _initialize() -> void:
 	check(ai_model.units.size() == 1 and ai_model.units[0].kind == "necromancer", "AI can use a selected new-unit deck")
 	ai_model.units[0].speed = 0.0
 	ai_model.tick(5.0)
-	check(ai_model.units.size() == 2 and is_equal_approx(ai_model.units[1].max_hp, 36.0 * float(ai_model.units[0].max_hp) / 50.0) and is_equal_approx(ai_model.units[1].damage, 9.0 * float(ai_model.units[0].damage) / 2.0), "skeleton inherits the summoner's campaign/AI growth")
+	check(ai_model.units.size() == 2 and is_equal_approx(ai_model.units[1].max_hp, 48.0 * float(ai_model.units[0].max_hp) / 65.0) and is_equal_approx(ai_model.units[1].damage, 9.0 * float(ai_model.units[0].damage) / 2.0), "skeleton inherits the summoner's campaign/AI growth")
 	if failures == 0:
 		print("PASS: %d new-unit mechanics and wire checks" % checks)
 	quit(0 if failures == 0 else 1)

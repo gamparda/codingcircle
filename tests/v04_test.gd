@@ -40,7 +40,7 @@ func _init() -> void:
 	expect_true(economy.place_structure(0, "generator", 250.0), "generator can be placed in rear zone")
 	var before: float = economy.resources[0]
 	economy.tick(1.0)
-	expect_eq(economy.resources[0], before + BattleModel.RESOURCE_RATE + 2.0, "generator adds one resource per second")
+	expect_eq(economy.resources[0], before + BattleModel.RESOURCE_RATE + float(BattleModel.STRUCTURE_STATS.generator.income), "generator adds its income every second")
 	var shielding = BattleModel.new()
 	shielding.resources = [150.0, 150.0]
 	shielding.configure_deck(1, ["shield", "swordsman", "archer", "healer"], ["wall", "turret", "generator", "swamp"])
