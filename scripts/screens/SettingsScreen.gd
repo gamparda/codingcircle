@@ -6,6 +6,8 @@ const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const BattleBindings = preload("res://scripts/BattleBindings.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const DataReset = preload("res://scripts/DataReset.gd")
+## Published on the operator's site; Play requires the policy to be reachable inside the app too.
+const PRIVACY_POLICY_URL := "https://ruellyya.kr/privacy"
 
 const SETTINGS_PAGES := [
 	{"id": "audio", "title": "오디오", "hint": "음량과 음소거"},
@@ -246,6 +248,11 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	reset_button.tooltip_text = Localization.text("이 기기에 저장된 전적·덱·설정·리플레이를 모두 지웁니다")
 	reset_button.pressed.connect(func(): DataReset.show_confirm(main))
 	pages.data.add_child(reset_button)
+	var privacy_button = main._styled_button(Localization.text("개인정보 처리방침"), Color("#3d4a6b"), false)
+	privacy_button.name = "PrivacyPolicyButton"
+	privacy_button.tooltip_text = PRIVACY_POLICY_URL
+	privacy_button.pressed.connect(func(): OS.shell_open(PRIVACY_POLICY_URL))
+	pages.data.add_child(privacy_button)
 
 	for control in [fullscreen, vsync, damage_numbers, shake, effects, helper_toggle]:
 		control.toggled.connect(mark_dirty)
