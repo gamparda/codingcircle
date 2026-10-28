@@ -39,7 +39,7 @@ class ReleasePolicyTest(unittest.TestCase):
         self.assertIn('--export-pack "Windows Desktop" dist/CatWarDesktop.pck', workflow)
         self.assertIn("desktop_pack_version = $env:CONTENT_VERSION", workflow)
         self.assertIn("desktop_pack_sha256 = $desktopSha", workflow)
-        self.assertIn("--export-release Android dist/CatWar.apk", workflow)
+        self.assertIn('"--export-release", "Android", "dist/CatWar.apk"', workflow)
         self.assertIn("-ContentVersion $env:CONTENT_VERSION", workflow)
         self.assertIn("Reused APK hash changed", workflow)
         self.assertIn("version = $env:WINDOWS_VERSION", workflow)
