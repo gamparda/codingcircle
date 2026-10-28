@@ -108,7 +108,7 @@ static func valid_counts(entry: Variant) -> bool:
 	return entry is Dictionary and valid_count(entry.get("games")) and valid_count(entry.get("wins")) and valid_count(entry.get("draws")) and int(entry.wins) + int(entry.draws) <= int(entry.games)
 
 static func valid_unit_deck(deck: Variant) -> bool:
-	if not deck is Array or deck.size() != 3:
+	if not deck is Array or deck.size() != BattleModel.DECK_SIZE:
 		return false
 	var seen := {}
 	for kind in deck:

@@ -74,10 +74,10 @@ func _initialize() -> void:
 	var saving := fixture(1,3)
 	saving.spawn_unit(1,"shield"); saving.spawn_unit(1,"warlock")
 	saving.spawn_cooldowns[1].clear()
-	saving.resources[1]=float(BattleModel.UNIT_STATS.shield.cost)
+	saving.resources[1]=float(BattleModel.UNIT_STATS.archer.cost)-1.0
 	var buyer := ServerAI.new(1,3)
 	buyer._try_spawn(saving)
-	check(saving.units.size()==2 and saving.resources[1]==float(BattleModel.UNIT_STATS.shield.cost),"safe AI reserves its bank for preferred ranged damage instead of another cheap tank")
+	check(saving.units.size()==2 and saving.resources[1]==float(BattleModel.UNIT_STATS.archer.cost)-1.0,"safe AI reserves its bank for preferred ranged damage instead of another cheap tank")
 	saving.resources[1]=float(BattleModel.UNIT_STATS.archer.cost)
 	buyer._try_spawn(saving)
 	check(saving.units.size()==3 and saving.units.back().kind=="archer","AI buys its saved damage dealer as soon as it is affordable")

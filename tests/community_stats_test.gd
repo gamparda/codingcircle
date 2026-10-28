@@ -36,9 +36,9 @@ func run() -> void:
 	# Aggregation.
 	var stats := ServerStats.new()
 	stats.configure(dir, "t1")
-	var deck_a := ["shield", "swordsman", "archer"]
-	var deck_b := ["archer", "shield", "swordsman"]
-	var structures := ["wall", "swamp", "turret"]
+	var deck_a := ["shield", "swordsman", "archer", "healer"]
+	var deck_b := ["archer", "shield", "swordsman", "healer"]
+	var structures := ["wall", "swamp", "turret", "generator"]
 	check(stats.record("online", deck_a, structures, 0) and stats.record("online", deck_b, structures, 1), "valid results are recorded; deck order does not matter")
 	check(not stats.record("online", ["shield", "shield", "archer"], structures, 0) and not stats.record("online", deck_a, structures, 7) and not stats.record("nope", deck_a, structures, 0), "bad decks, results and sources are rejected")
 	var snap := stats.snapshot([deck_a])
@@ -46,14 +46,14 @@ func run() -> void:
 	check(snap.online.matches == 2 and snap.online.lookup[key].games == 2 and snap.online.lookup[key].wins == 1, "the lookup returns the exact deck even with a small sample")
 	check(snap.online.top.is_empty() and snap.reported.matches == 0, "small samples never reach the top list; sources stay apart")
 	for i in ServerStats.MIN_SAMPLES:
-		stats.record("online", ["berserker", "warlock", "necromancer"], structures, 0)
-		stats.record("online", ["healer", "archer", "swordsman"], structures, 1 if i % 2 == 0 else 0)
+		stats.record("online", ["berserker", "warlock", "necromancer", "healer"], structures, 0)
+		stats.record("online", ["healer", "archer", "swordsman", "paladin"], structures, 1 if i % 2 == 0 else 0)
 	var top: Array = stats.snapshot().online.top
-	check(top.size() == 2 and ServerStats.deck_key(top[0].deck) == ServerStats.deck_key(["berserker", "warlock", "necromancer"]), "well-sampled decks are ranked by confidence")
+	check(top.size() == 2 and ServerStats.deck_key(top[0].deck) == ServerStats.deck_key(["berserker", "warlock", "necromancer", "healer"]), "well-sampled decks are ranked by confidence")
 	check(ServerStats.wilson_lower(3, 3) < ServerStats.wilson_lower(60, 100) and ServerStats.wilson_lower(0, 0) == 0.0, "a lucky tiny sample cannot outrank a big solid one")
 	var model := BattleModel.new()
 	model.configure_deck(0, deck_a, structures)
-	model.configure_deck(1, ["healer", "archer", "swordsman"], structures)
+	model.configure_deck(1, ["healer", "archer", "swordsman", "paladin"], structures)
 	model.winner = 0
 	var before: int = stats.data.online.matches
 	stats.record_model(model)
@@ -305,10 +305,10 @@ func run() -> void:
 	var newest_deck: Array = []
 	for a in kinds.size():
 		for b in range(a + 1, kinds.size()):
-			for c in range(b + 1, kinds.size()):
+			for c in range(b + 1, kinds.size() - 1):
 				if requested > ServerStats.MAX_LOOKUP:
 					break
-				newest_deck = [kinds[a], kinds[b], kinds[c]]
+				newest_deck = [kinds[a], kinds[b], kinds[c], kinds[kinds.size() - 1]]
 				stats.record("online", newest_deck, structures, 0)
 				var update := stats.snapshot([newest_deck])
 				update.ruleset = ServerStats.ruleset_id()

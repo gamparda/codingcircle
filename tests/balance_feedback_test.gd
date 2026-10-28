@@ -93,9 +93,9 @@ func run() -> void:
 	var generator := BattleModel.new()
 	generator.resources[0] = 100.0
 	generator.configure_deck(0, ["shield", "swordsman", "archer"], ["generator", "wall", "swamp"])
-	check(generator.place_structure(0, "generator", 280.0), "generator costs sixty-five resources")
+	check(generator.place_structure(0, "generator", 280.0), "generator costs seventy-five resources")
 	generator.tick(1.0)
-	check(generator.resources[0] == 45.0 and BattleModel.STRUCTURE_STATS.generator.income == 2.0, "eight base income plus two generator income are applied")
+	check(is_equal_approx(generator.resources[0], 34.7) and BattleModel.STRUCTURE_STATS.generator.income == 1.7, "eight base income plus 1.7 generator income are applied")
 	var save := SaveData.default_data()
 	var legacy := SaveData.default_data()
 	for _removed_stage in 2:
@@ -121,7 +121,7 @@ func run() -> void:
 	campaign.configure_campaign_growth(0, SaveData.campaign_growth_level(loaded))
 	check(campaign.resource_capacity(0) == 190.0 and campaign.resource_income(0) == 8.5 and campaign.resources[0] == 75.0, "first clear increases capacity, income and starting resources")
 	campaign.spawn_unit(0, "swordsman")
-	check(is_equal_approx(float(campaign.units[0].max_hp), 82.0 * 1.03) and is_equal_approx(float(campaign.units[0].damage), 11.0 * 1.03), "first clear increases unit HP and damage")
+	check(is_equal_approx(float(campaign.units[0].max_hp), 76.0 * 1.03) and is_equal_approx(float(campaign.units[0].damage), 11.0 * 1.03), "first clear increases unit HP and damage")
 	check(campaign.resource_capacity(1) == BattleModel.MAX_RESOURCE and BattleModel.new().resource_capacity(0) == BattleModel.MAX_RESOURCE, "campaign growth never leaks to enemies or online matches")
 	SaveData.record_campaign(loaded, 2, true, 65.0, 430.0)
 	check(SaveData.campaign_growth_level(loaded) == 2, "each distinct first clear grants one more growth level")

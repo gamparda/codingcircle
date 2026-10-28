@@ -2,7 +2,7 @@ extends SceneTree
 
 const Bot = preload("res://tools/BalanceBot.gd")
 const POLICIES := ["cycle", "adaptive", "weighted"]
-var options := {"suite":"pvp", "output":"user://balance.jsonl", "seeds":2, "dt":0.1, "timeout":600.0, "shard":0, "shards":1, "limit":0, "growth":"progression"}
+var options := {"suite":"pvp", "output":"user://balance.jsonl", "seeds":2, "dt":0.1, "timeout":600.0, "shard":0, "shards":1, "limit":0, "growth":"progression", "sample":0}
 var decks: Array = []
 var structure_decks: Array = []
 var output: FileAccess
@@ -19,11 +19,11 @@ func run() -> void:
 		if pair.size() != 2 or not options.has(pair[0]):
 			printerr("Unknown benchmark argument: ", arg); quit(1); return
 		var key := String(pair[0])
-		options[key] = float(pair[1]) if key in ["dt", "timeout"] else int(pair[1]) if key in ["seeds", "shard", "shards", "limit"] else String(pair[1])
-	if options.suite not in ["pvp", "campaign", "mirror"] or options.growth not in ["progression", "none"] or options.seeds < 1 or options.shards < 1 or options.shard < 0 or options.shard >= options.shards or options.dt <= 0.0 or options.dt > 0.25 or options.timeout <= 0.0 or options.limit < 0:
+		options[key] = float(pair[1]) if key in ["dt", "timeout"] else int(pair[1]) if key in ["seeds", "shard", "shards", "limit", "sample"] else String(pair[1])
+	if options.suite not in ["pvp", "campaign", "mirror"] or options.growth not in ["progression", "none"] or options.seeds < 1 or options.shards < 1 or options.shard < 0 or options.shard >= options.shards or options.dt <= 0.0 or options.dt > 0.25 or options.timeout <= 0.0 or options.limit < 0 or options.sample < 0:
 		printerr("Invalid benchmark options"); quit(1); return
-	decks = combinations(BattleModel.UNIT_STATS.keys(), 3)
-	structure_decks = combinations(BattleModel.STRUCTURE_STATS.keys(), 3)
+	decks = combinations(BattleModel.UNIT_STATS.keys(), BattleModel.DECK_SIZE)
+	structure_decks = combinations(BattleModel.STRUCTURE_STATS.keys(), BattleModel.DECK_SIZE)
 	output = FileAccess.open(options.output, FileAccess.WRITE)
 	if output == null:
 		printerr("Cannot write benchmark output: ", options.output); quit(1); return
@@ -33,8 +33,19 @@ func run() -> void:
 		for policy in POLICIES:
 			for a in decks.size():
 				if options.suite == "campaign":
+					if options.sample > 0 and a % int(options.sample) != 0: continue # every sample-th deck
 					for stage in range(1, ServerAI.MAX_STAGE + 1):
 						run_pair(a, stage, policy, repetition)
+				elif options.sample > 0:
+					# Too many 4-card decks to play every pair: a seeded sample of opponents per deck.
+					var picker := RandomNumberGenerator.new()
+					picker.seed = 7919 + repetition * 131 + a
+					var opponents := {}
+					while opponents.size() < mini(int(options.sample), decks.size() - 1):
+						var b := picker.randi_range(0, decks.size() - 1)
+						if b != a: opponents[b] = true
+					for b in opponents:
+						if a < b or not _sampled(b, a, repetition): run_pair(a, b, policy, repetition)
 				elif options.suite == "mirror":
 					run_pair(a, a, policy, repetition)
 				else:
@@ -76,7 +87,7 @@ func play(a: int, b: int, policy: String, pair_seed: int, swap: int) -> Dictiona
 		model.configure_base_health(opponent_side, 300.0 + b * 20.0)
 		opponent = ServerAI.new(opponent_side, b)
 	else:
-		var build_b: Array = build_a if options.suite == "mirror" else structure_decks[posmod(pair_seed + 1, structure_decks.size())]
+		var build_b: Array = build_a if options.suite == "mirror" else structure_decks[posmod(pair_seed * 31 + 7, structure_decks.size())]
 		model.configure_deck(opponent_side, decks[b], build_b)
 		opponent = Bot.new(opponent_side, policy, pair_seed if options.suite == "mirror" else pair_seed + 17, decks[b])
 	var player := Bot.new(player_side, policy, pair_seed, decks[a])
@@ -111,6 +122,16 @@ func play(a: int, b: int, policy: String, pair_seed: int, swap: int) -> Dictiona
 	var result := "timeout" if model.winner == -1 else "draw" if model.winner == 2 else "win" if model.winner == player_side else "loss"
 	for side in 2: event_counts[side].structures = int(model.battle_report[side].structures_built)
 	return {"type":"match", "suite":options.suite, "deck_a":decks[a], "deck_b":model.unit_decks[opponent_side], "structures_a":build_a, "structures_b":model.structure_decks[opponent_side], "stage":b if options.suite == "campaign" else 0, "policy":policy, "side_a":player_side, "result_a":result, "winner":model.winner, "elapsed":model.elapsed, "base_a":model.base_hp[player_side], "base_b":model.base_hp[opponent_side], "peak_units":peak_units, "capped_steps":capped_steps, "report_a":model.battle_report[player_side], "report_b":model.battle_report[opponent_side], "events_a":event_counts[player_side], "events_b":event_counts[opponent_side]}
+
+# Whether deck b also drew a against it, so the pair is played once.
+func _sampled(a: int, b: int, repetition: int) -> bool:
+	var picker := RandomNumberGenerator.new()
+	picker.seed = 7919 + repetition * 131 + a
+	var opponents := {}
+	while opponents.size() < mini(int(options.sample), decks.size() - 1):
+		var other := picker.randi_range(0, decks.size() - 1)
+		if other != a: opponents[other] = true
+	return opponents.has(b)
 
 static func combinations(values: Array, count: int) -> Array:
 	var result: Array = []

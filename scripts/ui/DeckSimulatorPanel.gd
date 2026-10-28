@@ -100,7 +100,7 @@ func setup(deck_units: Array, deck_structures: Array, default_stage: int = 3) ->
 
 func start() -> void:
 	if not DeckSimulator.valid_selection(units, structures):
-		status.text = Localization.text("유닛과 전술을 각각 정확히 3종 선택해야 합니다.")
+		status.text = Localization.text("유닛과 전술을 각각 정확히 4종 선택해야 합니다.")
 		return
 	var stage := stage_picker.get_selected_id()
 	var count := count_picker.get_selected_id()

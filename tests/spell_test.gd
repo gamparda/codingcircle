@@ -34,7 +34,7 @@ func run_for(model: BattleModel, seconds: float) -> void:
 
 func _initialize() -> void:
 	check(BattleModel.is_spell("lightning") and not BattleModel.is_spell("wall"), "spells are tactic cards marked in data")
-	check(Network.validate_deck_payload(["swordsman", "shield", "archer"], ["wall", "lightning", "seraph"]), "a deck may mix structures and spells")
+	check(Network.validate_deck_payload(["swordsman", "shield", "archer", "healer"], ["wall", "lightning", "seraph", "generator"]), "a deck may mix structures and spells")
 
 	# Lightning: anywhere on the field, strongest enemy in the radius, then a cooldown.
 	var model := model_with(["lightning", "fireball", "frost"])
@@ -45,7 +45,7 @@ func _initialize() -> void:
 	check(not model.structure_placement_error(0, "wall", 900.0).is_empty(), "structures still need the own build zone")
 	var before := float(model.resources[0])
 	check(model.place_structure(0, "lightning", 910.0) and model.structures.is_empty(), "casting creates no structure")
-	check(is_equal_approx(float(model.resources[0]), before - 50.0), "casting costs resources")
+	check(is_equal_approx(float(model.resources[0]), before - float(BattleModel.STRUCTURE_STATS.lightning.cost)), "casting costs resources")
 	check(model.structure_placement_error(0, "lightning", 910.0).contains("다시 쓸 수"), "a spell waits for its cooldown")
 	var tank_hp := float(tank.hp)
 	run_for(model, 0.7)
@@ -81,9 +81,11 @@ func _initialize() -> void:
 	model = model_with(["blessing", "fireball", "frost"])
 	var ally := put(model, 0, "swordsman", 400.0)
 	var plain := float(model.support_attack_speed(ally))
+	ally.hp = float(ally.max_hp) * 0.5
 	model.place_structure(0, "blessing", 400.0)
 	run_for(model, 0.05)
-	check(ally.has("blessed_remaining") and is_equal_approx(model.support_attack_speed(ally), plain * 1.3), "blessing speeds allied attacks by 30%")
+	check(ally.has("blessed_remaining") and is_equal_approx(model.support_attack_speed(ally), plain * 1.5), "blessing speeds allied attacks by 50%")
+	check(float(ally.hp) > float(ally.max_hp) * 0.8 and float(ally.hp) <= float(ally.max_hp) * 0.85 + 0.01, "blessing heals 35% of maximum health")
 
 	# Resurrection: own half only, bought units only, newest first, at 40%, twice a battle.
 	model = model_with(["seraph", "fireball", "frost"])
@@ -98,7 +100,7 @@ func _initialize() -> void:
 	run_for(model, 1.05)
 	var raised: Array = model.units.filter(func(unit): return unit.get("revived", false))
 	check(raised.size() == 5 and model.units.size() == count_before + 5, "five fallen allies return")
-	check(raised.all(func(unit): return is_equal_approx(float(unit.max_hp), float(BattleModel.UNIT_STATS[unit.kind].hp) * 0.4)), "they return at 40% health")
+	check(raised.all(func(unit): return is_equal_approx(float(unit.max_hp), float(BattleModel.UNIT_STATS[unit.kind].hp) * 0.35)), "they return at 35% health")
 	check(model.fallen[0].size() == 1, "the oldest fallen stay down")
 	for unit in raised: unit.hp = 0.0
 	run_for(model, 0.05)
@@ -116,6 +118,15 @@ func _initialize() -> void:
 	model.place_structure(0, "frost", 880.0)
 	run_for(model, 0.45)
 	check(Network.is_valid_snapshot(model.snapshot()), "snapshots with spells in flight and frozen units pass the online schema")
+	var banned := model_with(["wall", "lightning", "fireball", "frost"])
+	banned.banned[0] = ["lightning"]
+	banned.banned[1] = ["shield"]
+	check(not banned.spawn_unit(1, "shield") and banned.spawn_unit(1, "archer"), "a ranked ban blocks only the banned unit")
+	check(not banned.structure_placement_error(0, "lightning", 900.0).is_empty(), "a ranked ban blocks the banned spell")
+	var banned_snapshot := banned.snapshot()
+	check(banned_snapshot.banned == [["lightning"], ["shield"]] and Network.is_valid_snapshot(banned_snapshot), "bans travel in the snapshot and pass the online schema")
+	banned_snapshot.banned = [["lightning", "fireball", "frost"], []]
+	check(not Network.is_valid_snapshot(banned_snapshot), "the schema refuses an oversized ban list")
 	var replay_a := model_with(["lightning", "fireball", "frost"])
 	var replay_b := model_with(["lightning", "fireball", "frost"])
 	for copy in [replay_a, replay_b]:
@@ -129,7 +140,9 @@ func _initialize() -> void:
 	model = model_with(["lightning", "fireball", "frost"])
 	model.configure_deck(1, ["swordsman", "shield", "archer"], ["lightning", "fireball", "frost"])
 	put(model, 0, "shield", 500.0)
-	check(is_equal_approx(ServerAI.spell_target(model, 1, "lightning"), 500.0), "the AI strikes the strongest enemy")
+	check(is_nan(ServerAI.spell_target(model, 1, "lightning")), "the AI does not waste lightning on a tank it cannot kill")
+	put(model, 0, "archer", 800.0)
+	check(is_equal_approx(ServerAI.spell_target(model, 1, "lightning"), 800.0), "the AI strikes the valuable unit the bolt can kill")
 	check(is_nan(ServerAI.spell_target(model, 1, "fireball")), "the AI keeps its fireball for groups")
 	put(model, 0, "swordsman", 520.0); put(model, 0, "archer", 540.0)
 	check(not is_nan(ServerAI.spell_target(model, 1, "fireball")), "the AI throws a fireball into a group")

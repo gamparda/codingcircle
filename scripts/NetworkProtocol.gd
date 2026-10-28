@@ -58,6 +58,12 @@ static func valid_spell_state(data: Dictionary) -> bool:
 			return false
 		if not _number_in_range(cast.x, BattleModel.FIELD_LEFT, BattleModel.FIELD_RIGHT) or not _number_in_range(cast.lands_at, 0.0, 1000000000.0):
 			return false
+	var bans = data.get("banned", [[], []])
+	if not bans is Array or bans.size() != 2:
+		return false
+	for side in bans:
+		if not side is Array or side.size() > 2 or not side.all(func(kind): return kind is String and (BattleModel.UNIT_STATS.has(kind) or BattleModel.STRUCTURE_STATS.has(kind))):
+			return false
 	for key in ["spell_cooldowns", "spell_uses"]:
 		var sides = data.get(key, [{}, {}])
 		if not sides is Array or sides.size() != 2:
@@ -75,7 +81,7 @@ static func valid_spell_state(data: Dictionary) -> bool:
 	return true
 
 static func is_valid_snapshot(data: Dictionary) -> bool:
-	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses", "base_max_hp", "spawn_cooldowns", "battle_report", "network", "spells", "spell_cooldowns", "spell_uses"]):
+	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses", "base_max_hp", "spawn_cooldowns", "battle_report", "network", "spells", "spell_cooldowns", "spell_uses", "banned"]):
 		return false
 	if data.has("network") and not valid_recovery_state(data.network): return false
 	if data.has("battle_report") and (int(data.get("winner",-1)) == -1 or not preload("res://scripts/BattleReport.gd").valid(data.battle_report)): return false
@@ -221,7 +227,7 @@ static func valid_live_info(live: Variant) -> bool:
 		if not name is String or not SessionStore.safe_text(name,SessionStore.MAX_NICKNAME): return false
 	if not _number_in_range(live.elapsed,0,1000000): return false
 	for deck in live.units:
-		if not deck is Array or deck.size()!=3: return false
+		if not deck is Array or deck.size()!=BattleModel.DECK_SIZE: return false
 		for kind in deck:
 			if not kind is String or not BattleModel.UNIT_STATS.has(kind): return false
 	return true

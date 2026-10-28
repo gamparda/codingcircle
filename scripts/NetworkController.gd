@@ -105,6 +105,9 @@ var jwks_elapsed := 0.0
 ## Ranked games, cloud saves and reports; see RankedFlow and CloudFlow.
 var ranked_queue := QuickQueue.new()
 var ranked_matches: Dictionary = {}
+## Ranked rooms in their ban phase (room code -> {peers, bans, deadline}) and, while a match starts, the bans.
+var ranked_bans: Dictionary = {}
+var pending_bans: Dictionary = {}
 var last_opponents: Dictionary = {}
 var cloud := CloudSaves.new()
 var cloud_store_times: Dictionary = {}
@@ -434,6 +437,7 @@ func _process(delta: float) -> void:
 	if backup_elapsed >= BACKUP_CHECK_SECONDS:
 		backup_elapsed = 0.0
 		_backup_state()
+	RankedFlow.advance(self)
 	for waiting_peer in ranked_queue.expire(Time.get_ticks_msec()):
 		if _peer_is_connected(int(waiting_peer)):
 			receive_quick_status.rpc_id(int(waiting_peer),"timeout"); request_room_list_for(int(waiting_peer))
@@ -1276,6 +1280,7 @@ func receive_account_result(result: Dictionary) -> void:
 # ---------- Ranked games, reports and cloud saves (signed-in accounts) ----------
 
 signal ranked_profile_received(data: Dictionary)
+signal ban_phase_started(data: Dictionary)
 signal ranked_result_received(data: Dictionary)
 signal report_result_received(error: String)
 signal cloud_save_received(revision: int, text: String)
@@ -1302,6 +1307,11 @@ func send_ranked_profile_request() -> bool:
 	request_ranked_profile.rpc_id(1)
 	return true
 
+func send_ban(kind: String) -> bool:
+	if not client_is_online(): return false
+	request_ban.rpc_id(1, kind)
+	return true
+
 func send_report(reason: String) -> bool:
 	if not account_ready() or reason not in ReportLog.REASONS: return false
 	request_report.rpc_id(1, reason)
@@ -1324,6 +1334,15 @@ func request_ranked_match() -> void:
 @rpc("any_peer", "call_remote", "reliable")
 func request_cancel_ranked_match() -> void:
 	RankedFlow.request_cancel(self)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_ban(kind: String) -> void:
+	RankedFlow.request_ban(self, kind)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_ban_phase(data: Dictionary) -> void:
+	if RankedFlow.valid_ban_phase(data):
+		ban_phase_started.emit(data)
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_ranked_profile() -> void:
@@ -1380,7 +1399,7 @@ func request_meta_stats(decks: Array) -> void:
 	if not can_process_request(sender): return
 	var clean: Array = []
 	for deck in decks.slice(0, ServerStats.MAX_LOOKUP):
-		if deck is Array and deck.size() == 3 and deck.all(func(kind): return kind is String and BattleModel.UNIT_STATS.has(kind)):
+		if deck is Array and deck.size() == BattleModel.DECK_SIZE and deck.all(func(kind): return kind is String and BattleModel.UNIT_STATS.has(kind)):
 			clean.append(deck)
 	receive_meta_stats.rpc_id(sender, stats.snapshot(clean))
 
@@ -1539,7 +1558,8 @@ func receive_recent_replays(list: Array) -> void:
 			if not deck is Array:
 				valid_decks = false
 				break
-			if deck.size() != 3 or not deck.all(func(kind): return kind is String) or not BattleModel._valid_deck(deck, BattleModel.UNIT_STATS):
+			# Older shared replays carry three-unit decks.
+			if not deck.all(func(kind): return kind is String) or not BattleModel._valid_deck(deck, BattleModel.UNIT_STATS, BattleModel.REPLAY_DECK_SIZES):
 				valid_decks = false
 				break
 		if not valid_decks:

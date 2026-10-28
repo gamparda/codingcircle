@@ -9,13 +9,13 @@ display_name = "좀비"
 order = 7
 summon_only = false
 cost = 40.0
-hp = 150.0
+hp = 140.0
 damage = 7.0
 interval = 1.6
 speed = 30.0
 range = 40.0
 extra = {
 "revive_delay": 2.0,
-"revive_hp_fraction": 0.5
+"revive_hp_fraction": 0.4
 }
 tags = PackedStringArray("undead")

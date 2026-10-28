@@ -54,8 +54,8 @@ func run() -> void:
 	server.configure_stats(stats_root)
 	var shelf_root := "user://community_wire_shelf"
 	server.shelf.configure(shelf_root)
-	var deck := ["shield", "swordsman", "archer"]
-	var structures := ["wall", "swamp", "turret"]
+	var deck := ["shield", "swordsman", "archer", "healer"]
+	var structures := ["wall", "swamp", "turret", "generator"]
 	for i in ServerStats.MIN_SAMPLES + 5:
 		server.stats.record("online", deck, structures, 0 if i % 3 != 0 else 1)
 	client = make_controller("클라")
@@ -191,7 +191,7 @@ func run() -> void:
 	var BattleReplay = load("res://scripts/BattleReplay.gd")
 	var model := BattleModel.new()
 	model.configure_deck(0, deck, structures)
-	model.configure_deck(1, ["berserker", "warlock", "necromancer"], structures)
+	model.configure_deck(1, ["berserker", "warlock", "necromancer", "healer"], structures)
 	server.replays.begin(77, model, {"mode": "room"})
 	for tick in 90:
 		if tick % 30 == 0 and model.spawn_unit(0, "swordsman"):

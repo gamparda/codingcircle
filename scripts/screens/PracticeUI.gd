@@ -108,7 +108,7 @@ static func _show_stage_brief(main, stage: int) -> void:
 static func _show_practice_deck(main) -> void:
 	if main.campaign_mode: return
 	var column = main._action_panel("연습 상대 덱",Rect2(220,70,840,580))
-	column.add_child(MultiplayerUI.label("병력 3종 · 전술 3종",15,MultiplayerUI.MUTED))
+	column.add_child(MultiplayerUI.label("병력 4종 · 전술 4종",15,MultiplayerUI.MUTED))
 	var units: Array = main.practice.enemy_units.duplicate() if not main.practice.enemy_units.is_empty() else ServerAI.stage_unit_deck(main.current_ai_stage)
 	var structures: Array = main.practice.enemy_structures.duplicate() if not main.practice.enemy_structures.is_empty() else ServerAI.stage_structure_deck(main.current_ai_stage)
 	var unit_grid := GridContainer.new(); unit_grid.columns=4; unit_grid.add_theme_constant_override("h_separation",12); column.add_child(unit_grid)
@@ -124,7 +124,7 @@ static func _show_practice_deck(main) -> void:
 			else: structures.erase(kind)); structure_grid.add_child(button)
 	var error := MultiplayerUI.label("",15,Color("#ff8a96")); column.add_child(error)
 	MultiplayerUI.button(main,column,"적용","ApplyPracticeDeck",func():
-		if not main.practice.set_enemy_deck(units,structures): error.text="서로 다른 병력 3종과 전술 3종을 선택하세요."; return
+		if not main.practice.set_enemy_deck(units,structures): error.text="서로 다른 병력 4종과 전술 4종을 선택하세요."; return
 		main._dismiss_action_overlay()
 		if main.battle_active and main.local_ai_mode: main._restart_practice()
 	)

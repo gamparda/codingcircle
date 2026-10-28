@@ -55,12 +55,12 @@ static func _random_decks(rng: RandomNumberGenerator) -> Dictionary:
 	var units := BattleModel.UNIT_STATS.keys()
 	var structures := BattleModel.STRUCTURE_STATS.keys()
 	var unit_deck: Array = []
-	while unit_deck.size() < 3:
+	while unit_deck.size() < BattleModel.DECK_SIZE:
 		var pick: String = String(units[rng.randi_range(0, units.size() - 1)])
 		if not unit_deck.has(pick):
 			unit_deck.append(pick)
 	var structure_deck: Array = []
-	while structure_deck.size() < 3:
+	while structure_deck.size() < BattleModel.DECK_SIZE:
 		var structure_pick: String = String(structures[rng.randi_range(0, structures.size() - 1)])
 		if not structure_deck.has(structure_pick):
 			structure_deck.append(structure_pick)

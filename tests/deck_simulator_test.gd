@@ -15,8 +15,8 @@ func finish(run) -> void:
 		guard += 1
 
 func _init() -> void:
-	var units := ["shield", "swordsman", "archer"]
-	var structures := ["wall", "swamp", "turret"]
+	var units := ["shield", "swordsman", "archer", "healer"]
+	var structures := ["wall", "swamp", "turret", "generator"]
 	check(DeckSimulator.valid_selection(units, structures), "valid deck accepted")
 	check(not DeckSimulator.valid_selection(["shield", "shield", "archer"], structures), "duplicate units rejected")
 	var run = DeckSimulator.start(units, structures, 1, 3)

@@ -28,8 +28,8 @@ func run() -> void:
 	var unique := {}
 	for kind in all:
 		unique[kind] = true
-	check(draft.done() and draft.mine.size() == 3 and draft.theirs.size() == 3 and unique.size() == 6, "three picks each, no overlap")
-	check(draft.human_pick(String(draft.available[0])) == "" and draft.mine.size() == 3, "no picks after the draft is complete")
+	check(draft.done() and draft.mine.size() == 4 and draft.theirs.size() == 4 and unique.size() == 8, "four picks each, no overlap")
+	check(draft.human_pick(String(draft.available[0])) == "" and draft.mine.size() == 4, "no picks after the draft is complete")
 	var a := DraftMatch.Draft.new(5, 99)
 	var b := DraftMatch.Draft.new(5, 99)
 	a.human_pick(first)
@@ -40,14 +40,14 @@ func run() -> void:
 	# Taste: with no noise advantage the AI covers different roles.
 	var covered := {}
 	var ai_draft := DraftMatch.Draft.new(8, 3)
-	while ai_draft.theirs.size() < 3:
+	while ai_draft.theirs.size() < DraftMatch.PICKS_PER_SIDE:
 		ai_draft.ai_pick()
 	for kind in ai_draft.theirs:
 		covered[DraftMatch.GROUPS.get(kind, "")] = true
 	check(covered.size() >= 2, "a late-stage AI does not stack one role: %s" % [ai_draft.theirs])
 
-	var setup := DraftMatch.build(["shield", "archer", "healer"], ["wall", "swamp", "turret"], ["berserker", "warlock", "necromancer"], ["wall", "turret", "generator"], 4)
-	check(setup.model.unit_decks[0] == ["shield", "archer", "healer"] and setup.model.unit_decks[1] == ["berserker", "warlock", "necromancer"] and setup.stage == 4, "the battle uses the drafted decks")
+	var setup := DraftMatch.build(["shield", "archer", "healer", "swordsman"], ["wall", "swamp", "turret", "generator"], ["berserker", "warlock", "necromancer", "healer"], ["wall", "turret", "generator", "swamp"], 4)
+	check(setup.model.unit_decks[0] == ["shield", "archer", "healer", "swordsman"] and setup.model.unit_decks[1] == ["berserker", "warlock", "necromancer", "healer"] and setup.stage == 4, "the battle uses the drafted decks")
 	check(setup.model.base_hp[1] == 380.0 and setup.ai is ServerAI, "the opponent is set up like a practice battle of that stage")
 
 	BattleReplay.save_dir = "user://draft_mode_test"
@@ -69,16 +69,16 @@ func run() -> void:
 	check(portrait.size.x <= 60.0 and portrait.size.y <= 84.0, "card portraits keep their small size (%s)" % [portrait.size])
 	var start: Button = main.find_child("DraftStart", true, false)
 	check(start.disabled, "the battle cannot start before the draft is done")
-	for round in 3:
+	for round in DraftMatch.PICKS_PER_SIDE:
 		for card in main.find_children("DraftCard_*", "Button", true, false):
 			if not card.disabled:
 				card.pressed.emit()
 				break
-	check(not start.disabled, "the draft completes after three of my picks")
-	check(main.find_children("DraftCard_*", "Button", true, false).filter(func(card): return card.disabled).size() >= 5, "picked units are crossed out for both sides")
+	check(not start.disabled, "the draft completes after four of my picks")
+	check(main.find_children("DraftCard_*", "Button", true, false).filter(func(card): return card.disabled).size() >= 7, "picked units are crossed out for both sides")
 	start.pressed.emit()
 	await process_frame
-	check(not main.draft_context.is_empty() and main.local_recorder != null and main.local_model.unit_decks[0].size() == 3, "starting begins a recorded drafted battle")
+	check(not main.draft_context.is_empty() and main.local_recorder != null and main.local_model.unit_decks[0].size() == 4, "starting begins a recorded drafted battle")
 	var mine: Array = main.local_model.unit_decks[0].duplicate()
 	main.set_process(false)
 	for i in 60:

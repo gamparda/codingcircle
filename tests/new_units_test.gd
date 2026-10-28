@@ -13,21 +13,21 @@ func check(value: bool, message: String) -> void:
 
 func model() -> BattleModel:
 	var result := BattleModel.new()
-	result.configure_deck(0, ["berserker", "warlock", "necromancer"], BattleModel.DEFAULT_STRUCTURE_DECK)
-	result.configure_deck(1, ["berserker", "warlock", "necromancer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	result.configure_deck(0, ["berserker", "warlock", "necromancer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	result.configure_deck(1, ["berserker", "warlock", "necromancer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
 	result.resources = [180.0, 180.0]
 	return result
 
 func _initialize() -> void:
-	for entry in [["berserker",155.0,8.0,40.0,40.0], ["warlock",50.0,4.0,280.0,35.0], ["necromancer",50.0,2.0,125.0,100.0]]:
+	for entry in [["berserker",155.0,8.0,40.0,40.0], ["warlock",50.0,4.0,280.0,35.0], ["necromancer",65.0,2.0,125.0,85.0]]:
 		var battle := model()
 		check(battle.spawn_unit(0, entry[0]), "new unit is purchasable: " + entry[0])
 		check(battle.units[0].max_hp == entry[1] and battle.units[0].damage == entry[2] and battle.units[0].range == entry[3], "requested stats: " + entry[0])
 		check(battle.resources[0] == 180.0 - float(entry[4]), "requested cost: " + entry[0])
-	check(Network.validate_deck_payload(["berserker", "warlock", "necromancer"], BattleModel.DEFAULT_STRUCTURE_DECK), "online accepts the new three-unit deck")
-	check(not Network.validate_deck_payload(["skeleton", "warlock", "necromancer"], BattleModel.DEFAULT_STRUCTURE_DECK), "summon-only skeleton cannot enter a player deck")
+	check(Network.validate_deck_payload(["berserker", "warlock", "necromancer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK), "online accepts the new three-unit deck")
+	check(not Network.validate_deck_payload(["skeleton", "warlock", "necromancer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK), "summon-only skeleton cannot enter a player deck")
 	var data := Save.default_data()
-	data.deck_presets[0].units = ["berserker", "warlock", "necromancer"]
+	data.deck_presets[0].units = ["berserker", "warlock", "necromancer", "healer"]
 	check(Save.sanitize(JSON.parse_string(JSON.stringify(data))).deck_presets[0].units == data.deck_presets[0].units, "new deck survives a saved JSON roundtrip")
 	var rage := model()
 	rage.spawn_unit(0, "berserker")
@@ -101,7 +101,7 @@ func _initialize() -> void:
 	curse.tick(4.99)
 	check(curse.curses.is_empty(), "curse expires at five seconds")
 	var undead := model()
-	undead.configure_deck(0, ["zombie", "warlock", "necromancer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	undead.configure_deck(0, ["zombie", "warlock", "necromancer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
 	check(undead.spawn_unit(0, "zombie") and BattleModel.has_tag("zombie", "undead") and BattleModel.has_tag("skeleton", "undead") and not BattleModel.has_tag("shield", "undead"), "zombie is purchasable and tagged undead")
 	var zombie: Dictionary = undead.units[0]
 	zombie.x = 500.0; zombie.speed = 0.0
@@ -127,8 +127,8 @@ func _initialize() -> void:
 	forged.units = [{"id": 1, "side": 0, "kind": "swordsman", "x": 300.0, "hp": 0.0, "max_hp": 82.0, "damage": 11.0, "heal": 0.0, "interval": 1.4, "cooldown": 0.0, "speed": 44.0, "range": 40.0, "revive_remaining": 1.0}]
 	check(not Network.is_valid_snapshot(forged), "only revivable units may carry a revive timer")
 	var holy := model()
-	holy.configure_deck(0, ["paladin", "sniper", "zombie"], BattleModel.DEFAULT_STRUCTURE_DECK)
-	holy.configure_deck(1, ["zombie", "swordsman", "archer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	holy.configure_deck(0, ["paladin", "sniper", "zombie", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	holy.configure_deck(1, ["zombie", "swordsman", "archer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
 	check(holy.spawn_unit(0, "paladin"), "paladin is purchasable")
 	var paladin: Dictionary = holy.units[0]
 	check(is_equal_approx(float(paladin.skill_remaining), float(BattleModel.trait_value("paladin", "skill_cooldown"))), "paladin starts with its skill on cooldown")
@@ -153,8 +153,8 @@ func _initialize() -> void:
 	var forged_skill := holy.snapshot(); forged_skill.units[0].skill_remaining = 999.0
 	check(not Network.is_valid_snapshot(forged_skill), "reject skill timers beyond the cooldown")
 	var lord_battle := model()
-	lord_battle.configure_deck(0, ["demon_lord", "swordsman", "archer"], BattleModel.DEFAULT_STRUCTURE_DECK)
-	lord_battle.configure_deck(1, ["paladin", "swordsman", "necromancer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	lord_battle.configure_deck(0, ["demon_lord", "swordsman", "archer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	lord_battle.configure_deck(1, ["paladin", "swordsman", "necromancer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
 	check(lord_battle.spawn_unit(0, "demon_lord"), "demon lord is purchasable")
 	var lord: Dictionary = lord_battle.units[0]
 	check(lord.max_hp == 480.0 and lord.damage == 16.0 and lord.souls == 0 and lord_battle.resources[0] == 40.0, "demon lord has its requested stats and cost")
@@ -187,8 +187,8 @@ func _initialize() -> void:
 	lord_battle.tick(0.01)
 	check(lord.souls == int(BattleModel.trait_value("demon_lord", "soul_max")), "souls stop at the maximum")
 	var roar := model()
-	roar.configure_deck(0, ["demon_lord", "swordsman", "archer"], BattleModel.DEFAULT_STRUCTURE_DECK)
-	roar.configure_deck(1, ["swordsman", "archer", "paladin"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	roar.configure_deck(0, ["demon_lord", "swordsman", "archer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	roar.configure_deck(1, ["swordsman", "archer", "paladin", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
 	roar.spawn_unit(0, "demon_lord")
 	var roarer: Dictionary = roar.units[0]
 	roarer.x = 600.0; roarer.speed = 0.0; roarer.cooldown = 999.0; roarer.skill_remaining = 0.0
@@ -211,8 +211,8 @@ func _initialize() -> void:
 	check(is_equal_approx(lord_hp - float(roarer.hp), float(smiter.damage) * float(BattleModel.trait_value("paladin", "undead_bonus"))), "paladins deal holy bonus damage to the demon lord")
 	check(BattleModel.unit_role("demon_lord") != "" and BattleModel.unit_stat_summary("demon_lord").contains("영혼"), "deck cards describe the demon lord")
 	var scope := model()
-	scope.configure_deck(0, ["paladin", "sniper", "zombie"], BattleModel.DEFAULT_STRUCTURE_DECK)
-	scope.configure_deck(1, ["zombie", "swordsman", "archer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	scope.configure_deck(0, ["paladin", "sniper", "zombie", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
+	scope.configure_deck(1, ["zombie", "swordsman", "archer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
 	scope.spawn_unit(0, "sniper")
 	var sniper: Dictionary = scope.units[0]
 	sniper.x = 400.0; sniper.speed = 0.0
@@ -235,7 +235,7 @@ func _initialize() -> void:
 	summon.tick(0.01)
 	check(summon.units.size() == 2, "first skeleton appears at exactly five seconds")
 	var skull: Dictionary = summon.units.back()
-	check(skull.kind == "skeleton" and skull.max_hp == 36.0 and skull.damage == 9.0 and skull.range == 40.0, "skeleton has all requested stats")
+	check(skull.kind == "skeleton" and skull.max_hp == 48.0 and skull.damage == 9.0 and skull.range == 40.0, "skeleton has all requested stats")
 	check(skull.side == 1 and skull.x < necro.x, "red-side summons appear ahead in the authoritative direction")
 	check(Network.is_valid_snapshot(summon.snapshot()), "skeleton snapshots are accepted online")
 	check(not summon.spawn_unit(1, "skeleton"), "skeleton cannot be purchased directly")
@@ -269,7 +269,7 @@ func _initialize() -> void:
 	check(ai_model.units.size() == 1 and ai_model.units[0].kind == "necromancer", "AI can use a selected new-unit deck")
 	ai_model.units[0].speed = 0.0
 	ai_model.tick(5.0)
-	check(ai_model.units.size() == 2 and is_equal_approx(ai_model.units[1].max_hp, 36.0 * float(ai_model.units[0].max_hp) / 50.0) and is_equal_approx(ai_model.units[1].damage, 9.0 * float(ai_model.units[0].damage) / 2.0), "skeleton inherits the summoner's campaign/AI growth")
+	check(ai_model.units.size() == 2 and is_equal_approx(ai_model.units[1].max_hp, 48.0 * float(ai_model.units[0].max_hp) / 65.0) and is_equal_approx(ai_model.units[1].damage, 9.0 * float(ai_model.units[0].damage) / 2.0), "skeleton inherits the summoner's campaign/AI growth")
 	if failures == 0:
 		print("PASS: %d new-unit mechanics and wire checks" % checks)
 	quit(0 if failures == 0 else 1)

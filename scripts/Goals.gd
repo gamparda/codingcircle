@@ -9,7 +9,7 @@ const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 
 const DEFS := [
 	{"id": "first_win", "title": "첫 승리", "desc": "캠페인 1단계를 이겨 보세요.", "go": "캠페인"},
-	{"id": "edit_deck", "title": "내 덱 만들기", "desc": "덱 편성에서 병력 3종과 전술 3종을 골라 저장해 보세요.", "go": "덱 편성"},
+	{"id": "edit_deck", "title": "내 덱 만들기", "desc": "덱 편성에서 병력 4종과 전술 4종을 골라 저장해 보세요.", "go": "덱 편성"},
 	{"id": "daily", "title": "일일 도전", "desc": "오늘의 일일 도전에서 승리해 보세요.", "go": "일일 도전"},
 	{"id": "draft", "title": "드래프트", "desc": "AI와 번갈아 병력을 뽑아 싸워 보세요.", "go": "드래프트"},
 	{"id": "watch_replay", "title": "리플레이 보기", "desc": "저장된 전투를 다시 보고 장면에 메모를 남겨 보세요.", "go": "리플레이"},

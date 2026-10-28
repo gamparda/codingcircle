@@ -7,15 +7,15 @@ script = ExtResource("1_def")
 kind = "fireball"
 display_name = "화염구"
 order = 5
-cost = 45.0
+cost = 50.0
 hp = 1.0
 params = {
 "spell": true,
 "effect": "blast",
 "zone": "any",
-"cooldown": 10.0,
+"cooldown": 12.0,
 "delay": 0.25,
 "speed": 900.0,
 "radius": 75.0,
-"damage": 45.0
+"damage": 36.0
 }
