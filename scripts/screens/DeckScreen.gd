@@ -11,11 +11,11 @@ const ServerLink = preload("res://scripts/ServerLink.gd")
 const DECK_SCREEN := preload("res://scenes/ui/DeckScreen.tscn")
 
 static func _build_deck_screen(main, preset_index: int = -1) -> void:
-	var index := int(main.save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, 2)
-	var frame = MenuScreens._show_scene(main, DECK_SCREEN, "덱 편성", "유닛 3종 · 전술(구조물·주문) 3종 선택")
+	var index := int(main.save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, SaveData.DECK_PRESETS - 1)
+	var frame = MenuScreens._show_scene(main, DECK_SCREEN, "덱 편성", "유닛 %d종 · 전술(구조물·주문) %d종 선택" % [BattleModel.DECK_SIZE, BattleModel.DECK_SIZE])
 	var column: VBoxContainer = frame.column
 	var tabs: HBoxContainer = column.get_node("Tabs")
-	for tab_index in 3:
+	for tab_index in SaveData.DECK_PRESETS:
 		var tab = main._styled_button(String(main.save_data.deck_presets[tab_index].name), Color("#5e6ad2"), tab_index == index)
 		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tab.pressed.connect(main._build_deck_screen.bind(tab_index))
@@ -95,7 +95,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		for kind in structure_buttons:
 			if structure_buttons[kind].button_pressed: selected_structures.append(kind)
 		if not NetworkController.validate_deck_payload(selected_units, selected_structures):
-			status.text = Localization.text("유닛과 전술을 각각 정확히 3종 선택해야 합니다.")
+			status.text = Localization.text("유닛과 전술을 각각 정확히 4종 선택해야 합니다.")
 			status.visible = not status.text.is_empty()
 			return
 		var draft: Dictionary = main.save_data.duplicate(true)
@@ -125,7 +125,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		for kind in structure_buttons:
 			if structure_buttons[kind].button_pressed: picked_structures.append(kind)
 		if not NetworkController.validate_deck_payload(picked_units, picked_structures):
-			status.text = Localization.text("유닛과 전술을 각각 정확히 3종 선택해야 합니다.")
+			status.text = Localization.text("유닛과 전술을 각각 정확히 4종 선택해야 합니다.")
 			status.visible = not status.text.is_empty()
 			return
 		status.text = ""

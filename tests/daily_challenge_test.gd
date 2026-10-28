@@ -104,7 +104,7 @@ func run() -> void:
 	check(main.find_child("DailyButton", true, false) != null, "main menu offers the daily challenge")
 	main._show_daily_brief()
 	await process_frame
-	check(main.find_child("DailyModifier", true, false) != null and main.find_child("DailyDeck", true, false).get_child_count() == 3 and main.find_child("DailyBest", true, false) != null, "the brief shows today's twist, deck and best score")
+	check(main.find_child("DailyModifier", true, false) != null and main.find_child("DailyDeck", true, false).get_child_count() == 4 and main.find_child("DailyBest", true, false) != null, "the brief shows today's twist, deck and best score")
 	main.find_child("StartDailyChallenge", true, false).pressed.emit()
 	await process_frame
 	var today := DailyChallenge.date_key()

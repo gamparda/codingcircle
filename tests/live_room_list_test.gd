@@ -44,7 +44,7 @@ func finish(code: int) -> void:
 	quit(code)
 
 func validation_rules() -> void:
-	var live := {"names": ["가", "나"], "elapsed": 12.5, "units": [["shield", "archer", "healer"], ["berserker", "warlock", "necromancer"]]}
+	var live := {"names": ["가", "나"], "elapsed": 12.5, "units": [["shield", "archer", "healer", "swordsman"], ["berserker", "warlock", "necromancer", "healer"]]}
 	var room := {"code": "ABC234", "name": "빠른 대전", "players": 2, "locked": false, "state": "playing", "spectators": 0, "live": live}
 	check(NetworkController.is_valid_room_listing({"rooms": [room], "page": 0, "total": 1}), "a running battle may carry live details")
 	var waiting := room.duplicate(true)

@@ -24,8 +24,8 @@ func run()->void:
 	check(is_equal_approx(model.elapsed,0.2),"speed changes simulation time without global Engine time scale")
 	tools.unlimited=true;model.resources[0]=0;tools.advance(model,ai,0.1,0)
 	check(model.resources[0]==model.resource_capacity(0),"unlimited refills only practice player")
-	check(not tools.set_enemy_deck(["swordsman","swordsman","archer"],["wall","swamp","turret"]),"duplicate enemy deck rejected")
-	check(tools.set_enemy_deck(["swordsman","berserker","necromancer"],["wall","swamp","turret"]),"custom enemy deck accepted")
+	check(not tools.set_enemy_deck(["swordsman","swordsman","archer"],["wall","swamp","turret","generator"]),"duplicate enemy deck rejected")
+	check(tools.set_enemy_deck(["swordsman","berserker","necromancer","healer"],["wall","swamp","turret","generator"]),"custom enemy deck accepted")
 	for stage in 8:
 		var target:Dictionary=SaveData.CAMPAIGN_TARGETS[stage]
 		check(not Brief.goal(stage+1).is_empty() and Brief.conditions(stage+1).contains(str(int(target.time))) and Brief.enemy_deck(stage+1).contains(BattleModel.UNIT_NAMES[ServerAI.stage_unit_deck(stage+1)[0]]),"campaign preview uses real deck/target: %d"%(stage+1))
@@ -36,7 +36,7 @@ func run()->void:
 	await capture("campaign-brief")
 	main.action_overlay.find_child("StartCampaignStage",true,false).pressed.emit()
 	check(main.campaign_mode and main.battle_active and main.root_background.find_child("PracticeControls",true,false)==null,"practice controls never appear in campaign")
-	main._exit_ai_battle();main._build_ai_stage_screen(false);main.practice.unlimited=true;main.practice.set_enemy_deck(["swordsman","berserker","necromancer"],["wall","swamp","turret"]);main._start_local_ai_battle(1)
+	main._exit_ai_battle();main._build_ai_stage_screen(false);main.practice.unlimited=true;main.practice.set_enemy_deck(["swordsman","berserker","necromancer","healer"],["wall","swamp","turret","generator"]);main._start_local_ai_battle(1)
 	check(main.local_model.unit_decks[1]==main.practice.enemy_units and main.local_model.resources[0]==main.local_model.resource_capacity(0),"practice settings applied to real battle")
 	check(main.root_background.find_child("PracticeControls",true,false)!=null,"actual scene offers pause/speed/reset")
 	main._toggle_practice_pause();var elapsed:float=main.local_model.elapsed;main._process(0.2)

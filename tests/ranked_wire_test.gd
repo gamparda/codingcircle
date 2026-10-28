@@ -29,6 +29,7 @@ func make_controller(label: String):
 	controller.account_result_received.connect(func(result): note(label, "account", result))
 	controller.account_nonce_received.connect(func(nonce): note(label, "nonce", nonce))
 	controller.match_found.connect(func(side): note(label, "match", side))
+	controller.ban_phase_started.connect(func(data): note(label, "ban", data))
 	controller.ranked_result_received.connect(func(data): note(label, "ranked", data))
 	controller.ranked_profile_received.connect(func(data): note(label, "profile", data))
 	controller.report_result_received.connect(func(error): note(label, "report", error))
@@ -62,6 +63,8 @@ func run() -> void:
 	server.configure_accounts(directory, false)
 	server.google.keys = {"test-key": key}
 	var alice = make_controller("alice"); var bob = make_controller("bob"); var carol = make_controller("carol")
+	alice.set_client_deck(["shield", "swordsman", "archer", "healer"], ["wall", "swamp", "turret", "generator"])
+	bob.set_client_deck(["berserker", "warlock", "necromancer", "archer"], ["wall", "lightning", "fireball", "generator"])
 	for client in [alice, bob, carol]: client.connect_to_server("127.0.0.1", PORT)
 	var deadline := Time.get_ticks_msec() + 6000
 	while [alice, bob, carol].any(func(client): return client.client_connection_state != "lobby") and Time.get_ticks_msec() < deadline:
@@ -76,9 +79,25 @@ func run() -> void:
 	carol.start_ranked_match()
 	check(String(await wait_for("carol", "error")).contains("로그인"), "guests are refused from ranked")
 
-	# Ranked: both queue, play, alice surrenders.
+	# Ranked: both queue, each bans one of the other's cards, play, alice surrenders.
 	alice.start_ranked_match(); bob.start_ranked_match()
-	check(await wait_for("alice", "match") != null and await wait_for("bob", "match") != null, "two accounts are paired for ranked")
+	var alice_ban = await wait_for("alice", "ban")
+	var bob_ban = await wait_for("bob", "ban")
+	check(alice_ban is Dictionary and alice_ban.units.has("necromancer") and alice_ban.structures.has("lightning") and bob_ban is Dictionary and bob_ban.units.has("healer"), "each player is shown the other's deck to ban from")
+	check(events.get("alice:match") == null, "the battle waits for the bans")
+	var ban_room: String = String(server.sessions.peer_to_room.get(alice.multiplayer.get_unique_id(), ""))
+	alice.send_ban("healer") # not in bob's deck: ignored
+	alice.send_ban("necromancer")
+	alice.send_ban("warlock") # only the first ban counts
+	await create_timer(0.4).timeout
+	check(server.ranked_bans.has(ban_room) and server.ranked_bans[ban_room].bans.values() == ["necromancer"] and events.get("alice:match") == null, "one ban is kept and the battle waits for the other player")
+	server.ranked_bans[ban_room].deadline = 0 # bob never chooses: the time runs out
+	check(await wait_for("alice", "match") != null and await wait_for("bob", "match") != null, "two accounts are paired for ranked once the ban time is over")
+	var ranked_model = server.models.get(server.registry.get_match_id(alice.multiplayer.get_unique_id()))
+	var bob_side: int = server.registry.get_side(bob.multiplayer.get_unique_id())
+	check(not server.ranked_bans.has(ban_room) and ranked_model.banned[bob_side] == ["necromancer"] and ranked_model.banned[1 - bob_side].is_empty(), "a ban removes the chosen card from the opponent; no choice bans nothing")
+	ranked_model.resources[bob_side] = 500.0
+	check(not ranked_model.spawn_unit(bob_side, "necromancer") and ranked_model.spawn_unit(bob_side, "berserker"), "a banned card cannot be played; the rest of the deck can")
 	check(alice.client_match_ranked and bob.client_match_ranked, "clients know the match is ranked")
 	var room: Dictionary = server.sessions.room_for(alice.multiplayer.get_unique_id())
 	var names: Array = room.members.values().map(func(member): return member.nickname)

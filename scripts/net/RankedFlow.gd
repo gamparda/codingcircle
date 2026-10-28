@@ -1,12 +1,15 @@
 extends RefCounted
 ## Ranked games and player reports on the server. Ranked is quick match for signed-in accounts only: the
 ## pair plays under their account nicknames and the result moves both Elo ratings once (a player who leaves
-## an unfinished ranked game loses it). After any online match a signed-in player can report the opponent.
+## an unfinished ranked game loses it). Before the battle each player sees the other's deck and bans one of
+## its cards for that match (BAN_SECONDS; no choice means no ban). After any online match a signed-in
+## player can report the opponent.
 
 const Rating = preload("res://scripts/accounts/Rating.gd")
 const SessionStore = preload("res://scripts/RoomSessions.gd")
 
 const LEADERBOARD_SIZE := 20
+const BAN_SECONDS := 15.0
 const PROFILE_KEYS := ["rating", "wins", "losses", "draws", "rank", "leaderboard"]
 const RESULT_KEYS := ["rating", "delta", "outcome"]
 
@@ -65,10 +68,58 @@ static func pair(main) -> void:
 			continue
 		main.sessions.set_ready(int(second.peer), true)
 		for entry in found:
-			main.lobby_pages.erase(int(entry.peer)); main._issue_reconnect(int(entry.peer))
+			main.lobby_pages.erase(int(entry.peer))
 		print("RANKED_MATCH room=%s" % code)
-		main._push_session(code); main.lobby_dirty = true
-		main._begin_session_match(int(first.peer), "ranked")
+		_start_bans(main, code, [int(first.peer), int(second.peer)])
+
+# ---------- bans ----------
+
+static func _start_bans(main, code: String, peers: Array) -> void:
+	main.ranked_bans[code] = {"peers": peers, "bans": {}, "deadline": Time.get_ticks_msec() + int(BAN_SECONDS * 1000.0)}
+	for index in 2:
+		var opponent_deck: Dictionary = main.peer_decks[int(peers[1 - index])]
+		main.receive_ban_phase.rpc_id(int(peers[index]), {"units": opponent_deck.units.duplicate(), "structures": opponent_deck.structures.duplicate(), "seconds": BAN_SECONDS})
+
+static func request_ban(main, kind: String) -> void:
+	if not main.server_mode: return
+	var sender: int = main.multiplayer.get_remote_sender_id()
+	if not main.can_process_request(sender): return
+	var code: String = String(main.sessions.peer_to_room.get(sender, ""))
+	var phase: Dictionary = main.ranked_bans.get(code, {})
+	if phase.is_empty() or phase.bans.has(sender): return
+	var opponent: int = int(phase.peers[1]) if int(phase.peers[0]) == sender else int(phase.peers[0])
+	var deck: Dictionary = main.peer_decks.get(opponent, {})
+	if not deck.get("units", []).has(kind) and not deck.get("structures", []).has(kind): return
+	phase.bans[sender] = kind
+	if phase.bans.size() == 2:
+		_finish_bans(main, code)
+
+## Each tick: start the battle when the time is up, or call it off when a player left.
+static func advance(main) -> void:
+	for code in main.ranked_bans.keys():
+		var phase: Dictionary = main.ranked_bans[code]
+		if not phase.peers.all(func(peer): return main._peer_is_connected(int(peer))):
+			main.ranked_bans.erase(code)
+			for peer in phase.peers:
+				if main._peer_is_connected(int(peer)):
+					main._leave_session(int(peer))
+					main.receive_session_error.rpc_id(int(peer), "상대가 나가서 랭크 대전이 취소되었습니다.")
+					main.receive_quick_status.rpc_id(int(peer), "cancelled")
+			continue
+		if Time.get_ticks_msec() >= int(phase.deadline):
+			_finish_bans(main, code)
+
+static func _finish_bans(main, code: String) -> void:
+	var phase: Dictionary = main.ranked_bans.get(code, {})
+	main.ranked_bans.erase(code)
+	if phase.is_empty() or not main.sessions.rooms.has(code):
+		return
+	main.pending_bans[code] = phase.bans
+	for peer in phase.peers:
+		main._issue_reconnect(int(peer))
+	main._push_session(code); main.lobby_dirty = true
+	main._begin_session_match(int(phase.peers[0]), "ranked")
+	main.pending_bans.erase(code)
 
 # ---------- match bookkeeping ----------
 
@@ -85,6 +136,13 @@ static func on_match_begin(main, match_id: int, ids: Array, room: Dictionary, mo
 			main.last_opponents[accounts[side]] = {"match": key, "account": accounts[1 - side], "nickname": nicknames[1 - side]}
 	if mode == "ranked":
 		main.ranked_matches[match_id] = {"accounts": accounts, "settled": false}
+		# A player's ban removes that card from the opponent's side for this battle.
+		var bans: Dictionary = main.pending_bans.get(String(room.code), {})
+		var model = main.models.get(match_id)
+		for side in 2:
+			var chosen = bans.get(int(ids[1 - side]))
+			if model != null and chosen != null:
+				model.banned[side] = [String(chosen)]
 
 ## Settles a finished ranked match once: winner side, 2 for a draw.
 static func settle(main, match_id: int, winner: int) -> void:
@@ -163,6 +221,11 @@ static func valid_profile(data: Variant) -> bool:
 			if not row.get(key) is int:
 				return false
 	return true
+
+static func valid_ban_phase(data: Variant) -> bool:
+	if not data is Dictionary or data.size() != 3 or not data.has_all(["units", "structures", "seconds"]) or not (data.seconds is float or data.seconds is int):
+		return false
+	return data.units is Array and data.structures is Array and BattleModel._valid_deck(data.units, BattleModel.UNIT_STATS) and BattleModel._valid_deck(data.structures, BattleModel.STRUCTURE_STATS)
 
 static func valid_result(data: Variant) -> bool:
 	return data is Dictionary and data.size() == RESULT_KEYS.size() and data.has_all(RESULT_KEYS) and data.rating is int and data.delta is int and String(data.outcome) in ["wins", "losses", "draws"]

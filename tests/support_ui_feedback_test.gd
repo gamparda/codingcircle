@@ -54,7 +54,7 @@ func run() -> void:
 	await process_frame
 	main.set_process(false)
 	main.save_data.last_deck = 0
-	main.save_data.deck_presets[0].units = ["shield", "swordsman", "healer"]
+	main.save_data.deck_presets[0].units = ["shield", "swordsman", "healer", "archer"]
 	main.save_data.tutorial_completed = true
 	var notes := main.find_child("PatchNotesButton", true, false) as Button
 	check(notes != null, "menu exposes patch notes")
@@ -74,7 +74,7 @@ func run() -> void:
 	main._start_local_ai_battle()
 	main.set_process(false)
 	await process_frame
-	check(main.purchase_buttons.size() == 6, "all selected unit and structure cards track purchase costs")
+	check(main.purchase_buttons.size() == 8, "all selected unit and structure cards track purchase costs")
 	main.local_model.resources[0] = 0.0
 	main._on_snapshot(main.local_model.snapshot())
 	for button in main.purchase_buttons:
@@ -178,7 +178,7 @@ func run() -> void:
 	check(main.red_hp_bar.get_global_rect().position.x < main.blue_hp_bar.get_global_rect().position.x, "red player's own health card is on the left")
 	var battle := BattleModel.new()
 	battle.resources = [180.0, 180.0]
-	battle.configure_deck(1, ["shield", "swordsman", "healer"], ["generator", "wall", "swamp"])
+	battle.configure_deck(1, ["shield", "swordsman", "healer", "archer"], ["generator", "wall", "swamp", "turret"])
 	battle.spawn_unit(0, "swordsman")
 	battle.spawn_unit(1, "shield")
 	battle.spawn_unit(1, "healer")

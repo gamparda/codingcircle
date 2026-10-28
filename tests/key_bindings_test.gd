@@ -19,19 +19,20 @@ func capture()->void:
 func run()->void:
 	create_timer(30).timeout.connect(func():printerr("Key binding UI watchdog");quit(1))
 	check(Bindings.sanitize(null)==Bindings.DEFAULTS,"legacy profiles receive original keys")
-	var custom:=[KEY_J,KEY_K,KEY_L,KEY_U,KEY_I,KEY_O]
+	var custom:=[KEY_J,KEY_K,KEY_L,KEY_H,KEY_U,KEY_I,KEY_O,KEY_P]
+	check(Bindings.sanitize([KEY_J,KEY_K,KEY_L,KEY_U,KEY_I,KEY_O])==[KEY_J,KEY_K,KEY_L,KEY_4,KEY_U,KEY_I,KEY_O,KEY_R],"six-key saves keep their keys and gain 4 and R")
 	var profile:=SaveData.default_data();profile.settings.battle_keys=custom.duplicate()
 	check(SaveData.sanitize(JSON.parse_string(JSON.stringify(profile))).settings.battle_keys==custom,"bindings survive JSON float-number roundtrip")
-	check(Bindings.sanitize([KEY_J,KEY_J,KEY_L,KEY_U,KEY_I,KEY_O])==Bindings.DEFAULTS,"malformed duplicate save resets safely")
-	check(Bindings.sanitize([KEY_ESCAPE,KEY_K,KEY_L,KEY_U,KEY_I,KEY_O])==Bindings.DEFAULTS,"reserved key never loaded")
-	check(Bindings.sanitize([INF,KEY_K,KEY_L,KEY_U,KEY_I,KEY_O])==Bindings.DEFAULTS,"non-finite save rejected")
+	check(Bindings.sanitize([KEY_J,KEY_J,KEY_L,KEY_H,KEY_U,KEY_I,KEY_O,KEY_P])==Bindings.DEFAULTS,"malformed duplicate save resets safely")
+	check(Bindings.sanitize([KEY_ESCAPE,KEY_K,KEY_L,KEY_H,KEY_U,KEY_I,KEY_O,KEY_P])==Bindings.DEFAULTS,"reserved key never loaded")
+	check(Bindings.sanitize([INF,KEY_K,KEY_L,KEY_H,KEY_U,KEY_I,KEY_O,KEY_P])==Bindings.DEFAULTS,"non-finite save rejected")
 	var draft:=Bindings.DEFAULTS.duplicate()
 	check(not Bindings.assign(draft,0,KEY_Q).is_empty() and draft==Bindings.DEFAULTS,"duplicate assignment keeps draft unchanged")
 	check(not Bindings.assign(draft,0,KEY_F11).is_empty(),"fullscreen reserved key rejected")
 	check(Bindings.assign(draft,0,KEY_J).is_empty() and draft[0]==KEY_J,"valid physical key assigned")
 	var bootstrap:=Control.new();bootstrap.name="Bootstrap";bootstrap.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);root.add_child(bootstrap)
 	var main=load("res://scenes/Main.tscn").instantiate();bootstrap.add_child(main);main.updater.enabled=false;main.set_process(false);main.save_data=SaveData.default_data();main.save_data.tutorial_completed=true
-	main._build_settings_screen();check(main.binding_buttons.size()==6,"settings expose six action slots")
+	main._build_settings_screen();check(main.binding_buttons.size()==8,"settings expose eight action slots")
 	main._begin_binding_capture(0);main._input(key(KEY_J))
 	check(main.binding_draft[0]==KEY_J and main.binding_capture_index==-1,"actual key capture updates selected action")
 	check(main.save_data.settings.battle_keys==Bindings.DEFAULTS,"unsaved draft leaves profile unchanged")
@@ -39,7 +40,7 @@ func run()->void:
 	main._begin_binding_capture(1);main._input(key(KEY_J))
 	check(main.binding_capture_index==1 and main.binding_hint.text.contains("사용 중"),"UI rejects duplicate and continues capture")
 	main._input(key(KEY_ESCAPE));check(main.binding_capture_index==-1 and main.binding_draft[1]==KEY_2,"Escape cancels capture without change")
-	main.root_background.find_child("ResetBattleBindings",true,false).pressed.emit();check(main.binding_draft==Bindings.DEFAULTS,"restore resets all six draft keys")
+	main.root_background.find_child("ResetBattleBindings",true,false).pressed.emit();check(main.binding_draft==Bindings.DEFAULTS,"restore resets all eight draft keys")
 	# Test disk persistence using an isolated profile file, not the user's save.
 	var temporary:="user://bindings_test_profile.json"
 	check(SaveData.save_data(profile,temporary),"profile with changed bindings written")
@@ -53,7 +54,7 @@ func run()->void:
 	scroll.scroll_vertical = maxi(0,roundi(grid.get_global_rect().position.y-scroll.get_global_rect().position.y)-35)
 	await capture()
 	main._start_local_ai_battle()
-	check(main.purchase_buttons.map(func(button):return button.get_node("PurchaseHotkey").text)==["J","K","L","U","I","O"],"battle cards show saved key names")
+	check(main.purchase_buttons.map(func(button):return button.get_node("PurchaseHotkey").text)==["J","K","L","H","U","I","O","P"],"battle cards show saved key names")
 	check(not main._handle_battle_hotkey(key(KEY_1)) and main.local_model.units.is_empty(),"old key no longer triggers purchase")
 	check(main._handle_battle_hotkey(key(KEY_J)) and main.local_model.units.size()==1,"new unit key performs actual purchase")
 	main.local_model.resources[0] = 200.0

@@ -89,7 +89,7 @@ func run() -> void:
 	main._show_daily_brief("weekly")
 	await process_frame
 	await process_frame
-	check(main.find_child("DailyModifier", true, false).text.contains("\n") and main.find_child("DailyDeck", true, false).get_child_count() == 3, "the brief shows two twists and the deck")
+	check(main.find_child("DailyModifier", true, false).text.contains("\n") and main.find_child("DailyDeck", true, false).get_child_count() == 4, "the brief shows two twists and the deck")
 	var start: Button = main.find_child("StartDailyChallenge", true, false)
 	var close: Button = main.find_child("CloseDailyBrief", true, false)
 	var status: Label = main.find_child("ResultSharingStatus", true, false)

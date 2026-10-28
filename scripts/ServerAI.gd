@@ -41,19 +41,19 @@ static func stage_summary(difficulty_stage: int) -> String:
 
 static func stage_unit_deck(difficulty_stage: int) -> Array:
 	var decks := [
-		["swordsman", "shield", "archer"], ["swordsman", "berserker", "archer"],
-		["shield", "archer", "warlock"], ["shield", "archer", "healer"],
-		["shield", "archer", "berserker"], ["zombie", "healer", "necromancer"],
-		["paladin", "shield", "necromancer"], ["shield", "sniper", "demon_lord"],
+		["swordsman", "shield", "archer", "healer"], ["swordsman", "berserker", "archer", "shield"],
+		["shield", "archer", "warlock", "swordsman"], ["shield", "archer", "healer", "berserker"],
+		["shield", "archer", "berserker", "warlock"], ["zombie", "healer", "necromancer", "swordsman"],
+		["paladin", "shield", "necromancer", "archer"], ["shield", "sniper", "demon_lord", "healer"],
 	]
 	return decks[clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1].duplicate()
 
 static func stage_structure_deck(difficulty_stage: int) -> Array:
 	var decks := [
-		["wall", "swamp", "generator"], ["wall", "swamp", "generator"],
-		["wall", "turret", "generator"], ["wall", "swamp", "generator"],
-		["wall", "swamp", "turret"], ["wall", "turret", "generator"],
-		["wall", "swamp", "generator"], ["swamp", "turret", "generator"],
+		["wall", "swamp", "generator", "turret"], ["wall", "swamp", "generator", "turret"],
+		["wall", "turret", "generator", "swamp"], ["wall", "swamp", "generator", "blessing"],
+		["wall", "swamp", "turret", "fireball"], ["wall", "turret", "generator", "frost"],
+		["wall", "swamp", "generator", "lightning"], ["swamp", "turret", "generator", "seraph"],
 	]
 	return decks[clampi(difficulty_stage, MIN_STAGE, MAX_STAGE) - 1].duplicate()
 
@@ -197,11 +197,22 @@ static func spell_target(model: BattleModel, side: int, kind: String) -> float:
 	var allies: Array = model.units.filter(func(unit): return int(unit.side) == side and float(unit.hp) > 0.0)
 	match String(stats.get("effect", "")):
 		"strike":
-			var best = null
+			# Worth the cast when the bolt removes enough value: a kill counts the unit's full cost.
+			var damage := float(stats.get("damage", 0.0))
+			var best_x := NAN
+			var best_value := 34.0
 			for enemy in enemies:
-				if float(enemy.hp) >= 150.0 and (best == null or float(enemy.hp) > float(best.hp)):
-					best = enemy
-			return NAN if best == null else float(best.x)
+				# The bolt lands on the healthiest enemy in its radius.
+				var struck = enemy
+				for other in enemies:
+					if absf(float(other.x) - float(enemy.x)) <= radius and float(other.hp) > float(struck.hp):
+						struck = other
+				var cost := float(BattleModel.UNIT_STATS.get(String(struck.kind), {}).get("cost", 10.0))
+				var value := cost * minf(1.0, damage / maxf(1.0, float(struck.hp)))
+				if value > best_value:
+					best_value = value
+					best_x = float(enemy.x)
+			return best_x
 		"blast", "freeze":
 			var minimum := 3 if String(stats.effect) == "blast" else 2
 			var best_x := NAN

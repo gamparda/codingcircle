@@ -2,7 +2,7 @@ extends RefCounted
 ## Draft mode: the player and an AI take turns picking units from one shared pool, each unit only once, so a
 ## good pick also denies it to the opponent. The drafted decks then fight a normal AI battle.
 
-const PICKS_PER_SIDE := 3
+const PICKS_PER_SIDE := BattleModel.DECK_SIZE
 const MIN_STAGE := 1
 ## Roles that make a deck balanced; the AI likes to cover each of them once.
 const GROUPS := {"shield": "tank", "swordsman": "melee", "berserker": "melee", "archer": "ranged", "healer": "support", "warlock": "support", "necromancer": "support", "zombie": "tank", "paladin": "melee", "sniper": "ranged", "demon_lord": "tank"}

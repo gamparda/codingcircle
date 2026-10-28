@@ -59,6 +59,7 @@ static func request_session_deck(main, units: Array, structures: Array) -> void:
 	if not main.server_mode: return
 	var sender = main.multiplayer.get_remote_sender_id()
 	if not main.can_process_request(sender) or not main.validate_deck_payload(units,structures): return
+	if main.ranked_bans.has(String(main.sessions.peer_to_room.get(sender, ""))): return # decks are fixed once the bans are shown
 	if main.sessions.set_deck(sender,{"units":units,"structures":structures}):
 		main.peer_decks[sender] = {"units":units.duplicate(),"structures":structures.duplicate()}
 		main._push_session(main.sessions.peer_to_room[sender])
@@ -67,6 +68,7 @@ static func request_session_start(main) -> void:
 	if not main.server_mode: return
 	var sender = main.multiplayer.get_remote_sender_id()
 	if not main.can_process_request(sender): return
+	if main.ranked_bans.has(String(main.sessions.peer_to_room.get(sender, ""))): return # the ban phase starts the battle itself
 	if not main.can_create_match():
 		main.receive_session_error.rpc_id(sender,main.match_admission_error()); return
 	if not main.sessions.can_start(sender):

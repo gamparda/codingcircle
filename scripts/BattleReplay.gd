@@ -118,9 +118,9 @@ static func valid(replay: Variant) -> bool:
 			for kind in deck:
 				if not kind is String:
 					return false
-		if not BattleModel._valid_deck(setup.unit_decks[side], BattleModel.UNIT_STATS):
+		if not BattleModel._valid_deck(setup.unit_decks[side], BattleModel.UNIT_STATS, BattleModel.REPLAY_DECK_SIZES):
 			return false
-		if not BattleModel._valid_deck(setup.structure_decks[side], BattleModel.STRUCTURE_STATS):
+		if not BattleModel._valid_deck(setup.structure_decks[side], BattleModel.STRUCTURE_STATS, BattleModel.REPLAY_DECK_SIZES):
 			return false
 		for key in ["campaign_levels", "base_max_hp", "base_hp", "resources"]:
 			var value = setup[key][side]

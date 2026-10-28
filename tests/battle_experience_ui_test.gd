@@ -24,7 +24,7 @@ func run()->void:
 	main=load("res://scenes/Main.tscn").instantiate();bootstrap.add_child(main);main.updater.enabled=false
 	main.save_data=SaveData.default_data();main.local_ai_mode=true;main.local_model=BattleModel.new();main.local_ai=ServerAI.new();main.battle_preset=main._active_preset().duplicate(true);main._build_battle_screen();main.set_process(false);main._on_snapshot(main.local_model.snapshot())
 	await process_frame;await process_frame
-	check(main.purchase_buttons.map(func(button):return button.get_node("PurchaseHotkey").text)==["1","2","3","Q","W","E"],"six purchase cards expose correct hotkeys")
+	check(main.purchase_buttons.map(func(button):return button.get_node("PurchaseHotkey").text)==["1","2","3","4","Q","W","E","R"],"eight purchase cards expose correct hotkeys")
 	check(main._handle_battle_hotkey(key(KEY_2)) and main.local_model.units.size()==1,"unit hotkey follows authoritative purchase callback")
 	check(main.purchase_buttons[1].disabled and main.purchase_buttons[1].get_node("PurchaseState").text.contains("초"),"successful purchase displays its wait and disables repeat")
 	var repeated:=key(KEY_2);repeated.echo=true

@@ -224,6 +224,7 @@ func _ready() -> void:
 	network.quick_match_status.connect(_on_quick_match_status)
 	network.ranked_profile_received.connect(func(data): LobbyFlow._on_ranked_profile(self, data))
 	network.ranked_result_received.connect(_on_ranked_result)
+	network.ban_phase_started.connect(func(data): preload("res://scripts/screens/BanDialog.gd").show(self, data))
 	network.match_found.connect(func(_side): last_ranked_result = {})
 	network.spectate_started.connect(_on_spectate_started)
 	network.session_closed.connect(_on_session_closed)
@@ -619,7 +620,7 @@ static func build_binary_version() -> String:
 	return String(data.get("binary_version", "0.4.9")) if data is Dictionary else "0.4.9"
 
 func _active_preset() -> Dictionary:
-	return save_data.deck_presets[clampi(int(save_data.last_deck), 0, 2)]
+	return save_data.deck_presets[clampi(int(save_data.last_deck), 0, SaveData.DECK_PRESETS - 1)]
 
 func _apply_settings() -> void:
 	var settings: Dictionary = save_data.settings

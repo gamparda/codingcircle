@@ -34,7 +34,7 @@ func run_for(model: BattleModel, seconds: float) -> void:
 
 func _initialize() -> void:
 	check(BattleModel.is_spell("lightning") and not BattleModel.is_spell("wall"), "spells are tactic cards marked in data")
-	check(Network.validate_deck_payload(["swordsman", "shield", "archer"], ["wall", "lightning", "seraph"]), "a deck may mix structures and spells")
+	check(Network.validate_deck_payload(["swordsman", "shield", "archer", "healer"], ["wall", "lightning", "seraph", "generator"]), "a deck may mix structures and spells")
 
 	# Lightning: anywhere on the field, strongest enemy in the radius, then a cooldown.
 	var model := model_with(["lightning", "fireball", "frost"])
@@ -116,6 +116,15 @@ func _initialize() -> void:
 	model.place_structure(0, "frost", 880.0)
 	run_for(model, 0.45)
 	check(Network.is_valid_snapshot(model.snapshot()), "snapshots with spells in flight and frozen units pass the online schema")
+	var banned := model_with(["wall", "lightning", "fireball", "frost"])
+	banned.banned[0] = ["lightning"]
+	banned.banned[1] = ["shield"]
+	check(not banned.spawn_unit(1, "shield") and banned.spawn_unit(1, "archer"), "a ranked ban blocks only the banned unit")
+	check(not banned.structure_placement_error(0, "lightning", 900.0).is_empty(), "a ranked ban blocks the banned spell")
+	var banned_snapshot := banned.snapshot()
+	check(banned_snapshot.banned == [["lightning"], ["shield"]] and Network.is_valid_snapshot(banned_snapshot), "bans travel in the snapshot and pass the online schema")
+	banned_snapshot.banned = [["lightning", "fireball", "frost"], []]
+	check(not Network.is_valid_snapshot(banned_snapshot), "the schema refuses an oversized ban list")
 	var replay_a := model_with(["lightning", "fireball", "frost"])
 	var replay_b := model_with(["lightning", "fireball", "frost"])
 	for copy in [replay_a, replay_b]:

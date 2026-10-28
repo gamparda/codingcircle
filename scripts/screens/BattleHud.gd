@@ -433,14 +433,14 @@ static func _add_spawn_button(main, row: HBoxContainer, title: String, kind: Str
 	button.disabled = true
 	button.modulate = Color(0.4, 0.4, 0.4, 1.0)
 	main.purchase_buttons.append(button)
-	button.custom_minimum_size = Vector2(136, 102)
+	button.custom_minimum_size = Vector2(118, 102)
 	button.set_meta("card_color", color)
 	main._decorate_battle_card(button)
 	_card_badges(main, button, color)
 	var portrait := Sprite2D.new()
 	portrait.name = "BattleUnitPortrait"
 	portrait.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
-	portrait.position = Vector2(68, 27)
+	portrait.position = Vector2(59, 27)
 	portrait.scale = Vector2(0.185, 0.185)
 	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	button.add_child(portrait)
@@ -486,7 +486,7 @@ static func _card_badges(main, button: Button, color: Color) -> void:
 	var badge := Label.new()
 	badge.name = "CostBadge"
 	badge.text = "%d" % int(cost)
-	badge.position = Vector2(92, 5)
+	badge.position = Vector2(74, 5)
 	badge.size = Vector2(38, 20)
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -504,22 +504,22 @@ static func _card_badges(main, button: Button, color: Color) -> void:
 	var glow := Control.new()
 	glow.name = "PortraitGlow"
 	glow.position = Vector2.ZERO
-	glow.size = Vector2(136, 52)
+	glow.size = Vector2(118, 52)
 	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	glow.draw.connect(func():
 		for i in 5:
 			var t := float(i) / 4.0
-			glow.draw_circle(Vector2(68, 28), 30.0 - t * 18.0, Color(color.r, color.g, color.b, 0.06 + t * 0.07)))
+			glow.draw_circle(Vector2(59, 28), 30.0 - t * 18.0, Color(color.r, color.g, color.b, 0.06 + t * 0.07)))
 	button.add_child(glow)
 	button.move_child(glow, 0)
 
 static func _add_structure_button(main, row: HBoxContainer, title: String, kind: String, color: Color) -> void:
 	var button = main._styled_button(title, color)
-	button.custom_minimum_size = Vector2(136, 102)
+	button.custom_minimum_size = Vector2(118, 102)
 	button.toggle_mode = true
 	button.set_meta("structure_kind", kind)
 	button.set_meta("base_text",button.text)
-	main._add_purchase_labels(button,BattleBindings.key_name(int(main.save_data.settings.get("battle_keys",BattleBindings.DEFAULTS)[3+main.structure_buttons.size()])))
+	main._add_purchase_labels(button,BattleBindings.key_name(int(main.save_data.settings.get("battle_keys",BattleBindings.DEFAULTS)[BattleModel.DECK_SIZE+main.structure_buttons.size()])))
 	button.set_meta("purchase_cost", float(BattleModel.STRUCTURE_STATS[kind].cost))
 	button.disabled = true
 	button.modulate = Color(0.4, 0.4, 0.4, 1.0)
@@ -531,7 +531,7 @@ static func _add_structure_button(main, row: HBoxContainer, title: String, kind:
 	emblem.name = "StructureEmblem"
 	emblem.text = {"wall": "▤", "swamp": "≈", "turret": "⌖", "generator": "⚡"}.get(kind, "◆")
 	emblem.position = Vector2(0, 5)
-	emblem.size = Vector2(136, 42)
+	emblem.size = Vector2(118, 42)
 	emblem.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	emblem.add_theme_font_size_override("font_size", 30)
 	emblem.add_theme_color_override("font_color", color.lightened(0.2))
@@ -545,7 +545,7 @@ static func _add_structure_button(main, row: HBoxContainer, title: String, kind:
 		art.texture = icon
 		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		art.position = Vector2(48, 6)
+		art.position = Vector2(39, 6)
 		art.size = Vector2(40, 40)
 		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		button.add_child(art)
@@ -583,7 +583,7 @@ static func _add_purchase_labels(main, button: Button, key_text: String) -> void
 	var state := Label.new()
 	state.name = "PurchaseState"
 	state.position = Vector2(8, 32)
-	state.size = Vector2(120, 18)
+	state.size = Vector2(102, 18)
 	state.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	state.add_theme_font_size_override("font_size", 11)
 	state.add_theme_color_override("font_color", UIKit.GOLD)
@@ -1006,6 +1006,13 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			elif missing > 0: tooltip += resource_hint
 			if cooldown > 0.001: tooltip += "\n생산 대기 %.1f초" % (ceilf(cooldown_wait * 10.0) / 10.0)
 		if button.tooltip_text != tooltip: button.tooltip_text = tooltip
+		# A ranked ban: the opponent removed this card for the battle.
+		var card_kind := String(button.get_meta("unit_kind", button.get_meta("structure_kind", "")))
+		var bans: Array = main.current_snapshot.get("banned", [[], []])
+		if not awaiting_state and bans.size() == 2 and main.own_side >= 0 and main.own_side < 2 and Array(bans[main.own_side]).has(card_kind):
+			limit_error = "상대가 이번 경기에서 금지한 카드입니다."
+			limit_state = "금지됨"
+			if button.tooltip_text.find(limit_error) < 0: button.tooltip_text += "\n" + limit_error
 		var unavailable: bool = not block_reason.is_empty() or waiting or not limit_error.is_empty() or missing>0 or cooldown>0.001
 		var state_label := button.get_node_or_null("PurchaseState") as Label
 		if state_label:

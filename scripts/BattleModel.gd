@@ -42,8 +42,12 @@ static var SUMMON_STATS: Dictionary = GameData.summon_stats()
 static var STRUCTURE_STATS: Dictionary = GameData.structure_stats()
 static var UNIT_NAMES: Dictionary = GameData.unit_names()
 static var STRUCTURE_NAMES: Dictionary = GameData.structure_names()
-const DEFAULT_UNIT_DECK := ["shield", "swordsman", "archer"]
-const DEFAULT_STRUCTURE_DECK := ["wall", "swamp", "turret"]
+## Cards per deck: this many units and this many tactic cards (structures and spells).
+const DECK_SIZE := 4
+## Replays recorded before decks grew to four cards still play.
+const REPLAY_DECK_SIZES := [3, 4]
+const DEFAULT_UNIT_DECK := ["shield", "swordsman", "archer", "healer"]
+const DEFAULT_STRUCTURE_DECK := ["wall", "swamp", "turret", "generator"]
 
 var resources: Array = [START_RESOURCE, START_RESOURCE]
 var base_hp: Array = [BASE_MAX_HP, BASE_MAX_HP]
@@ -76,6 +80,8 @@ var spell_cooldowns: Array = [{}, {}]
 var spell_uses: Array = [{}, {}]
 var fallen: Array = [[], []]
 var next_cast_id := 1
+## Cards each side may not use this battle (ranked bans: the opponent removed them before the match).
+var banned: Array = [[], []]
 const MAX_FALLEN := 40
 var battle_report: Array = [Report.empty_side(),Report.empty_side()]
 
@@ -137,10 +143,11 @@ func reset() -> void:
 	spell_uses = [{}, {}]
 	fallen = [[], []]
 	next_cast_id = 1
+	banned = [[], []]
 	battle_report = [Report.empty_side(),Report.empty_side()]
 
-static func _valid_deck(values: Array, allowed: Dictionary) -> bool:
-	if values.size() != 3:
+static func _valid_deck(values: Array, allowed: Dictionary, sizes: Array = [DECK_SIZE]) -> bool:
+	if not sizes.has(values.size()):
 		return false
 	var unique := {}
 	for value in values:
@@ -151,14 +158,14 @@ static func _valid_deck(values: Array, allowed: Dictionary) -> bool:
 	return true
 
 func configure_deck(side: int, selected_units: Array, selected_structures: Array) -> bool:
-	if side < 0 or side > 1 or not _valid_deck(selected_units, UNIT_STATS) or not _valid_deck(selected_structures, STRUCTURE_STATS):
+	if side < 0 or side > 1 or not _valid_deck(selected_units, UNIT_STATS, REPLAY_DECK_SIZES) or not _valid_deck(selected_structures, STRUCTURE_STATS, REPLAY_DECK_SIZES):
 		return false
 	unit_decks[side] = selected_units.duplicate()
 	structure_decks[side] = selected_structures.duplicate()
 	return true
 
 func spawn_unit(side: int, kind: String) -> bool:
-	if winner != -1 or side < 0 or side > 1 or units.size() >= MAX_ACTIVE_UNITS or not UNIT_STATS.has(kind) or not unit_decks[side].has(kind):
+	if winner != -1 or side < 0 or side > 1 or units.size() >= MAX_ACTIVE_UNITS or not UNIT_STATS.has(kind) or not unit_decks[side].has(kind) or banned[side].has(kind):
 		return false
 	if not field_limit_error(units, side, kind).is_empty():
 		return false
@@ -444,6 +451,8 @@ func structure_placement_error(side: int, kind: String, x: float) -> String:
 		return Localization.text("설치할 수 없는 구조물입니다.")
 	if not structure_decks[side].has(kind):
 		return Localization.text("현재 덱에 없는 구조물입니다.")
+	if banned[side].has(kind):
+		return Localization.text("이번 경기에서 금지된 카드입니다.")
 	if is_spell(kind):
 		var zone := tactic_zone(side, kind)
 		if not is_finite(x) or x < float(zone[0]) or x > float(zone[1]):
@@ -926,11 +935,13 @@ func _record_damage(side: int, kind: String, amount: float, killed: bool) -> voi
 func state_hash() -> String:
 	var data := snapshot()
 	data.erase("battle_report")
+	data.erase("banned") # a ranked ban only removes commands; a replay of the battle needs no copy of it
 	return JSON.stringify(data, "", true).sha256_text()
 
 func snapshot() -> Dictionary:
 	var data := {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "base_max_hp": base_max_hp.duplicate(), "units": units.duplicate(true), "structures": structures.duplicate(true), "curses": curses.duplicate(true), "winner": winner, "elapsed": elapsed,
 		"spawn_cooldowns":spawn_cooldowns.duplicate(true), "spells": spell_casts.duplicate(true), "spell_cooldowns": spell_cooldowns.duplicate(true), "spell_uses": spell_uses.duplicate(true)}
+	if not banned[0].is_empty() or not banned[1].is_empty(): data["banned"] = banned.duplicate(true)
 	# Per-unit report is authoritative but sent only after the result, not at every live tick.
 	if winner != -1: data["battle_report"] = battle_report.duplicate(true)
 	return data

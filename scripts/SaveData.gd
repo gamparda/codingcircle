@@ -5,6 +5,10 @@ const Localization = preload("res://scripts/Localization.gd")
 
 const SAVE_VERSION := 1
 const SAVE_PATH := "user://catwar_save.json"
+## Saved deck presets. Saves from before v0.28 hold three presets of three units and three tactics;
+## they load with the new presets added and each deck filled up to BattleModel.DECK_SIZE.
+const DECK_PRESETS := 5
+const OLD_DECK_PRESETS := 3
 const MAX_BACKUP_TRANSFER_BYTES := 2 * 1024 * 1024
 const WINDOW_SIZES := ["1280x720", "1600x900", "1920x1080"]
 const FPS_LIMITS := [30, 60, 120, 144, 240]
@@ -35,9 +39,11 @@ static func default_data() -> Dictionary:
 		"campaign_unlocked": 1,
 		"campaign_records": campaign_records,
 		"deck_presets": [
-			_preset(Localization.text("덱 1"), ["shield", "archer", "healer"], ["wall", "turret", "generator"]),
-			_preset(Localization.text("덱 2"), ["swordsman", "archer", "healer"], ["wall", "swamp", "turret"]),
-			_preset(Localization.text("덱 3"), ["shield", "swordsman", "archer"], ["swamp", "turret", "generator"]),
+			_preset(Localization.text("덱 1"), ["shield", "archer", "healer", "swordsman"], ["wall", "turret", "generator", "swamp"]),
+			_preset(Localization.text("덱 2"), ["swordsman", "archer", "healer", "berserker"], ["wall", "swamp", "turret", "lightning"]),
+			_preset(Localization.text("덱 3"), ["shield", "swordsman", "archer", "warlock"], ["swamp", "turret", "generator", "fireball"]),
+			_preset(Localization.text("덱 4"), ["paladin", "zombie", "necromancer", "archer"], ["wall", "swamp", "frost", "seraph"]),
+			_preset(Localization.text("덱 5"), ["shield", "sniper", "demon_lord", "healer"], ["turret", "generator", "blessing", "lightning"]),
 		],
 		"last_deck": 0,
 		"tutorial_completed": false,
@@ -62,6 +68,17 @@ static func default_data() -> Dictionary:
 		"pending_reports": [],
 		"pending_daily": {},
 	}
+
+## A deck from an older save, grown to BattleModel.DECK_SIZE cards: first from `fallback` (the same
+## preset's default), then in data order, skipping cards already in it.
+static func _fill_deck(deck: Array, fallback: Array, allowed: Dictionary) -> Array:
+	var filled: Array = deck.duplicate()
+	for candidate in fallback + allowed.keys():
+		if filled.size() >= BattleModel.DECK_SIZE:
+			break
+		if allowed.has(String(candidate)) and not filled.has(String(candidate)):
+			filled.append(String(candidate))
+	return filled
 
 static func _migrate_removed_structures(structures: Array, fallback: Array) -> Array:
 	var migrated := structures.duplicate()
@@ -180,7 +197,7 @@ static func sanitize(raw: Variant, diagnostics: Dictionary = {}) -> Dictionary:
 		clean.save_version = clampi(int(raw.save_version), 1, SAVE_VERSION)
 	if _is_integer(raw.get("campaign_unlocked")):
 		clean.campaign_unlocked = clampi(int(raw.campaign_unlocked), 1, 8)
-	if _is_integer(raw.get("last_deck")) and int(raw.last_deck) >= 0 and int(raw.last_deck) < 3:
+	if _is_integer(raw.get("last_deck")) and int(raw.last_deck) >= 0 and int(raw.last_deck) < DECK_PRESETS:
 		clean.last_deck = int(raw.last_deck)
 	if raw.get("tutorial_completed") is bool:
 		clean.tutorial_completed = raw.tutorial_completed
@@ -195,14 +212,16 @@ static func sanitize(raw: Variant, diagnostics: Dictionary = {}) -> Dictionary:
 				if _is_number(source.get("best_base_hp")): record.best_base_hp = clamp(float(source.best_base_hp), 0.0, 500.0)
 				if _is_integer(source.get("attempts")): record.attempts = max(0, int(source.attempts))
 				if _is_integer(source.get("wins")): record.wins = clampi(int(source.wins), 0, int(record.attempts))
-	if raw.get("deck_presets") is Array and raw.deck_presets.size() == 3:
-		for index in 3:
+	if raw.get("deck_presets") is Array and raw.deck_presets.size() >= OLD_DECK_PRESETS and raw.deck_presets.size() <= DECK_PRESETS:
+		for index in raw.deck_presets.size():
 			var preset = raw.deck_presets[index]
 			if preset is Dictionary and preset.get("units") is Array and preset.get("structures") is Array and _string_array(preset.units) and _string_array(preset.structures):
-				var structures := _migrate_removed_structures(preset.structures, clean.deck_presets[index].structures)
-				if BattleModel._valid_deck(preset.units, BattleModel.UNIT_STATS) and BattleModel._valid_deck(structures, BattleModel.STRUCTURE_STATS):
-					var name: String = preset.name.left(20) if preset.get("name") is String else clean.deck_presets[index].name
-					clean.deck_presets[index] = {"name": name, "units": preset.units.duplicate(), "structures": structures}
+				var fallback: Dictionary = clean.deck_presets[index]
+				var units := _fill_deck(preset.units, fallback.units, BattleModel.UNIT_STATS)
+				var structures := _fill_deck(_migrate_removed_structures(preset.structures, fallback.structures), fallback.structures, BattleModel.STRUCTURE_STATS)
+				if BattleModel._valid_deck(units, BattleModel.UNIT_STATS) and BattleModel._valid_deck(structures, BattleModel.STRUCTURE_STATS):
+					var name: String = preset.name.left(20) if preset.get("name") is String else fallback.name
+					clean.deck_presets[index] = {"name": name, "units": units, "structures": structures}
 	if raw.get("settings") is Dictionary:
 		clean.settings.battle_keys = preload("res://scripts/BattleBindings.gd").sanitize(raw.settings.get("battle_keys"))
 		# Existing players' hand-tuned visual settings must not be replaced by a new preset.
@@ -284,7 +303,7 @@ static func recovery_dir(path: String = SAVE_PATH) -> String:
 static func _recoverable(raw: Dictionary) -> bool:
 	if not _is_integer(raw.get("save_version")) or int(raw.save_version) < 1 or int(raw.save_version) > SAVE_VERSION:
 		return false
-	if not raw.get("campaign_records") is Array or raw.campaign_records.size() != 8 or not raw.get("deck_presets") is Array or raw.deck_presets.size() != 3 or not raw.get("settings") is Dictionary or not raw.get("stats") is Dictionary:
+	if not raw.get("campaign_records") is Array or raw.campaign_records.size() != 8 or not raw.get("deck_presets") is Array or raw.deck_presets.size() < OLD_DECK_PRESETS or raw.deck_presets.size() > DECK_PRESETS or not raw.get("settings") is Dictionary or not raw.get("stats") is Dictionary:
 		return false
 	for record in raw.campaign_records:
 		if not record is Dictionary:
