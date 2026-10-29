@@ -19,7 +19,7 @@ func _initialize() -> void:
 	model.resources[0]=110.0;bot.timer=0.0
 	bot.update(model,0.1)
 	check(model.units.size()==1 and model.units[0].kind=="necromancer" and bot.cursor==1,"saved card is bought and rotation advances once")
-	check(model.units[0].max_hp==65.0 and model.units[0].damage==2.0,"benchmark player receives no AI stat bonus")
+	check(model.units[0].max_hp==46.0 and model.units[0].damage==2.0,"benchmark player receives no AI stat bonus")
 	var mirrored := BattleModel.new()
 	mirrored.configure_deck(1,model.unit_decks[0],BattleModel.DEFAULT_STRUCTURE_DECK)
 	var left := Bot.new(0,"weighted",567,model.unit_decks[0])
