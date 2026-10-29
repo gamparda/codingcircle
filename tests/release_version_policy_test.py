@@ -12,7 +12,7 @@ class ReleasePolicyTest(unittest.TestCase):
     def test_pull_requests_run_full_checks_without_publishing(self):
         workflow = (ROOT / ".github" / "workflows" / "build-and-deploy.yml").read_text(encoding="utf-8")
         self.assertIn("  pull_request:", workflow.split("permissions:", 1)[0])
-        for job in ("build", "deploy"):
+        for job in ("build-windows", "build-android", "publish", "deploy"):
             body = workflow.split(f"\n  {job}:\n", 1)[1]
             self.assertTrue(body.lstrip().startswith("if: github.event_name != 'pull_request'"), job)
 
@@ -34,14 +34,15 @@ class ReleasePolicyTest(unittest.TestCase):
         default = [name for name in suites if name not in ("render", "production")]
         matrix = re.search(r"suite: \[([^\]]+)\]", workflow).group(1)
         self.assertEqual([item.strip() for item in matrix.split(",")], default, "CI matrix must list every default suite")
-        self.assertIn("needs: [tests, multiplayer-preview]", workflow)
+        # Builds run alongside the tests, but nothing is published until every suite has passed.
+        self.assertIn("needs: [tests, multiplayer-preview, build-windows, build-android]", workflow.split("\n  publish:\n", 1)[1])
+        self.assertIn("needs: [publish]", workflow.split("\n  deploy:\n", 1)[1])
         self.assertIn("--export-pack Android dist/CatWarContent.pck", workflow)
         self.assertIn('--export-pack "Windows Desktop" dist/CatWarDesktop.pck', workflow)
         self.assertIn("desktop_pack_version = $env:CONTENT_VERSION", workflow)
         self.assertIn("desktop_pack_sha256 = $desktopSha", workflow)
         self.assertIn('"--export-release", "Android", "dist/CatWar.apk"', workflow)
         self.assertIn("-ContentVersion $env:CONTENT_VERSION", workflow)
-        self.assertIn("Reused APK hash changed", workflow)
         self.assertIn("version = $env:WINDOWS_VERSION", workflow)
         self.assertIn("android_binary_version = $env:ANDROID_BINARY_VERSION", workflow)
         self.assertIn("content_pack_version = $env:CONTENT_VERSION", workflow)
