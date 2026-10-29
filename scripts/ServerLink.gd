@@ -13,6 +13,9 @@ const POLL_SECONDS := 0.25
 ## failure, so an offline player is not made to wait on every screen.
 static func run(main, action: Callable, on_status: Callable = Callable(), force: bool = true) -> void:
 	var network = main.network
+	if not main.local_target.is_empty():
+		_say(on_status, "같은 와이파이 대전 중에는 이용할 수 없습니다.")
+		return
 	if network.client_is_online():
 		action.call()
 		return

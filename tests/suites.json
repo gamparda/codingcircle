@@ -41,7 +41,8 @@
     "tests/server_link_test.gd",
     "tests/ranked_wire_test.gd",
     "tests/cloud_sync_test.gd",
-    "tests/ranked_season_test.gd"
+    "tests/ranked_season_test.gd",
+    "tests/local_play_test.gd"
   ],
   "ui": [
     "tests/ui_flow_test.gd",

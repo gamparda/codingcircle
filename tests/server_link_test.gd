@@ -10,6 +10,7 @@ var failures := 0
 class FakeMain extends Node:
 	var network
 	var link_enabled := true
+	var local_target := ""
 	var link_port := 0
 	var link_timeout := 8.0
 	var server_link_failed_at := -1000000

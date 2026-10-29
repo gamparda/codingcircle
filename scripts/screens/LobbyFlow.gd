@@ -5,6 +5,7 @@ const Localization = preload("res://scripts/Localization.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 const OFFICIAL_SERVER_PORT := 7777
+const LocalPlay = preload("res://scripts/net/LocalPlay.gd")
 
 static func _on_connection_status(main, text: String) -> void:
 	if main.quiet_connection:
@@ -36,7 +37,7 @@ static func _connect_for_room(main, mode: String, code: String = "") -> void:
 	main._set_room_controls_disabled(true)
 	var preset = main._active_preset()
 	main.network.set_client_deck(preset.units, preset.structures)
-	main.network.connect_to_candidates(main.official_connection_candidates(IP.get_local_addresses()), OFFICIAL_SERVER_PORT)
+	_connect(main)
 
 static func _on_room_created(main, code: String) -> void:
 	if main.network.client_room_mode in ["lobby","session"]:
@@ -74,7 +75,19 @@ static func _open_multiplayer(main) -> void:
 	main.network.set_room_request("session")
 	var preset = main._active_preset()
 	main.network.set_client_deck(preset.units,preset.structures)
-	main.network.connect_to_candidates(main.official_connection_candidates(IP.get_local_addresses()),OFFICIAL_SERVER_PORT)
+	_connect(main)
+
+## The official server, or the same-Wi-Fi host the player chose.
+static func _connect(main) -> void:
+	if main.local_target.is_empty():
+		main.network.connect_to_candidates(main.official_connection_candidates(IP.get_local_addresses()), OFFICIAL_SERVER_PORT)
+	else:
+		main.network.connect_to_candidates([main.local_target], LocalPlay.HOST_PORT)
+
+## Leaves same-Wi-Fi play: stops hosting and searching and goes back to the official server next time.
+static func leave_local(main) -> void:
+	main.local_play.stop_all()
+	main.local_target = ""
 
 static func _toggle_quick_match(main) -> void:
 	if main.network.client_connection_state == "queued": main.network.cancel_quick_match()
@@ -117,13 +130,15 @@ static func _refresh_quick_button(main) -> void:
 	main.quick_button_ref.disabled = (ranked if queued else main.network.client_connection_state != "lobby")
 	if is_instance_valid(main.ranked_button_ref):
 		main.ranked_button_ref.text = Localization.text("✕ 대기 취소") if queued and ranked else Localization.text("🏆 랭크 대전")
-		main.ranked_button_ref.disabled = (not ranked) if queued else (main.network.client_connection_state != "lobby" or not main.account.online)
+		main.ranked_button_ref.disabled = (not ranked) if queued else (main.network.client_connection_state != "lobby" or not main.account.online or not main.local_target.is_empty())
 	_refresh_ranked_label(main)
 
 static func _refresh_ranked_label(main) -> void:
 	if not is_instance_valid(main.ranked_label): return
 	var profile: Dictionary = main.ranked_profile
-	if not main.account.online:
+	if not main.local_target.is_empty():
+		main.ranked_label.text = Localization.text("같은 와이파이 대전은 랭크에 반영되지 않습니다.")
+	elif not main.account.online:
 		main.ranked_label.text = Localization.text("로그인한 계정만 참여할 수 있습니다.")
 	elif profile.is_empty():
 		main.ranked_label.text = Localization.text("랭크 점수를 불러오는 중...")

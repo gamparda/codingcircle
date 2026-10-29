@@ -35,7 +35,11 @@ static func browser(main) -> void:
 	var column := panel(main,main.root_background,"RoomBrowserPanel",Rect2(64,28,1152,664))
 	var header := HBoxContainer.new(); header.add_theme_constant_override("separation",12); column.add_child(header)
 	var heading := VBoxContainer.new(); heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL; header.add_child(heading)
-	heading.add_child(label("멀티플레이",30,GOLD)); heading.add_child(label("대기방과 진행 중인 전투",13,MUTED))
+	var local_note: String = preload("res://scripts/screens/LocalPlayScreen.gd").lobby_note(main)
+	heading.add_child(label("멀티플레이",30,GOLD))
+	var subtitle := label("대기방과 진행 중인 전투" if local_note.is_empty() else local_note,13,MUTED if local_note.is_empty() else UIKit.TEAL)
+	subtitle.name = "LobbySubtitle"; subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; heading.add_child(subtitle)
+	button(main,header,"📶 같은 와이파이","LocalPlayButton",func(): preload("res://scripts/screens/LocalPlayScreen.gd").show(main))
 	button(main,header,"새로고침","RefreshRoomsButton",func():
 		if main.network.client_connection_state == "idle": main._open_multiplayer()
 		else: main.network.browse_rooms(main.lobby_page))
@@ -73,10 +77,16 @@ static func browser(main) -> void:
 	main.ranked_button_ref.custom_minimum_size.y = 56; main.ranked_button_ref.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var board: Button = button(main,ranked_row,"랭킹","RankedBoardButton",main._show_ranked_board)
 	board.custom_minimum_size = Vector2(72,56)
+	if not main.local_target.is_empty():
+		main.ranked_button_ref.disabled = true; board.disabled = true
+		main.ranked_button_ref.tooltip_text = "같은 와이파이 대전은 친선전이라 랭크 대전을 할 수 없습니다."
 	main.ranked_label = label("",12,MUTED); main.ranked_label.name = "RankedRatingLabel"; main.ranked_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; side.add_child(main.ranked_label)
 	main.status_label = label("서버에 연결 중...",13,MUTED); main.status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; column.add_child(main.status_label)
 	var footer := HBoxContainer.new(); footer.add_theme_constant_override("separation",10); column.add_child(footer)
-	button(main,footer,"← 메인 메뉴","LobbyBackButton",func(): main.network.disconnect_from_server(); main._build_connect_screen())
+	button(main,footer,"← 메인 메뉴","LobbyBackButton",func():
+		main.network.disconnect_from_server()
+		preload("res://scripts/screens/LobbyFlow.gd").leave_local(main)
+		main._build_connect_screen())
 	var stretch := Control.new(); stretch.size_flags_horizontal = Control.SIZE_EXPAND_FILL; footer.add_child(stretch)
 	main.lobby_previous_button = button(main,footer,"이전","PreviousRoomsButton",func(): main.network.browse_rooms(main.lobby_page-1))
 	main.lobby_page_label = label("1 / 1",14,MUTED); main.lobby_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; main.lobby_page_label.custom_minimum_size.x = 100; footer.add_child(main.lobby_page_label)

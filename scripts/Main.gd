@@ -37,6 +37,10 @@ const BATTLE_BGM := preload("res://assets/audio/battle_bgm.wav")
 @onready var updater: UpdateManager = $UpdateManager
 var account := preload("res://scripts/accounts/ClientAccount.gd").new()
 var cloud_sync := preload("res://scripts/accounts/CloudSync.gd").new()
+## Same Wi-Fi / hotspot play: the in-app host and the search for hosts (LocalPlay).
+var local_play := preload("res://scripts/net/LocalPlay.gd").new()
+## Address of the local host the lobby plays on; empty for the official server.
+var local_target := ""
 
 var own_side := 0
 var battle_view: BattleView
@@ -241,6 +245,8 @@ func _ready() -> void:
 	cloud_sync.conflict.connect(func(text: String):
 		if not battle_active and is_instance_valid(root_background): CloudConflict.show(self, text))
 	cloud_sync.applied.connect(_on_cloud_applied)
+	local_play.name = "LocalPlay"
+	add_child(local_play)
 	account.changed.connect(_refresh_quick_button)
 	updater.update_started.connect(_on_update_started)
 	updater.update_status.connect(_on_update_status)
@@ -560,7 +566,7 @@ func _clear_screen() -> void:
 	base_warning_label = null; cancel_build_button = null
 	session_roster = null; session_title = null
 	for child in get_children():
-		if child != network and child != updater and child != bgm_player and child != account and child != cloud_sync:
+		if child != network and child != updater and child != bgm_player and child != account and child != cloud_sync and child != local_play:
 			child.queue_free()
 	battle_view = null
 	status_label = null
