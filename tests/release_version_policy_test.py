@@ -37,6 +37,8 @@ class ReleasePolicyTest(unittest.TestCase):
         # Builds run alongside the tests, but nothing is published until every suite has passed.
         self.assertIn("needs: [tests, multiplayer-preview, build-windows, build-android]", workflow.split("\n  publish:\n", 1)[1])
         self.assertIn("needs: [publish]", workflow.split("\n  deploy:\n", 1)[1])
+        # Each build stamps the commit, so shipped game data matches the published pack and needs no download.
+        self.assertIn('release_meta.py sync "${{ github.sha }}"', workflow.split("\n  build-android:\n", 1)[1].split("\n  publish:\n", 1)[0])
         self.assertIn("--export-pack Android dist/CatWarContent.pck", workflow)
         self.assertIn('--export-pack "Windows Desktop" dist/CatWarDesktop.pck', workflow)
         self.assertIn("desktop_pack_version = $env:CONTENT_VERSION", workflow)

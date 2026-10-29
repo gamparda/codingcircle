@@ -257,6 +257,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          # Stamp the build commit, as build_release.ps1 does for Windows: the APK's game data must match the published pack.
+          python tools/release_meta.py sync "${{ github.sha }}"
+          if ($LASTEXITCODE -ne 0) { throw "release_meta.py sync failed" }
           $presets = Get-Content export_presets.cfg -Raw
           $presets = $presets -replace 'version/code=\d+', "version/code=${{ github.run_number }}"
           [System.IO.File]::WriteAllText((Join-Path $PWD "export_presets.cfg"), $presets, [System.Text.UTF8Encoding]::new($false))

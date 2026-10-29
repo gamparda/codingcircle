@@ -1,5 +1,6 @@
 """ResumableDownload against a slow, flaky local server: it must finish, resume after a stop, and handle
 servers that ignore Range. Uses only the Python standard library; needs GODOT_CONSOLE."""
+import gzip
 import hashlib
 import http.server
 import os
@@ -17,6 +18,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 from run_suite import find_godot  # noqa: E402
 
 DATA = bytes(random.Random(7).getrandbits(8) for _ in range(3 * 1024 * 1024 + 12345))
+# Like GitHub Pages: a client that accepts gzip gets ranges of a compressed copy.
+GZIPPED = gzip.compress(DATA)
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -32,24 +35,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         type(self).requests += 1
         number = type(self).requests
-        start, end = 0, len(DATA) - 1
+        data = GZIPPED if "gzip" in self.headers.get("Accept-Encoding", "") else DATA
+        start, end = 0, len(data) - 1
         status = 200
         header = self.headers.get("Range")
         if header and type(self).honour_range:
             first, _, last = header.removeprefix("bytes=").partition("-")
             start = int(first)
-            end = min(int(last) if last else len(DATA) - 1, len(DATA) - 1)
-            if start >= len(DATA):
+            end = min(int(last) if last else len(data) - 1, len(data) - 1)
+            if start >= len(data):
                 self.send_response(416)
-                self.send_header("Content-Range", f"bytes */{len(DATA)}")
+                self.send_header("Content-Range", f"bytes */{len(data)}")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
             status = 206
-        body = DATA[start:end + 1]
+        body = data[start:end + 1]
         self.send_response(status)
+        if data is GZIPPED:
+            self.send_header("Content-Encoding", "gzip")
         if status == 206:
-            self.send_header("Content-Range", f"bytes {start}-{end}/{len(DATA)}")
+            self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         cut = len(body) // 2 if type(self).drop_every and number % type(self).drop_every == 0 else len(body)

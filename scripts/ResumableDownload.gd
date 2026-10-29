@@ -47,6 +47,8 @@ func start(source: String, target: String, identity: String, extra_headers: Pack
 		http = HTTPRequest.new()
 		http.use_threads = true
 		http.max_redirects = 0
+		# Ranges must be of the file itself: offered gzip, GitHub Pages answers with ranges of a compressed copy.
+		http.accept_gzip = false
 		http.request_completed.connect(_on_chunk)
 		add_child(http)
 	http.timeout = CHUNK_TIMEOUT_SECONDS
