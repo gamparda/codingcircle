@@ -10,6 +10,7 @@ const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const MAX_SEEN := 60
 ## button: name of the main-menu button that leads there (the tag sits on it and goes away when it is pressed).
 const FEATURES := [
+	{"id": "endless", "button": "EndlessButton", "title": "무한 방어", "desc": "끝없이 몰려오는 웨이브를 막으며 강화를 골라 쌓습니다. 몇 웨이브까지 버티는지 기록에 도전하세요."},
 	{"id": "weekly", "button": "WeeklyButton", "title": "주간 도전", "desc": "한 주 동안 모두에게 같은 덱과 두 가지 규칙 변형이 주어지는 더 어려운 도전입니다."},
 	{"id": "draft", "button": "DraftButton", "title": "드래프트", "desc": "AI와 번갈아 병력을 뽑아 덱을 만들고 싸웁니다. 먼저 뽑으면 상대가 못 씁니다."},
 	{"id": "replay_share", "button": "ReplaysButton", "title": "리플레이 공유와 메모", "desc": "6자리 코드로 공유하고, 최근 온라인 전투를 보고, 장면마다 메모를 남길 수 있습니다."},
@@ -95,6 +96,7 @@ static func open_feature(main, id: String) -> void:
 	match String(feature.button):
 		"WeeklyButton": destination = main._show_daily_brief.bind("weekly")
 		"DraftButton": destination = main._build_draft_screen
+		"EndlessButton": destination = func(): preload("res://scripts/screens/EndlessFlow.gd").show_brief(main)
 		"ReplaysButton": destination = main._build_replay_list
 		"DeckButton": destination = main._build_deck_screen
 		"MultiplayerButton": destination = main._open_multiplayer
