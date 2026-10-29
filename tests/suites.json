@@ -22,7 +22,8 @@
     "tests/account_test.gd",
     "tests/pack_selfcheck.gd",
     "tests/player_data_test.gd",
-    "tests/spell_test.gd"
+    "tests/spell_test.gd",
+    "tests/knockback_test.gd"
   ],
   "network": [
     "tests/transport_security_test.gd",

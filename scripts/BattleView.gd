@@ -860,6 +860,11 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 				draw_arc(Vector2(x, lane_y - 2.0), radius, 0.0, TAU, 32, Color(1.0, 0.86, 0.36, life * 0.6 * effect_intensity), 2.0)
 			elif event_type == "SPELL_LAND":
 				_draw_spell_land(event, x, life, scale_x, lane_y)
+			elif event_type == "KNOCKBACK":
+				# Dust where the thrown unit lands.
+				for puff in 4:
+					var spread := (float(puff) - 1.5) * 12.0 * (1.6 - life)
+					draw_circle(Vector2(x + spread, lane_y - 6.0 - float(puff % 2) * 5.0), 7.0 + (1.0 - life) * 9.0, Color(0.72, 0.66, 0.58, life * 0.55 * effect_intensity))
 			elif event_type == "JUMP":
 				draw_arc(Vector2(x, lane_y - 28.0), 34.0, PI, TAU, 24, Color(1.0, 0.82, 0.32, life), 4.0)
 		if show_damage_numbers and event_type in ["DAMAGE", "HEAL", "BASE_HIT"]:
