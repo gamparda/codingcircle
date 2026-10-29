@@ -10,6 +10,18 @@ Run from PowerShell after exporting the project:
 
 On an installed copy, launch **Cat War Dedicated Server** from the Start menu or run `StartServer.cmd`. The server listens on UDP. Open the selected UDP port in the host firewall and cloud security group/router as required.
 
+## Windows dedicated server updates
+
+A Windows server started with `--server` checks the public update manifest every minute. It runs the game
+data its executable shipped with (it never loads a downloaded pack), so whenever the published desktop data
+is newer than its own, or the installer version is newer, it reinstalls from `CatWarSetup.exe`: the server
+stops accepting players and sends idle connections back to the lobby (`SERVER_DRAINING enabled=true`), waits
+for running battles and pending saves to finish, verifies the installer's SHA-256, installs silently over the
+current copy (rolling back on failure) and starts again with the same `--port`. The restarted server runs in
+the background without the StartServer window; stop it from Task Manager (`CatWar.exe`). A failed reinstall is
+retried at most once per published build every ten minutes. Set `CATWAR_STATE_DIR`, `CATWAR_TLS_CERT` and
+`CATWAR_TLS_KEY` as system environment variables so the restarted server keeps them.
+
 ## Persistence and storage failures
 
 Statistics and leaderboard files are checked field by field on startup. Valid entries remain

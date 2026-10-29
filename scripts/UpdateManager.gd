@@ -124,10 +124,13 @@ func accept_manifest(body: PackedByteArray) -> bool:
 	var remote_version: String = candidate.version
 	content_restart = false
 	if not is_newer_version(remote_version, current_version):
-		if not content_pack_is_newer(candidate):
+		if server_reinstall_wanted(OS.get_name(), OS.get_cmdline_user_args(), candidate, current_version_content, current_commit) and not _restart_blocked(String(candidate.desktop_pack_commit)):
+			pass # newer game data for the Windows dedicated server: reinstall (below)
+		elif not content_pack_is_newer(candidate):
 			state = "idle"
 			return true
-		content_restart = true # same installer, newer game data
+		else:
+			content_restart = true # same installer, newer game data
 	manifest = candidate
 	state = "waiting_safe"
 	if safe_to_update:
@@ -143,6 +146,17 @@ func content_pack_is_newer(candidate: Dictionary) -> bool:
 	if not Bootstrap.validate_desktop_manifest(candidate):
 		return false
 	return Bootstrap.should_install_content(String(candidate.desktop_pack_version), current_version_content, String(candidate.desktop_pack_commit), current_commit)
+
+## The Windows dedicated server runs the game data its executable shipped with (it never loads a pack), so newer
+## data reaches it by reinstalling: every published installer carries the latest data.
+static func server_reinstall_wanted(os_name: String, args: PackedStringArray, candidate: Dictionary, content_version: String, commit: String) -> bool:
+	if os_name != "Windows" or not args.has("--server") or not Bootstrap.validate_desktop_manifest(candidate):
+		return false
+	return Bootstrap.should_install_content(String(candidate.desktop_pack_version), content_version, String(candidate.desktop_pack_commit), commit)
+
+## True from the moment a newer build is known until the restart; the dedicated server drains meanwhile.
+func update_pending() -> bool:
+	return state in ["waiting_safe", "downloading", "ready_to_install", "installing"]
 
 func _restart_blocked(commit: String) -> bool:
 	var guard = JSON.parse_string(FileAccess.get_file_as_string(RESTART_GUARD_PATH)) if FileAccess.file_exists(RESTART_GUARD_PATH) else null
@@ -234,6 +248,13 @@ func _schedule_install_and_restart() -> void:
 	var batch := build_update_helper_batch(
 		installer_path.get_file(), backup_name, executable, install_dir, expected_hash, restart_port
 	)
+	# One reinstall per published build per ten minutes, so an installer that does not bring the build cannot loop.
+	if not restart_port.is_empty():
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://content"))
+		var guard := FileAccess.open(RESTART_GUARD_PATH, FileAccess.WRITE)
+		if guard != null:
+			guard.store_string(JSON.stringify({"commit": String(manifest.get("desktop_pack_commit", "")), "at": Time.get_unix_time_from_system()}))
+			guard.close()
 	if batch.is_empty():
 		_fail_update(Localization.text("안전한 업데이트 실행 도우미를 만들지 못했습니다."))
 		return

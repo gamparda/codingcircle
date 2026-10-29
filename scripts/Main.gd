@@ -521,7 +521,8 @@ func _on_daily_score_saved(id: String, date: String, score: int, seconds: float,
 func _update_server_lifecycle(delta: float) -> void:
 	if server_state_dir.is_empty():
 		return
-	var draining := FileAccess.file_exists(server_state_dir.path_join("update.pending"))
+	# The Linux updater asks for a drain with update.pending; a self-updating Windows server drains while its update waits.
+	var draining := FileAccess.file_exists(server_state_dir.path_join("update.pending")) or updater.update_pending()
 	if draining != server_draining:
 		server_draining = draining
 		network.set_accepting_players(not draining)
@@ -532,6 +533,11 @@ func _update_server_lifecycle(delta: float) -> void:
 	if server_status_accumulator < 1.0:
 		return
 	server_status_accumulator = 0.0
+	if server_draining:
+		# Players back in the lobby after their battle leave too, so the update is not held up by idle connections.
+		for peer_id in multiplayer.get_peers():
+			if network.peer_should_disconnect_for_drain(int(peer_id)):
+				network._disconnect_peer(int(peer_id))
 	var status := {
 		"active_matches": _active_match_count(),
 		"accepting_players": not server_draining,

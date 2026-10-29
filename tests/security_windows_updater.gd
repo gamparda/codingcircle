@@ -50,6 +50,17 @@ func _init() -> void:
 			updater.state = "checking"
 			expect_true(not updater.accept_manifest("{}".to_utf8_buffer()), "malformed manifest is rejected by update flow")
 			expect_true(updater.manifest.is_empty() and updater.state == "failed", "malformed manifest fails closed")
+			# The Windows dedicated server reinstalls for newer game data (it never loads packs).
+			var desktop := valid_manifest.duplicate()
+			desktop.merge({"desktop_pack_version": "0.31.1", "desktop_pack_commit": "1".repeat(40), "desktop_pack_url": "https://gamparda.github.io/codingcircle/CatWarDesktop.pck", "desktop_pack_sha256": "c".repeat(64)})
+			var server_args := PackedStringArray(["--server", "--port=7777"])
+			expect_true(UpdateManager.server_reinstall_wanted("Windows", server_args, desktop, "0.31.0", "2".repeat(40)), "a Windows server reinstalls for newer game data")
+			expect_true(UpdateManager.server_reinstall_wanted("Windows", server_args, desktop, "0.31.1", "2".repeat(40)), "a Windows server reinstalls for a rebuilt same version")
+			expect_true(not UpdateManager.server_reinstall_wanted("Windows", server_args, desktop, "0.31.1", "1".repeat(40)), "a server already on the published build stays put")
+			expect_true(not UpdateManager.server_reinstall_wanted("Windows", server_args, desktop, "0.32.0", "2".repeat(40)), "a server never goes back to older data")
+			expect_true(not UpdateManager.server_reinstall_wanted("Windows", PackedStringArray(), desktop, "0.31.0", "2".repeat(40)), "the game client keeps using game-data packs")
+			expect_true(not UpdateManager.server_reinstall_wanted("Linux", server_args, desktop, "0.31.0", "2".repeat(40)), "the Linux server keeps its own updater")
+			expect_true(not UpdateManager.server_reinstall_wanted("Windows", server_args, valid_manifest, "0.31.0", "2".repeat(40)), "a manifest without a desktop pack changes nothing")
 			expect_true(UpdateManager.validated_port("1") == 1, "lowest UDP port is accepted")
 			expect_true(UpdateManager.validated_port("65535") == 65535, "highest UDP port is accepted")
 			expect_true(UpdateManager.validated_port("0") == -1, "zero port is rejected")
