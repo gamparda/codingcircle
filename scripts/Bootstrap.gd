@@ -14,6 +14,7 @@ const PENDING_PACK := CONTENT_DIR + "/pending.pck"
 const ACTIVE_METADATA := CONTENT_DIR + "/active.json"
 const PREVIOUS_METADATA := CONTENT_DIR + "/previous.json"
 const PACK_BOOT_STABILITY_SECONDS := 5.0
+const ResumableDownload = preload("res://scripts/ResumableDownload.gd")
 
 var bundled_version := "0.0.0"
 var bundled_binary_version := "0.0.0"
@@ -26,6 +27,7 @@ var active_pack_loaded := false
 var state := "idle"
 var manifest: Dictionary = {}
 var http: HTTPRequest
+var pack_download: ResumableDownload
 var status_label: Label
 var progress_bar: ProgressBar
 var retry_button: Button
@@ -75,13 +77,9 @@ static func build_versions(build_info: Dictionary) -> Dictionary:
 	return {"content": content, "binary": String(build_info.get("binary_version", content))}
 
 func _process(_delta: float) -> void:
-	if state != "downloading" or not is_instance_valid(http):
+	if state != "downloading" or not is_instance_valid(pack_download) or pack_download.total <= 0:
 		return
-	var total := http.get_body_size()
-	var downloaded := http.get_downloaded_bytes()
-	progress_bar.value = 0.0 if total <= 0 else clamp(float(downloaded) / float(total) * 100.0, 0.0, 100.0)
-	if total > 0:
-		status_label.text = Localization.text("게임 데이터 업데이트 다운로드 중 · %d%%") % int(progress_bar.value)
+	progress_bar.value = clampf(float(pack_download.received()) / float(pack_download.total) * 100.0, 0.0, 100.0)
 
 func _build_interface() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -155,8 +153,6 @@ func _check_for_update() -> void:
 func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if state == "checking":
 		_handle_manifest(result, response_code, body)
-	elif state == "downloading":
-		_handle_pack_download(result, response_code)
 
 func _handle_manifest(result: int, response_code: int, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
@@ -186,27 +182,35 @@ func _handle_manifest(result: int, response_code: int, body: PackedByteArray) ->
 func _pack(field: String) -> String:
 	return String(manifest.get("%s_pack_%s" % [pack_kind, field], ""))
 
+## Downloads in chunks and resumes after drops and restarts (ResumableDownload), so slow or throttled
+## connections finish instead of timing out.
 func _begin_pack_download() -> void:
 	status_label.text = Localization.text("게임 데이터 업데이트 다운로드 중...")
 	progress_bar.value = 0.0
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(PENDING_PACK))
-	http.download_file = ProjectSettings.globalize_path(PENDING_PACK)
+	if not is_instance_valid(pack_download):
+		pack_download = ResumableDownload.new()
+		pack_download.progressed.connect(func(done: int, size: int):
+			if state == "downloading":
+				status_label.text = Localization.text("게임 데이터 업데이트 다운로드 중 · %.1f / %.1f MB") % [done / 1048576.0, size / 1048576.0])
+		pack_download.retrying.connect(func(attempt: int, attempts: int):
+			if state == "downloading":
+				status_label.text = Localization.text("연결이 불안정해 이어서 받는 중... (%d/%d)") % [attempt, attempts])
+		pack_download.finished.connect(_handle_pack_download)
+		add_child(pack_download)
 	state = "downloading"
-	var error := http.request(_pack("url"), ["Cache-Control: no-cache"])
-	if error != OK:
-		_show_recoverable_error(Localization.text("게임 데이터 다운로드를 시작하지 못했습니다."))
+	pack_download.start(_pack("url"), ProjectSettings.globalize_path(PENDING_PACK), _pack("sha256").to_lower(), PackedStringArray(["Cache-Control: no-cache"]))
 
-func _handle_pack_download(result: int, response_code: int) -> void:
+func _handle_pack_download(ok: bool) -> void:
 	var pending_path := ProjectSettings.globalize_path(PENDING_PACK)
-	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200 or not FileAccess.file_exists(pending_path):
-		DirAccess.remove_absolute(pending_path)
-		_show_recoverable_error(Localization.text("게임 데이터 다운로드에 실패했습니다."))
+	if not ok or not FileAccess.file_exists(pending_path):
+		# The partial file stays: "다시 시도" or the next start continues from it.
+		_show_recoverable_error(Localization.text("게임 데이터 다운로드가 멈췄습니다. 네트워크가 느리거나 끊겼을 수 있습니다. 다시 시도하면 받은 부분부터 이어서 받습니다."))
 		return
 	status_label.text = Localization.text("다운로드한 게임 데이터를 검증하는 중...")
 	progress_bar.value = 100.0
 	var expected_hash := _pack("sha256").to_lower()
 	if FileAccess.get_sha256(pending_path).to_lower() != expected_hash:
-		DirAccess.remove_absolute(pending_path)
+		pack_download.discard()
 		_show_recoverable_error(Localization.text("게임 데이터의 SHA-256 검증에 실패했습니다."))
 		return
 	if not _activate_pending_pack(expected_hash):
@@ -235,6 +239,7 @@ func _activate_pending_pack(expected_hash: String) -> bool:
 			return false
 	if FileAccess.file_exists(metadata_path):
 		DirAccess.rename_absolute(metadata_path, previous_metadata_path)
+	DirAccess.remove_absolute(pending_path + ".json") # the download's resume record
 	if DirAccess.rename_absolute(pending_path, active_path) != OK:
 		if FileAccess.file_exists(previous_path):
 			DirAccess.rename_absolute(previous_path, active_path)

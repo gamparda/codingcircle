@@ -35,7 +35,7 @@ class WindowsDownloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="updater-download-") as directory:
             project = pathlib.Path(directory)
             (project / "scripts").mkdir()
-            for name in ("UpdateManager.gd", "Bootstrap.gd", "Localization.gd"):
+            for name in ("UpdateManager.gd", "Bootstrap.gd", "Localization.gd", "ResumableDownload.gd"):
                 shutil.copyfile(ROOT / "scripts" / name, project / "scripts" / name)
             shutil.copyfile(ROOT / "tests" / "fixtures" / "windows_download_probe.gd", project / "probe.gd")
             (project / "project.godot").write_text(
