@@ -8,8 +8,8 @@ const Localization = preload("res://scripts/Localization.gd")
 const ADDITIVE := ["income", "capacity", "start", "skeleton_cap", "range:ranged", "first_strike"]
 
 const RELICS := {
-	"steel_plate": {"name": "강철 갑옷", "icon": "🛡", "rarity": "common", "needs": "melee", "mods": {"hp:melee": 1.15}},
-	"eagle_eye": {"name": "독수리의 눈", "icon": "👁", "rarity": "common", "needs": "ranged", "mods": {"range:ranged": 40.0}},
+	"steel_plate": {"name": "강철 갑옷", "icon": "🪖", "rarity": "common", "needs": "melee", "mods": {"hp:melee": 1.15}},
+	"eagle_eye": {"name": "독수리의 눈", "icon": "🔭", "rarity": "common", "needs": "ranged", "mods": {"range:ranged": 40.0}},
 	"barbed_tips": {"name": "가시 화살촉", "icon": "🏹", "rarity": "common", "needs": "ranged", "mods": {"damage:ranged": 1.15}},
 	"granary": {"name": "군량 창고", "icon": "🌾", "rarity": "common", "mods": {"income": 1.0}},
 	"vault": {"name": "넓은 금고", "icon": "📦", "rarity": "common", "mods": {"capacity": 60.0}},

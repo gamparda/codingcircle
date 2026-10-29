@@ -23,6 +23,7 @@ static func _reset_result(main) -> void:
 	main.battle_contested = false
 	main.curve_next_elapsed = 0.0
 	main.endless_run = {}
+	main.expedition_run = {}
 
 static func _start_local_ai_battle(main, stage: int = 1, reuse_deck: bool = false) -> void:
 	main.ghost_context = {}

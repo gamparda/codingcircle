@@ -18,6 +18,7 @@ const Goals = preload("res://scripts/Goals.gd")
 const ServerLink = preload("res://scripts/ServerLink.gd")
 const BattleReportBrowser = preload("res://scripts/ui/BattleReportBrowser.gd")
 const EndlessFlow = preload("res://scripts/screens/EndlessFlow.gd")
+const ExpeditionFlow = preload("res://scripts/screens/ExpeditionFlow.gd")
 
 ## Account for the confirmed result before any visual delay; keep the reward
 ## presentation so recovery can rebuild the screen without awarding it again.
@@ -37,6 +38,8 @@ static func _record_result(main, winner: int) -> Dictionary:
 				main.local_recorder = null
 			if not main.endless_run.is_empty():
 				EndlessFlow.record(main)
+			if not main.expedition_run.is_empty():
+				ExpeditionFlow.record(main, winner)
 			if not main.daily_challenge.is_empty():
 				var snap: Dictionary = main.current_snapshot
 				DailyChallenge.record(main.save_data, main.daily_challenge, winner == main.own_side, float(snap.get("base_hp", [0.0, 0.0])[main.own_side]), float(snap.get("elapsed", 0.0)))
@@ -186,6 +189,8 @@ static func _show_result(main, winner: int) -> void:
 		if not main.campaign_mode and main.practice_used_tools: note.text = "실험 설정 결과는 전적에 기록하지 않습니다."
 		if not endless_outcome.is_empty():
 			note.text = EndlessFlow.result_note(endless_outcome)
+		elif not main.expedition_run.is_empty():
+			note.text = ExpeditionFlow.result_note(main)
 		elif not main.ghost_context.is_empty():
 			var branch: bool = String(main.ghost_context.mode) == "branch"
 			note.text = Localization.text("이 결과는 전적에 기록되지 않는 실험입니다.") if branch else (Localization.text("고스트를 이겼습니다! 전적에는 기록되지 않습니다.") if winner == main.own_side else Localization.text("고스트에게 졌습니다. 다시 도전해 보세요."))
@@ -250,13 +255,15 @@ static func _show_result(main, winner: int) -> void:
 		inner.add_child(toast)
 		toast.place_center(290.0, notes_y + 32.0)
 		UIKit.UISounds.play("victory", -12.0)
-	var rematch_text := Localization.text("다시 도전") if main.local_ai_mode else ("대기실로" if not main.network.client_session.is_empty() else Localization.text("재경기 준비"))
+	var rematch_text := Localization.text("계속") if main.local_ai_mode and not main.expedition_run.is_empty() else Localization.text("다시 도전") if main.local_ai_mode else ("대기실로" if not main.network.client_session.is_empty() else Localization.text("재경기 준비"))
 	var rematch = main._styled_button(rematch_text, Color("#5e6ad2"), true)
 	rematch.position = Vector2(25 if advances else 65, 306 + extra)
 	rematch.size = Vector2(165 if advances else 215, 58)
 	rematch.pressed.connect(func():
 		rematch.disabled = true
-		if main.local_ai_mode and not main.endless_run.is_empty():
+		if main.local_ai_mode and not main.expedition_run.is_empty():
+			ExpeditionFlow.after_battle(main)
+		elif main.local_ai_mode and not main.endless_run.is_empty():
 			EndlessFlow.start(main)
 		elif main.local_ai_mode and not main.ghost_context.is_empty():
 			main._restart_context()
@@ -282,11 +289,13 @@ static func _show_result(main, winner: int) -> void:
 			main._start_local_ai_battle(main.current_ai_stage + 1, true)
 		)
 		inner.add_child(next_stage)
-	var back = main._styled_button(Localization.text("메인 메뉴") if not main.endless_run.is_empty() else Localization.text("단계 선택") if main.local_ai_mode else Localization.text("이전 화면으로"), Color("#697386"), false)
+	var back = main._styled_button(Localization.text("메인 메뉴") if not main.endless_run.is_empty() or not main.expedition_run.is_empty() else Localization.text("단계 선택") if main.local_ai_mode else Localization.text("이전 화면으로"), Color("#697386"), false)
 	back.name = "BackToMenuButton"
 	back.position = Vector2(389 if advances else 300, 306 + extra)
 	back.size = Vector2(165 if advances else 215, 58)
-	if main.local_ai_mode and not main.ghost_context.is_empty():
+	if main.local_ai_mode and not main.expedition_run.is_empty():
+		back.pressed.connect(func(): ExpeditionFlow.leave(main))
+	elif main.local_ai_mode and not main.ghost_context.is_empty():
 		back.pressed.connect(main._build_replay_list)
 	elif main.local_ai_mode and (not main.endless_run.is_empty() or not main.daily_challenge.is_empty() or not main.draft_context.is_empty()):
 		back.pressed.connect(main._build_connect_screen)

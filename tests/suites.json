@@ -73,6 +73,7 @@
     "tests/weekly_challenge_test.gd",
     "tests/draft_mode_test.gd",
     "tests/endless_mode_test.gd",
+    "tests/expedition_mode_test.gd",
     "tests/new_features_test.gd",
     "tests/battle_finale_test.gd",
     "tests/live_room_ui_test.gd",

@@ -91,6 +91,11 @@ var banned: Array = [[], []]
 ## Run modifiers for each side (expedition relics, endless-defense boons): empty in every other mode. Keys are
 ## documented at modifier(); RunBoons.combine builds them. Part of a battle's setup, like campaign_levels.
 var modifiers: Array = [{}, {}]
+## Card upgrades (stars): units and structures gain this much health (units also damage) per star, spells
+## recover this much faster per star, and two-star units cost this fraction of their price.
+const STAR_STEP := 0.2
+const STAR_SPELL_STEP := 0.15
+const STAR_COST_SCALE := 0.9
 const MODIFIER_KEYS := ["hp:", "damage:", "range:ranged", "cost:units", "spell_cooldown", "structure_hp", "knockback",
 	"skill_cooldown:", "income", "capacity", "start", "skeleton_cap", "first_strike"]
 ## Endless defense: the wave side has no base to destroy; its units come forever until the defender falls.
@@ -189,12 +194,12 @@ func unit_modifier(side: int, kind: String, stat: String) -> float:
 	var scope := unit_scope(kind)
 	if not scope.is_empty():
 		value *= float(modifier(side, stat + ":" + scope))
-	return value * (1.0 + 0.2 * card_level(side, kind))
+	return value * (1.0 + STAR_STEP * card_level(side, kind))
 
 func unit_cost(side: int, kind: String) -> float:
 	var cost := float(UNIT_STATS[kind].cost) * float(modifier(side, "cost:units"))
 	if card_level(side, kind) >= 2:
-		cost *= 0.9
+		cost *= STAR_COST_SCALE
 	return roundf(cost)
 
 func configure_base_health(side: int, maximum: float) -> void:
@@ -450,7 +455,7 @@ func _cast_spell(side: int, kind: String, x: float) -> void:
 	var stats: Dictionary = STRUCTURE_STATS[kind]
 	resources[side] -= float(stats.cost)
 	battle_report[side].resources_spent += float(stats.cost)
-	spell_cooldowns[side][kind] = float(stats.get("cooldown", 0.0)) * float(modifier(side, "spell_cooldown")) * (1.0 - 0.15 * card_level(side, kind))
+	spell_cooldowns[side][kind] = float(stats.get("cooldown", 0.0)) * float(modifier(side, "spell_cooldown")) * (1.0 - STAR_SPELL_STEP * card_level(side, kind))
 	spell_uses[side][kind] = int(spell_uses[side].get(kind, 0)) + 1
 	var delay := float(stats.get("delay", 0.0))
 	if stats.has("speed"):
@@ -578,7 +583,7 @@ func place_structure(side: int, kind: String, x: float) -> bool:
 	battle_report[side].resources_spent += float(stats.cost)
 	battle_report[side].structures_built += 1
 	if kind == "turret": battle_report[side].units.turret.purchased += 1
-	var structure_hp := float(stats.hp) * float(modifier(side, "structure_hp")) * (1.0 + 0.2 * card_level(side, kind))
+	var structure_hp := float(stats.hp) * float(modifier(side, "structure_hp")) * (1.0 + STAR_STEP * card_level(side, kind))
 	structures.append({"id": next_structure_id, "side": side, "kind": kind, "x": x, "hp": structure_hp, "max_hp": structure_hp})
 	if kind == "turret":
 		structure_cooldowns[next_structure_id] = float(stats.interval)

@@ -1,24 +1,41 @@
 extends RefCounted
 ## Records and the saved run of the offline run modes, stored in the profile under "runs":
 ##   "endless": {"best_wave", "best_seconds", "runs", "total_waves", "saved": {} or a run to resume}
+##   "expedition": {"best" (ExpeditionRun.progress), "clears", "runs", "saved": {} or ExpeditionRun.to_saved()}
 ## A saved endless run is the state at a wave break: {"wave" (next wave), "boons", "base_hp", "units",
 ## "structures", "seed", "seconds" (time survived so far)}; resuming starts that wave on a fresh field.
 
 const RunBoons = preload("res://scripts/run/RunBoons.gd")
+const ExpeditionRun = preload("res://scripts/run/ExpeditionRun.gd")
 
 static func default_runs() -> Dictionary:
-	return {"endless": {"best_wave": 0, "best_seconds": 0.0, "runs": 0, "total_waves": 0, "saved": {}}}
+	return {"endless": {"best_wave": 0, "best_seconds": 0.0, "runs": 0, "total_waves": 0, "saved": {}},
+		"expedition": {"best": 0, "clears": 0, "runs": 0, "saved": {}}}
 
 static func endless(data: Dictionary) -> Dictionary:
 	if not data.get("runs") is Dictionary:
 		data["runs"] = default_runs()
 	return data.runs.endless
 
+static func expedition(data: Dictionary) -> Dictionary:
+	if not data.get("runs") is Dictionary:
+		data["runs"] = default_runs()
+	if not data.runs.get("expedition") is Dictionary:
+		data.runs["expedition"] = default_runs().expedition
+	return data.runs.expedition
+
 static func _count(value: Variant, limit: int = 1000000) -> int:
 	return clampi(int(value), 0, limit) if (value is int or value is float) and is_finite(float(value)) and float(value) == floorf(float(value)) else 0
 
 static func sanitize(raw: Variant) -> Dictionary:
 	var clean := default_runs()
+	if raw is Dictionary and raw.get("expedition") is Dictionary:
+		var trip: Dictionary = raw.expedition
+		clean.expedition.best = _count(trip.get("best"), ExpeditionRun.ACTS * ExpeditionRun.LAYERS + 1)
+		clean.expedition.clears = _count(trip.get("clears"))
+		clean.expedition.runs = _count(trip.get("runs"))
+		var run := ExpeditionRun.from_saved(trip.get("saved"))
+		clean.expedition.saved = ExpeditionRun.to_saved(run) if not run.is_empty() else {}
 	if not raw is Dictionary or not raw.get("endless") is Dictionary:
 		return clean
 	var source: Dictionary = raw.endless
@@ -60,4 +77,17 @@ static func record_endless(data: Dictionary, waves_cleared: int, seconds: float)
 	if best:
 		record.best_wave = waves_cleared
 		record.best_seconds = seconds
+	return best
+
+## Records a finished expedition (won or lost); returns true when it went further than ever.
+static func record_expedition(data: Dictionary, run: Dictionary) -> bool:
+	var record := expedition(data)
+	record.runs = int(record.runs) + 1
+	record.saved = {}
+	if String(run.status) == "won":
+		record.clears = int(record.clears) + 1
+	var reached := ExpeditionRun.progress(run)
+	var best := reached > int(record.best)
+	if best:
+		record.best = reached
 	return best

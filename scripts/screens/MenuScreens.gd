@@ -164,6 +164,17 @@ static func _build_connect_screen(main, message: String = "") -> void:
 		endless_button.text += Localization.text("  · 최고 웨이브 %d") % endless_best
 	endless_button.pressed.connect(func(): preload("res://scripts/screens/EndlessFlow.gd").show_brief(main))
 	run_row.add_child(endless_button)
+	var expedition_button = main._styled_button(Localization.text("원정"), Color("#4f8a3a"), false)
+	expedition_button.name = "ExpeditionButton"
+	expedition_button.custom_minimum_size.y = 52
+	expedition_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var expedition_record: Dictionary = preload("res://scripts/run/RunRecords.gd").expedition(main.save_data)
+	if not expedition_record.saved.is_empty():
+		expedition_button.text += Localization.text("  · 진행 중")
+	elif int(expedition_record.clears) > 0:
+		expedition_button.text += Localization.text("  · 완주 %d회") % int(expedition_record.clears)
+	expedition_button.pressed.connect(func(): preload("res://scripts/screens/ExpeditionFlow.gd").show_brief(main))
+	run_row.add_child(expedition_button)
 	var management_row := HBoxContainer.new()
 	management_row.add_theme_constant_override("separation", 10)
 	column.add_child(management_row)
