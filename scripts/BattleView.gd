@@ -91,13 +91,6 @@ const DEMON_AURA_TEXTURES := [preload("res://assets/units/effects/demon_aura_0.p
 const UNIT_SUMMON_TEXTURES := [
 preload("res://assets/units/animations/necromancer/summon_0.png"), preload("res://assets/units/animations/necromancer/summon_1.png"), preload("res://assets/units/animations/necromancer/summon_2.png")
 ]
-const STARS := [
-	Vector2(0.08, 0.16), Vector2(0.15, 0.29), Vector2(0.23, 0.11),
-	Vector2(0.34, 0.23), Vector2(0.43, 0.13), Vector2(0.57, 0.21),
-	Vector2(0.66, 0.09), Vector2(0.76, 0.25), Vector2(0.87, 0.12),
-	Vector2(0.93, 0.31), Vector2(0.49, 0.34), Vector2(0.29, 0.36)
-]
-
 var snapshot: Dictionary = {}
 var own_side := 0
 var structure_inspection := StructureInspection.new()
@@ -292,6 +285,7 @@ func push_combat_events(events: Array) -> void:
 	queue_redraw()
 
 const SpellArt = preload("res://scripts/ui/SpellArt.gd")
+const BattlefieldArt = preload("res://scripts/ui/BattlefieldArt.gd")
 ## Ring colors for spell areas on the ground.
 const SPELL_COLORS := {"lightning": Color(0.62, 0.8, 1.0), "fireball": Color(1.0, 0.5, 0.18), "frost": Color(0.6, 0.9, 1.0), "blessing": Color(1.0, 0.84, 0.36), "seraph": Color(1.0, 0.95, 0.8)}
 
@@ -498,8 +492,8 @@ func _draw() -> void:
 	var lane_y := size.y * 0.72
 	_draw_sky(lane_y)
 	_draw_ground(lane_y)
-	_draw_base(world_to_screen_x(BattleModel.FIELD_LEFT), lane_y, display_side(0))
-	_draw_base(world_to_screen_x(BattleModel.FIELD_RIGHT), lane_y, display_side(1))
+	_draw_base(world_to_screen_x(BattleModel.FIELD_LEFT), lane_y, 0)
+	_draw_base(world_to_screen_x(BattleModel.FIELD_RIGHT), lane_y, 1)
 
 	for curse in snapshot.get("curses", []):
 		_draw_curse(curse, scale_x, lane_y)
@@ -520,102 +514,58 @@ func _draw() -> void:
 	structure_inspection.draw(self)
 
 func _draw_sky(lane_y: float) -> void:
-	var top_color := Color("#070a14")
-	var horizon_color := Color("#1d2f52")
-	var steps := 40
-	for i in steps:
-		var t := float(i) / float(steps - 1)
-		draw_rect(Rect2(0, lane_y * float(i) / steps, size.x, lane_y / steps + 1.0), top_color.lerp(horizon_color, t * t * 0.95 + t * 0.05))
-
-	# Territory lighting keeps the two sides readable without a hard split.
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(0, lane_y), Vector2(size.x * 0.50, lane_y),
-		Vector2(size.x * 0.40, 0), Vector2(0, 0)
-	]), Color(0.16, 0.28, 0.60, 0.10))
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(size.x, lane_y), Vector2(size.x * 0.50, lane_y),
-		Vector2(size.x * 0.60, 0), Vector2(size.x, 0)
-	]), Color(0.60, 0.16, 0.28, 0.10))
-
+	# The painted sky covers the width; its far scenery ends just above the ruins.
+	var sky: Texture2D = BattlefieldArt.SKY
+	var horizon := lane_y - 34.0
+	var sky_scale := maxf(size.x / float(sky.get_width()), horizon / (BattlefieldArt.SKY_HORIZON * float(sky.get_height())))
+	var sky_size := Vector2(sky.get_width(), sky.get_height()) * sky_scale
+	draw_texture_rect(sky, Rect2((size.x - sky_size.x) * 0.5, horizon - BattlefieldArt.SKY_HORIZON * sky_size.y, sky_size.x, sky_size.y), false, Color(0.80, 0.82, 0.92))
+	# Drifting haze keeps the backdrop alive.
 	var clock := float(Time.get_ticks_msec()) / 1000.0
-	for index in STARS.size():
-		var star: Vector2 = STARS[index]
-		var point := Vector2(star.x * size.x, star.y * lane_y)
-		var twinkle := 0.55 + 0.45 * sin(clock * 1.4 + float(index) * 1.7)
-		draw_circle(point, 1.5, Color(0.80, 0.86, 1.0, 0.60 * twinkle))
-		draw_circle(point, 4.5, Color(0.55, 0.66, 1.0, 0.08 * twinkle))
-
-	var moon := Vector2(size.x * 0.5, lane_y * 0.32)
-	var moon_radius := minf(size.x, size.y) * 0.078
-	for i in 6:
-		draw_circle(moon, moon_radius * (2.4 - float(i) * 0.27), Color(0.55, 0.62, 0.95, 0.018 + float(i) * 0.006))
-	draw_circle(moon, moon_radius, Color(0.84, 0.88, 1.0, 0.92))
-	draw_circle(moon + Vector2(-moon_radius * 0.28, -moon_radius * 0.12), moon_radius * 0.22, Color(0.72, 0.77, 0.92, 0.55))
-	draw_circle(moon + Vector2(moon_radius * 0.30, moon_radius * 0.26), moon_radius * 0.15, Color(0.72, 0.77, 0.92, 0.5))
-	draw_circle(moon + Vector2(moon_radius * 0.05, -moon_radius * 0.48), moon_radius * 0.10, Color(0.72, 0.77, 0.92, 0.45))
-
-	# Drifting cloud banks.
-	for i in 4:
-		var cx := fposmod(float(i) * size.x * 0.31 + clock * (5.0 + float(i) * 2.0), size.x + 400.0) - 200.0
-		var cy := lane_y * (0.22 + 0.13 * float(i % 3))
+	for i in 3:
+		var cx := fposmod(float(i) * size.x * 0.37 + clock * (4.0 + float(i) * 2.0), size.x + 400.0) - 200.0
+		var cy := lane_y * (0.30 + 0.12 * float(i))
 		for puff in 5:
-			draw_circle(Vector2(cx + float(puff) * 34.0, cy + sin(float(puff) * 1.9) * 6.0), 30.0 - float(puff % 3) * 6.0, Color(0.5, 0.6, 0.9, 0.035))
+			draw_circle(Vector2(cx + float(puff) * 34.0, cy + sin(float(puff) * 1.9) * 6.0), 30.0 - float(puff % 3) * 6.0, Color(0.5, 0.6, 0.9, 0.03))
+	# Ruins in front of the far scenery, a little darker so units stay readable.
+	var ruins_height := clampf(size.y * 0.21, 110.0, 190.0)
+	_draw_strip(BattlefieldArt.RUINS, lane_y + 6.0 - ruins_height, ruins_height, Color(0.66, 0.70, 0.84), 0.37)
 
-	# Haze where the city meets the battlefield.
-	for i in 8:
-		var t := float(i) / 7.0
-		draw_rect(Rect2(0, lane_y - 110.0 + t * 110.0, size.x, 110.0 / 8.0 + 1.0), Color(0.34, 0.42, 0.78, 0.010 + t * 0.020))
-
-	# Distant city: two parallax layers.
-	for i in 14:
-		var building_x := float(i) * size.x / 13.0 - 30.0
-		var height := 40.0 + float((i * 29) % 70)
-		draw_rect(Rect2(building_x, lane_y - height, size.x / 13.0 - 6.0, height), Color(0.11, 0.15, 0.27, 0.9))
-	for i in 18:
-		var building_x := float(i) * size.x / 17.0 - 15.0
-		var height := 18.0 + float((i * 17) % 44)
-		draw_rect(Rect2(building_x, lane_y - height, size.x / 19.0, height), Color("#0e1524"))
-		draw_rect(Rect2(building_x, lane_y - height, size.x / 19.0, 2.0), Color(0.4, 0.5, 0.8, 0.12))
-		if i % 3 == 0:
-			var lit := 0.30 + 0.20 * sin(clock * 0.7 + float(i))
-			draw_rect(Rect2(building_x + 9.0, lane_y - height + 10.0, 3.0, 5.0), Color(0.96, 0.78, 0.35, lit))
+## Repeats a seamless strip across the battlefield width.
+func _draw_strip(texture: Texture2D, top: float, height: float, tint: Color = Color.WHITE, offset: float = 0.0) -> void:
+	var width := float(texture.get_width()) * height / maxf(1.0, float(texture.get_height()))
+	var x := -fposmod(offset * width, width)
+	while x < size.x:
+		draw_texture_rect(texture, Rect2(x, top, width + 1.0, height), false, tint)
+		x += width
 
 func _draw_ground(lane_y: float) -> void:
-	var rows := 14
-	for i in rows:
-		var t := float(i) / float(rows - 1)
-		draw_rect(Rect2(0, lane_y + (size.y - lane_y) * float(i) / rows, size.x, (size.y - lane_y) / rows + 1.0), Color("#141b2b").lerp(Color("#080b13"), t))
+	draw_rect(Rect2(0, lane_y, size.x, size.y - lane_y), Color("#090c14"))
+	# The grass edge rises slightly above the lane so feet stand on the path.
+	var ground_height := maxf(120.0, (size.y - lane_y) * 1.1)
+	_draw_strip(BattlefieldArt.GROUND, lane_y - ground_height * 0.14, ground_height, Color(0.86, 0.88, 0.98))
 	# Team-tinted build zones fade toward the centre.
 	for i in 10:
 		var t := float(i) / 9.0
 		var w := size.x * 0.47 * (1.0 - t * 0.85)
-		draw_rect(Rect2(0, lane_y, w, size.y - lane_y), Color(0.20, 0.36, 0.85, 0.012 + t * 0.010))
-		draw_rect(Rect2(size.x - w, lane_y, w, size.y - lane_y), Color(0.90, 0.22, 0.38, 0.012 + t * 0.010))
+		draw_rect(Rect2(0, lane_y, w, size.y - lane_y), Color(0.20, 0.36, 0.85, 0.010 + t * 0.008))
+		draw_rect(Rect2(size.x - w, lane_y, w, size.y - lane_y), Color(0.90, 0.22, 0.38, 0.010 + t * 0.008))
 	# Lane edge glows blue to red.
 	var segments := 64
 	for i in segments:
 		var t := float(i) / float(segments - 1)
 		var color := BLUE.lerp(RED, smoothstep(0.35, 0.65, t))
-		var x0 := size.x * float(i) / segments
-		draw_rect(Rect2(x0, lane_y, size.x / segments + 1.0, 3.0), Color(color.r, color.g, color.b, 0.55))
-		draw_rect(Rect2(x0, lane_y + 3.0, size.x / segments + 1.0, 14.0), Color(color.r, color.g, color.b, 0.05))
-	draw_rect(Rect2(0, lane_y - 1.0, size.x, 1.0), Color(1, 1, 1, 0.10))
-	for i in 16:
-		var x := float(i) * size.x / 15.0
-		draw_line(Vector2(x, lane_y + 16.0), Vector2(x - 40.0, size.y), Color(0.42, 0.50, 0.70, 0.09), 1.0)
-	for j in 4:
-		var y := lane_y + 24.0 + float(j) * float(j) * 9.0 + float(j) * 12.0
-		draw_line(Vector2(0, y), Vector2(size.x, y), Color(0.42, 0.50, 0.70, 0.05), 1.0)
+		draw_rect(Rect2(size.x * float(i) / segments, lane_y + 1.0, size.x / segments + 1.0, 2.0), Color(color.r, color.g, color.b, 0.30))
 	draw_line(Vector2(size.x * 0.5, lane_y - 28.0), Vector2(size.x * 0.5, size.y), Color(0.85, 0.88, 1.0, 0.14), 1.0)
 	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 7.0, Color(0.5, 0.56, 0.78, 0.35))
 	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 4.0, Color("#aab4d2"))
 
-func _draw_base(x: float, lane_y: float, side: int) -> void:
+func _draw_base(x: float, lane_y: float, world_side: int) -> void:
+	var side := display_side(world_side)
 	var color := BLUE if side == 0 else RED
-	var light := BLUE_LIGHT if side == 0 else RED_LIGHT
-	var facing := 1.0 if side == 0 else -1.0
-	var collapsing := finale_world_side >= 0 and side == display_side(finale_world_side)
+	var collapsing := finale_world_side >= 0 and world_side == finale_world_side
 	if collapsing:
+		var facing := 1.0 if side == 0 else -1.0
 		var progress := minf(finale_age / 1.2, 1.0)
 		var pivot := Vector2(x, lane_y)
 		var tilt := 0.22 * progress * -facing
@@ -626,36 +576,10 @@ func _draw_base(x: float, lane_y: float, side: int) -> void:
 	# Soft territory glow.
 	for i in 6:
 		draw_circle(Vector2(x, lane_y - 56.0), 100.0 - float(i) * 12.0, Color(color.r, color.g, color.b, 0.025 + float(i) * 0.012))
-	# Fortress body and feet.
-	draw_rect(Rect2(x - 43.0, lane_y - 92.0, 86.0, 92.0), Color("#171d2a"))
-	draw_rect(Rect2(x - 43.0, lane_y - 92.0, 5.0, 92.0), color)
-	draw_rect(Rect2(x - 54.0, lane_y - 12.0, 108.0, 12.0), Color("#242c3c"))
-	# Cat ears make the base silhouette thematic.
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(x - 42.0, lane_y - 92.0), Vector2(x - 27.0, lane_y - 123.0), Vector2(x - 8.0, lane_y - 92.0)
-	]), Color("#242c3c"))
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(x + 8.0, lane_y - 92.0), Vector2(x + 27.0, lane_y - 123.0), Vector2(x + 42.0, lane_y - 92.0)
-	]), Color("#242c3c"))
-	# Battlements and glowing windows give the fortress some life.
-	for i in 5:
-		draw_rect(Rect2(x - 43.0 + float(i) * 19.0, lane_y - 100.0, 11.0, 8.0), Color("#242c3c"))
-	var flicker := 0.55 + 0.35 * sin(float(Time.get_ticks_msec()) / 600.0 + x)
-	for row in 2:
-		for col in 3:
-			draw_rect(Rect2(x - 30.0 + float(col) * 24.0, lane_y - 44.0 + float(row) * 16.0, 7.0, 9.0), Color(light.r, light.g, light.b, 0.25 + 0.3 * flicker * float((row + col) % 2 + 1) / 2.0))
-	# Face, gate and banner.
-	draw_circle(Vector2(x - 15.0, lane_y - 70.0), 3.0, light)
-	draw_circle(Vector2(x + 15.0, lane_y - 70.0), 3.0, light)
-	draw_line(Vector2(x, lane_y - 61.0), Vector2(x + 7.0 * facing, lane_y - 57.0), light, 2.0)
-	draw_arc(Vector2(x, lane_y - 6.0), 22.0, PI, TAU, 20, Color("#090c12"), 10.0)
-	draw_line(Vector2(x + 46.0 * facing, lane_y - 108.0), Vector2(x + 46.0 * facing, lane_y - 150.0), Color("#7d879b"), 2.0)
-	var wave := sin(float(Time.get_ticks_msec()) / 280.0 + x) * 3.0
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(x + 46.0 * facing, lane_y - 149.0),
-		Vector2(x + 46.0 * facing, lane_y - 132.0),
-		Vector2(x + 72.0 * facing, lane_y - 140.0 + wave)
-	]), color)
+	var hp: Array = snapshot.get("base_hp", [1.0, 1.0])
+	var max_hp: Array = snapshot.get("base_max_hp", [1.0, 1.0])
+	var state := 2 if collapsing else BattlefieldArt.base_state(float(hp[world_side]), float(max_hp[world_side]))
+	_draw_art(BattlefieldArt.BASES[side][state], x, lane_y + 10.0, 196.0, 1.0, side == 1)
 	if collapsing:
 		draw_set_transform_matrix(_view_transform())
 
@@ -834,34 +758,26 @@ func effect_remaining(effect: Dictionary) -> float:
 func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> void:
 	var x := world_to_screen_x(float(structure.x))
 	var side := display_side(int(structure.side))
-	var color := BLUE if side == 0 else RED
+	var flip := side == 1
 	match String(structure.kind):
 		"wall":
-			draw_rect(Rect2(x - 22.0, lane_y - 78.0, 44.0, 78.0), Color("#313a4a"))
-			draw_rect(Rect2(x - 18.0, lane_y - 73.0, 36.0, 14.0), color.darkened(0.15))
-			for i in 3:
-				draw_line(Vector2(x - 18.0, lane_y - 51.0 + i * 20.0), Vector2(x + 18.0, lane_y - 51.0 + i * 20.0), Color("#596579"), 2.0)
-			draw_circle(Vector2(x, lane_y - 66.0), 4.0, Color("#e8edf5"))
+			var broken := float(structure.get("hp", 1.0)) < float(structure.get("max_hp", 1.0)) * 0.5
+			_draw_art((BattlefieldArt.WALL_BROKEN if broken else BattlefieldArt.WALL)[side], x, lane_y + 6.0, 96.0, 1.0, flip)
 		"swamp":
-			draw_circle(Vector2(x, lane_y - 4.0), float(BattleModel.STRUCTURE_STATS.swamp.radius) * scale_x, Color(0.42, 0.28, 0.70, 0.10))
-			draw_arc(Vector2(x, lane_y - 4.0), float(BattleModel.STRUCTURE_STATS.swamp.radius) * scale_x, 0.0, TAU, 48, Color(0.62, 0.47, 0.86, 0.35), 1.0)
-			draw_ellipse(Vector2(x, lane_y - 4.0), 64.0, 16.0, Color("#392f59"))
-			draw_ellipse(Vector2(x - 12.0, lane_y - 7.0), 38.0, 8.0, Color("#7256a5"))
-			for bubble in [Vector2(-31, -16), Vector2(16, -19), Vector2(35, -12)]:
-				draw_circle(Vector2(x, lane_y) + bubble, 4.0, Color(0.62, 0.47, 0.86, 0.56))
+			var radius := float(BattleModel.STRUCTURE_STATS.swamp.radius) * scale_x
+			draw_arc(Vector2(x, lane_y - 4.0), radius, 0.0, TAU, 48, Color(0.62, 0.47, 0.86, 0.30), 1.0)
+			_draw_art(BattlefieldArt.SWAMP, x, lane_y + 14.0, radius * 1.7, 0.95, fmod(float(structure.get("id", 0)), 2.0) == 1.0)
 		"turret":
-			draw_rect(Rect2(x - 24.0, lane_y - 38.0, 48.0, 38.0), Color("#303847"))
-			draw_circle(Vector2(x, lane_y - 43.0), 20.0, color.darkened(0.18))
-			var facing := 1.0 if side == 0 else -1.0
-			draw_line(Vector2(x, lane_y - 45.0), Vector2(x + 38.0 * facing, lane_y - 52.0), Color("#e8edf5"), 7.0)
+			var width := 86.0
+			_draw_art(BattlefieldArt.TURRET[side], x, lane_y + 6.0, width, 1.0, flip)
 			if fmod(animation_time, 1.5) < 0.16:
-				draw_circle(Vector2(x + 41.0 * facing, lane_y - 53.0), 8.0, Color("#ffd36a"))
+				var facing := 1.0 if side == 0 else -1.0
+				var height := width * float(BattlefieldArt.TURRET[side].get_height()) / float(BattlefieldArt.TURRET[side].get_width())
+				draw_circle(Vector2(x + width * 0.5 * facing, lane_y + 6.0 - height * 0.78), 7.0, Color("#ffd36a"))
 		"generator":
-			draw_rect(Rect2(x - 27.0, lane_y - 58.0, 54.0, 58.0), Color("#263d3b"))
-			draw_rect(Rect2(x - 20.0, lane_y - 50.0, 40.0, 32.0), Color("#3d8f83"))
-			var pulse := 5.0 + sin(animation_time * 4.0) * 2.0
-			draw_circle(Vector2(x, lane_y - 34.0), pulse, Color("#8dffd8"))
-			draw_line(Vector2(x, lane_y - 58.0), Vector2(x, lane_y - 78.0), Color("#8dffd8"), 2.0)
+			var pulse := 0.85 + sin(animation_time * 4.0) * 0.15
+			draw_circle(Vector2(x, lane_y - 40.0), 26.0 * pulse, Color(0.55, 1.0, 0.85, 0.08))
+			_draw_art(BattlefieldArt.GENERATOR, x, lane_y + 6.0, 70.0, 1.0, flip)
 
 func _draw_structure_lifetimes(lane_y: float) -> void:
 	var elapsed := float(snapshot.get("elapsed", 0.0))

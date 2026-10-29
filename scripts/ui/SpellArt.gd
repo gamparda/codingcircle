@@ -19,9 +19,12 @@ const ICONS := {
 	"blessing": preload("res://assets/spells/icon_blessing.png"),
 	"seraph": preload("res://assets/spells/icon_seraph.png"),
 	"swamp": preload("res://assets/spells/icon_swamp.png"),
+	"wall": preload("res://assets/spells/icon_wall.png"),
+	"turret": preload("res://assets/spells/icon_turret.png"),
+	"generator": preload("res://assets/spells/icon_generator.png"),
 }
 
-## The card icon for a tactic card, or null when it has none (built structures use an emblem).
+## The card icon for a tactic card, or null when it has none (the card then shows an emblem).
 static func icon(kind: String) -> Texture2D:
 	return ICONS.get(kind)
 
