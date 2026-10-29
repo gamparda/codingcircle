@@ -12,8 +12,11 @@ const DECK_SCREEN := preload("res://scenes/ui/DeckScreen.tscn")
 
 static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	var index := int(main.save_data.last_deck) if preset_index < 0 else clampi(preset_index, 0, SaveData.DECK_PRESETS - 1)
-	var frame = MenuScreens._show_scene(main, DECK_SCREEN, "덱 편성", "유닛 %d종 · 전술(구조물·주문) %d종 선택" % [BattleModel.DECK_SIZE, BattleModel.DECK_SIZE])
+	# No subtitle: the status line under the cards already counts the picks, and the cards need the height.
+	var frame = MenuScreens._show_scene(main, DECK_SCREEN, "덱 편성", "")
 	var column: VBoxContainer = frame.column
+	column.get_node("HeaderRule").visible = false
+	column.add_theme_constant_override("separation", 8)
 	var tabs: HBoxContainer = column.get_node("Tabs")
 	for tab_index in SaveData.DECK_PRESETS:
 		var tab = main._styled_button(String(main.save_data.deck_presets[tab_index].name), Color("#5e6ad2"), tab_index == index)
