@@ -154,7 +154,7 @@ func _try_spawn(model: BattleModel) -> void:
 	# A cheap fallback must not repeatedly spend the bank just below the price
 	# of the preferred damage dealer. Emergency defense still buys immediately.
 	var clear_preference: bool = state.own >= 2 and available.size() > 1 and _unit_score(preferred, state) >= _unit_score(String(available[1]), state) + 8.0
-	if stage >= 3 and (key_purchase or clear_preference) and not state.danger and float(model.resources[side]) < float(BattleModel.UNIT_STATS[preferred].cost):
+	if stage >= 3 and (key_purchase or clear_preference) and not state.danger and float(model.resources[side]) < model.unit_cost(side, preferred):
 		spawn_timer = 0.5
 		return
 	for kind in available:

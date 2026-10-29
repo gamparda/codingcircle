@@ -88,6 +88,13 @@ var fallen: Array = [[], []]
 var next_cast_id := 1
 ## Cards each side may not use this battle (ranked bans: the opponent removed them before the match).
 var banned: Array = [[], []]
+## Run modifiers for each side (expedition relics, endless-defense boons): empty in every other mode. Keys are
+## documented at modifier(); RunBoons.combine builds them. Part of a battle's setup, like campaign_levels.
+var modifiers: Array = [{}, {}]
+const MODIFIER_KEYS := ["hp:", "damage:", "range:ranged", "cost:units", "spell_cooldown", "structure_hp", "knockback",
+	"skill_cooldown:", "income", "capacity", "start", "skeleton_cap", "first_strike"]
+## Units that already made their first attack (for the "first_strike" modifier).
+var first_struck: Dictionary = {}
 const MAX_FALLEN := 40
 var battle_report: Array = [Report.empty_side(),Report.empty_side()]
 
@@ -110,13 +117,83 @@ func configure_campaign_growth(side: int, cleared_stages: int) -> void:
 	if side < 0 or side > 1:
 		return
 	campaign_levels[side] = clampi(cleared_stages, 0, 8)
-	resources[side] = campaign_bonuses(int(campaign_levels[side])).starting_resources
+	resources[side] = starting_resources(side)
 
 func resource_capacity(side: int) -> float:
-	return float(campaign_bonuses(int(campaign_levels[side])).capacity)
+	return float(campaign_bonuses(int(campaign_levels[side])).capacity) + float(modifier(side, "capacity", 0.0))
 
 func resource_income(side: int) -> float:
-	return float(campaign_bonuses(int(campaign_levels[side])).income)
+	return float(campaign_bonuses(int(campaign_levels[side])).income) + float(modifier(side, "income", 0.0))
+
+func starting_resources(side: int) -> float:
+	return minf(resource_capacity(side), float(campaign_bonuses(int(campaign_levels[side])).starting_resources) + float(modifier(side, "start", 0.0)))
+
+## Applies run modifiers to `side` and refreshes its starting resources.
+func configure_modifiers(side: int, values: Dictionary) -> void:
+	if side < 0 or side > 1:
+		return
+	modifiers[side] = values.duplicate(true)
+	resources[side] = starting_resources(side)
+
+## A run modifier of `side`. Multipliers default to 1, additions to 0:
+##   "hp:<scope>", "damage:<scope>"  unit health/damage multiplier; scope "all", "melee", "ranged" or a unit kind
+##   "range:ranged"                  extra range for ranged units
+##   "cost:units"                    unit cost multiplier
+##   "spell_cooldown", "structure_hp", "knockback", "skill_cooldown:<kind>"   multipliers
+##   "income", "capacity", "start", "skeleton_cap"                             additions
+##   "first_strike"                  > 0: each unit's first attack deals double damage
+##   "stars": {kind: level}          card upgrades: units +20% health and damage per level (cost -10% at 2),
+##                                   structures +20% health per level, spells -15% cooldown per level
+func modifier(side: int, key: String, fallback = 1.0):
+	return modifiers[side].get(key, fallback) if side >= 0 and side < 2 else fallback
+
+## Whether `values` is a well-formed modifier set (replays and saved runs come from files).
+static func valid_modifiers(values: Variant) -> bool:
+	if not values is Dictionary or values.size() > 64:
+		return false
+	for key in values:
+		if not key is String:
+			return false
+		var value = values[key]
+		if key == "stars":
+			if not value is Dictionary or value.size() > 32:
+				return false
+			for kind in value:
+				if not kind is String or not (UNIT_STATS.has(kind) or STRUCTURE_STATS.has(kind)):
+					return false
+				if not (value[kind] is int or value[kind] is float) or float(value[kind]) < 0.0 or float(value[kind]) > 2.0 or float(value[kind]) != floorf(float(value[kind])):
+					return false
+			continue
+		if not MODIFIER_KEYS.any(func(prefix): return key == prefix or (prefix.ends_with(":") and key.begins_with(prefix))):
+			return false
+		if not (value is int or value is float) or not is_finite(float(value)) or float(value) < -1000.0 or float(value) > 1000.0:
+			return false
+		if not key in ["income", "capacity", "start", "skeleton_cap", "range:ranged"] and float(value) < 0.0:
+			return false
+	return true
+
+func card_level(side: int, kind: String) -> int:
+	var stars = modifier(side, "stars", {})
+	return clampi(int(stars.get(kind, 0)), 0, 2) if stars is Dictionary else 0
+
+## Melee: reach up to 60. Ranged: 200 and more. Support and summoners are neither.
+static func unit_scope(kind: String) -> String:
+	var reach := float(UNIT_STATS.get(kind, SUMMON_STATS.get(kind, {})).get("range", 0.0))
+	return "melee" if reach <= 60.0 else ("ranged" if reach >= 200.0 else "")
+
+## Combined health or damage multiplier of `side`'s modifiers for `kind` (stat: "hp" or "damage").
+func unit_modifier(side: int, kind: String, stat: String) -> float:
+	var value := float(modifier(side, stat + ":all")) * float(modifier(side, stat + ":" + kind))
+	var scope := unit_scope(kind)
+	if not scope.is_empty():
+		value *= float(modifier(side, stat + ":" + scope))
+	return value * (1.0 + 0.2 * card_level(side, kind))
+
+func unit_cost(side: int, kind: String) -> float:
+	var cost := float(UNIT_STATS[kind].cost) * float(modifier(side, "cost:units"))
+	if card_level(side, kind) >= 2:
+		cost *= 0.9
+	return roundf(cost)
 
 func configure_base_health(side: int, maximum: float) -> void:
 	if side < 0 or side > 1 or not is_finite(maximum) or maximum <= 0.0:
@@ -125,7 +202,7 @@ func configure_base_health(side: int, maximum: float) -> void:
 	base_hp[side] = base_max_hp[side]
 
 func reset() -> void:
-	resources = [campaign_bonuses(int(campaign_levels[0])).starting_resources, campaign_bonuses(int(campaign_levels[1])).starting_resources]
+	resources = [starting_resources(0), starting_resources(1)]
 	base_hp = base_max_hp.duplicate()
 	units.clear()
 	structures.clear()
@@ -145,6 +222,7 @@ func reset() -> void:
 	summon_owners.clear()
 	revive_used.clear()
 	knocked_back.clear()
+	first_struck.clear()
 	spell_casts.clear()
 	spell_cooldowns = [{}, {}]
 	spell_uses = [{}, {}]
@@ -178,13 +256,14 @@ func spawn_unit(side: int, kind: String) -> bool:
 		return false
 	var stats: Dictionary = UNIT_STATS[kind]
 	var stat_scale := float(campaign_bonuses(int(campaign_levels[side])).stat_scale)
-	if resources[side] < stats.cost or float(spawn_cooldowns[side].get(kind, 0.0)) > 0.0:
+	var cost := unit_cost(side, kind)
+	if resources[side] < cost or float(spawn_cooldowns[side].get(kind, 0.0)) > 0.0:
 		return false
-	resources[side] -= stats.cost
-	battle_report[side].resources_spent += float(stats.cost)
+	resources[side] -= cost
+	battle_report[side].resources_spent += cost
 	battle_report[side].units[kind].purchased += 1
 	spawn_cooldowns[side][kind] = 0.35
-	_create_unit(side, kind, stats, stat_scale, stat_scale, FIELD_LEFT + 35.0 if side == 0 else FIELD_RIGHT - 35.0)
+	_create_unit(side, kind, stats, stat_scale * unit_modifier(side, kind, "hp"), stat_scale * unit_modifier(side, kind, "damage"), FIELD_LEFT + 35.0 if side == 0 else FIELD_RIGHT - 35.0)
 	return true
 
 func _create_unit(side: int, kind: String, stats: Dictionary, hp_scale: float, damage_scale: float, x: float) -> void:
@@ -194,7 +273,7 @@ func _create_unit(side: int, kind: String, stats: Dictionary, hp_scale: float, d
 		"heal": stats.get("heal", 0.0) * damage_scale, "interval": stats.interval,
 		"cooldown": 0.0 if kind == "healer" else max(MIN_ATTACK_INTERVAL, float(stats.interval)),
 		"support_stacks": 0,
-		"speed": stats.speed, "range": stats.range})
+		"speed": stats.speed, "range": float(stats.range) + (float(modifier(side, "range:ranged", 0.0)) if unit_scope(kind) == "ranged" else 0.0)})
 	if kind == "necromancer":
 		summon_timers[next_unit_id] = SUMMON_INTERVAL
 		units.back()["summon_remaining"] = SUMMON_INTERVAL
@@ -369,7 +448,7 @@ func _cast_spell(side: int, kind: String, x: float) -> void:
 	var stats: Dictionary = STRUCTURE_STATS[kind]
 	resources[side] -= float(stats.cost)
 	battle_report[side].resources_spent += float(stats.cost)
-	spell_cooldowns[side][kind] = float(stats.get("cooldown", 0.0))
+	spell_cooldowns[side][kind] = float(stats.get("cooldown", 0.0)) * float(modifier(side, "spell_cooldown")) * (1.0 - 0.15 * card_level(side, kind))
 	spell_uses[side][kind] = int(spell_uses[side].get(kind, 0)) + 1
 	var delay := float(stats.get("delay", 0.0))
 	if stats.has("speed"):
@@ -497,7 +576,8 @@ func place_structure(side: int, kind: String, x: float) -> bool:
 	battle_report[side].resources_spent += float(stats.cost)
 	battle_report[side].structures_built += 1
 	if kind == "turret": battle_report[side].units.turret.purchased += 1
-	structures.append({"id": next_structure_id, "side": side, "kind": kind, "x": x, "hp": stats.hp, "max_hp": stats.hp})
+	var structure_hp := float(stats.hp) * float(modifier(side, "structure_hp")) * (1.0 + 0.2 * card_level(side, kind))
+	structures.append({"id": next_structure_id, "side": side, "kind": kind, "x": x, "hp": structure_hp, "max_hp": structure_hp})
 	if kind == "turret":
 		structure_cooldowns[next_structure_id] = float(stats.interval)
 	if kind == "swamp":
@@ -558,7 +638,7 @@ func tick(delta: float) -> void:
 		if unit.kind == "necromancer":
 			summon_timers[unit.id] = float(summon_timers.get(unit.id, SUMMON_INTERVAL)) - delta
 			if float(summon_timers[unit.id]) <= 0.000001:
-				if int(live_skeletons.get(unit.id, 0)) < MAX_SKELETONS_PER_NECROMANCER:
+				if int(live_skeletons.get(unit.id, 0)) < MAX_SKELETONS_PER_NECROMANCER + int(modifier(int(unit.side), "skeleton_cap", 0)):
 					pending_summons.append(unit)
 				summon_timers[unit.id] = SUMMON_INTERVAL
 			unit["summon_remaining"] = maxf(0.0, float(summon_timers[unit.id]))
@@ -575,9 +655,9 @@ func tick(delta: float) -> void:
 		if target != null:
 			if unit.has("skill_remaining") and float(unit.skill_remaining) <= 0.0:
 				pending_skills.append({"caster": unit, "x": float(target.x)})
-				unit.skill_remaining = float(trait_value(String(unit.kind), "skill_cooldown"))
+				unit.skill_remaining = float(trait_value(String(unit.kind), "skill_cooldown")) * float(modifier(int(unit.side), "skill_cooldown:" + String(unit.kind)))
 			if unit.cooldown <= 0.0:
-				pending_attacks.append({"attacker":unit, "target":target, "damage":unit_attack_damage(unit)})
+				pending_attacks.append({"attacker":unit, "target":target, "damage":_strike_damage(unit)})
 				unit.cooldown = unit.interval
 			continue
 
@@ -585,12 +665,12 @@ func tick(delta: float) -> void:
 		var blocking_wall = _blocking_wall(unit, enemy_base_x)
 		if blocking_wall != null and abs(float(blocking_wall.x) - float(unit.x)) <= float(unit.range) + 12.0:
 			if unit.cooldown <= 0.0:
-				pending_attacks.append({"attacker":unit, "target":blocking_wall, "damage":unit_attack_damage(unit)})
+				pending_attacks.append({"attacker":unit, "target":blocking_wall, "damage":_strike_damage(unit)})
 				unit.cooldown = unit.interval
 			continue
 		if abs(float(unit.x) - enemy_base_x) <= float(unit.range):
 			if unit.cooldown <= 0.0:
-				pending_base_hits.append({"attacker":unit, "damage":unit_attack_damage(unit), "x":enemy_base_x})
+				pending_base_hits.append({"attacker":unit, "damage":_strike_damage(unit), "x":enemy_base_x})
 				unit.cooldown = unit.interval
 			continue
 		var direction := 1.0 if unit.side == 0 else -1.0
@@ -729,6 +809,14 @@ static func is_enraged(unit: Dictionary) -> bool:
 func unit_attack_damage(unit: Dictionary) -> float:
 	return float(unit.damage) * (1.0 + int(unit.get("souls", 0)) * float(trait_value(String(unit.kind), "soul_damage_step", 0.0)))
 
+## The damage of an attack `unit` makes now; the "first_strike" modifier doubles each unit's first one.
+func _strike_damage(unit: Dictionary) -> float:
+	var damage := unit_attack_damage(unit)
+	if float(modifier(int(unit.side), "first_strike", 0.0)) > 0.0 and not first_struck.has(int(unit.id)):
+		first_struck[int(unit.id)] = true
+		damage *= 2.0
+	return damage
+
 func curse_speed_scale(side: int, x: float) -> float:
 	for curse in curses:
 		if int(curse.side) != side and float(curse.expires_at) > elapsed and absf(float(curse.x) - x) <= CURSE_RADIUS:
@@ -808,7 +896,7 @@ func _damage_target(attacker: Dictionary, target: Dictionary, damage: float, sho
 	if target.has("speed") and float(target.hp) > 0.0 and float(target.hp) <= float(target.max_hp) * KNOCKBACK_FRACTION and not knocked_back.has(target.id):
 		knocked_back[target.id] = true
 		var away := -1.0 if int(target.side) == 0 else 1.0
-		target.x = clampf(float(target.x) + away * KNOCKBACK_DISTANCE, FIELD_LEFT, FIELD_RIGHT)
+		target.x = clampf(float(target.x) + away * KNOCKBACK_DISTANCE * float(modifier(int(target.side), "knockback")), FIELD_LEFT, FIELD_RIGHT)
 		combat_events.append({"type": "KNOCKBACK", "target_id": target.id, "x": target.x})
 	if attacker.kind == "warlock":
 		_install_curse(attacker, float(target.x))

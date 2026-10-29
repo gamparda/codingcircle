@@ -414,9 +414,13 @@ static func _add_spawn_button(main, row: HBoxContainer, title: String, kind: Str
 	var stats: Dictionary = BattleModel.UNIT_STATS[kind].duplicate()
 	var growth_level := int(main.local_model.campaign_levels[main.own_side]) if main.local_ai_mode and is_instance_valid(main.local_model) else 0
 	var stat_scale := float(BattleModel.campaign_bonuses(growth_level).stat_scale)
+	var local: bool = main.local_ai_mode and is_instance_valid(main.local_model)
 	for key in ["hp", "damage", "heal"]:
 		if stats.has(key):
-			stats[key] = float(stats[key]) * stat_scale
+			var run_scale: float = main.local_model.unit_modifier(main.own_side, kind, "damage" if key == "heal" else key) if local else 1.0
+			stats[key] = float(stats[key]) * stat_scale * run_scale
+	if local:
+		stats.cost = main.local_model.unit_cost(main.own_side, kind)
 	var primary := Localization.text("공속 +%d%% 누적") % roundi(BattleModel.SUPPORT_INCREMENT * 100.0) if kind == "healer" else Localization.text("공격 %d") % int(stats.damage)
 	var button = main._styled_button(Localization.text("%s  ·  %d\n체력 %d  ·  %s") % [title, int(stats.cost), int(stats.hp), primary], color)
 	button.tooltip_text = BattleModel.unit_stat_summary(kind, growth_level)

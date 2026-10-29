@@ -62,7 +62,7 @@ func update(model: BattleModel, delta: float) -> void:
 		return
 	var key_purchase: bool = (preferred in ["necromancer", "demon_lord"] and int(state.counts.get(preferred, 0)) == 0) or (preferred == "healer" and state.buff_need >= 2 and int(state.counts.get(preferred, 0)) == 0) or (preferred == "shield" and state.frontline == 0 and state.own > 0)
 	var clear_preference: bool = state.own >= 2 and score(preferred, state) >= score(String(candidates[1]), state) + 8.0
-	if not state.danger and (key_purchase or clear_preference) and model.resources[side] < BattleModel.UNIT_STATS[preferred].cost:
+	if not state.danger and (key_purchase or clear_preference) and model.resources[side] < model.unit_cost(side, preferred):
 		return
 	for kind in candidates:
 		if policy != "cycle" and kind == "healer" and tactics._unit_score(kind, state) <= 8.0:

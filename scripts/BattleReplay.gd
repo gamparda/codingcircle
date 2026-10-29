@@ -32,6 +32,8 @@ class Recorder extends RefCounted:
 			},
 			"ai": ai.duplicate(), "commands": [], "forced_end": {}, "result": {},
 		}
+		if model.modifiers.any(func(values): return not values.is_empty()):
+			replay.setup["modifiers"] = model.modifiers.duplicate(true)
 
 	## Call after every executed model.tick().
 	func on_tick() -> void:
@@ -128,6 +130,12 @@ static func valid(replay: Variant) -> bool:
 				return false
 		if not _is_integer(setup.campaign_levels[side]) or int(setup.campaign_levels[side]) > 8:
 			return false
+	if setup.has("modifiers"):
+		if not setup.modifiers is Array or setup.modifiers.size() != 2:
+			return false
+		for values in setup.modifiers:
+			if not BattleModel.valid_modifiers(values):
+				return false
 	if not replay.commands is Array or replay.commands.size() > MAX_COMMANDS:
 		return false
 	var last_tick := 0
@@ -189,6 +197,8 @@ class Player extends RefCounted:
 			model.base_max_hp[side] = float(setup.base_max_hp[side])
 			model.base_hp[side] = float(setup.base_hp[side])
 			model.resources[side] = float(setup.resources[side])
+			if setup.has("modifiers"):
+				model.modifiers[side] = setup.modifiers[side].duplicate(true)
 		var ai_info: Dictionary = source.get("ai", {})
 		if not ai_info.is_empty():
 			ai = ServerAI.new(int(ai_info.side), int(ai_info.stage))
