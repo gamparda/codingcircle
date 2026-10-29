@@ -7,6 +7,8 @@ const SKY := preload("res://assets/battlefield/sky.jpg")
 const SKY_HORIZON := 0.68
 const RUINS := preload("res://assets/battlefield/ruins.png")
 const GROUND := preload("res://assets/battlefield/ground.png")
+## Where units walk on the ground strip, as a fraction of its height: the upper part of the dirt road.
+const GROUND_LANE := 0.40
 ## Intact, burning, ruined.
 const BASES := [
 	[preload("res://assets/battlefield/base_blue_0.png"), preload("res://assets/battlefield/base_blue_1.png"), preload("res://assets/battlefield/base_blue_2.png")],

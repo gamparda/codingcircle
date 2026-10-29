@@ -529,7 +529,14 @@ func _draw_sky(lane_y: float) -> void:
 			draw_circle(Vector2(cx + float(puff) * 34.0, cy + sin(float(puff) * 1.9) * 6.0), 30.0 - float(puff % 3) * 6.0, Color(0.5, 0.6, 0.9, 0.03))
 	# Ruins in front of the far scenery, a little darker so units stay readable.
 	var ruins_height := clampf(size.y * 0.21, 110.0, 190.0)
-	_draw_strip(BattlefieldArt.RUINS, lane_y + 6.0 - ruins_height, ruins_height, Color(0.66, 0.70, 0.84), 0.37)
+	_draw_strip(BattlefieldArt.RUINS, _ground_top(lane_y) + _ground_height() * 0.26 - ruins_height, ruins_height, Color(0.66, 0.70, 0.84), 0.37)
+
+## The ground strip is placed so the lane runs along the upper part of its dirt road.
+func _ground_height() -> float:
+	return clampf(size.y * 0.32, 160.0, 300.0)
+
+func _ground_top(lane_y: float) -> float:
+	return lane_y - _ground_height() * BattlefieldArt.GROUND_LANE
 
 ## Repeats a seamless strip across the battlefield width.
 func _draw_strip(texture: Texture2D, top: float, height: float, tint: Color = Color.WHITE, offset: float = 0.0) -> void:
@@ -540,25 +547,18 @@ func _draw_strip(texture: Texture2D, top: float, height: float, tint: Color = Co
 		x += width
 
 func _draw_ground(lane_y: float) -> void:
-	draw_rect(Rect2(0, lane_y, size.x, size.y - lane_y), Color("#090c14"))
-	# The grass edge rises slightly above the lane so feet stand on the path.
-	var ground_height := maxf(120.0, (size.y - lane_y) * 1.1)
-	_draw_strip(BattlefieldArt.GROUND, lane_y - ground_height * 0.14, ground_height, Color(0.86, 0.88, 0.98))
+	# Below the strip, its darkest stone colour continues to the screen edge.
+	draw_rect(Rect2(0, lane_y, size.x, size.y - lane_y), Color("#0a0b14"))
+	_draw_strip(BattlefieldArt.GROUND, _ground_top(lane_y), _ground_height(), Color(0.86, 0.88, 0.98))
 	# Team-tinted build zones fade toward the centre.
 	for i in 10:
 		var t := float(i) / 9.0
 		var w := size.x * 0.47 * (1.0 - t * 0.85)
 		draw_rect(Rect2(0, lane_y, w, size.y - lane_y), Color(0.20, 0.36, 0.85, 0.010 + t * 0.008))
 		draw_rect(Rect2(size.x - w, lane_y, w, size.y - lane_y), Color(0.90, 0.22, 0.38, 0.010 + t * 0.008))
-	# Lane edge glows blue to red.
-	var segments := 64
-	for i in segments:
-		var t := float(i) / float(segments - 1)
-		var color := BLUE.lerp(RED, smoothstep(0.35, 0.65, t))
-		draw_rect(Rect2(size.x * float(i) / segments, lane_y + 1.0, size.x / segments + 1.0, 2.0), Color(color.r, color.g, color.b, 0.30))
-	draw_line(Vector2(size.x * 0.5, lane_y - 28.0), Vector2(size.x * 0.5, size.y), Color(0.85, 0.88, 1.0, 0.14), 1.0)
-	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 7.0, Color(0.5, 0.56, 0.78, 0.35))
-	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 4.0, Color("#aab4d2"))
+	draw_line(Vector2(size.x * 0.5, lane_y + 6.0), Vector2(size.x * 0.5, size.y), Color(0.85, 0.88, 1.0, 0.10), 1.0)
+	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 6.0, Color(0.5, 0.56, 0.78, 0.30))
+	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 3.0, Color("#aab4d2"))
 
 func _draw_base(x: float, lane_y: float, world_side: int) -> void:
 	var side := display_side(world_side)
