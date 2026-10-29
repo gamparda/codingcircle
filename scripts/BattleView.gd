@@ -519,7 +519,11 @@ func _draw_sky(lane_y: float) -> void:
 	var horizon := lane_y - 34.0
 	var sky_scale := maxf(size.x / float(sky.get_width()), horizon / (BattlefieldArt.SKY_HORIZON * float(sky.get_height())))
 	var sky_size := Vector2(sky.get_width(), sky.get_height()) * sky_scale
-	draw_texture_rect(sky, Rect2((size.x - sky_size.x) * 0.5, horizon - BattlefieldArt.SKY_HORIZON * sky_size.y, sky_size.x, sky_size.y), false, Color(0.80, 0.82, 0.92))
+	# Only the part inside the battlefield is drawn, so the sky never covers the base health bars above it.
+	var sky_rect := Rect2((size.x - sky_size.x) * 0.5, horizon - BattlefieldArt.SKY_HORIZON * sky_size.y, sky_size.x, sky_size.y)
+	var visible := sky_rect.intersection(Rect2(Vector2.ZERO, size))
+	var source := Rect2((visible.position - sky_rect.position) / sky_scale, visible.size / sky_scale)
+	draw_texture_rect_region(sky, visible, source, Color(0.80, 0.82, 0.92))
 	# Drifting haze keeps the backdrop alive.
 	var clock := float(Time.get_ticks_msec()) / 1000.0
 	for i in 3:
