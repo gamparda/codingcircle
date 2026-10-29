@@ -151,7 +151,7 @@ func run() -> void:
 	await process_frame
 	main.save_data = SaveData.default_data()
 	main.save_data.tutorial_completed = true
-	main._build_connect_screen()
+	main._build_solo_screen()
 	await process_frame
 	main.find_child("ExpeditionButton", true, false).pressed.emit()
 	await process_frame
@@ -167,7 +167,7 @@ func run() -> void:
 	check(node_button != null and not node_button.disabled and main.find_child("ExpeditionNode_1_0", true, false).disabled, "only the current layer can be picked")
 	node_button.pressed.emit()
 	await process_frame
-	check(main.local_ai_mode and main.battle_active and main.find_child("ExpeditionControls", true, false) != null, "the battle starts with expedition controls")
+	check(main.local_ai_mode and main.battle_active and main.find_child("ExpeditionSpeedButton", true, false) != null, "the battle starts with expedition controls")
 	main.set_process(false)
 	main.find_child("ExpeditionSpeedButton", true, false).pressed.emit()
 	var before: float = main.local_model.elapsed
@@ -192,12 +192,12 @@ func run() -> void:
 	check(main.expedition_run.layer == 1 and main.find_child("ExpeditionMap", true, false) != null, "back on the map, one layer further")
 	main.find_child("ExpeditionDeck", true, false).pressed.emit()
 	await process_frame
-	check(main.find_child("ExpeditionDeckSave", true, false) != null and main.find_children("ExpeditionCard_*", "CheckButton", true, false).size() == 9, "the deck screen lists the collection")
+	check(main.find_child("ExpeditionDeckSave", true, false) != null and main.find_children("ExpeditionCard_*", "Button", true, false).size() == 9, "the deck screen lists the collection")
 	main.find_child("ExpeditionDeckBack", true, false).pressed.emit()
 	await process_frame
 	main.find_child("ExpeditionMenu", true, false).pressed.emit()
 	await process_frame
-	check(main.expedition_run.is_empty() and String(main.find_child("ExpeditionButton", true, false).text).contains("진행 중"), "leaving keeps the run for later")
+	check(main.expedition_run.is_empty() and String((main.find_child("ExpeditionButton", true, false).find_child("Caption", true, false) as Label).text).contains("진행 중"), "leaving keeps the run for later")
 	main.find_child("ExpeditionButton", true, false).pressed.emit()
 	await process_frame
 	main.find_child("ExpeditionResume", true, false).pressed.emit()
@@ -213,6 +213,6 @@ func run() -> void:
 	await process_frame
 	main._start_local_ai_battle(1)
 	await process_frame
-	check(main.expedition_run.is_empty() and main.find_child("ExpeditionControls", true, false) == null, "a practice battle afterwards is plain")
+	check(main.expedition_run.is_empty() and main.find_child("ExpeditionSpeedButton", true, false) == null, "a practice battle afterwards is plain")
 	print("expedition_mode_test failures=%d" % failures)
 	quit(1 if failures > 0 else 0)

@@ -6,7 +6,7 @@ const ReplayAnalysis = preload("res://scripts/ReplayAnalysis.gd")
 
 const DEFS := [
 	{"id": "first_win", "icon": "★", "name": "첫 승리", "desc": "어떤 전투에서든 처음으로 이기기"},
-	{"id": "flawless", "icon": "🛡", "name": "무피해 승리", "desc": "내 기지 체력을 하나도 잃지 않고 승리하기"},
+	{"id": "flawless", "icon": "🔰", "name": "무피해 승리", "desc": "내 기지 체력을 하나도 잃지 않고 승리하기"},
 	{"id": "comeback", "icon": "↺", "name": "역전승", "desc": "크게 밀리다가 뒤집어 승리하기"},
 	{"id": "speed_win", "icon": "⚡", "name": "속전속결", "desc": "60초 안에 승리하기"},
 	{"id": "marathon", "icon": "⏳", "name": "장기전의 달인", "desc": "5분 넘게 이어진 전투에서 승리하기"},

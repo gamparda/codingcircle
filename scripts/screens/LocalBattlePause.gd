@@ -2,6 +2,7 @@ extends RefCounted
 ## Pause only the local simulation; networking, UI and persistence keep processing.
 
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
+const UIKit = preload("res://scripts/ui/UIKit.gd")
 
 static func can_pause(main) -> bool:
 	return main.local_ai_mode and main.battle_active and is_instance_valid(main.local_model) and main.local_model.winner == -1 and not main.result_shown and not main.finale_active and is_instance_valid(main.battle_view)
@@ -20,8 +21,6 @@ static func pause(main, automatic: bool = false) -> void:
 		if scope != null: scope.get_popup().hide()
 	main.practice.paused = true
 	main.local_battle_skip_delta = true
-	if is_instance_valid(main.practice_pause_button):
-		main.practice_pause_button.text = "계속"
 	main.battle_view.reset_build_touch()
 	main.battle_view.set_process(false)
 	main._refresh_purchase_buttons(main.latest_resources)
@@ -32,18 +31,37 @@ static func pause(main, automatic: bool = false) -> void:
 	main.local_pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	main.local_pause_overlay.z_index = 180
 	main.root_background.add_child(main.local_pause_overlay)
-	var column := MultiplayerUI.panel(main, main.local_pause_overlay, "LocalBattlePausePanel", Rect2(350, 220, 580, 280))
-	column.add_child(MultiplayerUI.label("전투 일시정지", 26, MultiplayerUI.GOLD))
-	var message := MultiplayerUI.label("앱을 벗어나 전투를 멈췄습니다. 준비되면 계속하세요." if automatic else "잠시 쉬어 가세요. 준비되면 계속하세요.", 16, MultiplayerUI.MUTED)
+	var actions := _actions(main)
+	var column := MultiplayerUI.panel(main, main.local_pause_overlay, "LocalBattlePausePanel", Rect2(390, 200 - actions.size() * 30, 500, 200 + actions.size() * 62))
+	column.add_child(MultiplayerUI.label("일시정지", 28, UIKit.TEXT))
+	var message := MultiplayerUI.label("앱을 벗어나 전투를 멈췄습니다. 준비되면 계속하세요." if automatic else "전투 시간·자원·생산 대기가 모두 멈춰 있습니다.", 14, MultiplayerUI.MUTED)
 	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(message)
-	var hint := MultiplayerUI.label("전투 시간·자원·생산 대기는 멈춰 있습니다.\n계속하기 또는 Space로 재개합니다.", 14, MultiplayerUI.MUTED)
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(hint)
-	var resume := MultiplayerUI.button(main, column, "계속하기 · Space", "ResumeLocalBattle", main._resume_local_battle, true)
+	var resume := MultiplayerUI.button(main, column, "▶  계속하기 · Space", "ResumeLocalBattle", main._resume_local_battle, true)
 	resume.custom_minimum_size.y = 58
 	resume.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	for action in actions:
+		var callback: Callable = action[2]
+		var button := MultiplayerUI.button(main, column, String(action[0]), String(action[1]), func():
+			resume(main)
+			callback.call())
+		button.custom_minimum_size.y = 50
+		if action.size() > 3:
+			UIKit.style_button(button, action[3], false, 16)
 	resume.grab_focus()
+
+## The battle's actions besides resuming: [label, node name, callback, accent?]. Each runs after resuming,
+## so dialogs it opens hold the battle themselves.
+static func _actions(main) -> Array:
+	var actions: Array = []
+	if not main.endless_run.is_empty():
+		actions.append(["내 강화 보기", "PauseBoonsButton", func(): preload("res://scripts/screens/EndlessFlow.gd").show_boons(main)])
+	elif main.expedition_run.is_empty() and main.ghost_context.is_empty() and main.daily_challenge.is_empty() and main.draft_context.is_empty() and not main.campaign_mode:
+		actions.append(["처음부터 다시", "PracticeResetButton", main._restart_practice])
+		actions.append(["상대 덱 바꾸기", "PracticeEnemyDeckButton", main._show_practice_deck])
+	actions.append(["유닛·구조물 정보", "PauseInfoButton", main._toggle_stats_panel])
+	actions.append(["항복" if main.endless_run.is_empty() else "도전 끝내기", "ExitAIBattleButton", main._confirm_surrender, UIKit.DANGER])
+	return actions
 
 static func resume(main) -> void:
 	if not can_pause(main) or main.local_battle_backgrounded:
@@ -51,8 +69,6 @@ static func resume(main) -> void:
 	var previous_focus: Control = main.local_pause_focus
 	dismiss(main)
 	main.practice.paused = false
-	if is_instance_valid(main.practice_pause_button):
-		main.practice_pause_button.text = "일시정지"
 	main.battle_view.reset_build_touch()
 	main.battle_view.set_process(not is_paused(main))
 	main._refresh_purchase_buttons(main.latest_resources)

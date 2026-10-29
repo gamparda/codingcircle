@@ -114,8 +114,10 @@ func run() -> void:
 	main.save_data.tutorial_completed = true
 	main._build_connect_screen()
 	await process_frame
+	main._build_solo_screen()
+	await process_frame
 	var menu_button: Button = main.find_child("EndlessButton", true, false)
-	check(menu_button != null, "the main menu offers endless defense")
+	check(menu_button != null, "the solo screen offers endless defense")
 	menu_button.pressed.emit()
 	await process_frame
 	var start: Button = main.find_child("EndlessStart", true, false)
@@ -123,10 +125,10 @@ func run() -> void:
 	start.pressed.emit()
 	await process_frame
 	check(EndlessFlow.active(main) and main.local_recorder == null and main.find_child("EndlessSpeedButton", true, false) != null, "the run starts with its own controls and no replay")
-	check(main.find_child("PracticeControls", true, false) == null, "practice tools are not shown")
+	check(main.find_child("PracticeSpeedButton", true, false) == null, "practice tools are not shown")
 	var speed: Button = main.find_child("EndlessSpeedButton", true, false)
 	speed.pressed.emit()
-	check(float(main.endless_run.speed) == 2.0 and speed.text == "2배속", "the speed button doubles the pace")
+	check(float(main.endless_run.speed) == 2.0 and speed.text == "2×", "the speed button doubles the pace")
 	main.set_process(false)
 	var run_director = main.endless_run.director
 	var before: float = main.local_model.elapsed
@@ -172,7 +174,7 @@ func run() -> void:
 	check(main.result_overlay.find_children("*", "Label", true, false).any(func(label): return label.text.begins_with("신기록")), "a first run is a new record")
 	# Resume from a saved break.
 	RunRecords.endless(main.save_data).saved = RunRecords.sanitize_saved({"wave": 6, "boons": ["granary", "granary"], "base_hp": 250.0, "units": ["paladin", "zombie", "necromancer", "archer"], "structures": ["wall", "swamp", "frost", "seraph"], "seed": 9, "seconds": 300.0})
-	main._build_connect_screen()
+	main._build_solo_screen()
 	await process_frame
 	main.find_child("EndlessButton", true, false).pressed.emit()
 	await process_frame
@@ -191,6 +193,6 @@ func run() -> void:
 	check(main.endless_run.is_empty() or not main.local_ai_mode, "leaving ends the mode")
 	main._start_local_ai_battle(1)
 	await process_frame
-	check(main.endless_run.is_empty() and main.find_child("EndlessControls", true, false) == null, "a practice battle afterwards is a plain practice battle")
+	check(main.endless_run.is_empty() and main.find_child("EndlessSpeedButton", true, false) == null, "a practice battle afterwards is a plain practice battle")
 	print("endless_mode_test failures=%d" % failures)
 	quit(1 if failures > 0 else 0)

@@ -72,17 +72,20 @@ static func open(main, id: String) -> void:
 		"online": main._open_multiplayer()
 
 ## Menu chip with the progress; hidden once everything is done.
-static func add_chip(main) -> void:
+## The "시작 목표" chip, added to `parent` (the main menu's top-right row) until every goal is done.
+static func add_chip(main, parent: Control = null) -> void:
 	if all_done(main.save_data):
 		return
-	var chip = main._styled_button(Localization.text("시작 목표 %d / %d") % [done_count(main.save_data), DEFS.size()], UIKit.TEAL)
+	var chip = main._styled_button("📋  " + Localization.text("시작 목표 %d / %d") % [done_count(main.save_data), DEFS.size()], UIKit.TEAL)
 	chip.name = "GoalsChip"
-	chip.position = Vector2(714, 22)
-	chip.size = Vector2(170, 42)
-	chip.custom_minimum_size = Vector2(0, 0)
+	chip.custom_minimum_size = Vector2(0, 42)
 	chip.add_theme_font_size_override("font_size", 14)
 	chip.pressed.connect(func(): show_list(main))
-	main.root_background.add_child(chip)
+	if parent == null:
+		chip.position = Vector2(714, 22)
+		chip.size = Vector2(190, 42)
+		parent = main.root_background
+	parent.add_child(chip)
 
 static func show_list(main) -> void:
 	var dialog = main._action_panel("시작 목표", Rect2(240, 50, 800, 620))

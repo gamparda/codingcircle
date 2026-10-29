@@ -12,13 +12,10 @@ const MAX_SEEN := 60
 const FEATURES := [
 	{"id": "expedition", "button": "ExpeditionButton", "title": "원정", "desc": "세 막의 갈림길을 골라 나아가며 카드·유물·강화를 모아 보스를 쓰러뜨리는 로그라이크 모드입니다."},
 	{"id": "endless", "button": "EndlessButton", "title": "무한 방어", "desc": "끝없이 몰려오는 웨이브를 막으며 강화를 골라 쌓습니다. 몇 웨이브까지 버티는지 기록에 도전하세요."},
-	{"id": "weekly", "button": "WeeklyButton", "title": "주간 도전", "desc": "한 주 동안 모두에게 같은 덱과 두 가지 규칙 변형이 주어지는 더 어려운 도전입니다."},
-	{"id": "draft", "button": "DraftButton", "title": "드래프트", "desc": "AI와 번갈아 병력을 뽑아 덱을 만들고 싸웁니다. 먼저 뽑으면 상대가 못 씁니다."},
-	{"id": "replay_share", "button": "ReplaysButton", "title": "리플레이 공유와 메모", "desc": "6자리 코드로 공유하고, 최근 온라인 전투를 보고, 장면마다 메모를 남길 수 있습니다."},
-	{"id": "live_rooms", "button": "MultiplayerButton", "title": "라이브 전투 목록", "desc": "멀티플레이 방 목록에서 진행 중인 전투의 닉네임과 덱을 보고 바로 관전할 수 있습니다."},
-	{"id": "viewer_tools", "button": "ReplaysButton", "title": "리플레이 뷰어 강화", "desc": "구간 반복, 유닛 정보 패널, 휠 확대와 이동을 쓸 수 있습니다."},
-	{"id": "deck_stats", "button": "DeckButton", "title": "전체 승률 표시", "desc": "덱 편성 카드에 온라인 전체 선택률과 승률이 표시됩니다."},
+	{"id": "new_menu", "button": "SoloButton", "title": "새 메뉴", "desc": "AI와 싸우는 모드는 '혼자 하기'에, 덱은 '덱 편성'에 모였습니다. 전투 중 버튼은 ☰ 메뉴와 ⓘ 정보로 정리했습니다."},
 ]
+## Buttons that live on the "혼자 하기" screen: on the main menu their NEW tag sits on the 혼자 하기 tile.
+const SOLO_BUTTONS := ["CampaignButton", "PracticeButton", "DailyButton", "WeeklyButton", "DraftButton", "EndlessButton", "ExpeditionButton"]
 
 static func is_seen(save: Dictionary, id: String) -> bool:
 	return save.get("seen_features", []).has(id)
@@ -47,33 +44,41 @@ static func features_for(button_name: String) -> Array:
 static func decorate(main, scope: Node) -> void:
 	for feature in unseen(main.save_data):
 		var button = scope.find_child(String(feature.button), true, false)
+		if button == null and SOLO_BUTTONS.has(String(feature.button)):
+			var solo = scope.find_child("SoloButton", true, false)
+			if solo != null and solo.find_child("NewTag", false, false) == null:
+				_tag(solo)
+			continue
 		if button == null or button.find_child("NewTag", false, false) != null:
 			continue
-		var tag := Label.new()
-		tag.name = "NewTag"
-		tag.text = "NEW"
-		tag.add_theme_font_size_override("font_size", 10)
-		tag.add_theme_color_override("font_color", Color("#2b1d02"))
-		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var pill := StyleBoxFlat.new()
-		pill.bg_color = UIKit.GOLD
-		pill.set_corner_radius_all(8)
-		pill.content_margin_left = 6
-		pill.content_margin_right = 6
-		pill.content_margin_top = 1
-		pill.content_margin_bottom = 1
-		tag.add_theme_stylebox_override("normal", pill)
-		button.add_child(tag)
-		var place := func(): tag.position = Vector2(button.size.x - tag.size.x - 6.0, -6.0)
-		button.resized.connect(place)
-		tag.resized.connect(place)
-		place.call()
+		_tag(button)
 		var name_of_button := String(feature.button)
 		button.pressed.connect(func():
 			mark_button_seen(main.save_data, name_of_button)
 			main._save_profile()
 			_refresh_menu(main)
 		, CONNECT_ONE_SHOT)
+
+static func _tag(button: Control) -> void:
+	var tag := Label.new()
+	tag.name = "NewTag"
+	tag.text = "NEW"
+	tag.add_theme_font_size_override("font_size", 10)
+	tag.add_theme_color_override("font_color", Color("#2b1d02"))
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pill := StyleBoxFlat.new()
+	pill.bg_color = UIKit.GOLD
+	pill.set_corner_radius_all(8)
+	pill.content_margin_left = 6
+	pill.content_margin_right = 6
+	pill.content_margin_top = 1
+	pill.content_margin_bottom = 1
+	tag.add_theme_stylebox_override("normal", pill)
+	button.add_child(tag)
+	var place := func(): tag.position = Vector2(button.size.x - tag.size.x - 6.0, -6.0)
+	button.resized.connect(place)
+	tag.resized.connect(place)
+	place.call()
 
 ## Top-right chip with the number of unseen features; opens the list.
 static func add_chip(main) -> void:
@@ -97,6 +102,7 @@ static func open_feature(main, id: String) -> void:
 	match String(feature.button):
 		"WeeklyButton": destination = main._show_daily_brief.bind("weekly")
 		"DraftButton": destination = main._build_draft_screen
+		"SoloButton": destination = main._build_solo_screen
 		"EndlessButton": destination = func(): preload("res://scripts/screens/EndlessFlow.gd").show_brief(main)
 		"ExpeditionButton": destination = func(): preload("res://scripts/screens/ExpeditionFlow.gd").show_brief(main)
 		"ReplaysButton": destination = main._build_replay_list

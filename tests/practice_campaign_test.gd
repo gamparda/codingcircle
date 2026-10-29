@@ -35,10 +35,10 @@ func run()->void:
 	check(main.action_overlay.find_child("StartCampaignStage",true,false)!=null,"campaign brief has explicit start")
 	await capture("campaign-brief")
 	main.action_overlay.find_child("StartCampaignStage",true,false).pressed.emit()
-	check(main.campaign_mode and main.battle_active and main.root_background.find_child("PracticeControls",true,false)==null,"practice controls never appear in campaign")
+	check(main.campaign_mode and main.battle_active and main.root_background.find_child("PracticeSpeedButton",true,false)==null,"practice controls never appear in campaign")
 	main._exit_ai_battle();main._build_ai_stage_screen(false);main.practice.unlimited=true;main.practice.set_enemy_deck(["swordsman","berserker","necromancer","healer"],["wall","swamp","turret","generator"]);main._start_local_ai_battle(1)
 	check(main.local_model.unit_decks[1]==main.practice.enemy_units and main.local_model.resources[0]==main.local_model.resource_capacity(0),"practice settings applied to real battle")
-	check(main.root_background.find_child("PracticeControls",true,false)!=null,"actual scene offers pause/speed/reset")
+	check(main.root_background.find_child("PracticeSpeedButton",true,false)!=null and main.root_background.find_child("BattleMenuButton",true,false)!=null,"actual scene offers the menu and speed")
 	main._toggle_practice_pause();var elapsed:float=main.local_model.elapsed;main._process(0.2)
 	check(main.local_model.elapsed==elapsed and main.purchase_buttons.all(func(button):return button.disabled),"UI pause blocks simulation and purchases")
 	main._toggle_practice_pause();main.practice.speed=4;main.practice_used_tools=true;main._process(0.0) # the first resumed frame drops its delta by design

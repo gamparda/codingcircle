@@ -50,8 +50,14 @@ func run() -> void:
 		expect_true(hero.sprite.texture != null and hero.chips.get_child_count() >= 3, "hero stage shows artwork and stat chips for %s" % hero.ORDER[step])
 		seen[hero.sprite.texture.resource_path] = true
 	expect_true(seen.size() == hero.ORDER.size(), "every roster unit has distinct menu artwork")
-	for required_button in ["멀티플레이", "AI 캠페인", "AI 연습", "덱 편성", "전적", "설정"]:
-		expect_true(find_button(main, required_button) != null, "main menu exposes %s" % required_button)
+	for required_button in ["MultiplayerButton", "SoloButton", "DeckButton", "RecordsButton", "ReplaysButton", "SettingsButton"]:
+		expect_true(main.find_child(required_button, true, false) is Button, "main menu exposes %s" % required_button)
+	main._build_solo_screen()
+	await process_frame
+	for required_button in ["CampaignButton", "PracticeButton", "DailyButton", "WeeklyButton", "DraftButton", "EndlessButton", "ExpeditionButton"]:
+		expect_true(main.find_child(required_button, true, false) is Button, "the solo screen exposes %s" % required_button)
+	main._build_connect_screen()
+	await process_frame
 	expect_true(find_button(main,"방 만들기")==null and main.find_child("RoomCodeInput",true,false)==null,"main menu delegates room controls to the multiplayer browser")
 	main._build_deck_screen()
 	await process_frame
@@ -127,9 +133,9 @@ func run() -> void:
 	for portrait in unit_portraits:
 		portraits_loaded = portraits_loaded and portrait.texture != null
 	expect_true(unit_portraits.size() == main.battle_preset.units.size() and portraits_loaded, "all selected battle unit cards show an available sprite")
-	expect_true(find_button(main, "항복") != null, "AI battles expose a mid-match exit button")
-	var exit_button := find_button(main, "항복")
-	var unit_stats_button := find_button(main, "유닛 스탯")
+	expect_true(main.find_child("BattleMenuButton", true, false) != null, "AI battles expose the battle menu (pause, surrender)")
+	var exit_button := main.find_child("BattleMenuButton", true, false) as Button
+	var unit_stats_button := main.find_child("UnitStatsButton", true, false) as Button
 	var blue_hp_card := main.blue_hp_bar.get_parent().get_parent() as Control
 	var red_hp_card := main.red_hp_bar.get_parent().get_parent() as Control
 	var timer_card := main.timer_label.get_parent().get_parent() as Control
@@ -230,7 +236,7 @@ func run() -> void:
 	await process_frame
 	expect_true(find_button(main, "재경기 준비") == null, "online rematch snapshot dismisses the old result overlay")
 
-	var stats_button := find_button(main, "유닛 스탯")
+	var stats_button := main.find_child("UnitStatsButton", true, false) as Button
 	expect_true(stats_button != null, "battle UI exposes a unit stats panel button")
 	if stats_button != null:
 		stats_button.pressed.emit()
@@ -245,7 +251,7 @@ func run() -> void:
 		Localization.install(locale)
 		main._build_connect_screen()
 		await process_frame
-		expect_true(find_button(main, "멀티플레이") != null, "%s legacy locale still renders Korean" % locale)
+		expect_true(tree_text(main).contains("혼자 하기"), "%s legacy locale still renders Korean" % locale)
 	main.queue_free()
 	await process_frame
 	if failures == 0:

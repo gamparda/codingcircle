@@ -202,39 +202,37 @@ static func _build_battle_screen(main) -> void:
 		main._add_structure_button(row, card_text, kind, structure_colors[kind])
 	# A raised z_index draws above the battlefield, but input follows sibling order.
 	# Add these actions after BattleView so it cannot consume their pointer events.
-	var stats_button = main._styled_button(Localization.text("유닛 스탯"), Color("#3d8f83"), false)
-	stats_button.name = "UnitStatsButton"
-	stats_button.position = Vector2(1130, 98)
-	stats_button.size = Vector2(136, 48)
-	stats_button.z_index = 10
-	stats_button.add_theme_font_size_override("font_size", 12)
-	stats_button.pressed.connect(main._toggle_stats_panel)
-	main.root_background.add_child(stats_button)
+	# Two quiet corners instead of a row of buttons: ☰ (pause menu with every battle action) and the mode's
+	# speed toggle on the left, ⓘ (unit and structure reference) on the right.
+	var info := UIKit.icon_button("ⓘ", Localization.text("유닛·구조물 정보"), UIKit.TEAL, 52.0)
+	info.name = "UnitStatsButton"
+	info.position = Vector2(1214, 98)
+	info.z_index = 10
+	info.pressed.connect(main._toggle_stats_panel)
+	main.root_background.add_child(info)
+	var corner := HBoxContainer.new()
+	corner.name = "BattleCorner"
+	corner.position = Vector2(14, 98)
+	corner.z_index = 10
+	corner.add_theme_constant_override("separation", 8)
+	main.root_background.add_child(corner)
+	var menu := UIKit.icon_button("☰", Localization.text("메뉴 · 일시정지 (Space)") if main.local_ai_mode else Localization.text("메뉴"), UIKit.EDGE, 52.0)
+	menu.name = "BattleMenuButton"
+	menu.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	corner.add_child(menu)
 	if main.local_ai_mode:
-		var exit_button = main._styled_button(Localization.text("대전 나가기"), Color("#8f4652"), false)
-		exit_button.name = "ExitAIBattleButton"
-		exit_button.position = Vector2(14, 98)
-		exit_button.size = Vector2(136, 48)
-		exit_button.z_index = 10
-		exit_button.add_theme_font_size_override("font_size", 12)
-		exit_button.text = "항복"; exit_button.pressed.connect(main._confirm_surrender)
-		main.root_background.add_child(exit_button)
-
-	if main.local_ai_mode and not main.endless_run.is_empty(): preload("res://scripts/screens/EndlessFlow.gd").add_controls(main)
-	elif main.local_ai_mode and not main.expedition_run.is_empty(): preload("res://scripts/screens/ExpeditionFlow.gd").add_controls(main)
-	elif main.local_ai_mode and not main.campaign_mode: main._add_practice_controls()
+		main.practice_pause_button = menu
+		menu.pressed.connect(main._toggle_practice_pause)
+	else:
+		menu.pressed.connect(func(): _online_menu(main))
+	if main.local_ai_mode and not main.endless_run.is_empty(): preload("res://scripts/screens/EndlessFlow.gd").add_controls(main, corner)
+	elif main.local_ai_mode and not main.expedition_run.is_empty(): preload("res://scripts/screens/ExpeditionFlow.gd").add_controls(main, corner)
+	elif main.local_ai_mode and not main.campaign_mode: main._add_practice_controls(corner)
 	if main.campaign_mode and main.local_ai_mode:
-		var goal := Label.new(); goal.name = "CampaignBattleGoal"; goal.text = CampaignBrief.goal(main.current_ai_stage); goal.position = Vector2(160,98); goal.size = Vector2(340,48); goal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; goal.add_theme_font_size_override("font_size",12); goal.mouse_filter = Control.MOUSE_FILTER_IGNORE; main.root_background.add_child(goal)
-		main.practice_pause_button = main._styled_button("일시정지", Color("#3d647d"))
-		main.practice_pause_button.name = "CampaignPauseButton"
-		main.practice_pause_button.position = Vector2(970, 98)
-		main.practice_pause_button.size = Vector2(146, 58)
-		main.practice_pause_button.z_index = 10
-		main.practice_pause_button.pressed.connect(main._toggle_practice_pause)
-		main.root_background.add_child(main.practice_pause_button)
-	if main.local_ai_mode and is_instance_valid(main.practice_pause_button):
-		main.practice_pause_button.tooltip_text = "전투 일시정지 · Space로도 조작할 수 있습니다."
-		main.practice_pause_button.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+		var goal := UIKit.pill(CampaignBrief.goal(main.current_ai_stage), UIKit.GOLD, 12)
+		goal.name = "CampaignBattleGoal"
+		goal.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		corner.add_child(goal)
 	if not main.local_ai_mode:
 		for side in 2:
 			var name_label := ToastLabel.new(); name_label.name = "BattlePlayerName%d"%side; name_label.text = main._report_side_name(side)
@@ -245,7 +243,6 @@ static func _build_battle_screen(main) -> void:
 		main.latency_label = ToastLabel.new(); main.latency_label.name = "LatencyLabel"; main.latency_label.tone = UIKit.TEAL; main.root_background.add_child(main.latency_label)
 		main.latency_label.place_edge(1116.0, 96.0, true)
 		main.latency_label.add_theme_font_size_override("font_size", 13)
-		var surrender = main._styled_button("항복",Color("#8f4652")); surrender.name = "SurrenderButton"; surrender.position = Vector2(14,98); surrender.size = Vector2(136,48); surrender.z_index = 10; surrender.visible = not main.network.client_is_spectator; surrender.pressed.connect(main._confirm_surrender); main.root_background.add_child(surrender)
 		main.recovery_label = ToastLabel.new(); main.recovery_label.name = "NetworkRecoveryStatus"; main.recovery_label.tone = UIKit.GOLD; main.root_background.add_child(main.recovery_label)
 		main.recovery_label.place_center(640.0, 156.0)
 		main.recovery_label.text = "최신 전투 상태를 받는 중"
@@ -258,6 +255,22 @@ static func _build_battle_screen(main) -> void:
 	_battle_intro(main)
 	if main.local_ai_mode and main.local_battle_backgrounded and DisplayServer.get_name() != "headless":
 		preload("res://scripts/screens/LocalBattlePause.gd").pause(main, true)
+
+## Online battles cannot pause: the menu offers surrender (players) or leaving (spectators).
+static func _online_menu(main) -> void:
+	if not main.battle_active or main.result_shown:
+		return
+	var column = main._action_panel(Localization.text("메뉴"), Rect2(440, 220, 400, 260))
+	if not main.network.client_is_spectator:
+		var surrender := MultiplayerUI.button(main, column, Localization.text("항복"), "SurrenderButton", func():
+			main._dismiss_action_overlay()
+			main._confirm_surrender())
+		UIKit.style_button(surrender, UIKit.DANGER, false, 16)
+	else:
+		MultiplayerUI.button(main, column, Localization.text("관전 나가기"), "LeaveSpectateButton", func():
+			main._dismiss_action_overlay()
+			main._exit_battle_to_menu())
+	MultiplayerUI.button(main, column, Localization.text("닫기"), "CloseBattleMenu", main._dismiss_action_overlay, true)
 
 ## "STAGE 03 · 전진" style band that slides in, holds, and leaves. Purely decorative (ignores input).
 static func _battle_intro(main) -> void:

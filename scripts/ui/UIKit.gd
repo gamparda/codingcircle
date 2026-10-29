@@ -148,11 +148,15 @@ static func button_styles(accent: Color, primary: bool) -> Dictionary:
 	focus.expand_margin_bottom = 2
 	return {"normal": with_margins(normal, 16, 8), "hover": with_margins(hover, 16, 8), "pressed": with_margins(pressed, 16, 8), "disabled": with_margins(disabled, 16, 8), "focus": focus}
 
-static func style_button(button: Button, accent: Color, primary: bool = false, font_size: int = 16) -> Button:
+## Only the colours of a styled button (for selection changes); style_button also wires sounds and motion.
+static func restyle(button: Button, accent: Color, primary: bool = false) -> void:
 	var styles := button_styles(accent, primary)
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 		button.add_theme_stylebox_override(state, styles[state])
 	button.add_theme_stylebox_override("hover_pressed", styles["pressed"])
+
+static func style_button(button: Button, accent: Color, primary: bool = false, font_size: int = 16) -> Button:
+	restyle(button, accent, primary)
 	button.add_theme_font_size_override("font_size", font_size)
 	button.add_theme_color_override("font_color", TEXT)
 	button.add_theme_color_override("font_hover_color", Color.WHITE)
@@ -424,3 +428,91 @@ static func build_theme() -> Theme:
 	theme.set_stylebox("panel", "Window", with_margins(panel_box(), 18, 16))
 	_cache["theme"] = theme
 	return theme
+
+# ---------------------------------------------------------------- composite widgets
+## Large navigation tile: an icon, a title and a one-line caption on a tinted card. The text lives in child
+## labels (the Button's own text stays empty); `caption_label` is reachable as the "Caption" child.
+static func menu_tile(icon: String, title: String, caption: String, accent: Color, primary: bool = false, height: float = 84.0) -> Button:
+	var tile := Button.new()
+	tile.custom_minimum_size = Vector2(0, height)
+	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile.focus_mode = Control.FOCUS_ALL
+	var base := SURFACE_HI.lerp(accent, 0.30 if primary else 0.10)
+	var normal := box(base.lightened(0.04), SURFACE.lerp(accent, 0.12 if primary else 0.03), Color(accent.r, accent.g, accent.b, 0.9 if primary else 0.45), 16, 1.0, 0.7, Color(accent.r, accent.g, accent.b, 0.45) if primary else Color(0, 0, 0, 0), 0.14)
+	var hover := box(base.lightened(0.12), SURFACE.lerp(accent, 0.2), accent.lightened(0.35), 16, 1.5, 0.9, Color(accent.r, accent.g, accent.b, 0.55), 0.2)
+	var pressed := box(base.darkened(0.15), SURFACE.darkened(0.1), accent, 16, 1.5, 0.2, Color(0, 0, 0, 0), 0.0)
+	var disabled := box(Color("#141c2b"), Color("#0f1623"), Color("#27324a"), 16, 1.0, 0.0, Color(0, 0, 0, 0), 0.0)
+	for entry in [["normal", normal], ["hover", hover], ["pressed", pressed], ["hover_pressed", pressed], ["disabled", disabled]]:
+		tile.add_theme_stylebox_override(entry[0], with_margins(entry[1], 18, 10))
+	tile.add_theme_stylebox_override("focus", button_styles(accent, primary).focus)
+	var row := HBoxContainer.new()
+	row.name = "TileRow"
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 20
+	row.offset_right = -18
+	row.add_theme_constant_override("separation", 16)
+	tile.add_child(row)
+	if not icon.is_empty():
+		var badge := Label.new()
+		badge.name = "Icon"
+		badge.text = icon
+		badge.custom_minimum_size = Vector2(44, 0)
+		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		badge.add_theme_font_size_override("font_size", 30 if height >= 70.0 else 22)
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(badge)
+	var texts := VBoxContainer.new()
+	texts.alignment = BoxContainer.ALIGNMENT_CENTER
+	texts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	texts.add_theme_constant_override("separation", 2)
+	texts.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(texts)
+	var heading := Label.new()
+	heading.name = "Title"
+	heading.text = title
+	display(heading, 24 if height >= 70.0 else 18, TEXT)
+	heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	texts.add_child(heading)
+	var sub := Label.new()
+	sub.name = "Caption"
+	sub.text = caption
+	sub.visible = not caption.is_empty()
+	sub.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	sub.add_theme_font_size_override("font_size", 13)
+	sub.add_theme_color_override("font_color", TEXT_MUTED if not primary else TEXT.darkened(0.12))
+	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	texts.add_child(sub)
+	if is_touch():
+		tile.custom_minimum_size.y = maxf(tile.custom_minimum_size.y, TOUCH_MIN_HEIGHT)
+	juice(tile, 1.015)
+	tile.mouse_entered.connect(func():
+		if not tile.disabled: UISounds.play("hover"))
+	tile.pressed.connect(func(): UISounds.play("confirm" if primary else "click"))
+	return tile
+
+## Small quiet icon button for headers and toolbars ("←", "☰", "ⓘ").
+static func icon_button(symbol: String, tooltip: String, accent: Color = EDGE, size: float = 48.0) -> Button:
+	var button := Button.new()
+	button.text = symbol
+	button.tooltip_text = tooltip
+	button.custom_minimum_size = Vector2(size, size)
+	style_button(button, accent.lightened(0.2), false, 20)
+	button.custom_minimum_size.x = maxf(button.custom_minimum_size.x, button.custom_minimum_size.y)
+	for state in ["normal", "hover", "pressed", "disabled"]:
+		var style: StyleBox = button.get_theme_stylebox(state).duplicate()
+		style.content_margin_left = 0
+		style.content_margin_right = 0
+		button.add_theme_stylebox_override(state, style)
+	return button
+
+## Small rounded status pill (non-interactive).
+static func pill(text: String, tone: Color = TEXT_MUTED, font_size: int = 13) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", tone.lightened(0.25))
+	label.add_theme_stylebox_override("normal", with_margins(box(Color(tone.r, tone.g, tone.b, 0.16), Color(tone.r, tone.g, tone.b, 0.08), Color(tone.r, tone.g, tone.b, 0.45), 10, 1.0, 0.0, Color(0, 0, 0, 0), 0.0), 10, 3))
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label

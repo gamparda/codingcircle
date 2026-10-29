@@ -114,37 +114,16 @@ static func refresh(main) -> void:
 				if is_instance_valid(banner) and banner.text.contains(str(director.wave)):
 					banner.text = "")
 
-## Pause, speed and owned boons, in place of the practice tools.
-static func add_controls(main) -> void:
-	var row := HBoxContainer.new()
-	row.name = "EndlessControls"
-	row.position = Vector2(164, 98)
-	row.size = Vector2(342, 44)
-	row.z_index = 10
-	row.add_theme_constant_override("separation", 6)
-	main.root_background.add_child(row)
-	main.practice_pause_button = main._styled_button(Localization.text("일시정지"), Color("#3d647d"))
-	main.practice_pause_button.name = "EndlessPauseButton"
-	main.practice_pause_button.custom_minimum_size = Vector2(90, 44)
-	main.practice_pause_button.add_theme_font_size_override("font_size", 12)
-	main.practice_pause_button.pressed.connect(main._toggle_practice_pause)
-	row.add_child(main.practice_pause_button)
-	var speed = main._styled_button("1배속", Color("#3d647d"))
+## The speed toggle beside the ☰ menu (owned boons are in the pause menu).
+static func add_controls(main, row: Control) -> void:
+	var speed := UIKit.icon_button("%d×" % int(main.endless_run.speed), Localization.text("전투 속도 1배·2배"), UIKit.EDGE, 52.0)
 	speed.name = "EndlessSpeedButton"
-	speed.custom_minimum_size = Vector2(76, 44)
-	speed.add_theme_font_size_override("font_size", 12)
-	speed.tooltip_text = Localization.text("전투 속도를 1배·2배로 바꿉니다.")
+	speed.add_theme_font_size_override("font_size", 16)
 	speed.pressed.connect(func():
 		var run: Dictionary = main.endless_run
 		run.speed = SPEEDS[(SPEEDS.find(float(run.speed)) + 1) % SPEEDS.size()]
-		speed.text = "%d배속" % int(run.speed))
+		speed.text = "%d×" % int(run.speed))
 	row.add_child(speed)
-	var boons = main._styled_button(Localization.text("내 강화"), Color("#596174"))
-	boons.name = "EndlessBoonsButton"
-	boons.custom_minimum_size = Vector2(90, 44)
-	boons.add_theme_font_size_override("font_size", 12)
-	boons.pressed.connect(func(): show_boons(main))
-	row.add_child(boons)
 	var banner := ToastLabel.new()
 	banner.name = "EndlessWaveBanner"
 	banner.tone = UIKit.GOLD

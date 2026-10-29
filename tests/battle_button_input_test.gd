@@ -38,7 +38,7 @@ func run() -> void:
 	await process_frame
 	check(main.find_child("FirstBattleGuide", true, false) != null, "first battle guide is visible")
 	var stats := main.find_child("UnitStatsButton", true, false) as Button
-	var leave := main.find_child("ExitAIBattleButton", true, false) as Button
+	var leave := main.find_child("BattleMenuButton", true, false) as Button
 	check(stats != null and leave != null, "both battle actions exist")
 	if stats != null and leave != null:
 		click_control(stats)
@@ -62,7 +62,11 @@ func run() -> void:
 			check(not structure_card.button_pressed and main.battle_view.selected_structure.is_empty(), "second click cancels structure selection")
 		click_control(leave)
 		await process_frame
-		check(main.action_overlay!=null, "physical click opens surrender confirmation")
+		var surrender := main.find_child("ExitAIBattleButton", true, false) as Button
+		check(main.local_pause_overlay != null and surrender != null, "physical click on ☰ opens the pause menu")
+		click_control(surrender)
+		await process_frame
+		check(main.action_overlay!=null, "the menu's surrender opens the confirmation")
 		main.result_recorded=true
 		var confirm := main.find_child("ConfirmSurrender",true,false) as Button
 		click_control(confirm); await process_frame

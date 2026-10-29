@@ -124,6 +124,7 @@ static func _build_replay_list(main) -> void:
 	UIKit.style_button(back, Color("#697386"), false, 16)
 	back.text = Localization.text("메인 화면으로")
 	back.pressed.connect(main._build_connect_screen)
+	frame.adopt_back(back)
 	var import_button: Button = column.get_node("Footer/ImportReplayButton")
 	UIKit.style_button(import_button, UIKit.TEAL, false, 16)
 	import_button.text = Localization.text("클립보드에서 가져오기")

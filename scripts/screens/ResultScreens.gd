@@ -289,7 +289,7 @@ static func _show_result(main, winner: int) -> void:
 			main._start_local_ai_battle(main.current_ai_stage + 1, true)
 		)
 		inner.add_child(next_stage)
-	var back = main._styled_button(Localization.text("메인 메뉴") if not main.endless_run.is_empty() or not main.expedition_run.is_empty() else Localization.text("단계 선택") if main.local_ai_mode else Localization.text("이전 화면으로"), Color("#697386"), false)
+	var back = main._styled_button(Localization.text("모드 선택") if not main.endless_run.is_empty() or not main.expedition_run.is_empty() or not main.daily_challenge.is_empty() or not main.draft_context.is_empty() else Localization.text("단계 선택") if main.local_ai_mode else Localization.text("이전 화면으로"), Color("#697386"), false)
 	back.name = "BackToMenuButton"
 	back.position = Vector2(389 if advances else 300, 306 + extra)
 	back.size = Vector2(165 if advances else 215, 58)
@@ -298,7 +298,7 @@ static func _show_result(main, winner: int) -> void:
 	elif main.local_ai_mode and not main.ghost_context.is_empty():
 		back.pressed.connect(main._build_replay_list)
 	elif main.local_ai_mode and (not main.endless_run.is_empty() or not main.daily_challenge.is_empty() or not main.draft_context.is_empty()):
-		back.pressed.connect(main._build_connect_screen)
+		back.pressed.connect(main._build_solo_screen)
 	elif main.local_ai_mode:
 		back.pressed.connect(main._build_ai_stage_screen.bind(main.campaign_mode))
 	else:

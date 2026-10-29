@@ -1,5 +1,6 @@
 extends SceneTree
-## "새 기능" guidance: tags on menu buttons, the chip with a count, the list and persistence.
+## "새 기능" guidance: tags on menu buttons (solo modes tag the 혼자 하기 tile on the main menu), the list
+## from the patch notes screen, and persistence.
 
 const NewFeatures = preload("res://scripts/NewFeatures.gd")
 var failures := 0
@@ -15,15 +16,15 @@ func _init() -> void:
 func run() -> void:
 	var save := SaveData.default_data()
 	check(NewFeatures.unseen(save).size() == NewFeatures.FEATURES.size(), "a fresh save has every feature unseen")
-	NewFeatures.mark_seen(save, "draft")
-	NewFeatures.mark_seen(save, "draft")
-	check(save.seen_features == ["draft"] and NewFeatures.is_seen(save, "draft") and NewFeatures.unseen(save).size() == NewFeatures.FEATURES.size() - 1, "marking is idempotent")
-	NewFeatures.mark_button_seen(save, "ReplaysButton")
-	check(NewFeatures.is_seen(save, "replay_share"), "pressing a button marks the features behind it")
+	NewFeatures.mark_seen(save, "endless")
+	NewFeatures.mark_seen(save, "endless")
+	check(save.seen_features == ["endless"] and NewFeatures.is_seen(save, "endless") and NewFeatures.unseen(save).size() == NewFeatures.FEATURES.size() - 1, "marking is idempotent")
+	NewFeatures.mark_button_seen(save, "ExpeditionButton")
+	check(NewFeatures.is_seen(save, "expedition"), "pressing a button marks the features behind it")
 	var restored := SaveData.sanitize(JSON.parse_string(JSON.stringify(save)))
-	check(restored.seen_features.has("draft") and restored.seen_features.has("replay_share"), "seen features survive saving")
-	var junk := SaveData.sanitize({"seen_features": ["draft", 5, "", "draft", "x".repeat(80)]})
-	check(junk.seen_features == ["draft"], "junk entries are dropped")
+	check(restored.seen_features.has("endless") and restored.seen_features.has("expedition"), "seen features survive saving")
+	var junk := SaveData.sanitize({"seen_features": ["endless", 5, "", "endless", "x".repeat(80)]})
+	check(junk.seen_features == ["endless"], "junk entries are dropped")
 	var ids := {}
 	var buttons_ok := true
 	for feature in NewFeatures.FEATURES:
@@ -42,25 +43,29 @@ func run() -> void:
 	main.save_data.tutorial_completed = true
 	main._build_connect_screen()
 	await process_frame
-	var weekly = main.find_child("WeeklyButton", true, false)
-	check(weekly.find_child("NewTag", false, false) != null and main.find_child("DraftButton", true, false).find_child("NewTag", false, false) != null, "unseen features get a NEW tag")
-	check(main.find_child("NewFeaturesChip", true, false).text.contains(str(NewFeatures.FEATURES.size())), "the chip shows how many are new")
-	main.find_child("NewFeaturesChip", true, false).pressed.emit()
+	check(main.find_child("SoloButton", true, false).find_child("NewTag", false, false) != null, "new solo modes tag the 혼자 하기 tile")
+	check(main.find_child("NewFeaturesChip", true, false) == null, "the main menu stays free of a feature chip")
+	main._build_solo_screen()
+	await process_frame
+	check(main.find_child("EndlessButton", true, false).find_child("NewTag", false, false) != null and main.find_child("ExpeditionButton", true, false).find_child("NewTag", false, false) != null, "the modes themselves carry the tag")
+	main._build_patch_notes_screen()
+	await process_frame
+	main.find_child("NewFeaturesButton", true, false).pressed.emit()
 	await process_frame
 	check(main.find_child("NewFeatureList", true, false).get_child_count() == NewFeatures.FEATURES.size(), "the list has one row per feature")
-	main.find_child("OpenFeature_draft", true, false).pressed.emit()
+	main.find_child("OpenFeature_endless", true, false).pressed.emit()
 	await process_frame
-	check(main.find_child("DraftPool", true, false) != null and NewFeatures.is_seen(main.save_data, "draft"), "opening a feature goes there and marks it seen")
-	main._build_connect_screen()
+	check(main.find_child("EndlessBriefOverlay", true, false) != null and NewFeatures.is_seen(main.save_data, "endless"), "opening a feature goes there and marks it seen")
+	main._build_solo_screen()
 	await process_frame
-	check(main.find_child("DraftButton", true, false).find_child("NewTag", false, false) == null and main.find_child("WeeklyButton", true, false).find_child("NewTag", false, false) != null, "seen features lose their tag")
-	main.find_child("WeeklyButton", true, false).pressed.emit()
+	check(main.find_child("EndlessButton", true, false).find_child("NewTag", false, false) == null and main.find_child("ExpeditionButton", true, false).find_child("NewTag", false, false) != null, "seen features lose their tag")
+	main.find_child("ExpeditionButton", true, false).pressed.emit()
 	await process_frame
-	check(NewFeatures.is_seen(main.save_data, "weekly"), "pressing the button itself also counts")
+	check(NewFeatures.is_seen(main.save_data, "expedition"), "pressing the button itself also counts")
 	for feature in NewFeatures.FEATURES:
 		NewFeatures.mark_seen(main.save_data, String(feature.id))
 	main._build_connect_screen()
 	await process_frame
-	check(main.find_child("NewFeaturesChip", true, false) == null, "no chip once everything has been seen")
+	check(main.find_child("SoloButton", true, false).find_child("NewTag", false, false) == null, "no tags once everything has been seen")
 	print("new_features_test failures=%d" % failures)
 	quit(1 if failures > 0 else 0)

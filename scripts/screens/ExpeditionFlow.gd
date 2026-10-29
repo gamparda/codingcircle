@@ -72,7 +72,7 @@ static func choose_relic(main) -> void:
 	main._dismiss_action_overlay()
 	var preset: Dictionary = main._active_preset()
 	var run_seed := randi_range(1, 2147483646)
-	var column = main._submenu(Localization.text("원정 준비"), Localization.text("가져갈 유물 하나를 고르세요. 유물은 원정 내내 효과가 유지됩니다."))
+	var column = main._submenu(Localization.text("원정 준비"), Localization.text("가져갈 유물 하나를 고르세요. 유물은 원정 내내 효과가 유지됩니다."), main._build_solo_screen, "ExpeditionPrepBack")
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	column.add_child(row)
@@ -90,10 +90,6 @@ static func choose_relic(main) -> void:
 			_save(main)
 			show_map(main))
 		row.add_child(card)
-	var back = main._styled_button(Localization.text("돌아가기"), Color("#697386"), false)
-	back.name = "ExpeditionPrepBack"
-	back.pressed.connect(main._build_connect_screen)
-	column.add_child(back)
 
 # --- map ---------------------------------------------------------------------
 
@@ -135,7 +131,8 @@ static func show_map(main) -> void:
 	main.local_ai_mode = false
 	main.local_model = null
 	main.local_ai = null
-	var column = main._submenu(Localization.text("원정 · %d막") % int(run.act), Localization.text("갈 곳을 고르세요 · %d/%d") % [int(run.layer) + 1, ExpeditionRun.LAYERS])
+	var column = main._submenu(Localization.text("원정 · %d막") % int(run.act), Localization.text("갈 곳을 고르세요 · %d/%d") % [int(run.layer) + 1, ExpeditionRun.LAYERS], func(): leave(main), "ExpeditionMenu")
+	var frame_actions: HBoxContainer = preload("res://scripts/ui/SubMenuFrame.gd").of(column).actions
 	_header(main, column)
 	var map := VBoxContainer.new()
 	map.name = "ExpeditionMap"
@@ -166,15 +163,13 @@ static func show_map(main) -> void:
 			var choice := index
 			button.pressed.connect(func(): _enter(main, choice))
 			row.add_child(button)
-	var actions := HBoxContainer.new()
-	actions.add_theme_constant_override("separation", 10)
-	column.add_child(actions)
-	for entry in [[Localization.text("덱 정비"), "ExpeditionDeck", func(): show_deck(main)], [Localization.text("원정 포기"), "ExpeditionAbandon", func(): _confirm_abandon(main)], [Localization.text("메인 메뉴로"), "ExpeditionMenu", func(): leave(main)]]:
-		var button = main._styled_button(entry[0], Color("#697386"), false)
+	for entry in [["🃏  " + Localization.text("덱 정비"), "ExpeditionDeck", func(): show_deck(main), UIKit.TEAL], [Localization.text("포기"), "ExpeditionAbandon", func(): _confirm_abandon(main), UIKit.DANGER]]:
+		var button = main._styled_button(entry[0], entry[3], false)
 		button.name = entry[1]
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0, 44)
+		button.add_theme_font_size_override("font_size", 14)
 		button.pressed.connect(entry[2])
-		actions.add_child(button)
+		frame_actions.add_child(button)
 
 static func _enter(main, index: int) -> void:
 	if not ExpeditionRun.choose_node(main.expedition_run, index):
@@ -182,10 +177,10 @@ static func _enter(main, index: int) -> void:
 	_save(main)
 	show_map(main)
 
-## Back to the main menu; the run stays saved.
+## Back to the mode list; the run stays saved.
 static func leave(main) -> void:
 	main.expedition_run = {}
-	main._build_connect_screen()
+	main._build_solo_screen()
 
 static func _confirm_abandon(main) -> void:
 	var column = main._action_panel(Localization.text("원정을 포기할까요?"), Rect2(390, 220, 500, 280))
@@ -202,7 +197,7 @@ static func show_deck(main) -> void:
 	var run: Dictionary = main.expedition_run
 	var units: Array = run.deck.units.duplicate()
 	var structures: Array = run.deck.structures.duplicate()
-	var column = main._submenu(Localization.text("덱 정비"), Localization.text("모은 카드 중에서 병력 4장과 전술 4장을 고르세요."))
+	var column = main._submenu(Localization.text("덱 정비"), Localization.text("모은 카드 중에서 병력 4장과 전술 4장을 고르세요."), func(): show_map(main), "ExpeditionDeckBack")
 	var status := _label("", 15, MultiplayerUI.GOLD)
 	status.name = "ExpeditionDeckStatus"
 	var save_button = main._styled_button(Localization.text("이 덱으로"), UIKit.ACCENT, true)
@@ -219,17 +214,23 @@ static func show_deck(main) -> void:
 		column.add_child(grid)
 		var chosen: Array = group[1]
 		for kind in group[0]:
-			var toggle := CheckButton.new()
-			toggle.name = "ExpeditionCard_" + String(kind)
-			toggle.text = card_label(run, String(kind))
-			toggle.button_pressed = chosen.has(kind)
-			toggle.custom_minimum_size = Vector2(250, 40)
 			var card := String(kind)
+			var toggle: Button = main._styled_button(card_label(run, card), UIKit.GOLD if chosen.has(card) else UIKit.EDGE.lightened(0.2), false)
+			toggle.name = "ExpeditionCard_" + card
+			toggle.toggle_mode = true
+			toggle.button_pressed = chosen.has(card)
+			toggle.custom_minimum_size = Vector2(240, 48)
+			toggle.add_theme_font_size_override("font_size", 15)
+			var paint := func(on: bool):
+				toggle.text = ("✓  " if on else "") + card_label(run, card)
+				UIKit.restyle(toggle, UIKit.GOLD if on else UIKit.EDGE.lightened(0.2))
+			paint.call(toggle.button_pressed)
 			toggle.toggled.connect(func(on):
 				if on and not chosen.has(card):
 					chosen.append(card)
 				elif not on:
 					chosen.erase(card)
+				paint.call(on)
 				refresh.call())
 			grid.add_child(toggle)
 	column.add_child(status)
@@ -238,17 +239,13 @@ static func show_deck(main) -> void:
 			_save(main)
 			show_map(main))
 	column.add_child(save_button)
-	var back = main._styled_button(Localization.text("취소"), Color("#697386"), false)
-	back.name = "ExpeditionDeckBack"
-	back.pressed.connect(func(): show_map(main))
-	column.add_child(back)
 	refresh.call()
 
 # --- rest and shop -----------------------------------------------------------
 
 static func show_rest(main) -> void:
 	var run: Dictionary = main.expedition_run
-	var column = main._submenu(Localization.text("🔥 휴식"), Localization.text("기지를 고치거나 카드 하나를 강화하세요."))
+	var column = main._submenu(Localization.text("🔥 휴식"), Localization.text("기지를 고치거나 카드 하나를 강화하세요."), func(): leave(main), "ExpeditionLeave")
 	_header(main, column)
 	var heal = MultiplayerUI.button(main, column, Localization.text("기지 수리 · 체력 +%d") % int(ExpeditionRun.BASE_MAX * ExpeditionRun.REST_HEAL), "ExpeditionRestHeal", func():
 		ExpeditionRun.rest(run)
@@ -282,7 +279,7 @@ static func _upgrade_grid(main, column: VBoxContainer, on_pick: Callable, prefix
 static func show_shop(main) -> void:
 	var run: Dictionary = main.expedition_run
 	var shop: Dictionary = run.shop
-	var column = main._submenu(Localization.text("💰 상점"), Localization.text("골드로 카드·유물·수리·강화를 삽니다."))
+	var column = main._submenu(Localization.text("💰 상점"), Localization.text("골드로 카드·유물·수리·강화를 삽니다."), func(): leave(main), "ExpeditionLeave")
 	_header(main, column)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -391,31 +388,19 @@ static func step(main, delta: float) -> void:
 		main.local_model.tick(tick)
 		main.local_step_accumulator -= tick
 
-static func add_controls(main) -> void:
+## The speed toggle and the fight's name beside the ☰ menu.
+static func add_controls(main, row: Control) -> void:
 	var run: Dictionary = main.expedition_run
-	var row := HBoxContainer.new()
-	row.name = "ExpeditionControls"
-	row.position = Vector2(164, 98)
-	row.size = Vector2(342, 44)
-	row.z_index = 10
-	row.add_theme_constant_override("separation", 6)
-	main.root_background.add_child(row)
-	main.practice_pause_button = main._styled_button(Localization.text("일시정지"), Color("#3d647d"))
-	main.practice_pause_button.name = "ExpeditionPauseButton"
-	main.practice_pause_button.custom_minimum_size = Vector2(90, 44)
-	main.practice_pause_button.add_theme_font_size_override("font_size", 12)
-	main.practice_pause_button.pressed.connect(main._toggle_practice_pause)
-	row.add_child(main.practice_pause_button)
-	var speed = main._styled_button("%d배속" % int(run.get("speed", 1.0)), Color("#3d647d"))
+	var speed := UIKit.icon_button("%d×" % int(run.get("speed", 1.0)), Localization.text("전투 속도 1배·2배"), UIKit.EDGE, 52.0)
 	speed.name = "ExpeditionSpeedButton"
-	speed.custom_minimum_size = Vector2(76, 44)
-	speed.add_theme_font_size_override("font_size", 12)
+	speed.add_theme_font_size_override("font_size", 16)
 	speed.pressed.connect(func():
 		run.speed = SPEEDS[(SPEEDS.find(float(run.get("speed", 1.0))) + 1) % SPEEDS.size()]
-		speed.text = "%d배속" % int(run.speed))
+		speed.text = "%d×" % int(run.speed))
 	row.add_child(speed)
-	var info := MultiplayerUI.label(Localization.text("%d막 · %s") % [int(run.act), Localization.text(String(run.node.enemy.name))], 13, UIKit.GOLD)
+	var info := UIKit.pill(Localization.text("%d막 · %s") % [int(run.act), Localization.text(String(run.node.enemy.name))], UIKit.GOLD, 13)
 	info.name = "ExpeditionBattleInfo"
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(info)
 
 ## Settles the battle once (the result screen shows it). Returns {"won", "base"}.
@@ -458,7 +443,7 @@ static func after_battle(main) -> void:
 static func show_reward(main) -> void:
 	var run: Dictionary = main.expedition_run
 	var reward: Dictionary = run.reward
-	var column = main._submenu(Localization.text("전투 승리!"), Localization.text("골드 +%d") % int(reward.gold))
+	var column = main._submenu(Localization.text("전투 승리!"), Localization.text("골드 +%d") % int(reward.gold), func(): leave(main), "ExpeditionLeave")
 	_header(main, column)
 	for id in reward.relics:
 		var relic: Dictionary = RunBoons.RELICS[id]
@@ -499,14 +484,10 @@ static func show_end(main) -> void:
 		run["recorded"] = true
 		RunRecords.record_expedition(main.save_data, run)
 		main._save_profile()
-	var column = main._submenu(Localization.text("원정 완주!") if won else Localization.text("원정 종료"), Localization.text("세 막을 모두 돌파했습니다.") if won else Localization.text("%d막 %d/%d에서 멈췄습니다.") % [int(run.act), int(run.layer) + 1, ExpeditionRun.LAYERS])
+	var column = main._submenu(Localization.text("원정 완주!") if won else Localization.text("원정 종료"), Localization.text("세 막을 모두 돌파했습니다.") if won else Localization.text("%d막 %d/%d에서 멈췄습니다.") % [int(run.act), int(run.layer) + 1, ExpeditionRun.LAYERS], func(): leave(main), "ExpeditionEndMenu")
 	_header(main, column)
 	column.add_child(_label(Localization.text("이긴 전투 %d번 · 완주 %d회 · 도전 %d회") % [int(run.won_battles), int(record.clears), int(record.runs)], 16, MultiplayerUI.GOLD))
 	var again = main._styled_button(Localization.text("새 원정"), UIKit.ACCENT, true)
 	again.name = "ExpeditionAgain"
 	again.pressed.connect(func(): choose_relic(main))
 	column.add_child(again)
-	var back = main._styled_button(Localization.text("메인 메뉴로"), Color("#697386"), false)
-	back.name = "ExpeditionEndMenu"
-	back.pressed.connect(func(): leave(main))
-	column.add_child(back)

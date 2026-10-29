@@ -844,8 +844,11 @@ func _setup_bgm() -> void:
 func _build_ai_stage_screen(as_campaign: bool = false) -> void:
 	MenuScreens._build_ai_stage_screen(self, as_campaign)
 
-func _submenu(title_text: String, subtitle_text: String) -> VBoxContainer:
-	return MenuScreens._submenu(self, title_text, subtitle_text)
+func _submenu(title_text: String, subtitle_text: String, back: Callable = Callable(), back_name: String = "SubMenuBack") -> VBoxContainer:
+	return MenuScreens._submenu(self, title_text, subtitle_text, back, back_name)
+
+func _build_solo_screen() -> void:
+	MenuScreens._build_solo_screen(self)
 
 func _build_patch_notes_screen() -> void:
 	MenuScreens._build_patch_notes_screen(self)
@@ -1230,8 +1233,8 @@ func _show_stage_brief(stage: int) -> void:
 func _show_practice_deck() -> void:
 	PracticeUI._show_practice_deck(self)
 
-func _add_practice_controls() -> void:
-	PracticeUI._add_practice_controls(self)
+func _add_practice_controls(row: Control) -> void:
+	PracticeUI._add_practice_controls(self, row)
 
 func _toggle_practice_pause() -> void:
 	BattleFlow._toggle_practice_pause(self)

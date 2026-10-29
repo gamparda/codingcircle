@@ -2,6 +2,7 @@ extends RefCounted
 ## PracticeUI: screen/UI code moved out of Main.gd. `main` is the Main node; state stays on Main.
 
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
+const UIKit = preload("res://scripts/ui/UIKit.gd")
 const CampaignBrief = preload("res://scripts/CampaignBrief.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const Localization = preload("res://scripts/Localization.gd")
@@ -131,12 +132,17 @@ static func _show_practice_deck(main) -> void:
 	MultiplayerUI.button(main,column,"단계 기본 덱","DefaultPracticeDeck",func(): main.practice.enemy_units.clear(); main.practice.enemy_structures.clear(); main._dismiss_action_overlay(); main._restart_practice() if main.battle_active and main.local_ai_mode else main._build_ai_stage_screen(false))
 	MultiplayerUI.button(main,column,"닫기","ClosePracticeDeck",main._dismiss_action_overlay)
 
-static func _add_practice_controls(main) -> void:
-	var row := HBoxContainer.new(); row.name = "PracticeControls"; row.position = Vector2(164,98); row.size = Vector2(342,44); row.z_index=10; row.add_theme_constant_override("separation",6); main.root_background.add_child(row)
-	main.practice_pause_button = main._styled_button("일시정지",Color("#3d647d")); main.practice_pause_button.name="PracticePauseButton"; main.practice_pause_button.custom_minimum_size = Vector2(90,44); main.practice_pause_button.add_theme_font_size_override("font_size",12); main.practice_pause_button.pressed.connect(main._toggle_practice_pause); row.add_child(main.practice_pause_button)
-	main.practice_speed_button = main._styled_button("%.1f배" % main.practice.speed,Color("#3d647d")); main.practice_speed_button.name="PracticeSpeedButton"; main.practice_speed_button.custom_minimum_size = Vector2(66,44); main.practice_speed_button.add_theme_font_size_override("font_size",12); main.practice_speed_button.pressed.connect(func(): main.practice.cycle_speed(); main.practice_used_tools=true; main.local_recorder=null; main.practice_speed_button.text="%.1f배"%main.practice.speed); row.add_child(main.practice_speed_button)
-	var reset = main._styled_button("초기화",Color("#596174")); reset.name="PracticeResetButton"; reset.custom_minimum_size=Vector2(74,44); reset.add_theme_font_size_override("font_size",12); reset.pressed.connect(main._restart_practice); row.add_child(reset)
-	var settings = main._styled_button("상대 덱",Color("#596174")); settings.custom_minimum_size=Vector2(84,44); settings.add_theme_font_size_override("font_size",12); settings.pressed.connect(main._show_practice_deck); row.add_child(settings)
+## Practice's speed toggle beside the ☰ menu (reset and the enemy deck are in the pause menu).
+static func _add_practice_controls(main, row: Control) -> void:
+	main.practice_speed_button = UIKit.icon_button(_speed_text(main.practice.speed), "전투 속도 · 바꾸면 이 전투는 기록되지 않습니다", UIKit.EDGE, 52.0)
+	main.practice_speed_button.name = "PracticeSpeedButton"
+	main.practice_speed_button.custom_minimum_size.x = 64
+	main.practice_speed_button.add_theme_font_size_override("font_size", 15)
+	main.practice_speed_button.pressed.connect(func(): main.practice.cycle_speed(); main.practice_used_tools=true; main.local_recorder=null; main.practice_speed_button.text=_speed_text(main.practice.speed))
+	row.add_child(main.practice_speed_button)
+
+static func _speed_text(speed: float) -> String:
+	return ("%d×" % int(speed)) if is_equal_approx(speed, roundf(speed)) else ("%.1f×" % speed)
 
 static func _confirm_surrender(main) -> void:
 	if not main.battle_active or main.result_shown or main.network.client_is_spectator: return

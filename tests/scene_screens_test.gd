@@ -40,8 +40,8 @@ func run() -> void:
 	check(main.find_child("RecordsCard_AI", true, false) != null and main.find_child("RecordsCard_온라인", true, false) != null, "records show a card for AI and for online play")
 	var table := main.find_child("CampaignTable", true, false) as GridContainer
 	check(table != null and table.get_child_count() == table.columns * (ServerAI.MAX_STAGE + 1), "the campaign table has a header row and one row per stage")
-	check(records.get_node("Column/Title").text == "개인 전적", "title comes through the shared frame")
-	check(records.get_node("Column").get_child(records.get_node("Column").get_child_count() - 1).name == "RecordsFooter", "footer actions follow the content")
+	check((records.find_child("Title", true, false) as Label).text == "개인 전적", "title comes through the shared frame")
+	check(records.find_child("AchievementsButton", true, false) != null and records.find_child("RecordsBackButton", true, false) != null, "the header holds back and the achievements shortcut")
 	var daily_tab: Button = main.find_child("RecordsTab_daily", true, false)
 	daily_tab.button_pressed = true
 	daily_tab.pressed.emit()

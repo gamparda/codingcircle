@@ -140,6 +140,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	UIKit.style_button(back, Color("#697386"), false, 16)
 	back.text = Localization.text("취소")
 	back.pressed.connect(main._build_connect_screen)
+	frame.adopt_back(back)
 
 ## Small caption in the card corner: how often online players pick this kind and how often they win with it.
 static func _add_community_chip(card: Button, group: String, kind: String) -> void:

@@ -60,7 +60,9 @@ func run() -> void:
 	await process_frame
 	main.save_data = SaveData.default_data()
 	main.save_data.tutorial_completed = true
-	check(main.find_child("DraftButton", true, false) != null, "the main menu offers the draft")
+	main._build_solo_screen()
+	await process_frame
+	check(main.find_child("DraftButton", true, false) != null, "the solo screen offers the draft")
 	main._build_draft_screen()
 	await process_frame
 	var cards: Array = main.find_children("DraftCard_*", "Button", true, false)

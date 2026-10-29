@@ -7,7 +7,7 @@ const Achievements = preload("res://scripts/Achievements.gd")
 
 static func _build_achievements_screen(main) -> void:
 	var done := Achievements.unlocked_count(main.save_data)
-	var column = main._submenu("업적", "달성 %d / %d" % [done, Achievements.DEFS.size()])
+	var column = main._submenu("업적", "달성 %d / %d" % [done, Achievements.DEFS.size()], main._build_records_screen, "AchievementsBack")
 	var scroll := ScrollContainer.new()
 	scroll.name = "AchievementScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -22,10 +22,6 @@ static func _build_achievements_screen(main) -> void:
 	scroll.add_child(grid)
 	for entry in Achievements.DEFS:
 		grid.add_child(_card(entry, main.save_data.get("achievements", {}).get(String(entry.id), -1)))
-	var back = main._styled_button(Localization.text("전적으로 돌아가기"), Color("#697386"), false)
-	back.name = "AchievementsBack"
-	back.pressed.connect(main._build_records_screen)
-	column.add_child(back)
 
 static func _card(entry: Dictionary, unlocked_at: int) -> Control:
 	var got := unlocked_at >= 0

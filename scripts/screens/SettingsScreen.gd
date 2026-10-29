@@ -17,7 +17,7 @@ const SETTINGS_PAGES := [
 ]
 
 static func _build_settings_screen(main, mobile_layout_override: bool = false) -> void:
-	var outer = main._submenu(Localization.text("설정"), "분류를 고른 뒤 값을 바꾸고, 아래의 설정 저장을 눌러야 적용됩니다.")
+	var outer = main._submenu(Localization.text("설정"), "분류를 고른 뒤 값을 바꾸고, 설정 저장을 눌러야 적용됩니다.")
 	var mobile_layout := OS.has_feature("mobile") or mobile_layout_override
 	var settings: Dictionary = main.save_data.settings
 	main.binding_draft = BattleBindings.sanitize(settings.get("battle_keys"))
@@ -236,6 +236,7 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	back.name = "SettingsCancelButton"
 	back.pressed.connect(func(): main._apply_settings(); main._build_connect_screen())
 	footer.add_child(back)
+	preload("res://scripts/ui/SubMenuFrame.gd").of(outer).adopt_back(back)
 	var save_button = main._styled_button(Localization.text("설정 저장"), Color("#5e6ad2"), true)
 	save_button.name = "SettingsSaveButton"
 	save_button.custom_minimum_size.x = 220

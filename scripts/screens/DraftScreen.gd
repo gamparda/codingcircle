@@ -8,7 +8,7 @@ const MetaStats = preload("res://scripts/MetaStats.gd")
 
 static func _build_draft_screen(main, stage: int = 3) -> void:
 	var draft := DraftMatch.Draft.new(stage)
-	var column = main._submenu("드래프트", "번갈아 병력을 고르세요. 한 번 뽑힌 병력은 상대가 쓸 수 없습니다.")
+	var column = main._submenu("드래프트", "번갈아 병력을 고르세요. 한 번 뽑힌 병력은 상대가 쓸 수 없습니다.", main._build_solo_screen, "DraftBack")
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 12)
 	column.add_child(top)
@@ -51,10 +51,6 @@ static func _build_draft_screen(main, stage: int = 3) -> void:
 	var again = main._styled_button(Localization.text("다시 뽑기"), UIKit.TEAL, false)
 	again.name = "DraftReset"
 	column.add_child(again)
-	var back = main._styled_button(Localization.text("메인 화면으로"), Color("#697386"), false)
-	back.name = "DraftBack"
-	back.pressed.connect(main._build_connect_screen)
-	column.add_child(back)
 
 	var refresh := func():
 		for kind in cards:
