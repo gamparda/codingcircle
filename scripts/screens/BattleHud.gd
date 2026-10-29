@@ -23,19 +23,14 @@ static func _build_battle_screen(main) -> void:
 	main.awaiting_battle_snapshot = not main.local_ai_mode
 	main.root_background = main._make_background()
 
+	# The base health bars and the clock float over the battlefield sky (raised above it once the view exists).
 	var top := ColorRect.new()
-	top.color = Color("#090d17")
+	top.name = "BattleTopBar"
+	top.color = Color(0, 0, 0, 0)
 	top.position = Vector2.ZERO
 	top.size = Vector2(1280, 88)
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	main.root_background.add_child(top)
-	var top_line := TextureRect.new()
-	top_line.texture = _team_gradient(main.own_side)
-	top_line.stretch_mode = TextureRect.STRETCH_SCALE
-	top_line.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	top_line.position = Vector2(0, 85)
-	top_line.size = Vector2(1280, 3)
-	top_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(top_line)
 	main._create_hp_card(top, Vector2(18, 12), main.own_side)
 	main._create_hp_card(top, Vector2(842, 12), 1 - main.own_side)
 
@@ -77,6 +72,7 @@ static func _build_battle_screen(main) -> void:
 	# The battlefield takes all the room between the top bar and the card tray on any screen shape.
 	main.battle_view.set_anchor_and_offset(SIDE_RIGHT, 1.0, 0.0)
 	main.battle_view.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -140.0)
+	main.root_background.move_child(top, main.battle_view.get_index())
 	main.placement_status_label = ToastLabel.new()
 	main.placement_status_label.tone = UIKit.DANGER
 	main.root_background.add_child(main.placement_status_label)

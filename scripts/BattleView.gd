@@ -517,11 +517,11 @@ func _draw_sky(lane_y: float) -> void:
 	# The painted sky covers the width; its far scenery ends just above the ruins.
 	var sky: Texture2D = BattlefieldArt.SKY
 	var horizon := lane_y - 34.0
-	var sky_scale := maxf(size.x / float(sky.get_width()), horizon / (BattlefieldArt.SKY_HORIZON * float(sky.get_height())))
+	var sky_scale := maxf(size.x / float(sky.get_width()), (horizon + position.y) / (BattlefieldArt.SKY_HORIZON * float(sky.get_height())))
 	var sky_size := Vector2(sky.get_width(), sky.get_height()) * sky_scale
-	# Only the part inside the battlefield is drawn, so the sky never covers the base health bars above it.
+	# The sky runs up to the screen top, behind the health bars the HUD draws over it.
 	var sky_rect := Rect2((size.x - sky_size.x) * 0.5, horizon - BattlefieldArt.SKY_HORIZON * sky_size.y, sky_size.x, sky_size.y)
-	var visible := sky_rect.intersection(Rect2(Vector2.ZERO, size))
+	var visible := sky_rect.intersection(Rect2(0.0, -position.y, size.x, size.y + position.y))
 	var source := Rect2((visible.position - sky_rect.position) / sky_scale, visible.size / sky_scale)
 	draw_texture_rect_region(sky, visible, source, Color(0.80, 0.82, 0.92))
 	# Drifting haze keeps the backdrop alive.
