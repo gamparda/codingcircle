@@ -7,10 +7,15 @@ extends RefCounted
 
 const Rating = preload("res://scripts/accounts/Rating.gd")
 const SessionStore = preload("res://scripts/RoomSessions.gd")
+const RankedStats = preload("res://scripts/accounts/RankedStats.gd")
 
 const LEADERBOARD_SIZE := 20
 const BAN_SECONDS := 15.0
-const PROFILE_KEYS := ["rating", "wins", "losses", "draws", "rank", "leaderboard"]
+const PROFILE_KEYS := ["rating", "wins", "losses", "draws", "rank", "leaderboard", "season", "best", "history", "cards", "card_matches"]
+## Past seasons sent with a profile.
+const PROFILE_HISTORY := 6
+const HISTORY_KEYS := ["season", "rating", "best", "wins", "losses", "draws"]
+const CARD_KEYS := ["kind", "picks", "bans", "wins", "draws"]
 const RESULT_KEYS := ["rating", "delta", "outcome"]
 
 static func now() -> int:
@@ -168,6 +173,10 @@ static func settle(main, match_id: int, winner: int) -> void:
 			if String(main.peer_accounts[peer]) == String(accounts[side]) and main._peer_is_connected(int(peer)):
 				main.receive_ranked_result.rpc_id(int(peer), {"rating": rating, "delta": rating - int(before[side]), "outcome": outcome})
 	main.accounts.flush()
+	var model = main.models.get(match_id)
+	if model != null:
+		main.ranked_stats.record(model, winner, main.accounts.current_season())
+		main.ranked_stats.flush()
 	print("RANKED_RESULT winner=%d" % winner)
 
 ## A player leaving an unfinished ranked match loses it.
@@ -187,9 +196,19 @@ static func request_profile(main) -> void:
 	if not main.can_process_request(sender): return
 	var board: Array = main.accounts.leaderboard(LEADERBOARD_SIZE)
 	var id := _account(main, sender)
-	var data := {"rating": 0, "wins": 0, "losses": 0, "draws": 0, "rank": 0, "leaderboard": board}
+	var season: String = main.accounts.current_season()
+	var stats_current: bool = main.ranked_stats.season == season
+	var data := {"rating": 0, "wins": 0, "losses": 0, "draws": 0, "rank": 0, "leaderboard": board, "season": season, "best": 0, "history": [],
+		"cards": main.ranked_stats.summary() if stats_current else [], "card_matches": int(main.ranked_stats.data.matches) if stats_current else 0}
 	if not id.is_empty():
 		var profile: Dictionary = main.accounts.profile(id)
+		data.best = int(profile.best)
+		var seasons: Array = profile.history.keys()
+		seasons.sort()
+		seasons.reverse()
+		for past in seasons.slice(0, PROFILE_HISTORY):
+			var entry: Dictionary = profile.history[past]
+			data.history.append({"season": String(past), "rating": int(entry.rating), "best": int(entry.best), "wins": int(entry.wins), "losses": int(entry.losses), "draws": int(entry.draws)})
 		data.rating = int(profile.rating)
 		data.wins = int(profile.ranked.wins); data.losses = int(profile.ranked.losses); data.draws = int(profile.ranked.draws)
 		for index in board.size():
@@ -211,9 +230,23 @@ static func request_report(main, reason: String) -> void:
 static func valid_profile(data: Variant) -> bool:
 	if not data is Dictionary or data.size() != PROFILE_KEYS.size() or not data.has_all(PROFILE_KEYS) or not data.leaderboard is Array or data.leaderboard.size() > LEADERBOARD_SIZE:
 		return false
-	for key in ["rating", "wins", "losses", "draws", "rank"]:
+	for key in ["rating", "wins", "losses", "draws", "rank", "best", "card_matches"]:
 		if not data[key] is int or int(data[key]) < 0:
 			return false
+	if not data.season is String or String(data.season).length() > 7 or not data.history is Array or data.history.size() > PROFILE_HISTORY or not data.cards is Array or data.cards.size() > BattleModel.UNIT_STATS.size() + BattleModel.STRUCTURE_STATS.size():
+		return false
+	for row in data.history:
+		if not row is Dictionary or row.size() != HISTORY_KEYS.size() or not row.has_all(HISTORY_KEYS) or not row.season is String or String(row.season).length() > 7:
+			return false
+		for key in HISTORY_KEYS.slice(1):
+			if not row[key] is int or int(row[key]) < 0:
+				return false
+	for row in data.cards:
+		if not row is Dictionary or row.size() != CARD_KEYS.size() or not row.has_all(CARD_KEYS) or not RankedStats.valid_kind(row.kind):
+			return false
+		for key in CARD_KEYS.slice(1):
+			if not row[key] is int or int(row[key]) < 0:
+				return false
 	for row in data.leaderboard:
 		if not row is Dictionary or not row.get("nickname") is String or not SessionStore.safe_text(String(row.nickname), SessionStore.MAX_NICKNAME):
 			return false

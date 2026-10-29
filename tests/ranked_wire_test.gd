@@ -111,6 +111,9 @@ func run() -> void:
 	bob.send_ranked_profile_request()
 	var profile = await wait_for("bob", "profile")
 	check(profile is Dictionary and profile.rating == 1024 and profile.wins == 1 and profile.rank == 1 and profile.leaderboard.size() == 2, "a player sees their rating, rank and the leaderboard")
+	var bob_cards := {}
+	for row in profile.cards: bob_cards[row.kind] = row
+	check(profile.season == server.accounts.current_season() and profile.best == 1024 and profile.card_matches == 1 and bob_cards.get("archer", {}).get("picks") == 2 and bob_cards.get("necromancer", {}).get("bans") == 1, "the profile carries the season and this season's card statistics")
 
 	# Report the last opponent.
 	alice.send_report("manner")

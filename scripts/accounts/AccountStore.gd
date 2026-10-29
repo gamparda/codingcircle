@@ -12,10 +12,16 @@ const SESSION_SECONDS := 30 * 86400
 const MAX_SESSIONS := 5
 const MAX_ACCOUNTS := 200000
 const START_RATING := 1000
+## Past seasons kept per account (newest first when shown).
+const SEASON_HISTORY := 24
 
 var path := ""
 ## account id -> {"subject": hash, "nickname": String, "created": int, "last_login": int, "sessions": {token hash: expires},
-##   "rating": int, "ranked": {"wins": int, "losses": int, "draws": int}}
+##   "rating": int, "ranked": {"wins": int, "losses": int, "draws": int},
+##   "season": "YYYY-MM", "best": int, "history": {season: {"rating", "best", "wins", "losses", "draws"}}}
+## Ranked seasons follow the UTC calendar month. When an account first plays or looks at its profile in a
+## new month, the finished season is archived, its rating moves halfway back to START_RATING and the
+## win/loss counts start over (so the first PROVISIONAL_GAMES games of a season are placement games).
 var accounts: Dictionary = {}
 ## session token hash -> account id
 var by_session: Dictionary = {}
@@ -26,6 +32,8 @@ var by_nickname: Dictionary = {}
 ## Per-store salt so a leaked file cannot be matched against Google IDs from elsewhere.
 var salt := ""
 var dirty := false
+## Unix time used instead of the clock (tests).
+var now_override := 0
 
 func configure(directory: String) -> void:
 	path = "" if directory.is_empty() else directory.path_join(FILE_NAME)
@@ -62,7 +70,17 @@ func _adopt(id: String, record: Variant) -> void:
 	var rating := START_RATING
 	if _is_number(record.get("rating")) and int(record.rating) > 0 and int(record.rating) < 10000:
 		rating = int(record.rating)
-	accounts[id] = {"subject": String(record.subject), "nickname": nickname, "created": int(record.get("created", 0)), "last_login": int(record.get("last_login", 0)), "sessions": sessions, "rating": rating, "ranked": ranked}
+	# Accounts from before seasons existed belong to the season in progress.
+	var season := String(record.get("season", "")) if valid_season(record.get("season")) else current_season()
+	var best := int(record.best) if _is_number(record.get("best")) and int(record.best) >= rating and int(record.best) < 10000 else rating
+	var history := {}
+	if record.get("history") is Dictionary:
+		for key in record.history:
+			var entry = record.history[key]
+			if valid_season(key) and String(key) < season and entry is Dictionary and ["rating", "best", "wins", "losses", "draws"].all(func(field): return _is_number(entry.get(field)) and int(entry[field]) >= 0 and int(entry[field]) < 1_000_000_000):
+				history[String(key)] = {"rating": int(entry.rating), "best": int(entry.best), "wins": int(entry.wins), "losses": int(entry.losses), "draws": int(entry.draws)}
+	_trim_history(history)
+	accounts[id] = {"subject": String(record.subject), "nickname": nickname, "created": int(record.get("created", 0)), "last_login": int(record.get("last_login", 0)), "sessions": sessions, "rating": rating, "ranked": ranked, "season": season, "best": best, "history": history}
 	by_subject[String(record.subject)] = id
 	by_nickname[nickname.to_lower()] = id
 	for token_hash in sessions:
@@ -92,7 +110,7 @@ func create(subject: String, nickname: String, now: int) -> Dictionary:
 	if accounts.size() >= MAX_ACCOUNTS:
 		return {"error": "full"}
 	var id := Crypto.new().generate_random_bytes(16).hex_encode()
-	accounts[id] = {"subject": subject_hash(subject), "nickname": nickname, "created": now, "last_login": now, "sessions": {}, "rating": START_RATING, "ranked": {"wins": 0, "losses": 0, "draws": 0}}
+	accounts[id] = {"subject": subject_hash(subject), "nickname": nickname, "created": now, "last_login": now, "sessions": {}, "rating": START_RATING, "ranked": {"wins": 0, "losses": 0, "draws": 0}, "season": current_season(), "best": START_RATING, "history": {}}
 	by_subject[accounts[id].subject] = id
 	by_nickname[nickname.to_lower()] = id
 	dirty = true
@@ -176,20 +194,67 @@ func delete(id: String) -> bool:
 func profile(id: String) -> Dictionary:
 	if not accounts.has(id):
 		return {}
-	return {"nickname": String(accounts[id].nickname), "created": int(accounts[id].created), "rating": int(accounts[id].rating), "ranked": accounts[id].ranked.duplicate()}
+	_roll_season(id)
+	var account: Dictionary = accounts[id]
+	return {"nickname": String(account.nickname), "created": int(account.created), "rating": int(account.rating), "ranked": account.ranked.duplicate(),
+		"season": String(account.season), "best": int(account.best), "history": account.history.duplicate(true)}
 
 ## Records one ranked result for `id`: the new rating and the win/loss/draw count. `outcome` is "wins", "losses" or "draws".
 func record_ranked(id: String, rating: int, outcome: String) -> void:
 	if not accounts.has(id) or outcome not in ["wins", "losses", "draws"]:
 		return
+	_roll_season(id)
 	accounts[id].rating = clampi(rating, 1, 9999)
+	accounts[id].best = maxi(int(accounts[id].best), int(accounts[id].rating))
 	accounts[id].ranked[outcome] = int(accounts[id].ranked[outcome]) + 1
 	dirty = true
 
-## Highest ratings among accounts that played at least one ranked game.
+func now() -> int:
+	return now_override if now_override > 0 else int(Time.get_unix_time_from_system())
+
+static func season_id(unix_time: int) -> String:
+	var date := Time.get_datetime_dict_from_unix_time(unix_time)
+	return "%04d-%02d" % [int(date.year), int(date.month)]
+
+func current_season() -> String:
+	return season_id(now())
+
+static func valid_season(value: Variant) -> bool:
+	if not value is String or value.length() != 7 or value[4] != "-":
+		return false
+	var year := String(value).substr(0, 4)
+	var month := String(value).substr(5, 2)
+	return year.is_valid_int() and month.is_valid_int() and int(year) >= 2026 and int(month) >= 1 and int(month) <= 12
+
+## Starts the current season for `id` if its last one has ended.
+func _roll_season(id: String) -> void:
+	var account: Dictionary = accounts[id]
+	var season := current_season()
+	if String(account.season) >= season:
+		return
+	var ranked: Dictionary = account.ranked
+	if int(ranked.wins) + int(ranked.losses) + int(ranked.draws) > 0:
+		account.history[String(account.season)] = {"rating": int(account.rating), "best": int(account.best), "wins": int(ranked.wins), "losses": int(ranked.losses), "draws": int(ranked.draws)}
+		_trim_history(account.history)
+	account.rating = START_RATING + roundi(float(int(account.rating) - START_RATING) * 0.5)
+	account.best = int(account.rating)
+	account.ranked = {"wins": 0, "losses": 0, "draws": 0}
+	account.season = season
+	dirty = true
+
+static func _trim_history(history: Dictionary) -> void:
+	var seasons: Array = history.keys()
+	seasons.sort()
+	while seasons.size() > SEASON_HISTORY:
+		history.erase(seasons.pop_front())
+
+## Highest ratings this season among accounts that played at least one ranked game in it.
 func leaderboard(limit: int) -> Array:
 	var rows: Array = []
+	var season := current_season()
 	for id in accounts:
+		if String(accounts[id].season) != season:
+			continue
 		var ranked: Dictionary = accounts[id].ranked
 		var games := int(ranked.wins) + int(ranked.losses) + int(ranked.draws)
 		if games > 0:

@@ -129,7 +129,7 @@ static func _refresh_ranked_label(main) -> void:
 		main.ranked_label.text = Localization.text("랭크 점수를 불러오는 중...")
 	else:
 		var rank := " · %d위" % int(profile.rank) if int(profile.rank) > 0 else ""
-		main.ranked_label.text = Localization.text("랭크 점수 %d · %d승 %d패 %d무%s") % [int(profile.rating), int(profile.wins), int(profile.losses), int(profile.draws), rank]
+		main.ranked_label.text = Localization.text("%s 시즌 · 랭크 점수 %d · %d승 %d패 %d무%s") % [preload("res://scripts/screens/RankedBoard.gd").season_name(String(profile.season)), int(profile.rating), int(profile.wins), int(profile.losses), int(profile.draws), rank]
 
 static func _toggle_ranked_match(main) -> void:
 	if main.network.client_connection_state == "queued" and main.network.client_queue_ranked: main.network.cancel_ranked_match()
@@ -140,22 +140,13 @@ static func _toggle_ranked_match(main) -> void:
 
 ## Top ratings, from the last profile the server sent.
 static func _show_ranked_board(main) -> void:
-	var dialog = main._action_panel("랭킹", Rect2(300, 80, 680, 560))
-	main.action_overlay.name = "RankedBoardOverlay"
-	var rows: Array = main.ranked_profile.get("leaderboard", [])
-	if rows.is_empty():
-		dialog.add_child(MultiplayerUI.label("아직 랭크 대전 기록이 없습니다." if not main.ranked_profile.is_empty() else "서버에서 랭킹을 받지 못했습니다. 연결을 확인하세요.", 15, MultiplayerUI.MUTED))
-	var scroll := ScrollContainer.new(); scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL; scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED; dialog.add_child(scroll)
-	var list := VBoxContainer.new(); list.name = "RankedBoardRows"; list.size_flags_horizontal = Control.SIZE_EXPAND_FILL; scroll.add_child(list)
-	for index in rows.size():
-		var row: Dictionary = rows[index]
-		list.add_child(MultiplayerUI.label("%d. %s  ·  %d점  ·  %d승 %d패 %d무" % [index + 1, String(row.nickname), int(row.rating), int(row.wins), int(row.losses), int(row.draws)], 15, MultiplayerUI.GOLD if index < 3 else Color.WHITE))
-	MultiplayerUI.button(main, dialog, "닫기", "CloseRankedBoard", main._dismiss_action_overlay)
+	preload("res://scripts/screens/RankedBoard.gd").show(main)
 	main.network.send_ranked_profile_request()
 
 static func _on_ranked_profile(main, data: Dictionary) -> void:
 	main.ranked_profile = data
 	_refresh_ranked_label(main)
+	preload("res://scripts/screens/RankedBoard.gd").refresh(main)
 
 static func _set_lobby_enabled(main, enabled: bool) -> void:
 	main._refresh_quick_button()

@@ -17,6 +17,7 @@ const RankedFlow = preload("res://scripts/net/RankedFlow.gd")
 const CloudFlow = preload("res://scripts/net/CloudFlow.gd")
 const CloudSaves = preload("res://scripts/accounts/CloudSaves.gd")
 const ReportLog = preload("res://scripts/accounts/ReportLog.gd")
+const RankedStats = preload("res://scripts/accounts/RankedStats.gd")
 const ServerBackup = preload("res://scripts/ServerBackup.gd")
 const AccountStore = preload("res://scripts/accounts/AccountStore.gd")
 const GoogleIdToken = preload("res://scripts/accounts/GoogleIdToken.gd")
@@ -112,6 +113,7 @@ var last_opponents: Dictionary = {}
 var cloud := CloudSaves.new()
 var cloud_store_times: Dictionary = {}
 var reports := ReportLog.new()
+var ranked_stats := RankedStats.new()
 ## Daily copies of the state directory (ServerBackup); empty when the server keeps no files.
 var state_dir := ""
 var backup_elapsed := 0.0
@@ -1160,6 +1162,7 @@ func flush_persistence() -> void:
 	stats.flush(true)
 	daily_board.flush()
 	accounts.flush()
+	ranked_stats.flush()
 	_refresh_backlog_status()
 	if server_mode and can_create_match():
 		_pair_quick_queue()
@@ -1173,7 +1176,7 @@ func _refresh_backlog_status() -> void:
 
 ## Memory-only stores need no disk write. Finished replay archives always do.
 func pending_persistence_count() -> int:
-	return replays.pending.size() + int(not stats.path.is_empty() and stats.dirty) + int(not daily_board.path.is_empty() and daily_board.dirty) + int(not accounts.path.is_empty() and accounts.dirty)
+	return replays.pending.size() + int(not stats.path.is_empty() and stats.dirty) + int(not daily_board.path.is_empty() and daily_board.dirty) + int(not accounts.path.is_empty() and accounts.dirty) + int(not ranked_stats.path.is_empty() and ranked_stats.dirty)
 
 func configure_stats(directory: String) -> void:
 	stats.configure(directory)
@@ -1188,6 +1191,7 @@ func configure_accounts(directory: String, fetch_keys: bool = true) -> void:
 	AccountFlow.configure(self, directory, fetch_keys)
 	cloud.configure(directory)
 	reports.configure(directory)
+	ranked_stats.configure(directory, accounts.current_season())
 
 func _backup_state() -> void:
 	if not state_dir.is_empty():

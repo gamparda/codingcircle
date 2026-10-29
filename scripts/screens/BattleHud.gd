@@ -578,10 +578,12 @@ static func _add_purchase_labels(main, button: Button, key_text: String) -> void
 	button.add_child(hotkey)
 	var state := Label.new()
 	state.name = "PurchaseState"
-	state.position = Vector2(8, 32)
-	state.size = Vector2(102, 18)
+	# A strip between the art and the card text, so the portrait or icon stays visible.
+	state.position = Vector2(6, 49)
+	state.size = Vector2(106, 16)
 	state.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	state.add_theme_font_size_override("font_size", 11)
+	state.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	state.add_theme_font_size_override("font_size", 10)
 	state.add_theme_color_override("font_color", UIKit.GOLD)
 	state.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var pill := StyleBoxFlat.new()
