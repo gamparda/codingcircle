@@ -74,7 +74,7 @@ func _initialize() -> void:
 	check(walker.has("frozen_remaining"), "frost freezes enemies in the radius")
 	run_for(model, 1.0)
 	check(is_equal_approx(float(walker.x), frozen_x), "frozen units do not move")
-	run_for(model, 1.0)
+	run_for(model, float(BattleModel.STRUCTURE_STATS.frost.duration))
 	check(not walker.has("frozen_remaining") and float(walker.x) < frozen_x, "units move again after the freeze")
 
 	# Blessing: allies attack faster while it lasts.

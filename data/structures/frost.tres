@@ -16,5 +16,5 @@ params = {
 "cooldown": 15.0,
 "delay": 0.4,
 "radius": 90.0,
-"duration": 2.0
+"duration": 2.3
 }

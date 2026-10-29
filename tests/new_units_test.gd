@@ -19,7 +19,7 @@ func model() -> BattleModel:
 	return result
 
 func _initialize() -> void:
-	for entry in [["berserker",155.0,8.0,40.0,40.0], ["warlock",50.0,4.0,280.0,35.0], ["necromancer",65.0,2.0,125.0,85.0]]:
+	for entry in [["berserker",120.0,8.0,40.0,40.0], ["warlock",35.0,4.0,280.0,40.0], ["necromancer",46.0,2.0,125.0,82.0]]:
 		var battle := model()
 		check(battle.spawn_unit(0, entry[0]), "new unit is purchasable: " + entry[0])
 		check(battle.units[0].max_hp == entry[1] and battle.units[0].damage == entry[2] and battle.units[0].range == entry[3], "requested stats: " + entry[0])
@@ -65,7 +65,7 @@ func _initialize() -> void:
 	caster.x = 500.0; caster.speed = 0.0; caster.cooldown = 0.0
 	victim.x = 780.0; victim.speed = 0.0; victim.cooldown = 999.0
 	curse.tick(0.01)
-	check(is_equal_approx(victim.hp, 151.0), "warlock's actual attack deals four damage")
+	check(is_equal_approx(victim.hp, 116.0), "warlock's actual attack deals four damage")
 	check(curse.curses.size() == 1 and curse.curses[0].x == victim.x, "attack installs the curse at the target, not the caster")
 	check(is_equal_approx(curse.unit_attack_damage(victim), 8.0), "curse no longer reduces enemy attack damage")
 	check(is_equal_approx(curse.support_attack_speed(victim), BattleModel.CURSE_SPEED_SCALE), "curse slows the enemy attack speed")
@@ -157,7 +157,7 @@ func _initialize() -> void:
 	lord_battle.configure_deck(1, ["paladin", "swordsman", "necromancer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
 	check(lord_battle.spawn_unit(0, "demon_lord"), "demon lord is purchasable")
 	var lord: Dictionary = lord_battle.units[0]
-	check(lord.max_hp == 480.0 and lord.damage == 16.0 and lord.souls == 0 and lord_battle.resources[0] == 40.0, "demon lord has its requested stats and cost")
+	check(lord.max_hp == 325.0 and lord.damage == 16.0 and lord.souls == 0 and lord_battle.resources[0] == 40.0, "demon lord has its requested stats and cost")
 	lord_battle.resources[0] = 180.0; lord_battle.spawn_cooldowns[0].clear()
 	check(not lord_battle.spawn_unit(0, "demon_lord"), "only one demon lord may be fielded")
 	check(not BattleModel.field_limit_error(lord_battle.units, 0, "demon_lord").is_empty(), "purchase cards explain the field limit")
@@ -168,7 +168,7 @@ func _initialize() -> void:
 	var fallen: Dictionary = lord_battle.units[1]
 	fallen.x = 680.0; fallen.speed = 0.0; fallen.cooldown = 999.0; fallen.hp = 0.0
 	lord_battle.tick(0.01)
-	var heal := 480.0 * float(BattleModel.trait_value("demon_lord", "soul_heal_fraction"))
+	var heal := 325.0 * float(BattleModel.trait_value("demon_lord", "soul_heal_fraction"))
 	check(lord.souls == 1 and is_equal_approx(float(lord.hp), 100.0 + heal), "an enemy falling near the demon lord grants a soul and heals it")
 	check(is_equal_approx(lord_battle.unit_attack_damage(lord), 16.0 * (1.0 + float(BattleModel.trait_value("demon_lord", "soul_damage_step")))), "each soul raises the demon lord's attack")
 	var harvest_events := lord_battle.drain_combat_events()
@@ -235,7 +235,7 @@ func _initialize() -> void:
 	summon.tick(0.01)
 	check(summon.units.size() == 2, "first skeleton appears at exactly five seconds")
 	var skull: Dictionary = summon.units.back()
-	check(skull.kind == "skeleton" and skull.max_hp == 48.0 and skull.damage == 9.0 and skull.range == 40.0, "skeleton has all requested stats")
+	check(skull.kind == "skeleton" and skull.max_hp == 40.0 and skull.damage == 9.0 and skull.range == 40.0, "skeleton has all requested stats")
 	check(skull.side == 1 and skull.x < necro.x, "red-side summons appear ahead in the authoritative direction")
 	check(Network.is_valid_snapshot(summon.snapshot()), "skeleton snapshots are accepted online")
 	check(not summon.spawn_unit(1, "skeleton"), "skeleton cannot be purchased directly")
@@ -269,7 +269,7 @@ func _initialize() -> void:
 	check(ai_model.units.size() == 1 and ai_model.units[0].kind == "necromancer", "AI can use a selected new-unit deck")
 	ai_model.units[0].speed = 0.0
 	ai_model.tick(5.0)
-	check(ai_model.units.size() == 2 and is_equal_approx(ai_model.units[1].max_hp, 48.0 * float(ai_model.units[0].max_hp) / 65.0) and is_equal_approx(ai_model.units[1].damage, 9.0 * float(ai_model.units[0].damage) / 2.0), "skeleton inherits the summoner's campaign/AI growth")
+	check(ai_model.units.size() == 2 and is_equal_approx(ai_model.units[1].max_hp, 40.0 * float(ai_model.units[0].max_hp) / 46.0) and is_equal_approx(ai_model.units[1].damage, 9.0 * float(ai_model.units[0].damage) / 2.0), "skeleton inherits the summoner's campaign/AI growth")
 	if failures == 0:
 		print("PASS: %d new-unit mechanics and wire checks" % checks)
 	quit(0 if failures == 0 else 1)

@@ -16,7 +16,7 @@ func run() -> void:
 	check(is_equal_approx(BattleModel.FIELD_RIGHT - BattleModel.FIELD_LEFT, 1265.0), "battlefield travel length increases 15 percent")
 	check(BattleModel.UNIT_STATS.swordsman.range == 40.0, "swordsman fights behind the tank at range 40")
 	check(BattleModel.UNIT_STATS.shield.speed > BattleModel.UNIT_STATS.swordsman.speed and BattleModel.UNIT_STATS.shield.cost == 55.0, "tank arrives before swordsman at its calibrated cost")
-	check(BattleModel.UNIT_STATS.shield.damage == 2.0, "tank base damage is nerfed to two")
+	check(BattleModel.UNIT_STATS.shield.damage == 5.0, "tank damage lets tanks finish each other")
 	check(BattleModel.RESOURCE_RATE == 8.0 and BattleModel.MAX_RESOURCE == 180.0, "base economy improves without campaign bonuses")
 	var swamp := BattleModel.new()
 	swamp.resources = [180.0, 180.0]
@@ -121,7 +121,7 @@ func run() -> void:
 	campaign.configure_campaign_growth(0, SaveData.campaign_growth_level(loaded))
 	check(campaign.resource_capacity(0) == 190.0 and campaign.resource_income(0) == 8.5 and campaign.resources[0] == 75.0, "first clear increases capacity, income and starting resources")
 	campaign.spawn_unit(0, "swordsman")
-	check(is_equal_approx(float(campaign.units[0].max_hp), 76.0 * 1.03) and is_equal_approx(float(campaign.units[0].damage), 11.0 * 1.03), "first clear increases unit HP and damage")
+	check(is_equal_approx(float(campaign.units[0].max_hp), 67.0 * 1.03) and is_equal_approx(float(campaign.units[0].damage), 11.0 * 1.03), "first clear increases unit HP and damage")
 	check(campaign.resource_capacity(1) == BattleModel.MAX_RESOURCE and BattleModel.new().resource_capacity(0) == BattleModel.MAX_RESOURCE, "campaign growth never leaks to enemies or online matches")
 	SaveData.record_campaign(loaded, 2, true, 65.0, 430.0)
 	check(SaveData.campaign_growth_level(loaded) == 2, "each distinct first clear grants one more growth level")

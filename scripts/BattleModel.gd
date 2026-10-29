@@ -36,6 +36,10 @@ const MAX_SKELETONS_PER_NECROMANCER := 3
 const RAGE_HP_FRACTION := 0.5
 const RAGE_SPEED_MULTIPLIER := 1.5
 const MAX_ACTIVE_UNITS := 256
+## The first time a unit falls to half health it is thrown back this far, once: a losing front gets
+## room to recover, so fights swing back and forth instead of grinding in place.
+const KNOCKBACK_FRACTION := 0.5
+const KNOCKBACK_DISTANCE := 100.0
 # Unit/structure numbers live in res://data/**.tres (see scripts/data/GameData.gd).
 static var UNIT_STATS: Dictionary = GameData.unit_stats()
 static var SUMMON_STATS: Dictionary = GameData.summon_stats()
@@ -73,6 +77,8 @@ var summon_timers: Dictionary = {}
 var summon_owners: Dictionary = {}
 # Units that already spent their one revive (trait "revive_delay" in data).
 var revive_used: Dictionary = {}
+## Units that already took their one knockback (id -> true).
+var knocked_back: Dictionary = {}
 ## Spells (tactic cards with "spell" data): casts waiting to land, per-side cooldowns and uses, and the
 ## allies each side lost (newest last) that a resurrection can bring back.
 var spell_casts: Array = []
@@ -138,6 +144,7 @@ func reset() -> void:
 	summon_timers.clear()
 	summon_owners.clear()
 	revive_used.clear()
+	knocked_back.clear()
 	spell_casts.clear()
 	spell_cooldowns = [{}, {}]
 	spell_uses = [{}, {}]
@@ -637,6 +644,9 @@ func tick(delta: float) -> void:
 	for id in revive_used.keys():
 		if not live_ids.has(id):
 			revive_used.erase(id)
+	for id in knocked_back.keys():
+		if not live_ids.has(id):
+			knocked_back.erase(id)
 	for id in structure_expirations.keys():
 		if not structures.any(func(structure): return structure.id == id):
 			structure_expirations.erase(id)
@@ -795,6 +805,11 @@ func _damage_target(attacker: Dictionary, target: Dictionary, damage: float, sho
 	if show_attack:
 		combat_events.append({"type": "ATTACK", "attacker_id": attacker.id, "target_id": target.id, "attack_kind": attacker.kind, "x": attacker.x})
 	combat_events.append({"type": "DAMAGE", "target_id": target.id, "amount": damage, "x": target.x})
+	if target.has("speed") and float(target.hp) > 0.0 and float(target.hp) <= float(target.max_hp) * KNOCKBACK_FRACTION and not knocked_back.has(target.id):
+		knocked_back[target.id] = true
+		var away := -1.0 if int(target.side) == 0 else 1.0
+		target.x = clampf(float(target.x) + away * KNOCKBACK_DISTANCE, FIELD_LEFT, FIELD_RIGHT)
+		combat_events.append({"type": "KNOCKBACK", "target_id": target.id, "x": target.x})
 	if attacker.kind == "warlock":
 		_install_curse(attacker, float(target.x))
 
