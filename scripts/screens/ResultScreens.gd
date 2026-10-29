@@ -17,6 +17,7 @@ const MetaStats = preload("res://scripts/MetaStats.gd")
 const Goals = preload("res://scripts/Goals.gd")
 const ServerLink = preload("res://scripts/ServerLink.gd")
 const BattleReportBrowser = preload("res://scripts/ui/BattleReportBrowser.gd")
+const EndlessFlow = preload("res://scripts/screens/EndlessFlow.gd")
 
 ## Account for the confirmed result before any visual delay; keep the reward
 ## presentation so recovery can rebuild the screen without awarding it again.
@@ -34,6 +35,8 @@ static func _record_result(main, winner: int) -> Dictionary:
 				if main.local_recorder.ticks > 0:
 					main._store_battle_replay(main.local_recorder.finish(main.local_model), "stage%d" % main.current_ai_stage)
 				main.local_recorder = null
+			if not main.endless_run.is_empty():
+				EndlessFlow.record(main)
 			if not main.daily_challenge.is_empty():
 				var snap: Dictionary = main.current_snapshot
 				DailyChallenge.record(main.save_data, main.daily_challenge, winner == main.own_side, float(snap.get("base_hp", [0.0, 0.0])[main.own_side]), float(snap.get("elapsed", 0.0)))
@@ -96,7 +99,7 @@ static func _show_result(main, winner: int) -> void:
 	overlay.name = "ResultPanel"
 	overlay.position = Vector2(350, 155 - extra * 0.5)
 	overlay.size = Vector2(580, 410 + extra)
-	var won: bool = winner == main.own_side
+	var won: bool = winner == main.own_side or (main.local_ai_mode and not main.endless_run.is_empty() and main.endless_run.director.waves_cleared() > 0)
 	var result_color := UIKit.GOLD if won else (UIKit.TEXT_MUTED if winner == 2 else UIKit.DANGER.lightened(0.15))
 	overlay.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI.lerp(result_color, 0.08), UIKit.SURFACE.darkened(0.2), Color(result_color.r, result_color.g, result_color.b, 0.7), 18, 1.5, 1.0, Color(result_color.r, result_color.g, result_color.b, 0.35) if won else Color(0, 0, 0, 0), 0.12, 16))
 	screen.add_child(overlay)
@@ -148,7 +151,8 @@ static func _show_result(main, winner: int) -> void:
 	overline.add_theme_color_override("font_color", Color("#747d91"))
 	inner.add_child(overline)
 	var result := Label.new()
-	result.text = "전투 종료" if main.network.client_is_spectator else (Localization.text("무승부") if winner == 2 else (Localization.text("승리") if winner == main.own_side else Localization.text("패배")))
+	var endless_outcome: Dictionary = EndlessFlow.record(main) if main.local_ai_mode and not main.endless_run.is_empty() else {}
+	result.text = EndlessFlow.result_title(endless_outcome) if not endless_outcome.is_empty() else "전투 종료" if main.network.client_is_spectator else (Localization.text("무승부") if winner == 2 else (Localization.text("승리") if winner == main.own_side else Localization.text("패배")))
 	result.position = Vector2(0, 54)
 	result.size = Vector2(580, 76)
 	result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -180,7 +184,9 @@ static func _show_result(main, winner: int) -> void:
 	if main.local_ai_mode:
 		note.text = Localization.text("%02d단계 승리 · 최고 ★ %d · 다음 단계 해금") % [main.current_ai_stage, awarded_stars] if main.campaign_mode and winner == main.own_side else Localization.text("%02d단계 결과를 개인 전적에 반영했습니다.") % main.current_ai_stage
 		if not main.campaign_mode and main.practice_used_tools: note.text = "실험 설정 결과는 전적에 기록하지 않습니다."
-		if not main.ghost_context.is_empty():
+		if not endless_outcome.is_empty():
+			note.text = EndlessFlow.result_note(endless_outcome)
+		elif not main.ghost_context.is_empty():
 			var branch: bool = String(main.ghost_context.mode) == "branch"
 			note.text = Localization.text("이 결과는 전적에 기록되지 않는 실험입니다.") if branch else (Localization.text("고스트를 이겼습니다! 전적에는 기록되지 않습니다.") if winner == main.own_side else Localization.text("고스트에게 졌습니다. 다시 도전해 보세요."))
 		elif not main.daily_challenge.is_empty():
@@ -250,7 +256,9 @@ static func _show_result(main, winner: int) -> void:
 	rematch.size = Vector2(165 if advances else 215, 58)
 	rematch.pressed.connect(func():
 		rematch.disabled = true
-		if main.local_ai_mode and not main.ghost_context.is_empty():
+		if main.local_ai_mode and not main.endless_run.is_empty():
+			EndlessFlow.start(main)
+		elif main.local_ai_mode and not main.ghost_context.is_empty():
 			main._restart_context()
 		elif main.local_ai_mode and not main.draft_context.is_empty():
 			main._build_draft_screen(int(main.draft_context.stage))
@@ -274,13 +282,13 @@ static func _show_result(main, winner: int) -> void:
 			main._start_local_ai_battle(main.current_ai_stage + 1, true)
 		)
 		inner.add_child(next_stage)
-	var back = main._styled_button(Localization.text("단계 선택") if main.local_ai_mode else Localization.text("이전 화면으로"), Color("#697386"), false)
+	var back = main._styled_button(Localization.text("메인 메뉴") if not main.endless_run.is_empty() else Localization.text("단계 선택") if main.local_ai_mode else Localization.text("이전 화면으로"), Color("#697386"), false)
 	back.name = "BackToMenuButton"
 	back.position = Vector2(389 if advances else 300, 306 + extra)
 	back.size = Vector2(165 if advances else 215, 58)
 	if main.local_ai_mode and not main.ghost_context.is_empty():
 		back.pressed.connect(main._build_replay_list)
-	elif main.local_ai_mode and (not main.daily_challenge.is_empty() or not main.draft_context.is_empty()):
+	elif main.local_ai_mode and (not main.endless_run.is_empty() or not main.daily_challenge.is_empty() or not main.draft_context.is_empty()):
 		back.pressed.connect(main._build_connect_screen)
 	elif main.local_ai_mode:
 		back.pressed.connect(main._build_ai_stage_screen.bind(main.campaign_mode))

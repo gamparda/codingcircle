@@ -151,6 +151,19 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	draft_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	draft_button.pressed.connect(func(): main._build_draft_screen())
 	ai_row.add_child(draft_button)
+	var run_row := HBoxContainer.new()
+	run_row.name = "RunModesRow"
+	run_row.add_theme_constant_override("separation", 10)
+	column.add_child(run_row)
+	var endless_button = main._styled_button(Localization.text("무한 방어"), Color("#c0563f"), false)
+	endless_button.name = "EndlessButton"
+	endless_button.custom_minimum_size.y = 52
+	endless_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var endless_best := int(preload("res://scripts/run/RunRecords.gd").endless(main.save_data).best_wave)
+	if endless_best > 0:
+		endless_button.text += Localization.text("  · 최고 웨이브 %d") % endless_best
+	endless_button.pressed.connect(func(): preload("res://scripts/screens/EndlessFlow.gd").show_brief(main))
+	run_row.add_child(endless_button)
 	var management_row := HBoxContainer.new()
 	management_row.add_theme_constant_override("separation", 10)
 	column.add_child(management_row)

@@ -67,6 +67,7 @@ static func default_data() -> Dictionary:
 		"next_report_sequence": 1,
 		"pending_reports": [],
 		"pending_daily": {},
+		"runs": preload("res://scripts/run/RunRecords.gd").default_runs(),
 	}
 
 ## A deck from an older save, grown to BattleModel.DECK_SIZE cards: first from `fallback` (the same
@@ -290,6 +291,7 @@ static func sanitize(raw: Variant, diagnostics: Dictionary = {}) -> Dictionary:
 			if date is String and preload("res://scripts/ServerDailyBoard.gd").valid_date(date) and queued is Dictionary and preload("res://scripts/ServerDailyBoard.gd").valid_score(queued.get("score"), queued.get("seconds")):
 				clean.pending_daily[date] = {"score": int(queued.score), "seconds": float(queued.seconds),
 					"ruleset": String(queued.ruleset) if preload("res://scripts/ServerStats.gd").valid_ruleset(queued.get("ruleset")) else "0"}
+	clean.runs = preload("res://scripts/run/RunRecords.gd").sanitize(raw.get("runs"))
 	clean.stats.highest_campaign = mini(8, int(clean.stats.highest_campaign))
 	clean.stats.total_stars = 0
 	for record in clean.campaign_records:

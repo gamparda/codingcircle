@@ -17,6 +17,7 @@ const UpdateOverlay = preload("res://scripts/screens/UpdateOverlay.gd")
 const Tutorial = preload("res://scripts/screens/Tutorial.gd")
 const PracticeUI = preload("res://scripts/screens/PracticeUI.gd")
 const LocalBattlePause = preload("res://scripts/screens/LocalBattlePause.gd")
+const EndlessFlow = preload("res://scripts/screens/EndlessFlow.gd")
 const UnitPurchaseHold = preload("res://scripts/screens/UnitPurchaseHold.gd")
 const PatchNotes = preload("res://scripts/PatchNotes.gd")
 const MetaStats = preload("res://scripts/MetaStats.gd")
@@ -115,6 +116,7 @@ var finale_seconds := 1.4 # real seconds of base-collapse slow motion before the
 var finale_active := false
 var finale_serial := 0 # Invalidates delayed callbacks when the battle view changes.
 var draft_context: Dictionary = {} # stage and decks while a drafted battle is running
+var endless_run: Dictionary = {} # the endless-defense run while one is being played (EndlessFlow)
 var daily_challenge: Dictionary = {} # today's challenge while a daily battle is running
 var curve_next_elapsed := 0.0
 var current_ai_stage := 1
@@ -356,7 +358,8 @@ func _process(delta: float) -> void:
 		# modal. Discard that delta without discarding the recorded tick remainder.
 		var battle_delta := 0.0 if local_battle_skip_delta else delta
 		local_battle_skip_delta = false
-		if campaign_mode or not ghost_context.is_empty() or not daily_challenge.is_empty() or (local_recorder != null and practice.speed == 1.0 and not practice.unlimited):
+		if not endless_run.is_empty(): EndlessFlow.step(self, battle_delta)
+		elif campaign_mode or not ghost_context.is_empty() or not daily_challenge.is_empty() or (local_recorder != null and practice.speed == 1.0 and not practice.unlimited):
 			# Fixed 30 Hz steps keep recorded battles deterministic, so their replays reproduce exactly.
 			local_step_accumulator += minf(battle_delta, 0.25)
 			var step := 1.0 / float(BattleReplay.DEFAULT_HZ)
@@ -367,6 +370,7 @@ func _process(delta: float) -> void:
 		else: practice.advance(local_model,local_ai,battle_delta,own_side)
 		_on_combat_events(local_model.drain_combat_events())
 		_on_snapshot(local_model.snapshot())
+		if not endless_run.is_empty() and is_instance_valid(local_model): EndlessFlow.refresh(self)
 	if battle_active and is_instance_valid(battle_view): battle_view.structure_inspection.sync(self)
 	unit_purchase_hold.advance(self)
 	if smoke_mode or ai_smoke_mode:

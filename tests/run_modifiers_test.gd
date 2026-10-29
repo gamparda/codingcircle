@@ -128,6 +128,15 @@ func _initialize() -> void:
 	check(drawn.size() == 3 and not drawn.has("granary") and drawn.all(func(id): return RunBoons.RELICS[id].rarity != "boss"), "draw skips owned and boss relics")
 	for id in RunBoons.RELICS:
 		check(BattleModel.valid_modifiers(RunBoons.RELICS[id].mods), "relic %s has valid modifiers" % id)
+	var plain_units := ["shield", "archer", "healer", "swordsman"]
+	var plain_tactics := ["wall", "turret", "generator", "swamp"]
+	check(not RunBoons.relevant("bone_urn", plain_units, plain_tactics) and RunBoons.relevant("bone_urn", ["necromancer"], plain_tactics), "necromancer relics need a necromancer")
+	check(RunBoons.relevant("eagle_eye", plain_units, plain_tactics) and not RunBoons.relevant("eagle_eye", ["shield", "swordsman"], plain_tactics), "ranged relics need a ranged unit")
+	check(not RunBoons.relevant("grimoire", plain_units, plain_tactics) and RunBoons.relevant("grimoire", plain_units, ["fireball"]), "spell relics need a spell")
+	check(RunBoons.relevant("masons", plain_units, plain_tactics) and not RunBoons.relevant("masons", plain_units, ["fireball", "frost"]), "structure relics need a structure")
+	for i in 20:
+		for id in RunBoons.draw(rng, 3, [], true, plain_units, plain_tactics):
+			check(RunBoons.relevant(id, plain_units, plain_tactics), "draws for a deck skip relics it cannot use (%s)" % id)
 	if failures == 0:
 		print("run modifiers test passed")
 	quit(1 if failures > 0 else 0)

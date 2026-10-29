@@ -93,6 +93,8 @@ var banned: Array = [[], []]
 var modifiers: Array = [{}, {}]
 const MODIFIER_KEYS := ["hp:", "damage:", "range:ranged", "cost:units", "spell_cooldown", "structure_hp", "knockback",
 	"skill_cooldown:", "income", "capacity", "start", "skeleton_cap", "first_strike"]
+## Endless defense: the wave side has no base to destroy; its units come forever until the defender falls.
+var invulnerable_bases: Array = [false, false]
 ## Units that already made their first attack (for the "first_strike" modifier).
 var first_struck: Dictionary = {}
 const MAX_FALLEN := 40
@@ -691,8 +693,9 @@ func tick(delta: float) -> void:
 	for hit in pending_base_hits:
 		var enemy_side := 1 - int(hit.attacker.side)
 		_record_damage(int(hit.attacker.side), String(hit.attacker.kind), minf(float(hit.damage), float(base_hp[enemy_side])), false)
-		base_hp[enemy_side] = maxf(0.0, float(base_hp[enemy_side]) - float(hit.damage))
-		combat_events.append({"type":"BASE_HIT", "side":enemy_side, "amount":hit.damage, "x":hit.x})
+		if not bool(invulnerable_bases[enemy_side]):
+			base_hp[enemy_side] = maxf(0.0, float(base_hp[enemy_side]) - float(hit.damage))
+			combat_events.append({"type":"BASE_HIT", "side":enemy_side, "amount":hit.damage, "x":hit.x})
 		if hit.attacker.kind == "warlock": _install_curse(hit.attacker, hit.x)
 	for move in pending_moves:
 		move.unit.x = move.x

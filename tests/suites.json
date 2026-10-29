@@ -23,7 +23,8 @@
     "tests/pack_selfcheck.gd",
     "tests/player_data_test.gd",
     "tests/spell_test.gd",
-    "tests/knockback_test.gd"
+    "tests/knockback_test.gd",
+    "tests/run_modifiers_test.gd"
   ],
   "network": [
     "tests/transport_security_test.gd",
@@ -71,6 +72,7 @@
     "tests/replay_code_ui_test.gd",
     "tests/weekly_challenge_test.gd",
     "tests/draft_mode_test.gd",
+    "tests/endless_mode_test.gd",
     "tests/new_features_test.gd",
     "tests/battle_finale_test.gd",
     "tests/live_room_ui_test.gd",

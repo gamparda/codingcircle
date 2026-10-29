@@ -49,7 +49,8 @@ static func _build_battle_screen(main) -> void:
 	UIKit.display(main.timer_label, 30, UIKit.TEXT)
 	timer_inner.add_child(main.timer_label)
 	var mode_label := Label.new()
-	mode_label.text = Localization.text("드래프트 대전") if main.local_ai_mode and not main.draft_context.is_empty() else Localization.text("고스트 대전") if main.local_ai_mode and String(main.ghost_context.get("mode", "")) == "ghost" else (Localization.text("되감기 실험") if main.local_ai_mode and String(main.ghost_context.get("mode", "")) == "branch" else "AI 단계 %02d" % main.current_ai_stage) if main.local_ai_mode else ("관전 중" if main.network.client_is_spectator else "온라인 대전")
+	mode_label.name = "BattleModeLabel"
+	mode_label.text = Localization.text("무한 방어") if main.local_ai_mode and not main.endless_run.is_empty() else Localization.text("드래프트 대전") if main.local_ai_mode and not main.draft_context.is_empty() else Localization.text("고스트 대전") if main.local_ai_mode and String(main.ghost_context.get("mode", "")) == "ghost" else (Localization.text("되감기 실험") if main.local_ai_mode and String(main.ghost_context.get("mode", "")) == "branch" else "AI 단계 %02d" % main.current_ai_stage) if main.local_ai_mode else ("관전 중" if main.network.client_is_spectator else "온라인 대전")
 	mode_label.position = Vector2(0, 39)
 	mode_label.size = Vector2(220, 18)
 	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -219,7 +220,8 @@ static func _build_battle_screen(main) -> void:
 		exit_button.text = "항복"; exit_button.pressed.connect(main._confirm_surrender)
 		main.root_background.add_child(exit_button)
 
-	if main.local_ai_mode and not main.campaign_mode: main._add_practice_controls()
+	if main.local_ai_mode and not main.endless_run.is_empty(): preload("res://scripts/screens/EndlessFlow.gd").add_controls(main)
+	elif main.local_ai_mode and not main.campaign_mode: main._add_practice_controls()
 	if main.campaign_mode and main.local_ai_mode:
 		var goal := Label.new(); goal.name = "CampaignBattleGoal"; goal.text = CampaignBrief.goal(main.current_ai_stage); goal.position = Vector2(160,98); goal.size = Vector2(340,48); goal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; goal.add_theme_font_size_override("font_size",12); goal.mouse_filter = Control.MOUSE_FILTER_IGNORE; main.root_background.add_child(goal)
 		main.practice_pause_button = main._styled_button("일시정지", Color("#3d647d"))
@@ -263,6 +265,9 @@ static func _battle_intro(main) -> void:
 	if main.local_ai_mode and main.campaign_mode:
 		title_text = "STAGE %02d" % main.current_ai_stage
 		sub_text = ServerAI.stage_name(main.current_ai_stage)
+	elif main.local_ai_mode and not main.endless_run.is_empty():
+		title_text = "ENDLESS"
+		sub_text = Localization.text("무한 방어")
 	elif main.local_ai_mode:
 		title_text = "PRACTICE"
 		sub_text = Localization.text("AI 단계 %02d") % main.current_ai_stage
@@ -355,7 +360,7 @@ static func _create_hp_card(main, parent: Control, position_value: Vector2, side
 	accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	inner.add_child(accent)
 	var faction := Label.new()
-	faction.text = "아군 기지" if side == main.own_side else "적군 기지"
+	faction.text = "아군 기지" if side == main.own_side else ("몰려오는 적" if main.local_ai_mode and not main.endless_run.is_empty() else "적군 기지")
 	faction.position = Vector2(16, 7)
 	faction.size = Vector2(96, 22)
 	faction.add_theme_font_size_override("font_size", 13)
