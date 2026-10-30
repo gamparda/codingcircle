@@ -18,7 +18,7 @@
 | 좀비 | 40 | 108 | 7 | 1.6 | 30 | 40 |
 | 성기사 | 65 | 155 | 9 | 1.5 | 40 | 45 |
 | 저격수 | 60 | 46 | 24 | 4.5 | 30 | 400 |
-| 마왕 | 140 | 325 | 16 | 1.6 | 28 | 45 |
+| 마왕 | 125 | 350 | 16 | 1.6 | 28 | 45 |
 | 해골 (소환 전용) | 0 | 40 | 9 | 1.4 | 44 | 40 |
 
 ## 구조물
@@ -31,6 +31,6 @@
 | 발전기 | 75 | 90 | income 1.7, max_count 1 |
 | 낙뢰 | 55 | 1 | spell True, effect strike, zone any, cooldown 12, delay 0.6, radius 70, damage 120 |
 | 화염구 | 50 | 1 | spell True, effect blast, zone any, cooldown 12, delay 0.25, speed 900, radius 75, damage 29 |
-| 빙결 | 40 | 1 | spell True, effect freeze, zone any, cooldown 15, delay 0.4, radius 90, duration 2.3 |
+| 빙결 | 40 | 1 | spell True, effect freeze, zone any, cooldown 15, delay 0.4, radius 90, duration 2.8 |
 | 축복 | 30 | 1 | spell True, effect bless, zone any, cooldown 12, delay 0, radius 140, duration 7, heal_fraction 0.35, attack_speed 1.5 |
 | 천사 강림 | 100 | 1 | spell True, effect resurrect, zone own, cooldown 40, delay 1, radius 60, revive_count 5, revive_fraction 0.35, max_uses 2 |

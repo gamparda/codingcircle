@@ -157,7 +157,8 @@ func _initialize() -> void:
 	lord_battle.configure_deck(1, ["paladin", "swordsman", "necromancer", "healer"], BattleModel.DEFAULT_STRUCTURE_DECK)
 	check(lord_battle.spawn_unit(0, "demon_lord"), "demon lord is purchasable")
 	var lord: Dictionary = lord_battle.units[0]
-	check(lord.max_hp == 325.0 and lord.damage == 16.0 and lord.souls == 0 and lord_battle.resources[0] == 40.0, "demon lord has its requested stats and cost")
+	var lord_stats: Dictionary = BattleModel.UNIT_STATS.demon_lord
+	check(lord.max_hp == float(lord_stats.hp) and lord.damage == 16.0 and lord.souls == 0 and lord_battle.resources[0] == 180.0 - float(lord_stats.cost), "demon lord has its requested stats and cost")
 	lord_battle.resources[0] = 180.0; lord_battle.spawn_cooldowns[0].clear()
 	check(not lord_battle.spawn_unit(0, "demon_lord"), "only one demon lord may be fielded")
 	check(not BattleModel.field_limit_error(lord_battle.units, 0, "demon_lord").is_empty(), "purchase cards explain the field limit")
@@ -168,7 +169,7 @@ func _initialize() -> void:
 	var fallen: Dictionary = lord_battle.units[1]
 	fallen.x = 680.0; fallen.speed = 0.0; fallen.cooldown = 999.0; fallen.hp = 0.0
 	lord_battle.tick(0.01)
-	var heal := 325.0 * float(BattleModel.trait_value("demon_lord", "soul_heal_fraction"))
+	var heal := float(lord_stats.hp) * float(BattleModel.trait_value("demon_lord", "soul_heal_fraction"))
 	check(lord.souls == 1 and is_equal_approx(float(lord.hp), 100.0 + heal), "an enemy falling near the demon lord grants a soul and heals it")
 	check(is_equal_approx(lord_battle.unit_attack_damage(lord), 16.0 * (1.0 + float(BattleModel.trait_value("demon_lord", "soul_damage_step")))), "each soul raises the demon lord's attack")
 	var harvest_events := lord_battle.drain_combat_events()
