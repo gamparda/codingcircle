@@ -17,5 +17,5 @@ params = {
 "delay": 0.25,
 "speed": 900.0,
 "radius": 75.0,
-"damage": 27.0
+"damage": 29.0
 }
