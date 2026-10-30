@@ -107,6 +107,15 @@ var animation_time := 0.0
 var visual_events: Array = []
 var damage_lane_cursor := 0
 const MAX_VISUAL_EVENTS := 96
+## Above this many units the field drops per-unit decorations (glow, status words, buff pips): with hundreds
+## of units they cost more than the units themselves and are unreadable anyway.
+const CROWD_DETAIL_LIMIT := 60
+## Units of one side and kind standing on the same spot (within CLUMP_PIXELS) are drawn at most this deep:
+## the rest are hidden behind them.
+const CLUMP_DEPTH := 3
+const CLUMP_PIXELS := 6.0
+## True while drawing a crowded field (see CROWD_DETAIL_LIMIT).
+var crowded := false
 var unit_actions: Dictionary = {}
 var last_unit_x: Dictionary = {}
 var moving_units: Dictionary = {}
@@ -241,6 +250,12 @@ func set_snapshot(data: Dictionary) -> void:
 	var current_rage := {}
 	moving_units.clear()
 	cursed_units.clear()
+	# Curse centers by the side that cast them, sorted, so each unit checks only the nearest ones.
+	var curse_xs: Array = [PackedFloat64Array(), PackedFloat64Array()]
+	for curse in data.get("curses", []):
+		curse_xs[int(curse.side)].append(float(curse.x))
+	for xs in curse_xs:
+		xs.sort()
 	for unit in data.get("units", []):
 		positions[unit.id] = float(unit.x)
 		var enraged := BattleModel.is_enraged(unit)
@@ -249,9 +264,10 @@ func set_snapshot(data: Dictionary) -> void:
 			rage_flashes[unit.id] = 0.5
 			rage_started.emit(int(unit.id))
 		moving_units[unit.id] = last_unit_x.has(unit.id) and absf(float(last_unit_x[unit.id]) - float(unit.x)) > 0.05
-		for curse in data.get("curses", []):
-			if curse.side != unit.side and absf(float(curse.x) - float(unit.x)) <= BattleModel.CURSE_RADIUS:
-				cursed_units[unit.id] = true
+		var enemy_curses: PackedFloat64Array = curse_xs[1 - int(unit.side)]
+		var at := enemy_curses.bsearch(float(unit.x), true)
+		if (at < enemy_curses.size() and absf(enemy_curses[at] - float(unit.x)) <= BattleModel.CURSE_RADIUS) or (at > 0 and absf(enemy_curses[at - 1] - float(unit.x)) <= BattleModel.CURSE_RADIUS):
+			cursed_units[unit.id] = true
 	last_unit_x = positions
 	rage_states = current_rage
 	for id in walk_times.keys():
@@ -501,7 +517,16 @@ func _draw() -> void:
 		_draw_spell_cast(cast, scale_x, lane_y)
 	for structure in snapshot.get("structures", []):
 		_draw_structure(structure, scale_x, lane_y)
-	for unit in snapshot.get("units", []):
+	var field_units: Array = snapshot.get("units", [])
+	crowded = field_units.size() > CROWD_DETAIL_LIMIT
+	var clumps := {}
+	for unit in field_units:
+		if crowded:
+			var spot := "%d|%s|%d" % [int(unit.side), String(unit.kind), int(motion.position(int(unit.id), float(unit.x)) / CLUMP_PIXELS)]
+			var depth := int(clumps.get(spot, 0))
+			if depth >= CLUMP_DEPTH:
+				continue
+			clumps[spot] = depth + 1
 		_draw_unit(unit, scale_x, lane_y)
 	if show_battle_effects or show_damage_numbers:
 		_draw_combat_events(scale_x, lane_y)
@@ -642,7 +667,8 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	var sprite_width: float = sprite_height * float(texture.get_width()) / max(float(texture.get_height()), 1.0)
 
 	# Team halo and contact shadow stay independent from the supplied artwork.
-	draw_circle(Vector2(x, lane_y - 38.0), 43.0, Color(color.r, color.g, color.b, 0.08))
+	if not crowded:
+		draw_circle(Vector2(x, lane_y - 38.0), 43.0, Color(color.r, color.g, color.b, 0.08))
 	draw_ellipse(Vector2(x, lane_y - 2.0), sprite_width * 0.37, 6.0, Color(0.0, 0.0, 0.0, 0.38))
 	var souls := int(unit.get("souls", 0))
 	if souls > 0 and show_battle_effects:
@@ -663,7 +689,7 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	# Small faction pip remains visible when both teams use the same character art.
 	draw_circle(Vector2(x - 25.0, lane_y - 74.0), 5.0, color)
 	draw_circle(Vector2(x - 25.0, lane_y - 74.0), 2.0, Color("#f5f7fb"))
-	if unit.kind == "healer" and unit.cooldown > unit.interval * 0.70:
+	if unit.kind == "healer" and unit.cooldown > unit.interval * 0.70 and not crowded:
 		draw_circle(Vector2(x, lane_y - 50.0), 28.0, Color(0.42, 1.0, 0.67, 0.12))
 		draw_string(ThemeDB.fallback_font, Vector2(x - 8.0, lane_y - 46.0), "▲", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color("#86f7ad"))
 
@@ -676,6 +702,13 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 		var remaining := maxf(0.0, float(unit.summon_remaining) - minf(snapshot_age, 0.25))
 		draw_rect(Rect2(x - 20.0, bar_y + 16.0, 40.0, 3.0), Color("#242038"))
 		draw_rect(Rect2(x - 20.0, bar_y + 16.0, 40.0 * (1.0 - remaining / BattleModel.SUMMON_INTERVAL), 3.0), Color("#b591ef"))
+	# Spell feedback stays in a crowd; the status words and pips below are for small fights.
+	if unit.has("frozen_remaining"):
+		_draw_art(SpellArt.FROST[3], x, lane_y + 6.0, 74.0, 0.85)
+	if unit.has("blessed_remaining"):
+		_draw_art(SpellArt.loop(SpellArt.BLESSING_AURA, animation_time, 8.0), x, lane_y + 8.0, 64.0, 0.9)
+	if crowded:
+		return
 	if souls > 0:
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 18.0), "영혼 %d" % souls, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ff6b5a"))
 	if BattleModel.is_enraged(unit):
@@ -683,10 +716,7 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	if cursed_units.has(unit.id):
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 4.0), "공속▼%d%%" % roundi((1.0 - BattleModel.CURSE_SPEED_SCALE) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#c592ff"))
 	if unit.has("frozen_remaining"):
-		_draw_art(SpellArt.FROST[3], x, lane_y + 6.0, 74.0, 0.85)
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 32.0), "빙결", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#a8e6ff"))
-	if unit.has("blessed_remaining"):
-		_draw_art(SpellArt.loop(SpellArt.BLESSING_AURA, animation_time, 8.0), x, lane_y + 8.0, 64.0, 0.9)
 	if unit.get("revived", false):
 		draw_circle(Vector2(x, lane_y - 82.0), 3.0, Color(1.0, 0.95, 0.75, 0.9))
 	if show_battle_effects and kind != "healer":

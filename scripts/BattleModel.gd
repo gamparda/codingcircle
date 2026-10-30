@@ -25,6 +25,7 @@ const RED_REAR_MIN := 930.0 * WORLD_SCALE
 const SUPPORT_INCREMENT := 0.05
 const SUPPORT_MAX_STACKS := 10
 const SUPPORT_COOLDOWN := 4.0
+const SUPPORT_IDLE_RECHECK := 0.2
 const SUPPORT_FOLLOW_DISTANCE := 65.0
 const CURSE_RADIUS := 45.0
 const CURSE_DURATION := 5.0
@@ -105,6 +106,16 @@ var invulnerable_bases: Array = [false, false]
 ## How far each side's units march: side 0 never past advance_limit[0], side 1 never before advance_limit[1].
 ## Endless defense holds the defenders short of the wave side's spawn point.
 var advance_limit: Array = [FIELD_RIGHT, FIELD_LEFT]
+## Per tick: each side's living units sorted by x (ties by their place in `units`), and the x of each side's
+## curses. Targeting looks them up by binary search instead of scanning every unit for every unit, which made
+## a tick quadratic in the unit count. Only valid while `_indexed` (inside tick); otherwise the scans run.
+var _lanes: Array = [{}, {}]
+var _curse_xs: Array = [PackedFloat64Array(), PackedFloat64Array()]
+var _indexed := false
+## Tests turn the index off to check that it picks exactly what the scans pick.
+static var targeting_index := true
+## Per tick: each side's most advanced living non-support unit (supports follow it).
+var _fronts: Array = [null, null]
 ## Units that already made their first attack (for the "first_strike" modifier).
 var first_struck: Dictionary = {}
 const MAX_FALLEN := 40
@@ -629,6 +640,9 @@ func tick(delta: float) -> void:
 
 	_tick_revives(delta)
 	_land_spells()
+	_index_curses()
+	_index_lanes()
+	_index_fronts()
 
 	# All combatants choose from the same positions/health. Applying an attack
 	# while choosing the next one gave earlier array entries a free lethal hit.
@@ -659,6 +673,7 @@ func tick(delta: float) -> void:
 		if unit.kind == "healer":
 			_tick_support(unit, delta)
 			continue
+	_index_lanes() # supports moved
 	var pending_skills: Array = []
 	for unit in units:
 		if float(unit.hp) <= 0.0 or unit.kind == "healer" or unit.has("frozen_remaining"):
@@ -690,6 +705,7 @@ func tick(delta: float) -> void:
 		stride = minf(stride, maxf(float(unit.x), float(advance_limit[0]))) if unit.side == 0 else maxf(stride, minf(float(unit.x), float(advance_limit[1])))
 		pending_moves.append({"unit":unit, "x":stride})
 
+	_indexed = false # from here on attacks change health and positions
 	for skill in pending_skills:
 		_cast_skill(skill.caster, float(skill.x))
 	for attack in pending_attacks:
@@ -844,6 +860,13 @@ func _strike_damage(unit: Dictionary) -> float:
 	return damage
 
 func curse_speed_scale(side: int, x: float) -> float:
+	if _indexed:
+		# Curses of the other side, sorted by x: is the nearest one within the radius?
+		var xs: PackedFloat64Array = _curse_xs[1 - side]
+		var at := xs.bsearch(x, true)
+		if (at < xs.size() and absf(xs[at] - x) <= CURSE_RADIUS) or (at > 0 and absf(xs[at - 1] - x) <= CURSE_RADIUS):
+			return CURSE_SPEED_SCALE
+		return 1.0
 	for curse in curses:
 		if int(curse.side) != side and float(curse.expires_at) > elapsed and absf(float(curse.x) - x) <= CURSE_RADIUS:
 			return CURSE_SPEED_SCALE
@@ -857,26 +880,29 @@ func _install_curse(caster: Dictionary, x: float) -> void:
 func _tick_support(unit: Dictionary, delta: float) -> void:
 	if float(unit.cooldown) <= 0.0:
 		var cast := false
-		for ally in units:
+		for ally in _allies_near(unit, float(unit.range)):
 			if ally.side == unit.side and ally.kind != "healer" and float(ally.hp) > 0.0 and abs(float(ally.x) - float(unit.x)) <= float(unit.range):
 				var stacks := int(ally.get("support_stacks", 0))
 				if stacks < SUPPORT_MAX_STACKS:
 					ally.support_stacks = stacks + 1
 					combat_events.append({"type": "SUPPORT_BUFF", "source_id": unit.id, "target_id": ally.id, "stacks": ally.support_stacks, "x": ally.x})
 					cast = true
-		if cast:
-			unit.cooldown = SUPPORT_COOLDOWN
+		# Nobody to buff: look again shortly rather than every tick (rescanning a crowded field each tick was the
+		# costliest part of a big battle).
+		unit.cooldown = SUPPORT_COOLDOWN if cast else SUPPORT_IDLE_RECHECK
 	var direction := 1.0 if int(unit.side) == 0 else -1.0
-	var frontline = null
-	for ally in units:
-		if ally.side == unit.side and ally.kind != "healer" and float(ally.hp) > 0.0:
-			if frontline == null or direction * float(ally.x) > direction * float(frontline.x):
-				frontline = ally
+	var frontline = _fronts[int(unit.side)] if _indexed else null
+	if not _indexed:
+		for ally in units:
+			if ally.side == unit.side and ally.kind != "healer" and float(ally.hp) > 0.0:
+				if frontline == null or direction * float(ally.x) > direction * float(frontline.x):
+					frontline = ally
 	if frontline != null and direction * (float(frontline.x) - float(unit.x)) <= SUPPORT_FOLLOW_DISTANCE:
 		return
 	# Support units never attack units, buildings or bases, even with no wounded ally.
 	var step := float(unit.speed) * _swamp_scale(unit) * delta
-	if units.any(func(enemy): return enemy.side != unit.side and float(enemy.hp) > 0.0 and direction * (float(enemy.x) - float(unit.x)) >= 0.0 and abs(float(enemy.x) - float(unit.x)) <= max(float(unit.range), step)) or _blocking_wall(unit, float(unit.x) + direction * step) != null or _find_target(unit) != null:
+	var enemy_ahead: bool = _enemy_ahead_indexed(unit, max(float(unit.range), step)) if _indexed else units.any(func(enemy): return enemy.side != unit.side and float(enemy.hp) > 0.0 and direction * (float(enemy.x) - float(unit.x)) >= 0.0 and abs(float(enemy.x) - float(unit.x)) <= max(float(unit.range), step))
+	if enemy_ahead or _blocking_wall(unit, float(unit.x) + direction * step) != null or _find_target(unit) != null:
 		return
 	var enemy_base_x := FIELD_RIGHT if int(unit.side) == 0 else FIELD_LEFT
 	if abs(float(unit.x) - enemy_base_x) <= float(unit.range):
@@ -942,20 +968,135 @@ func _blocking_wall(attacker: Dictionary, target_x: float):
 			best_distance = distance
 	return best
 
+func _index_fronts() -> void:
+	_fronts = [null, null]
+	for unit in units:
+		if unit.kind == "healer" or float(unit.hp) <= 0.0:
+			continue
+		var side := int(unit.side)
+		var direction := 1.0 if side == 0 else -1.0
+		if _fronts[side] == null or direction * float(unit.x) > direction * float(_fronts[side].x):
+			_fronts[side] = unit
+
+func _index_curses() -> void:
+	for side in 2:
+		var xs := PackedFloat64Array()
+		for curse in curses:
+			if int(curse.side) == side and float(curse.expires_at) > elapsed:
+				xs.append(float(curse.x))
+		xs.sort()
+		_curse_xs[side] = xs
+
+func _index_lanes() -> void:
+	var keyed: Array = [[], []]
+	for index in units.size():
+		var unit: Dictionary = units[index]
+		if float(unit.hp) > 0.0:
+			keyed[int(unit.side)].append([float(unit.x), index])
+	for side in 2:
+		var entries: Array = keyed[side]
+		entries.sort() # by x, then by place in `units`
+		var xs := PackedFloat64Array()
+		var order := PackedInt32Array()
+		var refs: Array = []
+		xs.resize(entries.size())
+		order.resize(entries.size())
+		refs.resize(entries.size())
+		for i in entries.size():
+			xs[i] = entries[i][0]
+			order[i] = entries[i][1]
+			refs[i] = units[entries[i][1]]
+		_lanes[side] = {"xs": xs, "order": order, "units": refs}
+	_indexed = targeting_index
+
+## The first entry of the run of equal x that `at` belongs to: the earliest of them in `units`.
+static func _run_start(xs: PackedFloat64Array, at: int) -> int:
+	return xs.bsearch(xs[at], true)
+
+## Nearest living enemy of `unit` within its range (ties: earliest in `units`), from the lane index.
+func _nearest_enemy_indexed(unit: Dictionary):
+	var lane: Dictionary = _lanes[1 - int(unit.side)]
+	var xs: PackedFloat64Array = lane.xs
+	if xs.is_empty():
+		return null
+	var x := float(unit.x)
+	var reach := float(unit.range)
+	var best = null
+	var best_distance := INF
+	var best_order := 1 << 30
+	var right := xs.bsearch(x, true)
+	if right < xs.size() and absf(xs[right] - x) <= reach:
+		best = lane.units[right]
+		best_distance = absf(xs[right] - x)
+		best_order = lane.order[right]
+	if right > 0:
+		var left := _run_start(xs, right - 1)
+		var distance := absf(xs[left] - x)
+		if distance <= reach and (distance < best_distance or (distance == best_distance and lane.order[left] < best_order)):
+			best = lane.units[left]
+	return best
+
+## Farthest living enemy of `unit` within its range (ties: earliest in `units`), from the lane index.
+func _rearmost_enemy_indexed(unit: Dictionary):
+	var lane: Dictionary = _lanes[1 - int(unit.side)]
+	var xs: PackedFloat64Array = lane.xs
+	var x := float(unit.x)
+	var reach := float(unit.range)
+	var low := xs.bsearch(x - reach, true)
+	while low < xs.size() and absf(xs[low] - x) > reach and xs[low] < x:
+		low += 1
+	var high := xs.bsearch(x + reach, false) - 1
+	while high >= 0 and absf(xs[high] - x) > reach and xs[high] > x:
+		high -= 1
+	if low >= xs.size() or high < 0 or low > high:
+		return null
+	var best = lane.units[low]
+	var best_distance := absf(xs[low] - x)
+	var best_order: int = lane.order[low]
+	var far := _run_start(xs, high)
+	var distance := absf(xs[far] - x)
+	if distance > best_distance or (distance == best_distance and lane.order[far] < best_order):
+		best = lane.units[far]
+	return best
+
+## Whether a living enemy of `unit` stands ahead of it (or level) within `reach`, from the lane index.
+func _enemy_ahead_indexed(unit: Dictionary, reach: float) -> bool:
+	var xs: PackedFloat64Array = _lanes[1 - int(unit.side)].xs
+	var x := float(unit.x)
+	if int(unit.side) == 0:
+		var at := xs.bsearch(x, true)
+		return at < xs.size() and absf(xs[at] - x) <= reach
+	var behind := xs.bsearch(x, false) - 1
+	return behind >= 0 and absf(xs[behind] - x) <= reach
+
+## Living units of `unit`'s side within `reach` of it, in field order (all units outside a tick).
+func _allies_near(unit: Dictionary, reach: float) -> Array:
+	if not _indexed:
+		return units
+	var lane: Dictionary = _lanes[int(unit.side)]
+	var xs: PackedFloat64Array = lane.xs
+	var x := float(unit.x)
+	var low := maxi(0, xs.bsearch(x - reach, true) - 1)
+	var high := mini(xs.size(), xs.bsearch(x + reach, false) + 1)
+	return lane.units.slice(low, high)
+
 func _find_target(unit: Dictionary):
 	if trait_value(String(unit.kind), "target_rearmost", false):
-		var rearmost = _rearmost_enemy(unit)
+		var rearmost = _rearmost_enemy_indexed(unit) if _indexed else _rearmost_enemy(unit)
 		if rearmost != null:
 			return rearmost
 	var best_unit = null
 	var best_distance := INF
-	for enemy in units:
-		if enemy.side == unit.side or enemy.hp <= 0.0:
-			continue
-		var distance: float = abs(float(enemy.x) - float(unit.x))
-		if distance <= float(unit.range) and distance < best_distance:
-			best_unit = enemy
-			best_distance = distance
+	if _indexed:
+		best_unit = _nearest_enemy_indexed(unit)
+	else:
+		for enemy in units:
+			if enemy.side == unit.side or enemy.hp <= 0.0:
+				continue
+			var distance: float = abs(float(enemy.x) - float(unit.x))
+			if distance <= float(unit.range) and distance < best_distance:
+				best_unit = enemy
+				best_distance = distance
 	if best_unit != null:
 		var wall = _blocking_wall(unit, float(best_unit.x))
 		if wall != null:
