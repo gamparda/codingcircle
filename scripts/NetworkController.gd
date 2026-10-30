@@ -1202,6 +1202,11 @@ func _backup_state() -> void:
 # ---------- Accounts (Google sign-in) ----------
 
 signal account_nonce_received(nonce: String)
+## The desktop OAuth client the server offers for PC sign-in ("" when it does not).
+signal account_desktop_client_received(client_id: String)
+## Server: stands in for Google's token endpoint in tests (code, verifier, redirect) -> ID token.
+var desktop_exchange_override := Callable()
+var desktop_exchanges := 0
 signal account_result_received(result: Dictionary)
 
 ## Credentials (Google tokens, session tokens) go only to a server whose certificate was verified.
@@ -1216,6 +1221,11 @@ func account_request_nonce() -> bool:
 func account_sign_in(google_token: String) -> bool:
 	if not account_ready(): return false
 	request_account_login.rpc_id(1, google_token)
+	return true
+
+func account_desktop_login(code: String, verifier: String, redirect_uri: String) -> bool:
+	if not account_ready(): return false
+	request_account_desktop_login.rpc_id(1, code, verifier, redirect_uri)
 	return true
 
 func account_create(nickname: String) -> bool:
@@ -1252,6 +1262,10 @@ func request_account_login(google_token: String) -> void:
 	AccountFlow.request_login(self, google_token)
 
 @rpc("any_peer", "call_remote", "reliable")
+func request_account_desktop_login(code: String, verifier: String, redirect_uri: String) -> void:
+	AccountFlow.request_desktop_login(self, code, verifier, redirect_uri)
+
+@rpc("any_peer", "call_remote", "reliable")
 func request_account_create(nickname: String) -> void:
 	AccountFlow.request_create(self, nickname)
 
@@ -1275,6 +1289,11 @@ func request_account_logout(session: String) -> void:
 func receive_account_nonce(nonce: String) -> void:
 	if nonce.length() == 32:
 		account_nonce_received.emit(nonce)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_account_desktop_client(client_id: String) -> void:
+	if client_id.is_empty() or (client_id.length() <= 128 and client_id.ends_with(".apps.googleusercontent.com")):
+		account_desktop_client_received.emit(client_id)
 
 @rpc("authority", "call_remote", "reliable")
 func receive_account_result(result: Dictionary) -> void:

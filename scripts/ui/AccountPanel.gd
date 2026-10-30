@@ -39,7 +39,7 @@ func refresh() -> void:
 	var status := _label("", 17, UIKit.GOLD)
 	status.name = "AccountStatus"
 	if account.state == "busy":
-		status.text = Localization.text("처리 중입니다…")
+		status.text = Localization.text("브라우저에서 로그인 중…") if account.waiting_for_browser() else Localization.text("처리 중입니다…")
 	elif account.state == "needs_nickname":
 		status.text = Localization.text("새 계정 만들기")
 	elif signed_in and gate:
@@ -52,14 +52,19 @@ func refresh() -> void:
 	if gate:
 		add_child(_note("Google 계정으로 로그인해야 플레이할 수 있습니다. 계정은 만 14세 이상만 만들 수 있고, Google 계정 식별값(암호화해 저장)과 닉네임만 보관합니다."))
 	else:
-		add_child(_note("랭크 대전과 진행도 이어하기는 Android 앱에서 Google 계정으로 로그인해 이용할 수 있습니다. 이 기기에서는 계정 없이 모든 일반 모드를 할 수 있습니다." if not signed_in else "계정에는 Google 계정 식별값(암호화해 저장)과 닉네임만 보관합니다. 이메일과 이름은 받지 않습니다."))
+		add_child(_note(("랭크 대전과 진행도 이어하기는 Google 계정으로 로그인해 이용할 수 있습니다. 폰과 같은 Google 계정이면 같은 계정입니다. 로그인하지 않아도 모든 일반 모드를 할 수 있습니다." if account.can_sign_in() else "랭크 대전과 진행도 이어하기는 Android 앱에서 Google 계정으로 로그인해 이용할 수 있습니다. 이 기기에서는 계정 없이 모든 일반 모드를 할 수 있습니다.") if not signed_in else "계정에는 Google 계정 식별값(암호화해 저장)과 닉네임만 보관합니다. 이메일과 이름은 받지 않습니다."))
 	var blocker: String = account.blocker()
 	if not blocker.is_empty() and account.state != "busy":
 		add_child(_note(blocker, Color("#f0d592")))
 
 	match account.state:
 		"needs_nickname": _build_sign_up()
-		"busy": pass
+		"busy":
+			if account.waiting_for_browser():
+				var cancel = main._styled_button(Localization.text("로그인 취소"), Color("#697386"), false)
+				cancel.name = "AccountBrowserCancel"
+				cancel.pressed.connect(func(): account.cancel_browser_sign_in())
+				add_child(cancel)
 		_:
 			if signed_in and gate: _build_sign_out_only()
 			elif signed_in: _build_signed_in()
@@ -81,7 +86,9 @@ func _build_guest() -> void:
 	sign_in.pressed.connect(func(): account.sign_in())
 	add_child(sign_in)
 	if not account.can_sign_in():
-		add_child(_note("새 Android 앱을 설치해야 로그인할 수 있습니다." if gate else "Google 로그인은 Android 앱에서만 할 수 있습니다."))
+		add_child(_note("새 Android 앱을 설치해야 로그인할 수 있습니다." if gate else "이 기기에서는 Google 로그인을 할 수 없습니다."))
+	elif account.desktop != null:
+		add_child(_note("누르면 브라우저에서 Google 로그인 창이 열립니다. 로그인을 마치면 게임으로 돌아오세요."))
 
 ## Gate with a saved account the server has not confirmed yet: it resumes on its own; this switches accounts.
 func _build_sign_out_only() -> void:

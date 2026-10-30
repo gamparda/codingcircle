@@ -4,6 +4,8 @@ extends RefCounted
 ## verified connection (NetworkController.client_transport_verified). The server cannot see that, so
 ## it trusts nothing but Google's token signatures and its own session hashes.
 
+const GoogleIdToken = preload("res://scripts/accounts/GoogleIdToken.gd")
+
 const NONCE_SECONDS := 300
 const SIGN_UP_SECONDS := 300
 const JWKS_REFRESH_SECONDS := 3600.0
@@ -11,6 +13,13 @@ const JWKS_RETRY_SECONDS := 60.0
 const MAX_PENDING_LOGINS := 64
 const RESULT_KEYS := ["action", "error", "session", "nickname"]
 const ACTIONS := ["login", "create", "resume", "rename", "delete", "logout"]
+## PC sign-in: the game opens Google's page in the browser and receives an authorization code on a
+## loopback address; the server trades the code for an ID token with the desktop client's secret, which
+## only the server has (environment, never in the game or the repository).
+const DESKTOP_SECRET_ENV := "CATWAR_GOOGLE_DESKTOP_CLIENT_SECRET"
+const TOKEN_URL := "https://oauth2.googleapis.com/token"
+const MAX_EXCHANGES := 16
+const LOOPBACK_PREFIX := "http://127.0.0.1:"
 
 static func now() -> int:
 	return int(Time.get_unix_time_from_system())
@@ -69,7 +78,72 @@ static func request_nonce(main) -> void:
 	if not main.server_mode or not main.can_process_request(sender): return
 	var nonce := Crypto.new().generate_random_bytes(16).hex_encode()
 	main.account_nonces[sender] = {"nonce": nonce, "expires": now() + NONCE_SECONDS}
+	# Same reliable channel, so the client knows whether PC sign-in is offered before the nonce arrives.
+	main.receive_account_desktop_client.rpc_id(sender, desktop_client_id() if desktop_configured() else "")
 	main.receive_account_nonce.rpc_id(sender, nonce)
+
+static func desktop_client_id() -> String:
+	return OS.get_environment(GoogleIdToken.DESKTOP_CLIENT_ID_ENV).strip_edges()
+
+static func desktop_configured() -> bool:
+	return not desktop_client_id().is_empty() and not OS.get_environment(DESKTOP_SECRET_ENV).strip_edges().is_empty()
+
+## The shape of a PC sign-in request: an authorization code, a PKCE verifier and a loopback redirect.
+static func valid_desktop_request(code: String, verifier: String, redirect_uri: String) -> bool:
+	if code.is_empty() or code.length() > 512:
+		return false
+	for character in code:
+		if character.unicode_at(0) <= 32 or character.unicode_at(0) >= 127 or character in ["&", "=", "?", "#"]:
+			return false
+	if verifier.length() < 43 or verifier.length() > 128:
+		return false
+	for character in verifier:
+		if not (character in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"):
+			return false
+	if not redirect_uri.begins_with(LOOPBACK_PREFIX):
+		return false
+	var port := redirect_uri.substr(LOOPBACK_PREFIX.length())
+	return port.is_valid_int() and port.length() <= 5 and int(port) >= 1 and int(port) <= 65535 and str(int(port)) == port
+
+static func request_desktop_login(main, code: String, verifier: String, redirect_uri: String) -> void:
+	var sender: int = main.multiplayer.get_remote_sender_id()
+	if not main.server_mode or not main.can_process_request(sender): return
+	var issued = main.account_nonces.get(sender)
+	main.account_nonces.erase(sender) # one use, even when the code fails
+	if issued == null or int(issued.expires) < now():
+		_answer(main, sender, "login", "no_nonce"); return
+	if not valid_desktop_request(code, verifier, redirect_uri):
+		_answer(main, sender, "login", "invalid_token"); return
+	if not desktop_configured():
+		_answer(main, sender, "login", "desktop_unavailable"); return
+	var nonce := String(issued.nonce)
+	if main.desktop_exchange_override.is_valid(): # tests stand in for Google's token endpoint
+		_check_token(main, sender, String(main.desktop_exchange_override.call(code, verifier, redirect_uri)), nonce)
+		return
+	if main.desktop_exchanges >= MAX_EXCHANGES:
+		_answer(main, sender, "login", "busy"); return
+	var http := HTTPRequest.new()
+	http.timeout = 20.0
+	main.add_child(http)
+	main.desktop_exchanges += 1
+	var form := "code=%s&client_id=%s&client_secret=%s&redirect_uri=%s&grant_type=authorization_code&code_verifier=%s" % [
+		code.uri_encode(), desktop_client_id().uri_encode(), OS.get_environment(DESKTOP_SECRET_ENV).strip_edges().uri_encode(), redirect_uri.uri_encode(), verifier.uri_encode()]
+	http.request_completed.connect(func(result: int, status: int, _headers: PackedStringArray, body: PackedByteArray):
+		http.queue_free()
+		main.desktop_exchanges -= 1
+		var token := ""
+		if result == HTTPRequest.RESULT_SUCCESS and status == 200:
+			var reply = JSON.parse_string(body.get_string_from_utf8())
+			if reply is Dictionary and reply.get("id_token") is String:
+				token = String(reply.id_token)
+		if token.is_empty():
+			printerr("ACCOUNT_DESKTOP_EXCHANGE_FAILED result=%d code=%d" % [result, status])
+		if main._peer_is_connected(sender):
+			_check_token(main, sender, token, nonce))
+	if http.request(TOKEN_URL, PackedStringArray(["Content-Type: application/x-www-form-urlencoded"]), HTTPClient.METHOD_POST, form) != OK:
+		http.queue_free()
+		main.desktop_exchanges -= 1
+		_answer(main, sender, "login", "invalid_token")
 
 static func request_login(main, token: String) -> void:
 	var sender: int = main.multiplayer.get_remote_sender_id()
@@ -78,13 +152,16 @@ static func request_login(main, token: String) -> void:
 	main.account_nonces.erase(sender) # one use, even when the token fails
 	if issued == null or int(issued.expires) < now():
 		_answer(main, sender, "login", "no_nonce"); return
-	var check: Dictionary = main.google.verify(token, String(issued.nonce))
+	_check_token(main, sender, token, String(issued.nonce))
+
+static func _check_token(main, peer: int, token: String, nonce: String) -> void:
+	var check: Dictionary = main.google.verify(token, nonce)
 	if not check.ok and check.error == "unknown_key" and main.pending_logins.size() < MAX_PENDING_LOGINS and is_instance_valid(main.jwks_http):
 		# Google rotated its keys: finish this login once the new keys arrive.
-		main.pending_logins.append({"peer": sender, "token": token, "nonce": String(issued.nonce)})
+		main.pending_logins.append({"peer": peer, "token": token, "nonce": nonce})
 		refresh_keys(main, true)
 		return
-	_finish_login(main, sender, check)
+	_finish_login(main, peer, check)
 
 static func _finish_login(main, peer: int, check: Dictionary) -> void:
 	if not check.ok:

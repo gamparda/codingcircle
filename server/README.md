@@ -168,7 +168,20 @@ start, hourly, and when a token names an unknown key (at most once a minute), so
 outbound HTTPS to `www.googleapis.com`. Logs: `ACCOUNT_CREATED`, `ACCOUNT_DELETED`,
 `ACCOUNT_KEYS_FETCH_FAILED`. Tokens must be issued for the web OAuth client in
 `scripts/accounts/GoogleIdToken.gd`; `CATWAR_GOOGLE_CLIENT_IDS` (comma-separated) replaces that
-list, for example to accept a future desktop client as well.
+list.
+
+**PC sign-in.** The PC game signs in through the browser (OAuth for installed apps with PKCE): it opens
+Google's page, receives an authorization code on `http://127.0.0.1:<free port>`, and sends the code to
+this server, which trades it for an ID token at `https://oauth2.googleapis.com/token` (outbound HTTPS to
+`oauth2.googleapis.com`) and then checks it like an Android token. Create an OAuth client of type
+**Desktop app** in Google Cloud Console (no redirect URI to register) and set, on the server only:
+
+- `CATWAR_GOOGLE_DESKTOP_CLIENT_ID` — the desktop client ID (the server tells PC clients this ID, and
+  accepts tokens issued for it).
+- `CATWAR_GOOGLE_DESKTOP_CLIENT_SECRET` — its secret. Keep it in the server's environment only: never in
+  the repository, the game, or a log. The game never receives it.
+
+Without both, PC players see "이 서버는 아직 PC 로그인을 지원하지 않습니다". Log: `ACCOUNT_DESKTOP_EXCHANGE_FAILED`.
 
 ### Ranked games, reports and cloud saves
 

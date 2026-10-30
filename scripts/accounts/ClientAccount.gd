@@ -1,13 +1,15 @@
 extends Node
 ## The player's account on this device. Without one the player is a guest; with one the game resumes
 ## the account with a session token whenever it reaches the official server. Google sign-in runs through
-## the Android plugin (android/plugins/keepfall_signin) and only over a verified connection
-## (NetworkController.account_ready). Only the session token and the nickname are kept, in SAVE_PATH.
+## the Android plugin (android/plugins/keepfall_signin), or on PC through the browser (DesktopLogin), and
+## only over a verified connection (NetworkController.account_ready). Only the session token and the
+## nickname are kept, in SAVE_PATH.
 
 signal changed
 
 const GoogleIdToken = preload("res://scripts/accounts/GoogleIdToken.gd")
 const AccountStore = preload("res://scripts/accounts/AccountStore.gd")
+const DesktopLogin = preload("res://scripts/accounts/DesktopLogin.gd")
 
 const PLUGIN := "KeepfallSignIn"
 const PRIVACY_URL := "https://gampa.xyz/privacy_policy.html"
@@ -20,9 +22,14 @@ const OFFLINE_GRACE_SECONDS := 7 * 86400
 static var save_path := "user://account.json"
 ## -1 follows the platform (sign-in required on Android); tests set 0 or 1.
 static var required_override := -1
+## -1 follows the platform (browser sign-in on PC); tests set 0 or 1.
+static var desktop_override := -1
 
 var network
 var plugin: Object = null
+## PC browser sign-in, and the desktop OAuth client the server offers for it ("" until it says).
+var desktop: Node = null
+var desktop_client_id := ""
 ## "guest" | "busy" | "needs_nickname" | "signed_in"
 var state := "guest"
 var session := ""
@@ -49,6 +56,13 @@ func setup(network_node, sign_in_plugin: Object = null) -> void:
 	if plugin != null:
 		plugin.connect("sign_in_succeeded", _on_google_token)
 		plugin.connect("sign_in_failed", _on_google_failed)
+	if plugin == null and desktop_supported():
+		desktop = DesktopLogin.new()
+		desktop.name = "DesktopLogin"
+		add_child(desktop)
+		desktop.completed.connect(_on_desktop_code)
+		desktop.failed.connect(_on_desktop_failed)
+	network.account_desktop_client_received.connect(func(client_id): desktop_client_id = client_id)
 	network.account_nonce_received.connect(_on_nonce)
 	network.account_result_received.connect(_on_result)
 	network.server_ready.connect(resume)
@@ -65,6 +79,8 @@ func _process(delta: float) -> void:
 			changed.emit()
 	if state != "busy":
 		return
+	if is_instance_valid(desktop) and desktop.active():
+		return # the browser round trip has its own, longer limit
 	busy_elapsed += delta
 	if busy_elapsed >= REQUEST_SECONDS:
 		_finish(_busy_return, "응답이 없습니다. 다시 시도하세요.")
@@ -80,8 +96,20 @@ func unlocked() -> bool:
 func offline_grace(now: int) -> bool:
 	return not session.is_empty() and verified_at > 0 and now >= verified_at and now - verified_at <= OFFLINE_GRACE_SECONDS
 
+static func desktop_supported() -> bool:
+	return OS.has_feature("pc") and not OS.has_feature("android") if desktop_override < 0 else desktop_override == 1
+
 func can_sign_in() -> bool:
-	return plugin != null
+	return plugin != null or desktop != null
+
+## True while the browser is open for a PC sign-in.
+func waiting_for_browser() -> bool:
+	return state == "busy" and is_instance_valid(desktop) and desktop.active()
+
+func cancel_browser_sign_in() -> void:
+	if waiting_for_browser():
+		desktop.cancel()
+		_finish("guest", "로그인을 취소했습니다.")
 
 func is_signed_in() -> bool:
 	return state == "signed_in" or (state == "busy" and _busy_return == "signed_in")
@@ -98,7 +126,7 @@ func blocker() -> String:
 
 func sign_in() -> bool:
 	if not can_sign_in():
-		return _refuse("Google 로그인은 Android 앱에서만 할 수 있습니다.")
+		return _refuse("이 기기에서는 Google 로그인을 할 수 없습니다.")
 	if state != "guest" or not network.account_request_nonce():
 		return _refuse(blocker())
 	_begin("guest")
@@ -183,7 +211,29 @@ func _on_nonce(nonce: String) -> void:
 	if state != "busy" or _busy_return != "guest":
 		return
 	busy_elapsed = 0.0
-	plugin.call("signIn", String(GoogleIdToken.DEFAULT_CLIENT_IDS[0]), nonce)
+	if plugin != null:
+		plugin.call("signIn", String(GoogleIdToken.DEFAULT_CLIENT_IDS[0]), nonce)
+	elif desktop_client_id.is_empty():
+		_finish("guest", "이 서버는 아직 PC 로그인을 지원하지 않습니다.")
+	elif not desktop.start(desktop_client_id, nonce):
+		_finish("guest", "로그인 창을 열지 못했습니다. 다시 시도하세요.")
+	else:
+		message = "브라우저에서 Google 로그인을 마치면 자동으로 이어집니다."
+		changed.emit()
+
+func _on_desktop_code(code: String, verifier: String, redirect_uri: String) -> void:
+	if state != "busy" or _busy_return != "guest":
+		return
+	busy_elapsed = 0.0
+	message = "로그인을 확인하는 중..."
+	changed.emit()
+	if not network.account_desktop_login(code, verifier, redirect_uri):
+		_finish("guest", blocker())
+
+func _on_desktop_failed(reason: String) -> void:
+	if state != "busy" or _busy_return != "guest":
+		return
+	_finish("guest", {"cancelled": "로그인을 취소했습니다.", "timeout": "로그인 시간이 지났습니다. 다시 시도하세요."}.get(reason, "Google 로그인을 마치지 못했습니다. 다시 시도하세요."))
 
 func _on_google_token(token: String) -> void:
 	if state != "busy" or _busy_return != "guest":
@@ -250,10 +300,14 @@ static func _error_text(error: String) -> String:
 		"full": "지금은 새 계정을 만들 수 없습니다. 나중에 다시 시도하세요.",
 		"exists": "이 Google 계정에는 이미 계정이 있습니다. 다시 로그인하세요.",
 		"expired": "로그인이 만료되었습니다. 다시 로그인하세요.",
+		"desktop_unavailable": "이 서버는 아직 PC 로그인을 지원하지 않습니다.",
+		"busy": "로그인 요청이 많습니다. 잠시 후 다시 시도하세요.",
 	}.get(error, "요청을 처리하지 못했습니다. (%s)" % error)
 
 func _connection_lost() -> void:
 	online = false
+	if is_instance_valid(desktop):
+		desktop.cancel()
 	if state == "busy":
 		_finish(_busy_return if _busy_return != "needs_nickname" else "guest", "서버 연결이 끊겼습니다.")
 	elif state == "needs_nickname":

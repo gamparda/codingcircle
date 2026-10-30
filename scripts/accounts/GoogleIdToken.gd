@@ -4,9 +4,11 @@ extends RefCounted
 ## are never read or kept.
 
 ## Public OAuth client IDs whose tokens are accepted (the Android app requests tokens for the web
-## client). CATWAR_GOOGLE_CLIENT_IDS (comma-separated) replaces the list, e.g. to add a desktop client.
+## client). CATWAR_GOOGLE_CLIENT_IDS (comma-separated) replaces the list. The PC sign-in's desktop client
+## (CATWAR_GOOGLE_DESKTOP_CLIENT_ID, see AccountFlow) is accepted as well.
 const DEFAULT_CLIENT_IDS := ["36479821399-4n3unj8u7isrvjke1aopjp380hlt7jln.apps.googleusercontent.com"]
 const CLIENT_IDS_ENV := "CATWAR_GOOGLE_CLIENT_IDS"
+const DESKTOP_CLIENT_ID_ENV := "CATWAR_GOOGLE_DESKTOP_CLIENT_ID"
 const JWKS_URL := "https://www.googleapis.com/oauth2/v3/certs"
 const ISSUERS := ["accounts.google.com", "https://accounts.google.com"]
 const CLOCK_SKEW := 300
@@ -19,6 +21,9 @@ var keys: Dictionary = {}
 func _init() -> void:
 	var configured := OS.get_environment(CLIENT_IDS_ENV).strip_edges()
 	client_ids = DEFAULT_CLIENT_IDS.duplicate() if configured.is_empty() else Array(configured.split(",", false)).map(func(id): return String(id).strip_edges())
+	var desktop := OS.get_environment(DESKTOP_CLIENT_ID_ENV).strip_edges()
+	if not desktop.is_empty() and not client_ids.has(desktop):
+		client_ids.append(desktop)
 
 ## Replaces the signing keys with a JWKS document ({"keys": [{kid, kty, alg, n, e}, ...]}).
 ## Returns how many RSA keys were loaded.

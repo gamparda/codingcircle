@@ -29,6 +29,7 @@
   "network": [
     "tests/transport_security_test.gd",
     "tests/account_wire_test.gd",
+    "tests/desktop_login_test.gd",
     "tests/client_account_test.gd",
     "tests/network_recovery_test.gd",
     "tests/reconnect_admission_test.gd",
