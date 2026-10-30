@@ -19,6 +19,8 @@
   a { color: var(--link); }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; }
   .button { display: inline-block; background: var(--accent); color: #1b1305; font-weight: 700; text-decoration: none; padding: 12px 20px; border-radius: 10px; }
+  .downloads { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0 8px; }
+  .button.secondary { background: transparent; color: var(--text); border: 1px solid var(--accent); }
   .muted { color: var(--muted); font-size: .92rem; }
   ul { padding-left: 1.2em; }
   footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: .92rem; }
@@ -31,21 +33,25 @@
 <p class="tagline">덱을 짜고 병력을 보내 상대 기지를 무너뜨리는 1대1 자동 전투 게임</p>
 
 <div class="card">
-  <p>유닛 3종과 구조물 3종으로 덱을 만들고, 자원이 차는 대로 병력을 생산하고 전장에 방벽·늪·포탑·발전기를 세워 상대 기지를 먼저 무너뜨리면 이깁니다. AI 캠페인과 일일·주간 도전은 혼자, 방 대전과 빠른 대전은 다른 플레이어와 즐길 수 있습니다.</p>
-  <p><a class="button" href="https://gamparda.github.io/codingcircle/CatWar.apk">Android 앱 내려받기 (APK)</a></p>
-  <p class="muted">Android 기기에서 내려받아 설치합니다. 설치 중 "출처를 알 수 없는 앱" 허용이 필요할 수 있습니다.</p>
+  <p>유닛 4종과 전술 카드 4종(구조물·마법)으로 덱을 만들고, 자원이 차는 대로 병력을 생산하며 방벽·늪·포탑을 세우고 마법을 써서 상대 기지를 먼저 무너뜨리면 이깁니다. 혼자서는 AI 캠페인·원정·무한 방어·일일/주간 도전을, 다른 플레이어와는 빠른 대전·랭크 대전·방 대전·같은 와이파이 대전을 즐길 수 있습니다.</p>
+  <div class="downloads">
+    <a class="button" href="https://gamparda.github.io/codingcircle/CatWar.apk">Android 앱 내려받기 (APK)</a>
+    <a class="button secondary" href="https://gamparda.github.io/codingcircle/CatWarSetup.exe">Windows 버전 내려받기 (설치 파일)</a>
+  </div>
+  <p class="muted"><strong>Android</strong>: 기기에서 내려받아 설치합니다. 설치 중 "출처를 알 수 없는 앱" 허용이 필요할 수 있습니다.</p>
+  <p class="muted"><strong>Windows</strong>: Windows 10·11(64비트)에서 설치 파일을 실행합니다. "Windows의 PC 보호" 창이 뜨면 "추가 정보" → "실행"을 누르세요. 새 버전은 게임을 켤 때 자동으로 업데이트됩니다.</p>
+  <p class="muted">두 버전은 함께 대전할 수 있고, 같은 Google 계정으로 로그인하면 랭크 점수와 진행도를 함께 씁니다.</p>
 </div>
 
 <h2>계정</h2>
 <ul>
-  <li>Android 앱은 Google 계정으로 로그인해 계정을 만든 뒤 이용할 수 있습니다. 계정은 만 14세 이상만 만들 수 있습니다.</li>
-  <li>계정에 진행도가 저장되어 다른 기기에서 같은 계정으로 로그인하면 이어서 할 수 있고, 계정끼리 랭크 대전을 할 수 있습니다.</li>
-  <li>서버가 마지막으로 계정을 확인한 뒤 7일 동안은 인터넷 연결 없이도 혼자 하는 모드를 즐길 수 있습니다.</li>
+  <li>로그인 없이 게스트로 모든 일반 대전과 캠페인을 즐길 수 있습니다.</li>
+  <li>랭크 게임과 기기 간 진행도 이어하기는 Google 계정으로 로그인해 계정을 만든 뒤 이용할 수 있습니다. 계정은 만 14세 이상만 만들 수 있습니다.</li>
   <li>Google 로그인에서는 Google 계정 고유 식별자만 사용하며 이메일·이름·프로필 사진은 받지 않습니다. 자세한 내용은 <a href="privacy_policy.html">개인정보 처리방침</a>을 확인해 주세요.</li>
 </ul>
 
 <h2 id="delete-account">계정 삭제</h2>
-<p>게임의 계정 화면에서 "계정 삭제"를 누르면 서버에 저장된 계정 정보, 로그인 세션, 계정에 저장된 진행도, 랭크 점수와 전적이 즉시 삭제됩니다. 게임을 이용할 수 없다면 <a href="mailto:seonglogbag81@gmail.com">seonglogbag81@gmail.com</a>로 계정 닉네임과 함께 삭제를 요청해 주세요. 요청을 받은 날부터 10일 이내에 처리하고 결과를 알려 드립니다. 삭제된 계정은 되살릴 수 없습니다.</p>
+<p>게임의 계정 화면에서 "계정 삭제"를 누르면 서버에 저장된 계정 정보와 로그인 세션이 즉시 삭제됩니다. 게임을 이용할 수 없다면 <a href="mailto:seonglogbag81@gmail.com">seonglogbag81@gmail.com</a>로 계정 닉네임과 함께 삭제를 요청해 주세요. 요청을 받은 날부터 10일 이내에 처리하고 결과를 알려 드립니다. 삭제된 계정은 되살릴 수 없습니다.</p>
 
 <h2>문의</h2>
 <p>박성록 · <a href="mailto:seonglogbag81@gmail.com">seonglogbag81@gmail.com</a></p>
