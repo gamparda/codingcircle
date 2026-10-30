@@ -13,7 +13,7 @@ params = {
 "spell": true,
 "effect": "strike",
 "zone": "any",
-"cooldown": 10.0,
+"cooldown": 12.0,
 "delay": 0.6,
 "radius": 70.0,
 "damage": 120.0
