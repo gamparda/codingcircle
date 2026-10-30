@@ -279,11 +279,11 @@ func _plan() -> bool:
 		if int(span.end) <= head_end:
 			continue
 		if int(span.start) < head_end:
-			if span.kind != "remote":
-				# A copied file or padding straddling the head: take its tail from the remote side instead.
-				span = {"start": head_end, "end": span.end, "kind": "remote"}
-			else:
-				span = {"start": head_end, "end": span.end, "kind": span.kind}
+			# Straddling the head: only its tail is still needed (a copied file skips what the head holds).
+			var tail: Dictionary = span.duplicate()
+			tail.start = head_end
+			tail.skip = head_end - int(span.start)
+			span = tail
 		trimmed.append(span)
 	# Merge remote spans separated by little local data.
 	var merged: Array = []
@@ -333,7 +333,7 @@ func _write_spans() -> void:
 			"dir":
 				_file.store_buffer(_directory)
 			"local":
-				var bytes := _read_installed(String(span.path))
+				var bytes := _read_installed(String(span.path)).slice(int(span.get("skip", 0)))
 				if bytes.size() != int(span.end) - int(span.start):
 					_fail("local_changed")
 					return

@@ -77,6 +77,13 @@ func run() -> void:
 	check(bool(patcher.get_meta("ok")), "a patch from the installed files succeeds: %s" % patcher.reason)
 	check(FileAccess.get_sha256(directory + "/pending.pck") == new_sha, "the rebuilt pack is the new pack byte for byte")
 	check(patcher.remote_bytes < 80000 and patcher.remote_bytes < total / 5, "only the changed files are downloaded (%d of %d bytes)" % [patcher.remote_bytes, total])
+	# A big installed file straddling the first request's 64 KB is copied, not downloaded again.
+	var big_old := {"data/a_big.bin": bytes_of(77, 150000), "data/b.bin": bytes_of(78, 30000)}
+	var big_new := big_old.duplicate()
+	big_new["data/b.bin"] = bytes_of(79, 30000)
+	var big := await patch(pack("big.pck", big_new), big_old)
+	check(bool(big.get_meta("ok")) and big.remote_bytes <= 30000 + 64, "a file across the first 64 KB is copied (%d bytes fetched)" % big.remote_bytes)
+	await patch(new_path, old_files)
 	var info = JSON.parse_string(FileAccess.get_file_as_string(directory + "/pending.pck.json"))
 	check(info is Dictionary and String(info.key) == new_sha and int(info.total) == total, "it is left as a finished download for the launcher")
 
