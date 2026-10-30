@@ -100,6 +100,8 @@ const STAR_SPELL_STEP := 0.15
 const STAR_COST_SCALE := 0.9
 const MODIFIER_KEYS := ["hp:", "damage:", "range:ranged", "cost:units", "spell_cooldown", "structure_hp", "knockback",
 	"skill_cooldown:", "income", "capacity", "start", "skeleton_cap", "first_strike"]
+## Units this close to the enemy a unit would hit count as the same spot: a tank among them is hit first.
+const GUARD_SPOT := 20.0
 ## Endless defense: the wave side has no base to destroy; its units come forever until the defender falls.
 var invulnerable_bases: Array = [false, false]
 ## How far each side's units march: side 0 never past advance_limit[0], side 1 never before advance_limit[1].
@@ -360,7 +362,7 @@ static func unit_role(kind: String) -> String:
 	match kind:
 		"healer": return Localization.text("공격속도 지원")
 		"archer": return Localization.text("원거리")
-		"shield": return Localization.text("방어")
+		"shield": return Localization.text("방어 · 같은 자리면 먼저 맞음")
 		"swordsman": return Localization.text("근접 공격")
 		"berserker": return Localization.text("체력 %d%% 이하: 광폭화") % roundi(RAGE_HP_FRACTION * 100.0)
 		"warlock": return Localization.text("적 공속 -%d%% 장판") % roundi((1.0 - CURSE_SPEED_SCALE) * 100.0)
@@ -402,8 +404,8 @@ static func battle_stat_summary() -> String:
 	var turret: Dictionary = STRUCTURE_STATS.turret
 	var generator: Dictionary = STRUCTURE_STATS.generator
 	var healer: Dictionary = UNIT_STATS.healer
-	var structures_line := Localization.text("구조물  ·  방벽 %d/체력 %d  ·  늪 %d/체력 %d/%d%% 감속/%d초\n포탑 %d/체력 %d/공격 %d/사거리 %d  ·  발전기 %d/체력 %d/+%d 자원") % [
-		int(wall.cost), int(wall.hp), int(swamp.cost), int(swamp.hp), roundi((1.0 - float(swamp.speed_scale)) * 100.0), int(swamp.lifetime),
+	var structures_line := Localization.text("구조물  ·  방벽 %d/체력 %d  ·  늪 %d/%d%% 감속/%d초\n포탑 %d/체력 %d/공격 %d/사거리 %d  ·  발전기 %d/체력 %d/+%d 자원") % [
+		int(wall.cost), int(wall.hp), int(swamp.cost), roundi((1.0 - float(swamp.speed_scale)) * 100.0), int(swamp.lifetime),
 		int(turret.cost), int(turret.hp), int(turret.damage), int(turret.range), int(generator.cost), int(generator.hp), int(generator.income)]
 	var support_line := Localization.text("마법사  ·  피해·회복 없음/공속 +%d%% 영구 누적/범위 %d/쿨 %d초/상한 +%d%%") % [roundi(SUPPORT_INCREMENT * 100.0), int(healer.range), int(healer.interval), roundi(SUPPORT_INCREMENT * SUPPORT_MAX_STACKS * 100.0)]
 	var field_line := Localization.text("전장  ·  길이 +%d%%  ·  기지 체력 %d  ·  자원 +%.0f/초  ·  최대 %.0f  ·  구조물 진영당 %d개  ·  시간 제한 없음") % [roundi((WORLD_SCALE - 1.0) * 100.0), int(BASE_MAX_HP), RESOURCE_RATE, MAX_RESOURCE, STRUCTURE_LIMIT]
@@ -411,6 +413,10 @@ static func battle_stat_summary() -> String:
 
 ## Shared by authoritative placement, online previews and purchase cards.
 ## Destroyed structures can remain in a snapshot until the next cleanup tick.
+## Whether structure `kind` can be attacked (the swamp cannot: it has no health and only expires).
+static func has_health(kind: String) -> bool:
+	return float(STRUCTURE_STATS.get(kind, {}).get("hp", 0.0)) > 0.0
+
 static func structure_counts(values: Array, side: int) -> Dictionary:
 	var counts := {"total": 0, "kinds": {}}
 	for structure in values:
@@ -605,7 +611,8 @@ func place_structure(side: int, kind: String, x: float) -> bool:
 	battle_report[side].resources_spent += float(stats.cost)
 	battle_report[side].structures_built += 1
 	if kind == "turret": battle_report[side].units.turret.purchased += 1
-	var structure_hp := float(stats.hp) * float(modifier(side, "structure_hp")) * (1.0 + STAR_STEP * card_level(side, kind))
+	# Structures without health (the swamp) keep hp 1 only as "still on the field"; nothing can lower it.
+	var structure_hp := float(stats.hp) * float(modifier(side, "structure_hp")) * (1.0 + STAR_STEP * card_level(side, kind)) if has_health(kind) else 1.0
 	structures.append({"id": next_structure_id, "side": side, "kind": kind, "x": x, "hp": structure_hp, "max_hp": structure_hp})
 	if kind == "turret":
 		structure_cooldowns[next_structure_id] = float(stats.interval)
@@ -1044,6 +1051,37 @@ func _nearest_enemy_indexed(unit: Dictionary):
 			best = lane.units[left]
 	return best
 
+## A tank ("guard" trait) standing in the same spot as `nearest` (within GUARD_SPOT) and in `unit`'s reach
+## takes the hit instead (nearest to `unit` first, ties: earliest in `units`); otherwise `nearest`.
+func _guard_beside(unit: Dictionary, nearest: Dictionary) -> Dictionary:
+	if trait_value(String(nearest.kind), "guard", false):
+		return nearest
+	var x := float(unit.x)
+	var reach := float(unit.range)
+	var spot := float(nearest.x)
+	var best := nearest
+	var best_distance := INF
+	if _indexed:
+		var lane: Dictionary = _lanes[1 - int(unit.side)]
+		var xs: PackedFloat64Array = lane.xs
+		var best_order := 1 << 30
+		for i in range(xs.bsearch(spot - GUARD_SPOT, true), xs.bsearch(spot + GUARD_SPOT, false)):
+			var enemy: Dictionary = lane.units[i]
+			var distance := absf(xs[i] - x)
+			if distance <= reach and trait_value(String(enemy.kind), "guard", false) and (distance < best_distance or (distance == best_distance and lane.order[i] < best_order)):
+				best = enemy
+				best_distance = distance
+				best_order = lane.order[i]
+		return best
+	for enemy in units:
+		if int(enemy.side) == int(unit.side) or float(enemy.hp) <= 0.0 or absf(float(enemy.x) - spot) > GUARD_SPOT:
+			continue
+		var distance := absf(float(enemy.x) - x)
+		if distance <= reach and distance < best_distance and trait_value(String(enemy.kind), "guard", false):
+			best = enemy
+			best_distance = distance
+	return best
+
 ## Farthest living enemy of `unit` within its range (ties: earliest in `units`), from the lane index.
 func _rearmost_enemy_indexed(unit: Dictionary):
 	var lane: Dictionary = _lanes[1 - int(unit.side)]
@@ -1131,6 +1169,7 @@ func _find_target(unit: Dictionary):
 				best_unit = enemy
 				best_distance = distance
 	if best_unit != null:
+		best_unit = _guard_beside(unit, best_unit)
 		var wall = _blocking_wall(unit, float(best_unit.x))
 		if wall != null:
 			return wall if abs(float(wall.x) - float(unit.x)) <= float(unit.range) + 12.0 else null
@@ -1138,7 +1177,7 @@ func _find_target(unit: Dictionary):
 	var best_structure = null
 	best_distance = INF
 	for structure in structures:
-		if structure.side == unit.side or structure.hp <= 0.0:
+		if structure.side == unit.side or structure.hp <= 0.0 or not has_health(String(structure.kind)):
 			continue
 		var distance: float = abs(float(structure.x) - float(unit.x))
 		if distance <= float(unit.range) + 12.0 and distance < best_distance:

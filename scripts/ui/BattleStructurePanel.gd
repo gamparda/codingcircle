@@ -147,7 +147,7 @@ func refresh(values: Array, counts: Array, elapsed: float, awaiting: bool) -> vo
 			var position_percent := roundi(clampf((float(structure.x) - rear) / (front - rear), 0.0, 1.0) * 100.0)
 			_set_text(slot.title, "%s · 건설 구역 %d%%" % [NAMES.get(kind, kind), position_percent])
 			_set_color(slot.title, UIKit.DANGER if fraction <= 0.25 else UIKit.TEXT)
-			var detail := "체력 %d / %d · %d%%%s" % [ceili(hp), ceili(maximum), roundi(fraction * 100.0), " · 파괴 주의" if fraction <= 0.25 else ""]
+			var detail := "체력 %d / %d · %d%%%s" % [ceili(hp), ceili(maximum), roundi(fraction * 100.0), " · 파괴 주의" if fraction <= 0.25 else ""] if BattleModel.has_health(kind) else "체력 없음 · 공격받지 않음"
 			_set_text(slot.detail, detail)
 			slot.lifetime.show()
 			var remaining := StructureLifetime.remaining(structure, elapsed)

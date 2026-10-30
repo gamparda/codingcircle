@@ -26,7 +26,7 @@
 | 구조물 | 비용 | 체력 | 추가 수치 |
 |---|---:|---:|---|
 | 방벽 | 35 | 230 | max_count 2 |
-| 늪 | 30 | 100 | speed_scale 0.2, radius 95, lifetime 5 |
+| 늪 | 30 | 0 | speed_scale 0.2, radius 95, lifetime 5 |
 | 포탑 | 45 | 115 | damage 9, interval 1.5, range 240, max_count 1 |
 | 발전기 | 75 | 90 | income 1.7, max_count 1 |
 | 낙뢰 | 55 | 1 | spell True, effect strike, zone any, cooldown 12, delay 0.6, radius 70, damage 120 |

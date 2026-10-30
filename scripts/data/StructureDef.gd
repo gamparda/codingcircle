@@ -1,5 +1,6 @@
 extends Resource
 ## One tactic card: a placeable structure, or a spell when params has "spell": true (then `hp` is unused).
+## A structure with hp 0 (the swamp) has no health: nothing attacks it and it lasts until its lifetime ends.
 ## Edit the .tres files in res://data/structures/.
 
 @export var kind := ""

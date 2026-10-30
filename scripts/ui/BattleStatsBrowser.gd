@@ -429,7 +429,7 @@ func _add_card(title: String, summary: String, section: int, in_deck: bool, colo
 
 func _structure_summary(kind: String) -> String:
 	var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
-	var text := "비용 %d · 체력 %d\n종류 한도 %d개 · 진영 전체 한도 %d개" % [int(stats.cost), int(stats.hp), int(stats.get("max_count", BattleModel.STRUCTURE_LIMIT)), BattleModel.STRUCTURE_LIMIT]
+	var text := "비용 %d · %s\n종류 한도 %d개 · 진영 전체 한도 %d개" % [int(stats.cost), "체력 %d" % int(stats.hp) if BattleModel.has_health(kind) else "체력 없음(공격받지 않음)", int(stats.get("max_count", BattleModel.STRUCTURE_LIMIT)), BattleModel.STRUCTURE_LIMIT]
 	match kind:
 		"wall": text += "\n적의 전진을 막는 방벽"
 		"swamp": text += "\n%s · 반경 %d\n수명이 끝나면 사라집니다." % [BattleModel.swamp_summary(), int(stats.radius)]

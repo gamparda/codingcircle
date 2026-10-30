@@ -25,7 +25,8 @@
     "tests/spell_test.gd",
     "tests/knockback_test.gd",
     "tests/run_modifiers_test.gd",
-    "tests/battle_performance_test.gd"
+    "tests/battle_performance_test.gd",
+    "tests/guard_and_swamp_test.gd"
   ],
   "network": [
     "tests/transport_security_test.gd",

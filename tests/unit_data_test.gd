@@ -22,7 +22,9 @@ func _init() -> void:
 	check(float(stats.healer.interval) == BattleModel.SUPPORT_COOLDOWN and stats.healer.has("heal"), "mage cooldown data matches the support constant")
 	check(BattleModel.UNIT_NAMES.has("skeleton"), "skeleton name is available to reports")
 	for kind in BattleModel.STRUCTURE_STATS:
-		check(float(BattleModel.STRUCTURE_STATS[kind].cost) > 0.0 and float(BattleModel.STRUCTURE_STATS[kind].hp) > 0.0, "%s structure numbers are positive" % kind)
+		# hp 0 means no health (the swamp only expires); a structure without health needs a lifetime.
+		var structure: Dictionary = BattleModel.STRUCTURE_STATS[kind]
+		check(float(structure.cost) > 0.0 and (float(structure.hp) > 0.0 or BattleModel.is_spell(kind) or float(structure.get("lifetime", 0.0)) > 0.0), "%s structure numbers are positive" % kind)
 	# Every .tres on disk must be registered, so a new data file cannot be silently ignored.
 	for folder in ["units", "structures"]:
 		var listed: Array = (GameData.UNIT_FILES + GameData.SUMMON_FILES) if folder == "units" else GameData.STRUCTURE_FILES

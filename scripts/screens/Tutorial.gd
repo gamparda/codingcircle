@@ -8,30 +8,32 @@ static func _begin_tutorial(main) -> void:
 	var banner := PanelContainer.new()
 	banner.name = "FirstBattleGuide"
 	banner.position = Vector2(320, 94)
+	banner.custom_minimum_size = Vector2(640, 68)
 	banner.size = Vector2(640, 68)
 	banner.z_index = 20
 	banner.add_theme_stylebox_override("panel", main._panel_style(Color("#151c2c"), Color("#f6c85f"), 12))
 	main.root_background.add_child(banner)
 	main.tutorial_banner = banner
-	var inner := Control.new()
-	inner.custom_minimum_size = Vector2(640, 68)
-	banner.add_child(inner)
+	# The hint and the skip button share one row, so the button never sticks out of the banner.
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	banner.add_child(row)
 	main.tutorial_hint = Label.new()
 	main.tutorial_hint.name = "FirstBattleHint"
-	main.tutorial_hint.position = Vector2(14, 7)
-	main.tutorial_hint.size = Vector2(506, 54)
+	main.tutorial_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	main.tutorial_hint.custom_minimum_size = Vector2(0, 44)
 	main.tutorial_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	main.tutorial_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	main.tutorial_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	main.tutorial_hint.add_theme_font_size_override("font_size", 16)
 	main.tutorial_hint.add_theme_color_override("font_color", Color("#f5f7fb"))
-	inner.add_child(main.tutorial_hint)
+	row.add_child(main.tutorial_hint)
 	var skip = main._styled_button(Localization.text("건너뛰기"), Color("#697386"), false)
 	skip.name = "SkipFirstBattleGuide"
-	skip.position = Vector2(524, 12)
-	skip.size = Vector2(104, 44)
+	skip.custom_minimum_size = Vector2(104, 44)
+	skip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	skip.pressed.connect(main._finish_tutorial)
-	inner.add_child(skip)
+	row.add_child(skip)
 	main._update_tutorial_hint()
 
 static func _update_tutorial_hint(main) -> void:

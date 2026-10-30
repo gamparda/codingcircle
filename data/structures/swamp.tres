@@ -8,7 +8,7 @@ kind = "swamp"
 display_name = "늪"
 order = 1
 cost = 30.0
-hp = 100.0
+hp = 0.0
 params = {
 "speed_scale": 0.2,
 "radius": 95.0,

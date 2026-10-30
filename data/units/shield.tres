@@ -14,4 +14,6 @@ damage = 5.0
 interval = 1.5
 speed = 48.0
 range = 34.0
-extra = {}
+extra = {
+"guard": true
+}

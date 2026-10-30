@@ -57,7 +57,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	for kind in structure_stats.keys():
 		var stats: Dictionary = structure_stats[kind]
 		# Compact two-line cards: nine tactic cards share two rows; the full description is the tooltip.
-		var card_text := Localization.text("%s · %d · HP %d") % [structure_names[kind], int(stats.cost), int(stats.hp)]
+		var card_text := Localization.text("%s · %d · HP %d") % [structure_names[kind], int(stats.cost), int(stats.hp)] if BattleModel.has_health(kind) else Localization.text("%s · %d · %d초") % [structure_names[kind], int(stats.cost), int(stats.get("lifetime", 0))]
 		if BattleModel.is_spell(kind):
 			card_text = Localization.text("%s · %d · 쿨 %d초") % [structure_names[kind], int(stats.cost), int(stats.cooldown)]
 		var card = main._styled_button(card_text, Color("#3d8f83"), false)

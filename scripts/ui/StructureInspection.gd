@@ -297,10 +297,13 @@ func draw(view) -> void:
 	view.draw_rect(card, team, false, 2.0)
 	var side_name := ("블루" if side == 0 else "레드") if spectator else ("아군" if side == view.own_side else "적군")
 	view.draw_string(FONT, Vector2(left + 12.0, 56.0), "%s · %s" % [side_name, NAMES[kind]], HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 20, team)
-	var health_text := "체력 %d / %d · %d%%%s" % [ceili(hp), ceili(maximum), roundi(fraction * 100.0), " · 파괴 주의" if fraction <= 0.25 else ""]
-	view.draw_string(FONT, Vector2(left + 12.0, 82.0), health_text, HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 16, health_tone)
-	view.draw_rect(Rect2(left + 12.0, 90.0, width - 24.0, 6.0), Color("#313a4a"))
-	view.draw_rect(Rect2(left + 12.0, 90.0, (width - 24.0) * fraction, 6.0), health_tone)
+	if BattleModel.has_health(kind):
+		var health_text := "체력 %d / %d · %d%%%s" % [ceili(hp), ceili(maximum), roundi(fraction * 100.0), " · 파괴 주의" if fraction <= 0.25 else ""]
+		view.draw_string(FONT, Vector2(left + 12.0, 82.0), health_text, HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 16, health_tone)
+		view.draw_rect(Rect2(left + 12.0, 90.0, width - 24.0, 6.0), Color("#313a4a"))
+		view.draw_rect(Rect2(left + 12.0, 90.0, (width - 24.0) * fraction, 6.0), health_tone)
+	else:
+		view.draw_string(FONT, Vector2(left + 12.0, 82.0), "체력 없음 · 공격받지 않음", HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 16, Color("#e8edf5"))
 	var remaining := Lifetime.remaining(structure, float(view.snapshot.get("elapsed", 0.0)))
 	var detail := "수명 제한 없음 · 파괴될 때까지 유지"
 	var detail_tone := Color("#b0bbcf")
