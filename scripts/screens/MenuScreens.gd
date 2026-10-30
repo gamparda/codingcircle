@@ -9,7 +9,7 @@ const Achievements = preload("res://scripts/Achievements.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const NewFeatures = preload("res://scripts/NewFeatures.gd")
 const Goals = preload("res://scripts/Goals.gd")
-const HeroShowcase = preload("res://scripts/ui/HeroShowcase.gd")
+const LobbyScene = preload("res://scripts/ui/LobbyScene.gd")
 const SUBMENU_FRAME := preload("res://scenes/ui/SubMenuFrame.tscn")
 const PATCH_NOTES_SCREEN := preload("res://scenes/ui/PatchNotesScreen.tscn")
 const RECORDS_SCREEN := preload("res://scenes/ui/RecordsScreen.tscn")
@@ -51,65 +51,33 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	main.result_shown = false
 	main._clear_screen()
 	main.root_background = main._make_background()
-	var backdrop := MenuBackdrop.new()
-	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	main.root_background.add_child(backdrop)
+	# The stage: the valley between two castles, the title plank and the dragon (LobbyScene); the menu sits on
+	# its wooden board.
+	var lobby := LobbyScene.new()
+	lobby.animated = bool(main.save_data.settings.get("battle_effects", true))
+	main.root_background.add_child(lobby)
+	var column: VBoxContainer = lobby.menu_box
 
-	# Hero stage on the right: rotating roster showcase.
-	var hero := HeroShowcase.new()
-	hero.name = "HeroShowcase"
-	hero.position = Vector2(660, 84)
-	hero.size = Vector2(560, 560)
-	main.root_background.add_child(hero)
-	# Lays out its own children: keep it one block, 60 px from the right edge, centered vertically.
-	# Far anchors first: an anchor may not pass its opposite one.
-	hero.set_anchor_and_offset(SIDE_RIGHT, 1.0, -60.0)
-	hero.set_anchor_and_offset(SIDE_LEFT, 1.0, -620.0)
-	hero.set_anchor_and_offset(SIDE_BOTTOM, 0.5, 284.0)
-	hero.set_anchor_and_offset(SIDE_TOP, 0.5, -276.0)
+	var version := Label.new()
+	version.name = "MenuVersion"
+	version.text = "v%s" % main.build_version()
+	version.add_theme_font_size_override("font_size", 13)
+	version.add_theme_color_override("font_color", Color(0.75, 0.78, 0.9, 0.7))
+	version.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	version.add_theme_constant_override("outline_size", 4)
+	version.anchor_top = 1.0
+	version.anchor_bottom = 1.0
+	version.offset_left = 16.0
+	version.offset_right = 300.0
+	version.offset_top = -30.0
+	version.offset_bottom = -8.0
+	main.root_background.add_child(version)
 
-	# Left column: brand + navigation.
-	var column := VBoxContainer.new()
-	column.name = "MenuColumn"
-	column.position = Vector2(84, 74)
-	column.size = Vector2(500, 580)
-	column.add_theme_constant_override("separation", 10)
-	main.root_background.add_child(column)
-
-	var badge := PanelContainer.new()
-	badge.add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.box(Color(0.43, 0.49, 1.0, 0.22), Color(0.43, 0.49, 1.0, 0.10), Color(0.55, 0.6, 1.0, 0.7), 12, 1.0, 0.0, Color(0, 0, 0, 0), 0.0), 14, 4))
-	badge.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	column.add_child(badge)
-	var badge_label := Label.new()
-	badge_label.text = "◆  전장 개조 전략   ·   v%s" % main.build_version()
-	badge_label.add_theme_font_size_override("font_size", 13)
-	badge_label.add_theme_color_override("font_color", Color("#b9c2ff"))
-	badge.add_child(badge_label)
-
-	var title := Label.new()
-	title.name = "GameTitle"
-	title.text = "KEEPFALL"
-	UIKit.display(title, 96, UIKit.GOLD)
-	title.add_theme_color_override("font_outline_color", Color("#3a2a0c"))
-	title.add_theme_constant_override("outline_size", 14)
-	title.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.55))
-	title.add_theme_constant_override("shadow_offset_y", 6)
-	title.add_theme_constant_override("shadow_offset_x", 0)
-	column.add_child(title)
-	var subtitle := Label.new()
-	subtitle.text = Localization.text("자동 전투  ×  전장 개조  ×  실시간 전략")
-	subtitle.add_theme_font_size_override("font_size", 17)
-	subtitle.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
-	column.add_child(subtitle)
-	var gap := Control.new()
-	gap.custom_minimum_size.y = 14
-	column.add_child(gap)
-
-	var battle_tile := UIKit.menu_tile("⚔", Localization.text("대전"), Localization.text("온라인 · 랭크 · 같은 와이파이"), UIKit.ACCENT, true, 92.0)
+	var battle_tile := UIKit.menu_tile("⚔", Localization.text("대전"), Localization.text("온라인 · 랭크 · 같은 와이파이"), UIKit.ACCENT, true, 78.0)
 	battle_tile.name = "MultiplayerButton"
 	battle_tile.pressed.connect(main._open_multiplayer)
 	column.add_child(battle_tile)
-	var solo_tile := UIKit.menu_tile("👑", Localization.text("혼자 하기"), _solo_caption(main), UIKit.GOLD_DEEP, false, 84.0)
+	var solo_tile := UIKit.menu_tile("👑", Localization.text("혼자 하기"), _solo_caption(main), UIKit.GOLD_DEEP, false, 70.0)
 	solo_tile.name = "SoloButton"
 	solo_tile.pressed.connect(func(): _build_solo_screen(main))
 	column.add_child(solo_tile)
@@ -117,23 +85,24 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	var deck_names := PackedStringArray()
 	for kind in preset.units:
 		deck_names.append(String(BattleModel.UNIT_NAMES.get(kind, kind)))
-	var deck_tile := UIKit.menu_tile("🃏", Localization.text("덱 편성"), "%s  ·  %s" % [String(preset.name), " · ".join(deck_names)], UIKit.TEAL, false, 72.0)
+	var deck_tile := UIKit.menu_tile("🃏", Localization.text("덱 편성"), "%s  ·  %s" % [String(preset.name), " · ".join(deck_names)], UIKit.TEAL, false, 64.0)
 	deck_tile.name = "DeckButton"
 	deck_tile.pressed.connect(main._build_deck_screen)
 	column.add_child(deck_tile)
 	var tools := HBoxContainer.new()
 	tools.name = "MenuTools"
-	tools.add_theme_constant_override("separation", 10)
+	tools.add_theme_constant_override("separation", 6)
 	column.add_child(tools)
-	var entries := [["📊  " + Localization.text("전적"), main._build_records_screen, "RecordsButton"], ["🎬  " + Localization.text("리플레이"), main._build_replay_list, "ReplaysButton"], ["⚙  " + Localization.text("설정"), main._build_settings_screen, "SettingsButton"]]
+	var entries := [["📊 " + Localization.text("전적"), main._build_records_screen, "RecordsButton"], ["🎬 " + Localization.text("리플레이"), main._build_replay_list, "ReplaysButton"], ["⚙ " + Localization.text("설정"), main._build_settings_screen, "SettingsButton"]]
 	if not UIKit.is_touch():
-		entries.append(["⏻  " + Localization.text("종료"), main._quit_game, "QuitButton"])
+		entries.append(["⏻", main._quit_game, "QuitButton"])
 	for entry in entries:
 		var tool_button = main._styled_button(entry[0], UIKit.EDGE.lightened(0.25) if entry[2] != "QuitButton" else UIKit.DANGER, false)
 		tool_button.name = entry[2]
-		tool_button.custom_minimum_size = Vector2(0, 48)
-		tool_button.add_theme_font_size_override("font_size", 14)
-		tool_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tool_button.custom_minimum_size = Vector2(52 if entry[2] == "QuitButton" else 0, 46)
+		tool_button.add_theme_font_size_override("font_size", 13)
+		if entry[2] == "QuitButton": tool_button.tooltip_text = Localization.text("종료")
+		else: tool_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tool_button.pressed.connect(entry[1])
 		tools.add_child(tool_button)
 	main.status_label = Label.new()
@@ -147,9 +116,8 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	var corner := HBoxContainer.new()
 	corner.name = "MenuCorner"
 	corner.add_theme_constant_override("separation", 10)
-	corner.alignment = BoxContainer.ALIGNMENT_END
-	corner.position = Vector2(756, 22)
-	corner.size = Vector2(500, 44)
+	corner.position = Vector2(20, 18)
+	corner.size = Vector2(340, 44)
 	main.root_background.add_child(corner)
 	var patch_notes = main._styled_button("📰  " + Localization.text("패치노트"), UIKit.EDGE.lightened(0.25))
 	patch_notes.name = "PatchNotesButton"
@@ -159,8 +127,6 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	corner.add_child(patch_notes)
 	Goals.add_chip(main, corner)
 	corner.move_child(patch_notes, -1)
-	var game_title := column.get_node("GameTitle") as Label
-	game_title.add_theme_font_size_override("font_size", 88)
 	NewFeatures.decorate(main, column)
 	main.updater.set_safe_to_update(main._client_can_update())
 	main.updater.check_for_update()

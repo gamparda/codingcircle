@@ -42,14 +42,21 @@ func run() -> void:
 	root.add_child(main)
 	await process_frame
 	expect_true(tree_text(main).contains("v%s" % main.build_version()), "main menu reads the configured build version")
-	var hero = main.find_child("HeroShowcase", true, false)
-	expect_true(hero != null and hero.sprite.texture != null and hero.name_label.text != "", "menu hero stage displays loaded unit artwork")
-	var seen := {}
-	for step in hero.ORDER.size():
-		hero._show_unit(step, false)
-		expect_true(hero.sprite.texture != null and hero.chips.get_child_count() >= 3, "hero stage shows artwork and stat chips for %s" % hero.ORDER[step])
-		seen[hero.sprite.texture.resource_path] = true
-	expect_true(seen.size() == hero.ORDER.size(), "every roster unit has distinct menu artwork")
+	var lobby = main.find_child("LobbyScene", true, false)
+	expect_true(lobby != null and lobby.background.texture != null and lobby.dragon.texture != null and lobby.plank.texture != null, "the menu stands on the lobby art: valley, dragon and title plank")
+	expect_true(lobby.title.text == "KEEPFALL" and lobby.menu_box.find_child("MultiplayerButton", true, false) != null, "the title is on the plank and the menu on the board")
+	lobby._pose(0.2)
+	expect_true(not lobby.breath.emitting and float(lobby.burn_material.get_shader_parameter("heat")) == 0.0, "between breaths the plank is cold")
+	lobby._pose(lobby.BREATH_START + 0.5)
+	expect_true(lobby.breath.emitting or not lobby.animated, "the dragon breathes fire at the plank")
+	lobby._pose(lobby.BREATH_END + 1.0)
+	expect_true(float(lobby.burn_material.get_shader_parameter("heat")) > 0.5 and float(lobby.burn_material.get_shader_parameter("scorch")) > 0.5, "the plank burns after the breath")
+	lobby._pose(lobby.CYCLE - 0.1)
+	expect_true(float(lobby.burn_material.get_shader_parameter("scorch")) < 0.01 and float(lobby.burn_material.get_shader_parameter("heat")) < 0.01, "and cools back to plain wood before the next breath")
+	var mouth: Vector2 = lobby.mouth_position()
+	expect_true(mouth.x > lobby.plank.position.x + lobby.plank.size.x and mouth.y < lobby.panel.position.y, "the dragon is to the right of the plank, above the board")
+	var board := Rect2(lobby.panel.position, lobby.PANEL_SIZE)
+	expect_true(board.position.y + board.size.y <= lobby.size.y + 0.5 and board.position.y >= lobby.plank.position.y + lobby.plank.size.y * 0.5, "the board fits under the plank on screen")
 	for required_button in ["MultiplayerButton", "SoloButton", "DeckButton", "RecordsButton", "ReplaysButton", "SettingsButton"]:
 		expect_true(main.find_child(required_button, true, false) is Button, "main menu exposes %s" % required_button)
 	main._build_solo_screen()
