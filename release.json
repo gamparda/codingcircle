@@ -1,6 +1,6 @@
 {
-  "content_version": "0.41.1",
+  "content_version": "0.42.0",
   "windows_version": "0.16.4",
-  "android_binary_version": "0.6.1",
+  "android_binary_version": "0.7.0",
   "update_url": "https://gamparda.github.io/codingcircle/update.json"
 }
