@@ -19,4 +19,7 @@ The demon lord sheets `demon_lord_sheet.png` and `demon_lord_effects_sheet.png` 
 
 - `assets/fonts/BlackHanSans-Regular.ttf` — Black Han Sans, © 2015 The Black Han Sans Project Authors
   (https://github.com/zesstype/Black-Han-Sans), SIL Open Font License 1.1 (`assets/fonts/OFL-BlackHanSans.txt`).
+- `assets/fonts/CinzelDecorative-Black.ttf` — Cinzel Decorative, © 2012 Natanael Gama
+  (https://github.com/google/fonts/tree/main/ofl/cinzeldecorative), SIL Open Font License 1.1
+  (`assets/fonts/OFL-CinzelDecorative.txt`). The game title on the lobby plank.
   Downloaded from the Google Fonts repository (`ofl/blackhansans`). Used only for titles and big numbers; body text uses the system font.

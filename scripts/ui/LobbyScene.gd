@@ -8,6 +8,8 @@ const BACKGROUND := preload("res://assets/lobby/lobby_bg.jpg")
 const PLANK := preload("res://assets/lobby/lobby_plank.png")
 const PANEL := preload("res://assets/lobby/lobby_panel.png")
 const DRAGON := preload("res://assets/lobby/lobby_dragon.png")
+## The title's lettering: a decorative Roman capital that suits the hanging sign (Latin only).
+const TITLE_FONT := preload("res://assets/fonts/CinzelDecorative-Black.ttf")
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 
 const PLANK_WIDTH := 520.0
@@ -58,6 +60,35 @@ void fragment() {
 	float embers = smoothstep(0.58, 0.78, n) * inside * heat * (0.6 + 0.4 * sin(TIME * 9.0 + n * 30.0));
 	c.rgb += vec3(1.0, 0.46, 0.12) * (rim * 1.5 + embers) * c.a;
 	COLOR = c;
+}
+"""
+
+## The title's face: worn gold leaf. Bright along the top of the letters, darkening to old bronze at their
+## foot, with a polished band, fine horizontal brush grain and dull worn patches. Positions are the label's own
+## pixels; band_top/band_bottom are where the capitals sit in it.
+const GILT_SHADER := """
+shader_type canvas_item;
+uniform sampler2D noise_tex : repeat_enable, filter_linear;
+uniform float band_top = 0.0;
+uniform float band_bottom = 1.0;
+varying vec2 local;
+void vertex() {
+	local = VERTEX;
+}
+void fragment() {
+	vec4 glyph = COLOR * texture(TEXTURE, UV);
+	float t = clamp((local.y - band_top) / max(band_bottom - band_top, 1.0), 0.0, 1.0);
+	vec3 light = vec3(1.0, 0.93, 0.66);
+	vec3 gold = vec3(0.93, 0.66, 0.27);
+	vec3 bronze = vec3(0.5, 0.29, 0.11);
+	vec3 metal = mix(light, gold, smoothstep(0.05, 0.5, t));
+	metal = mix(metal, bronze, smoothstep(0.55, 1.0, t));
+	metal += vec3(1.0, 0.9, 0.7) * 0.28 * exp(-pow((t - 0.3) * 7.0, 2.0));
+	float grain = texture(noise_tex, local * vec2(0.006, 0.12)).r;
+	metal *= 0.82 + 0.32 * grain;
+	float wear = smoothstep(0.62, 0.8, texture(noise_tex, local * 0.018 + vec2(0.37, 0.11)).r);
+	metal = mix(metal, metal * vec3(0.62, 0.5, 0.42), wear * 0.75);
+	COLOR = vec4(metal * glyph.rgb, glyph.a);
 }
 """
 
@@ -198,7 +229,9 @@ func _init() -> void:
 	title = Label.new()
 	title.name = "GameTitle"
 	title.text = "KEEPFALL"
-	UIKit.display(title, 64, Color("#f3c56a"))
+	title.add_theme_font_override("font", TITLE_FONT)
+	title.add_theme_font_size_override("font_size", 58)
+	title.add_theme_color_override("font_color", Color(0, 0, 0, 0)) # the gilt face (TitleFace) fills the letters
 	title.add_theme_color_override("font_outline_color", Color("#2a1406"))
 	title.add_theme_constant_override("outline_size", 12)
 	title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.6))
@@ -210,6 +243,27 @@ func _init() -> void:
 	title.position = Vector2(0, plank.size.y * 0.25)
 	title.size = Vector2(plank.size.x, plank.size.y * 0.45)
 	plank.add_child(title)
+	# The letters themselves: the same text on top, without outline, painted by the gilt shader.
+	var face := Label.new()
+	face.name = "TitleFace"
+	face.text = title.text
+	face.add_theme_font_override("font", TITLE_FONT)
+	face.add_theme_font_size_override("font_size", 58)
+	face.add_theme_color_override("font_color", Color.WHITE)
+	face.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	face.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var gilt := ShaderMaterial.new()
+	gilt.shader = _shader(GILT_SHADER)
+	gilt.set_shader_parameter("noise_tex", _noise(256, 128, 0.03))
+	# Capitals sit from the baseline up about 0.7 em, with the line centered in the label.
+	var line_height := TITLE_FONT.get_ascent(58) + TITLE_FONT.get_descent(58)
+	var baseline := (title.size.y - line_height) * 0.5 + TITLE_FONT.get_ascent(58)
+	gilt.set_shader_parameter("band_top", baseline - 58.0 * 0.72)
+	gilt.set_shader_parameter("band_bottom", baseline)
+	face.material = gilt
+	title.add_child(face)
 
 	flames = _fire_particles(28, 0.7)
 	flames.name = "PlankFlames"
