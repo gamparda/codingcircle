@@ -229,8 +229,9 @@ func refresh(counts: Dictionary, awaiting: bool, purchase: Dictionary = {}) -> v
 	if not awaiting and (main.result_shown or main.finale_active or int(main.current_snapshot.get("winner", -1)) != -1): state = "전투 종료 · 마지막 병력 현황"
 	_set_text(status, state)
 	var pending := int(counts.occupied) - int(counts.living[0]) - int(counts.living[1])
-	var summary := "전장 병력 — / %d" % BattleModel.MAX_ACTIVE_UNITS if awaiting else "전장 병력 %d / %d · 생존 %d · 정리 대기 %d" % [int(counts.occupied), BattleModel.MAX_ACTIVE_UNITS, int(counts.living[0]) + int(counts.living[1]), pending]
-	var full: bool = not awaiting and int(counts.occupied) >= BattleModel.MAX_ACTIVE_UNITS
+	var own: int = main.own_side
+	var summary := "전장 병력 — / %d" % BattleModel.SIDE_UNIT_LIMIT if awaiting else "우리 진영 %d / %d · 상대 %d · 생존 %d · 정리 대기 %d" % [int(counts.sides[own]), BattleModel.SIDE_UNIT_LIMIT, int(counts.sides[1 - own]), int(counts.living[0]) + int(counts.living[1]), pending]
+	var full: bool = not awaiting and int(counts.sides[own]) >= BattleModel.SIDE_UNIT_LIMIT
 	if full: summary += " · 생산 한도"
 	_set_text(capacity, summary)
 	var tone := UIKit.GOLD if full else UIKit.TEXT

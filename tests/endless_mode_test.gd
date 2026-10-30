@@ -22,6 +22,13 @@ func cost(entries: Array) -> float:
 		total += float(BattleModel.UNIT_STATS[entry.kind].cost)
 	return total
 
+func spawn_defender(model: BattleModel) -> Dictionary:
+	model.units = model.units.filter(func(unit): return int(unit.side) != 0)
+	model.resources[0] = 999.0
+	model.spawn_cooldowns[0].clear()
+	model.spawn_unit(0, "swordsman")
+	return model.units.back()
+
 func run() -> void:
 	# Plans.
 	var rng := RandomNumberGenerator.new()
@@ -84,6 +91,46 @@ func run() -> void:
 		pressing.update(slow, dt)
 		slow.tick(dt)
 	check(pressing.wave >= 2 and not pressing.awaiting_choice, "an unbeaten wave does not stop the next one")
+
+	# A full defending side never stops the waves, and blocked waves never stop the clock.
+	var crowded := BattleModel.new()
+	crowded.configure_deck(0, ["shield", "archer", "healer", "swordsman"], ["wall", "turret", "generator", "swamp"])
+	var crowd_director := WaveDirector.new(5)
+	crowd_director.setup(crowded)
+	crowded.base_max_hp[0] = 1000000.0
+	crowded.base_hp[0] = 1000000.0
+	for i in BattleModel.SIDE_UNIT_LIMIT:
+		crowded.units.append({"id": 50000 + i, "side": 0, "kind": "swordsman", "hp": 9999.0, "max_hp": 9999.0, "damage": 0.0, "interval": 99.0, "speed": 0.0, "range": 1.0, "x": BattleModel.FIELD_LEFT + 40.0, "cooldown": 99.0})
+	check(crowded.side_full(0) and not crowded.side_full(1), "the unit limit is per side")
+	crowded.resources[0] = 999.0
+	check(not crowded.spawn_unit(0, "archer"), "a full side cannot field more")
+	for i in 30 * 10:
+		if crowd_director.wave > 0: break
+		crowd_director.update(crowded, dt)
+		crowded.tick(dt)
+	for i in 30 * 10:
+		crowd_director.update(crowded, dt)
+		crowded.tick(dt)
+	check(crowded.units.any(func(unit): return int(unit.side) == 1), "waves still come in while the defenders fill their side")
+	crowd_director.queue.append({"t": 0.0, "kind": "demon_lord"})
+	crowd_director.queue.append({"t": 0.0, "kind": "demon_lord"}) # one lord at a time: the second waits
+	var wave_before: int = crowd_director.wave
+	for i in 30 * 60:
+		if crowded.elapsed - crowd_director.wave_started_at >= WaveDirector.PRESSURE_SECONDS + 1.0 or crowd_director.wave > wave_before: break
+		crowd_director.update(crowded, dt)
+		crowded.tick(dt)
+	check(crowd_director.wave == wave_before + 1, "a wave that cannot finish coming in still lets the next one in")
+	check(crowd_director.waves_cleared() == crowd_director.wave - 1, "waves pushed past count as survived")
+	# Defenders hold short of where the waves appear.
+	var holder := spawn_defender(crowded)
+	for i in 30 * 40:
+		crowded.tick(dt)
+	check(float(holder.x) <= BattleModel.FIELD_RIGHT - WaveDirector.HOLD_DISTANCE + 0.01, "defenders stop at the hold line (%.0f)" % float(holder.x))
+	# The same boon at most MAX_BOON_STACK times.
+	var stacker := WaveDirector.new(9)
+	for i in WaveDirector.MAX_BOON_STACK:
+		stacker.boons.append("granary")
+	check(stacker.maxed_boons() == ["granary"], "a boon taken the most times is not offered again")
 
 	# Records and saved runs.
 	var data := SaveData.default_data()

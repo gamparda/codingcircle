@@ -14,8 +14,8 @@ const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret"]
 const LONG_BATTLE_START := 180.0
 const LONG_BATTLE_STEP := 60.0
 const LONG_BATTLE_MAX_TIER := 6
-const STAGE_HP_SCALE := [0.50, 0.68, 1.01, 0.98, 1.05, 1.16, 1.23, 1.30]
-const STAGE_DAMAGE_SCALE := [0.50, 0.64, 0.96, 0.96, 1.02, 1.10, 1.18, 1.22]
+const STAGE_HP_SCALE := [1.36, 1.15, 1.20, 1.22, 1.36, 1.35, 1.75, 1.70]
+const STAGE_DAMAGE_SCALE := [1.25, 1.08, 1.13, 1.17, 1.28, 1.28, 1.60, 1.56]
 const STAGE_BONUS_INCOME := [0.00, 0.20, 0.81, 0.90, 1.60, 3.00, 2.70, 3.07]
 const STAGE_SPAWN_INTERVAL := [3.0, 2.3, 1.62, 1.50, 1.40, 1.30, 1.20, 1.10]
 

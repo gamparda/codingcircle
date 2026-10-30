@@ -36,6 +36,8 @@ const MAX_SKELETONS_PER_NECROMANCER := 3
 const RAGE_HP_FRACTION := 0.5
 const RAGE_SPEED_MULTIPLIER := 1.5
 const MAX_ACTIVE_UNITS := 256
+## Each side's share of the field: one side filling it never stops the other from fielding units.
+const SIDE_UNIT_LIMIT := MAX_ACTIVE_UNITS / 2
 ## The first time a unit falls to half health it is thrown back this far, once: a losing front gets
 ## room to recover, so fights swing back and forth instead of grinding in place.
 const KNOCKBACK_FRACTION := 0.5
@@ -100,6 +102,9 @@ const MODIFIER_KEYS := ["hp:", "damage:", "range:ranged", "cost:units", "spell_c
 	"skill_cooldown:", "income", "capacity", "start", "skeleton_cap", "first_strike"]
 ## Endless defense: the wave side has no base to destroy; its units come forever until the defender falls.
 var invulnerable_bases: Array = [false, false]
+## How far each side's units march: side 0 never past advance_limit[0], side 1 never before advance_limit[1].
+## Endless defense holds the defenders short of the wave side's spawn point.
+var advance_limit: Array = [FIELD_RIGHT, FIELD_LEFT]
 ## Units that already made their first attack (for the "first_strike" modifier).
 var first_struck: Dictionary = {}
 const MAX_FALLEN := 40
@@ -257,7 +262,7 @@ func configure_deck(side: int, selected_units: Array, selected_structures: Array
 	return true
 
 func spawn_unit(side: int, kind: String) -> bool:
-	if winner != -1 or side < 0 or side > 1 or units.size() >= MAX_ACTIVE_UNITS or not UNIT_STATS.has(kind) or not unit_decks[side].has(kind) or banned[side].has(kind):
+	if winner != -1 or side < 0 or side > 1 or side_full(side) or not UNIT_STATS.has(kind) or not unit_decks[side].has(kind) or banned[side].has(kind):
 		return false
 	if not field_limit_error(units, side, kind).is_empty():
 		return false
@@ -516,7 +521,7 @@ func _land_spell(cast: Dictionary) -> void:
 			fallen[side] = fallen[side].slice(0, fallen[side].size() - count)
 			var fraction := float(stats.revive_fraction)
 			for index in raised.size():
-				if units.size() >= MAX_ACTIVE_UNITS:
+				if side_full(side):
 					break
 				var entry: Dictionary = raised[index]
 				var spread := (float(index) - float(raised.size() - 1) * 0.5) * 14.0
@@ -681,7 +686,9 @@ func tick(delta: float) -> void:
 				unit.cooldown = unit.interval
 			continue
 		var direction := 1.0 if unit.side == 0 else -1.0
-		pending_moves.append({"unit":unit, "x":clamp(float(unit.x) + direction * float(unit.speed) * _swamp_scale(unit) * delta, FIELD_LEFT, FIELD_RIGHT)})
+		var stride := clampf(float(unit.x) + direction * float(unit.speed) * _swamp_scale(unit) * delta, FIELD_LEFT, FIELD_RIGHT)
+		stride = minf(stride, maxf(float(unit.x), float(advance_limit[0]))) if unit.side == 0 else maxf(stride, minf(float(unit.x), float(advance_limit[1])))
+		pending_moves.append({"unit":unit, "x":stride})
 
 	for skill in pending_skills:
 		_cast_skill(skill.caster, float(skill.x))
@@ -712,7 +719,7 @@ func tick(delta: float) -> void:
 	units = units.filter(func(unit): return unit.hp > 0.0 or unit.has("revive_remaining"))
 	structures = structures.filter(func(structure): return structure.hp > 0.0)
 	for owner in pending_summons:
-		if winner != -1 or float(owner.hp) <= 0.0 or units.size() >= MAX_ACTIVE_UNITS:
+		if winner != -1 or float(owner.hp) <= 0.0 or side_full(int(owner.side)):
 			continue
 		var hp_scale := float(owner.max_hp) / float(UNIT_STATS.necromancer.hp)
 		var damage_scale := float(owner.damage) / float(UNIT_STATS.necromancer.damage)
@@ -767,6 +774,17 @@ static func skill_name(kind: String) -> String:
 	return "공포의 포효" if trait_value(kind, "skill_knockback") != null else "심판의 십자가"
 
 ## How many of `kind` one side may field at once (data "field_limit"); 0 means no limit.
+## Units of `side` on the field, downed ones (still holding their place) included.
+static func side_count(values: Array, side: int) -> int:
+	var count := 0
+	for unit in values:
+		if int(unit.side) == side:
+			count += 1
+	return count
+
+func side_full(side: int) -> bool:
+	return side_count(units, side) >= SIDE_UNIT_LIMIT
+
 static func field_limit(kind: String) -> int:
 	return int(trait_value(kind, "field_limit", 0))
 

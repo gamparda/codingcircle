@@ -9,7 +9,8 @@ const RunBoons = preload("res://scripts/run/RunBoons.gd")
 
 const WAVE_SIDE := 1
 ## Wave budget: BUDGET_BASE + BUDGET_STEP * n + BUDGET_CURVE * n² (static so balance tools can try values).
-## Tuned with an automatic player picking boons at random: runs end around wave 15 after 8-10 minutes.
+## Tuned so an automatic player (random or greedy boon picks) falls around wave 6-9: people play much better
+## than the bot, so the bot must clearly lose.
 static var BUDGET_BASE := 60.0
 static var BUDGET_STEP := 40.0
 static var BUDGET_CURVE := 4.0
@@ -17,6 +18,11 @@ static var BUDGET_CURVE := 4.0
 const SPAWN_WINDOW := 25.0
 ## A wave that is still alive this long after it began no longer holds back the next one.
 const PRESSURE_SECONDS := 45.0
+## Defenders hold this far from the wave side's edge, out of reach (even with range boons) of where waves
+## appear, so every wave walks into the fight instead of being caught as it spawns.
+const HOLD_DISTANCE := 600.0
+## The same boon can be taken this many times.
+const MAX_BOON_STACK := 3
 const CLEAR_BONUS := 40.0
 const BOSS_BONUS := 80.0
 const BOSS_EVERY := 5
@@ -56,6 +62,7 @@ func _init(run_seed: int, start_wave: int = 1, owned_boons: Array = []) -> void:
 ## Prepares `model` for endless defense: the wave side has no base and the defender owns `boons`.
 func setup(model: BattleModel) -> void:
 	model.invulnerable_bases[WAVE_SIDE] = true
+	model.advance_limit[1 - WAVE_SIDE] = BattleModel.FIELD_RIGHT - HOLD_DISTANCE
 	model.unit_decks[WAVE_SIDE] = []
 	model.structure_decks[WAVE_SIDE] = []
 	model.resources[WAVE_SIDE] = 0.0
@@ -114,7 +121,8 @@ func update(model: BattleModel, delta: float) -> void:
 		if intermission <= 0.0:
 			_begin_wave(model)
 		return
-	if model.elapsed - wave_started_at >= PRESSURE_SECONDS and queue.is_empty():
+	# A wave that is still alive (or still waiting to come in) after PRESSURE_SECONDS lets the next one in.
+	if model.elapsed - wave_started_at >= PRESSURE_SECONDS:
 		_begin_wave(model)
 	_spawn_due(model)
 
@@ -123,7 +131,9 @@ func _begin_wave(model: BattleModel) -> void:
 	unrewarded += 1
 	wave_started_at = model.elapsed
 	intermission = INTERMISSION
-	queue = plan(wave, rng)
+	# Units an earlier wave could not field yet come first.
+	var leftover: Array = queue.map(func(entry): return {"t": 0.0, "kind": entry.kind})
+	queue = leftover + plan(wave, rng)
 	var scale := growth(wave)
 	var mods := {}
 	if not is_equal_approx(scale, 1.0):
@@ -161,9 +171,17 @@ func _reward(model: BattleModel) -> void:
 	model.resources[side] = minf(model.resource_capacity(side), model.resources[side] + bonus)
 	resources_awarded += bonus
 	unrewarded = 0
-	# Boons stack, except one whose second copy would do nothing.
-	offers = RunBoons.draw(rng, 3, ["ambush"] if boons.has("ambush") else [], is_boss_wave(wave), model.unit_decks[side], model.structure_decks[side])
+	# Boons stack up to MAX_BOON_STACK copies (one that does nothing twice, only once).
+	offers = RunBoons.draw(rng, 3, maxed_boons(), is_boss_wave(wave), model.unit_decks[side], model.structure_decks[side])
 	awaiting_choice = not offers.is_empty()
+
+## Boons that cannot be offered again: taken MAX_BOON_STACK times, or one whose second copy does nothing.
+func maxed_boons() -> Array:
+	var maxed: Array = []
+	for id in boons:
+		if not maxed.has(id) and (boons.count(id) >= MAX_BOON_STACK or id == "ambush"):
+			maxed.append(id)
+	return maxed
 
 ## The player picked `id` from offers (or skipped with ""): the boon applies to the next units at once.
 func choose(model: BattleModel, id: String) -> void:
@@ -176,6 +194,7 @@ func choose(model: BattleModel, id: String) -> void:
 	awaiting_choice = false
 	intermission = INTERMISSION
 
-## Waves fully beaten: the one in progress does not count until it is cleared.
+## Waves survived: every wave before the one in progress, whether it was cleared or the next one pushed in
+## on top of it.
 func waves_cleared() -> int:
-	return maxi(0, wave - unrewarded)
+	return maxi(0, wave - mini(unrewarded, 1))

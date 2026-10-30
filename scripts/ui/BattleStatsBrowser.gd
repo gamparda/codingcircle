@@ -162,7 +162,7 @@ func setup(owner_main, growth_level: int, origin_reference: Dictionary = {}) -> 
 	var rules := BattleModel.battle_stat_summary().split("\n")
 	for index in range(2, rules.size()):
 		_add_card("지원 효과" if index == 2 else "기본 전투 규칙", rules[index], 2, false, UIKit.GOLD)
-	_add_card("전장 병력 한도", "양쪽 병력·소환수를 합쳐 최대 %d명\n한도에 도달하면 병력 생산과 추가 소환이 멈춥니다. 병력이 사망 후 정리되면 빈자리를 사용할 수 있습니다.\n구조물은 별도의 전체·종류별 설치 한도를 사용합니다." % BattleModel.MAX_ACTIVE_UNITS, 2, false, UIKit.GOLD)
+	_add_card("전장 병력 한도", "진영마다 병력·소환수를 합쳐 최대 %d명\n한도에 도달하면 그 진영의 병력 생산과 추가 소환이 멈춥니다. 상대 진영은 영향을 받지 않습니다. 병력이 사망 후 정리되면 빈자리를 사용할 수 있습니다.\n구조물은 별도의 전체·종류별 설치 한도를 사용합니다." % BattleModel.SIDE_UNIT_LIMIT, 2, false, UIKit.GOLD)
 	if main.local_ai_mode and is_instance_valid(main.local_model):
 		var model = main.local_model
 		for index in 2:
