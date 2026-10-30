@@ -55,6 +55,7 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	# its wooden board.
 	var lobby := LobbyScene.new()
 	lobby.animated = bool(main.save_data.settings.get("battle_effects", true))
+	lobby.low_detail = float(main.save_data.settings.get("effect_intensity", 1.0)) < 0.5
 	main.root_background.add_child(lobby)
 	var column: VBoxContainer = lobby.menu_box
 
@@ -73,11 +74,11 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	version.offset_bottom = -8.0
 	main.root_background.add_child(version)
 
-	var battle_tile := UIKit.menu_tile("⚔", Localization.text("대전"), Localization.text("온라인 · 랭크 · 같은 와이파이"), UIKit.ACCENT, true, 78.0)
+	var battle_tile := UIKit.menu_tile("⚔", Localization.text("대전"), Localization.text("온라인 · 랭크 · 같은 와이파이"), UIKit.ACCENT, true, 86.0)
 	battle_tile.name = "MultiplayerButton"
 	battle_tile.pressed.connect(main._open_multiplayer)
 	column.add_child(battle_tile)
-	var solo_tile := UIKit.menu_tile("👑", Localization.text("혼자 하기"), _solo_caption(main), UIKit.GOLD_DEEP, false, 70.0)
+	var solo_tile := UIKit.menu_tile("👑", Localization.text("혼자 하기"), _solo_caption(main), UIKit.GOLD_DEEP, false, 76.0)
 	solo_tile.name = "SoloButton"
 	solo_tile.pressed.connect(func(): _build_solo_screen(main))
 	column.add_child(solo_tile)
@@ -85,7 +86,7 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	var deck_names := PackedStringArray()
 	for kind in preset.units:
 		deck_names.append(String(BattleModel.UNIT_NAMES.get(kind, kind)))
-	var deck_tile := UIKit.menu_tile("🃏", Localization.text("덱 편성"), "%s  ·  %s" % [String(preset.name), " · ".join(deck_names)], UIKit.TEAL, false, 64.0)
+	var deck_tile := UIKit.menu_tile("🃏", Localization.text("덱 편성"), "%s  ·  %s" % [String(preset.name), " · ".join(deck_names)], UIKit.TEAL, false, 70.0)
 	deck_tile.name = "DeckButton"
 	deck_tile.pressed.connect(main._build_deck_screen)
 	column.add_child(deck_tile)
@@ -99,7 +100,7 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	for entry in entries:
 		var tool_button = main._styled_button(entry[0], UIKit.EDGE.lightened(0.25) if entry[2] != "QuitButton" else UIKit.DANGER, false)
 		tool_button.name = entry[2]
-		tool_button.custom_minimum_size = Vector2(52 if entry[2] == "QuitButton" else 0, 46)
+		tool_button.custom_minimum_size = Vector2(52 if entry[2] == "QuitButton" else 0, 50)
 		tool_button.add_theme_font_size_override("font_size", 13)
 		if entry[2] == "QuitButton": tool_button.tooltip_text = Localization.text("종료")
 		else: tool_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -127,6 +128,12 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	corner.add_child(patch_notes)
 	Goals.add_chip(main, corner)
 	corner.move_child(patch_notes, -1)
+	# Every menu button wears the board's wood and iron.
+	for tile in [battle_tile, solo_tile, deck_tile]:
+		LobbyScene.dress_wood(tile, tile == battle_tile)
+	for button in tools.get_children() + corner.get_children():
+		if button is Button:
+			LobbyScene.dress_wood(button)
 	NewFeatures.decorate(main, column)
 	main.updater.set_safe_to_update(main._client_can_update())
 	main.updater.check_for_update()

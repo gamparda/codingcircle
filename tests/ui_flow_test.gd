@@ -55,8 +55,17 @@ func run() -> void:
 	expect_true(float(lobby.burn_material.get_shader_parameter("scorch")) < 0.01 and float(lobby.burn_material.get_shader_parameter("heat")) < 0.01, "and cools back to plain wood before the next breath")
 	var mouth: Vector2 = lobby.mouth_position()
 	expect_true(mouth.x > lobby.plank.position.x + lobby.plank.size.x and mouth.y < lobby.panel.position.y, "the dragon is to the right of the plank, above the board")
-	var board := Rect2(lobby.panel.position, lobby.PANEL_SIZE)
-	expect_true(board.position.y + board.size.y <= lobby.size.y + 0.5 and board.position.y >= lobby.plank.position.y + lobby.plank.size.y * 0.5, "the board fits under the plank on screen")
+	var board: Rect2 = lobby.board_rect()
+	expect_true(board.position.y + board.size.y <= lobby.size.y + 0.5 and board.position.y >= -36.0 + lobby.plank.size.y * 0.5, "the board fits under the plank on screen")
+	expect_true(main.find_child("MultiplayerButton", true, false).find_child("WoodGrain", false, false) != null and main.find_child("SettingsButton", true, false).find_child("Rivets", false, false) != null, "menu buttons wear the board's wood and iron")
+	lobby._pose(lobby.BREATH_START + lobby.HIT_DELAY + 0.35)
+	expect_true(absf(lobby.plank.rotation) > 0.005, "the fire knocks the plank swinging on its chains")
+	lobby.clock = 11.0
+	lobby.breathe_now()
+	expect_true(lobby.clock < lobby.BREATH_START, "clicking the dragon makes it breathe at once")
+	lobby.clock = lobby.BREATH_START + 1.0
+	lobby.breathe_now()
+	expect_true(lobby.clock == lobby.BREATH_START + 1.0, "but not while the plank still burns")
 	for required_button in ["MultiplayerButton", "SoloButton", "DeckButton", "RecordsButton", "ReplaysButton", "SettingsButton"]:
 		expect_true(main.find_child(required_button, true, false) is Button, "main menu exposes %s" % required_button)
 	main._build_solo_screen()
