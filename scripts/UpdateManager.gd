@@ -3,6 +3,7 @@ extends Node
 
 const Localization = preload("res://scripts/Localization.gd")
 const Bootstrap = preload("res://scripts/Bootstrap.gd")
+const PackPatcher = preload("res://scripts/PackPatcher.gd")
 
 signal update_started(version: String)
 signal update_status(message: String, progress: float)
@@ -30,6 +31,8 @@ var state := "idle"
 var countdown := 0.5
 var manifest: Dictionary = {}
 var installer_path := ""
+## The changed game data fetched before a content restart (the launcher then finds the pack already downloaded).
+var content_patcher: PackPatcher
 var http: HTTPRequest
 
 func _ready() -> void:
@@ -168,6 +171,20 @@ func _restart_for_content() -> void:
 		state = "idle"
 		return
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://content"))
+	var pack_url := String(manifest.get("desktop_pack_url", ""))
+	var pack_sha := String(manifest.get("desktop_pack_sha256", ""))
+	if not is_instance_valid(content_patcher) and Bootstrap.is_trusted_content_url(pack_url) and RegEx.create_from_string("^[0-9a-fA-F]{64}$").search(pack_sha) != null:
+		# Fetch only what changed now, while the game runs; whatever happens, the restart follows and the
+		# launcher downloads anything still missing.
+		state = "installing"
+		update_status.emit(Localization.text("바뀐 게임 데이터만 받는 중..."), -1.0)
+		content_patcher = PackPatcher.new()
+		content_patcher.progressed.connect(func(done: int, size: int):
+			if size > 0: update_status.emit(Localization.text("바뀐 게임 데이터만 받는 중..."), float(done) / float(size)))
+		content_patcher.finished.connect(func(_ok: bool): _restart_for_content(), CONNECT_DEFERRED)
+		add_child(content_patcher)
+		content_patcher.start(pack_url, ProjectSettings.globalize_path("user://content/pending.pck"), pack_sha)
+		return
 	var guard := FileAccess.open(RESTART_GUARD_PATH, FileAccess.WRITE)
 	if guard != null:
 		guard.store_string(JSON.stringify({"commit": commit, "at": Time.get_unix_time_from_system()}))

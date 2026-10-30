@@ -15,6 +15,7 @@ const ACTIVE_METADATA := CONTENT_DIR + "/active.json"
 const PREVIOUS_METADATA := CONTENT_DIR + "/previous.json"
 const PACK_BOOT_STABILITY_SECONDS := 5.0
 const ResumableDownload = preload("res://scripts/ResumableDownload.gd")
+const PackPatcher = preload("res://scripts/PackPatcher.gd")
 
 var bundled_version := "0.0.0"
 var bundled_binary_version := "0.0.0"
@@ -28,6 +29,9 @@ var state := "idle"
 var manifest: Dictionary = {}
 var http: HTTPRequest
 var pack_download: ResumableDownload
+var pack_patcher: PackPatcher
+## Patching is tried once per start; after a failure the full download runs.
+var patch_tried := false
 var status_label: Label
 var progress_bar: ProgressBar
 var retry_button: Button
@@ -77,7 +81,7 @@ static func build_versions(build_info: Dictionary) -> Dictionary:
 	return {"content": content, "binary": String(build_info.get("binary_version", content))}
 
 func _process(_delta: float) -> void:
-	if state != "downloading" or not is_instance_valid(pack_download) or pack_download.total <= 0:
+	if state != "downloading" or not is_instance_valid(pack_download) or pack_download.total <= 0 or not pack_download.active:
 		return
 	progress_bar.value = clampf(float(pack_download.received()) / float(pack_download.total) * 100.0, 0.0, 100.0)
 
@@ -182,9 +186,36 @@ func _handle_manifest(result: int, response_code: int, body: PackedByteArray) ->
 func _pack(field: String) -> String:
 	return String(manifest.get("%s_pack_%s" % [pack_kind, field], ""))
 
+## First tries to fetch only what changed since the installed data (PackPatcher); a full download in progress
+## is continued instead, and a patch that fails or would save little falls back to the full download.
+func _begin_pack_download() -> void:
+	var resume = JSON.parse_string(FileAccess.get_file_as_string(PENDING_PACK + ".json")) if FileAccess.file_exists(PENDING_PACK + ".json") else null
+	var full_in_progress: bool = resume is Dictionary and String(resume.get("key", "")) == _pack("sha256").to_lower()
+	if patch_tried or full_in_progress:
+		_begin_full_download()
+		return
+	patch_tried = true
+	status_label.text = Localization.text("바뀐 게임 데이터를 확인하는 중...")
+	progress_bar.value = 0.0
+	if not is_instance_valid(pack_patcher):
+		pack_patcher = PackPatcher.new()
+		pack_patcher.progressed.connect(func(done: int, size: int):
+			if state == "downloading" and size > 0:
+				progress_bar.value = clampf(float(done) / float(size) * 100.0, 0.0, 100.0)
+				status_label.text = Localization.text("바뀐 게임 데이터만 받는 중 · %.1f / %.1f MB") % [done / 1048576.0, size / 1048576.0])
+		pack_patcher.finished.connect(func(ok: bool):
+			if ok:
+				_handle_pack_download(true)
+			else:
+				push_warning("content patch unavailable (%s): full download" % pack_patcher.reason)
+				_begin_full_download())
+		add_child(pack_patcher)
+	state = "downloading"
+	pack_patcher.start(_pack("url"), ProjectSettings.globalize_path(PENDING_PACK), _pack("sha256"))
+
 ## Downloads in chunks and resumes after drops and restarts (ResumableDownload), so slow or throttled
 ## connections finish instead of timing out.
-func _begin_pack_download() -> void:
+func _begin_full_download() -> void:
 	status_label.text = Localization.text("게임 데이터 업데이트 다운로드 중...")
 	progress_bar.value = 0.0
 	if not is_instance_valid(pack_download):
@@ -210,7 +241,11 @@ func _handle_pack_download(ok: bool) -> void:
 	progress_bar.value = 100.0
 	var expected_hash := _pack("sha256").to_lower()
 	if FileAccess.get_sha256(pending_path).to_lower() != expected_hash:
-		pack_download.discard()
+		if is_instance_valid(pack_download):
+			pack_download.discard()
+		else:
+			DirAccess.remove_absolute(pending_path)
+			DirAccess.remove_absolute(pending_path + ".json")
 		_show_recoverable_error(Localization.text("게임 데이터의 SHA-256 검증에 실패했습니다."))
 		return
 	if not _activate_pending_pack(expected_hash):
