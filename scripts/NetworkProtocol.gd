@@ -80,6 +80,29 @@ static func valid_spell_state(data: Dictionary) -> bool:
 					return false
 	return true
 
+## What one side may know of the other's economy: nothing. A player's snapshot keeps only their own
+## resources, purchase cooldowns and spell state (the opponent's become 0 and {}); spectators (side -1) get
+## neither side's, so a second device watching one's own match learns nothing either. The field itself
+## (units, structures, bases, curses, casts in flight) is public: both players see it on screen.
+const PRIVATE_SNAPSHOT_KEYS := ["spawn_cooldowns", "spell_cooldowns", "spell_uses"]
+
+static func snapshot_for(data: Dictionary, side: int) -> Dictionary:
+	var view := data.duplicate()
+	var resources: Array = Array(data.get("resources", [0.0, 0.0])).duplicate()
+	for other in resources.size():
+		if other != side:
+			resources[other] = 0.0
+	view["resources"] = resources
+	for key in PRIVATE_SNAPSHOT_KEYS:
+		if not view.has(key) or not view[key] is Array:
+			continue
+		var sides: Array = Array(view[key]).duplicate()
+		for other in sides.size():
+			if other != side:
+				sides[other] = {}
+		view[key] = sides
+	return view
+
 static func is_valid_snapshot(data: Dictionary) -> bool:
 	if not _has_required_optional_keys(data, ["resources", "base_hp", "units", "structures", "winner", "elapsed"], ["curses", "base_max_hp", "spawn_cooldowns", "battle_report", "network", "spells", "spell_cooldowns", "spell_uses", "banned"]):
 		return false

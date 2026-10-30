@@ -243,10 +243,12 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 	var resources: Array = data.get("resources", [0.0, 0.0])
 	var bases: Array = data.get("base_hp", [0.0, 0.0])
 	var resource_cap = main.local_model.resource_capacity(main.own_side) if main.local_ai_mode and is_instance_valid(main.local_model) else BattleModel.MAX_RESOURCE
-	main.resource_label.text = "%d / %d" % [int(resources[main.own_side]), int(resource_cap)]
+	# Spectators are not sent either side's resources.
+	var spectating: bool = not main.local_ai_mode and main.network.client_is_spectator
+	main.resource_label.text = Localization.text("관전 중") if spectating else "%d / %d" % [int(resources[main.own_side]), int(resource_cap)]
 	var resource_bar = main.resource_label.get_meta("bar", null)
 	if is_instance_valid(resource_bar):
-		resource_bar.visible = true
+		resource_bar.visible = not spectating
 		resource_bar.max_value = resource_cap
 		resource_bar.value = float(resources[main.own_side])
 	# Release the purchase lock after replacing the snapshot and resource display.

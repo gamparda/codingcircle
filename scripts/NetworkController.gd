@@ -763,8 +763,10 @@ func _broadcast_snapshot(match_id: int) -> void:
 	data["network"] = _recovery_state(match_id)
 	for player_id in _match_audience(match_id):
 		if _peer_is_connected(int(player_id)):
-			if int(data.winner)!=-1: receive_completed_snapshot.rpc_id(int(player_id),data)
-			else: receive_snapshot.rpc_id(int(player_id), data)
+			# Each player gets only their own economy; spectators neither side's (Protocol.snapshot_for).
+			var view := Protocol.snapshot_for(data, registry.get_side(int(player_id)))
+			if int(data.winner)!=-1: receive_completed_snapshot.rpc_id(int(player_id),view)
+			else: receive_snapshot.rpc_id(int(player_id), view)
 
 func _broadcast_combat_events(match_id: int, events: Array) -> void:
 	for player_id in _match_audience(match_id):

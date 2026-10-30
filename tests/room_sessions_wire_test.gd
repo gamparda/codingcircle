@@ -93,6 +93,16 @@ func run()->void:
 	host.send_spawn("swordsman")
 	if not await require(func():return snapshots.size()==4 and snapshots.values().all(func(data):return data.units.size()>0),"authoritative purchase synchronized across four clients"):return
 	check(not host.client_is_spectator and observer.client_is_spectator,"player and spectator roles remain distinct")
+	if not production:
+		# Each player sees only their own economy; spectators neither side's (the field itself is shared).
+		var host_side:int=server.registry.get_side(host.multiplayer.get_unique_id())
+		var guest_side:int=1-host_side
+		var model=server.models.values()[0]
+		check(float(model.resources[guest_side])>0.0 and float(snapshots[0].resources[guest_side])==0.0 and float(snapshots[0].resources[host_side])>0.0,"a player is not sent the opponent's resources")
+		check(snapshots[1].resources[host_side]==0.0 and float(snapshots[1].resources[guest_side])>0.0,"nor is the opponent sent theirs")
+		check(Dictionary(snapshots[0].spawn_cooldowns[guest_side]).is_empty() and Dictionary(snapshots[0].spell_cooldowns[guest_side]).is_empty() and Dictionary(snapshots[0].spell_uses[guest_side]).is_empty(),"nor the opponent's purchase and spell timers")
+		check(snapshots[2].resources==[0.0,0.0] and snapshots[3].resources==[0.0,0.0],"spectators get neither side's resources")
+		check(snapshots[2].units.size()==snapshots[0].units.size() and snapshots[2].base_hp==snapshots[0].base_hp,"but the same battlefield")
 	observer.request_spawn.rpc_id(1,"swordsman")
 	await create_timer(0.2).timeout
 	if not production:check(server.registry.get_match_id(observer.multiplayer.get_unique_id())==0 and server.models.values()[0].units.size()==1,"forged spectator purchase rejected by server")
