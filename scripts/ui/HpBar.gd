@@ -29,8 +29,9 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	var rect := Rect2(Vector2.ZERO, size)
 	var radius := minf(rect.size.y * 0.5, 8.0)
-	_rounded(rect, radius, Color("#070b14"))
-	_rounded(rect.grow(-0.5), radius, Color(1, 1, 1, 0.0), Color(1, 1, 1, 0.09), 1.0)
+	# A dark groove with a bronze rim (the castle theme); the fill keeps the side's colour.
+	_rounded(rect, radius, Color("#0e0906"))
+	_rounded(rect.grow(-0.5), radius, Color(1, 1, 1, 0.0), Color(0.72, 0.55, 0.34, 0.55), 1.0)
 	var inner := rect.grow(-2.0)
 	var fraction := clampf(value / maxf(max_value, 0.001), 0.0, 1.0)
 	var ghost_fraction := clampf(ghost / maxf(max_value, 0.001), 0.0, 1.0)

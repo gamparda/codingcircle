@@ -37,7 +37,7 @@ static func _build_battle_screen(main) -> void:
 	var timer_card := PanelContainer.new()
 	timer_card.position = Vector2(530, 12)
 	timer_card.size = Vector2(220, 64)
-	timer_card.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI, UIKit.SURFACE.darkened(0.2), Color(1, 1, 1, 0.16), 14, 1.0, 0.6, Color(0, 0, 0, 0), 0.10))
+	timer_card.add_theme_stylebox_override("panel", UIKit.wood(UIKit.PLATE, 14.0))
 	top.add_child(timer_card)
 	var timer_inner := Control.new()
 	timer_inner.custom_minimum_size = Vector2(220, 64)
@@ -46,7 +46,9 @@ static func _build_battle_screen(main) -> void:
 	main.timer_label.position = Vector2(0, 3)
 	main.timer_label.size = Vector2(220, 34)
 	main.timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	UIKit.display(main.timer_label, 30, UIKit.TEXT)
+	UIKit.display(main.timer_label, 30, UIKit.GOLD)
+	main.timer_label.add_theme_color_override("font_outline_color", Color(0.1, 0.05, 0.02, 0.95))
+	main.timer_label.add_theme_constant_override("outline_size", 6)
 	timer_inner.add_child(main.timer_label)
 	var mode_label := Label.new()
 	mode_label.name = "BattleModeLabel"
@@ -126,7 +128,7 @@ static func _build_battle_screen(main) -> void:
 	controls.size = Vector2(1280, 140)
 	main.root_background.add_child(controls)
 	var controls_line := ColorRect.new()
-	controls_line.color = Color(1.0, 1.0, 1.0, 0.09)
+	controls_line.color = Color(0.85, 0.66, 0.4, 0.28) # bronze hairline over the card tray
 	controls_line.size = Vector2(1280, 1)
 	controls.add_child(controls_line)
 
@@ -134,7 +136,7 @@ static func _build_battle_screen(main) -> void:
 	resource_card.position = Vector2(16, 16)
 	resource_card.size = Vector2(174, 108)
 	var own_color := UIKit.TEAM_BLUE
-	resource_card.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI.lerp(own_color, 0.12), UIKit.SURFACE.darkened(0.2), Color(own_color.r, own_color.g, own_color.b, 0.6), 14, 1.0, 0.6, Color(own_color.r, own_color.g, own_color.b, 0.35), 0.08))
+	resource_card.add_theme_stylebox_override("panel", UIKit.wood(UIKit.PLATE_EMBER, 14.0))
 	controls.add_child(resource_card)
 	var resource_inner := Control.new()
 	resource_inner.custom_minimum_size = Vector2(174, 108)
@@ -365,7 +367,8 @@ static func _create_hp_card(main, parent: Control, position_value: Vector2, side
 	card.position = position_value
 	card.size = Vector2(420, 64)
 	var color := UIKit.TEAM_BLUE if side == main.own_side else UIKit.TEAM_RED
-	card.add_theme_stylebox_override("panel", UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.10), UIKit.SURFACE.darkened(0.2), Color(color.r, color.g, color.b, 0.55), 12, 1.0, 0.6, Color(color.r, color.g, color.b, 0.35), 0.08))
+	# A wooden plate with a faint cast of the side's colour; the stripe and the bar carry the colour itself.
+	card.add_theme_stylebox_override("panel", UIKit.wood(UIKit.PLATE, 14.0, UIKit.tint_of(color, 0.14)))
 	parent.add_child(card)
 	var inner := Control.new()
 	inner.custom_minimum_size = Vector2(420, 64)
@@ -492,10 +495,12 @@ static func _decorate_battle_card(main, button: Button) -> void:
 	var color: Color = button.get_meta("card_color", UIKit.ACCENT)
 	button.add_theme_font_size_override("font_size", 12)
 	button.add_theme_color_override("font_color", UIKit.TEXT)
-	var normal := UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.20), UIKit.SURFACE.darkened(0.16), Color(color.r, color.g, color.b, 0.75), 12, 1.0, 0.55, Color(0, 0, 0, 0), 0.10)
-	var hover := UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.34), UIKit.SURFACE.lerp(color, 0.10), color.lightened(0.35), 12, 1.5, 0.9, Color(color.r, color.g, color.b, 0.55), 0.18)
-	var pressed := UIKit.box(UIKit.SURFACE.darkened(0.15), UIKit.BG_DEEP, color, 12, 1.0, 0.1, Color(0, 0, 0, 0), 0.0)
-	var selected := UIKit.box(UIKit.SURFACE_HI.lerp(color, 0.46), UIKit.SURFACE.lerp(color, 0.22), UIKit.GOLD, 12, 2.0, 0.9, Color(1.0, 0.85, 0.4, 0.5), 0.2)
+	# Wooden plates like every button, the card's own colour cast on the wood; a chosen tactic glows like embers.
+	var cast := UIKit.tint_of(color, 0.3)
+	var normal := UIKit.wood(UIKit.PLATE, 14.0, cast)
+	var hover := UIKit.wood(UIKit.PLATE, 14.0, Color(cast.r * 1.22, cast.g * 1.18, cast.b * 1.12, 1.0))
+	var pressed := UIKit.wood(UIKit.PLATE_PRESSED, 14.0, cast)
+	var selected := UIKit.wood(UIKit.PLATE_EMBER, 14.0)
 	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
 		var style: StyleBox = {"normal": normal, "hover": hover, "pressed": selected if button.toggle_mode else pressed, "hover_pressed": selected if button.toggle_mode else pressed, "disabled": normal}[state].duplicate()
 		style.content_margin_top = 54

@@ -170,7 +170,7 @@ static func with_margins(style: StyleBox, horizontal: float, vertical: float) ->
 
 ## Card used for panels: dark walnut with a thin bronze line, faintly tinted by `tint`.
 static func panel_box(tint: Color = EDGE, _radius: int = 14, _shadow: float = 0.9) -> StyleBoxTexture:
-	return wood(CARD, 14.0, _tint_of(tint, 0.18))
+	return wood(CARD, 14.0, tint_of(tint, 0.18))
 
 ## A wooden piece as a 9-sliced StyleBoxTexture: the edges (rim, rivets) keep their size, the grain stretches.
 static func wood(texture: Texture2D, margin: float, modulate: Color = Color.WHITE) -> StyleBoxTexture:
@@ -187,7 +187,7 @@ static func wood(texture: Texture2D, margin: float, modulate: Color = Color.WHIT
 	return style
 
 ## A colour's faint cast on wood: white leaned `amount` toward the (lightened) accent.
-static func _tint_of(accent: Color, amount: float) -> Color:
+static func tint_of(accent: Color, amount: float) -> Color:
 	var cast := warm(accent).lightened(0.35)
 	return Color.WHITE.lerp(Color(cast.r, cast.g, cast.b, 1.0), amount)
 
@@ -215,7 +215,7 @@ static func frame_box() -> StyleBoxTexture:
 static func button_styles(accent: Color, primary: bool) -> Dictionary:
 	# Wooden plates: an iron-rimmed one with rivets, glowing like embers when primary; the accent only casts
 	# a faint colour on the wood so screens keep their meaning (red for danger, green for go).
-	var cast := _tint_of(accent, 0.22)
+	var cast := tint_of(accent, 0.22)
 	var normal: StyleBox = wood(PLATE_EMBER if primary else PLATE, 14.0, cast)
 	var hover: StyleBox = wood(PLATE_EMBER if primary else PLATE, 14.0, Color(cast.r * 1.22, cast.g * 1.18, cast.b * 1.1, 1.0))
 	var pressed: StyleBox = wood(PLATE_PRESSED, 14.0, cast)
