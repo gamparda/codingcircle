@@ -67,6 +67,7 @@ func run() -> void:
 	# Opening at the clip start is an interactive seek now, advanced within a frame budget.
 	for _i in 900:
 		if not viewer.is_seeking(): break
+		OS.delay_msec(1) # the seek runs on a worker thread
 		await process_frame
 	check(absi(viewer.player.ticks - int(clip.clip.start)) <= 6, "the viewer opens at the clip start (%d vs %d)" % [viewer.player.ticks, int(clip.clip.start)])
 	check(viewer.moment_toast.text.begins_with("클립 ▸"), "and says what the clip is")

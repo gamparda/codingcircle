@@ -175,9 +175,10 @@ func run() -> void:
 	expected.append("v0.36.2")
 	expected.append("v0.37.0")
 	expected.append("v0.38.0")
+	expected.append("v0.38.1")
 	var versions: Array = history.map(func(entry): return entry.version)
 	check(versions.size() == expected.size() and expected.all(func(version): return versions.count(version) == 1), "every release since 0.3.3 has exactly one patch-note entry")
-	check(history[0].version == "v0.38.0" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
+	check(history[0].version == "v0.38.1" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
 	main.campaign_mode = false
 	var saved_progress: Dictionary = main.save_data.duplicate(true)
 	main._start_local_ai_battle(8)

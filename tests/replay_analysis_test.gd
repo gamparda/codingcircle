@@ -76,6 +76,7 @@ func run() -> void:
 	viewer.graph.seek_requested.emit(int(replay.result.ticks) / 2)
 	for _i in 900:
 		if not viewer.is_seeking(): break
+		OS.delay_msec(1) # the seek runs on a worker thread
 		await process_frame
 	check(absi(viewer.player.ticks - int(replay.result.ticks) / 2) <= 1, "clicking the graph seeks")
 	var mid_marker: Dictionary = viewer.graph.nearest_highlight(viewer.graph._x_for(int(highlights[0].tick)))

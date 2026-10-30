@@ -68,6 +68,11 @@ func run() -> void:
 	var wrapped := false
 	for i in 40:
 		viewer._process(0.1)
+		# The rewind to the start mark runs on a worker thread: wait for it to land.
+		for wait in 2000:
+			if not viewer.is_seeking(): break
+			OS.delay_msec(1)
+			viewer._process(0.0)
 		if viewer.player.ticks < 330 and viewer.player.ticks >= 295:
 			wrapped = true
 		check(viewer.player.ticks <= 361, "the playhead never runs past the end mark (%d)" % viewer.player.ticks)
@@ -76,6 +81,7 @@ func run() -> void:
 	# Seeks are time-budgeted per frame; a slow runner may still be wrapping back.
 	for frame in 2000:
 		if not viewer.is_seeking(): break
+		OS.delay_msec(1) # the seek runs on a worker thread
 		viewer._process(0.0)
 	check(not viewer.toggle_loop() and not viewer.loop_enabled, "looping can be switched off")
 	check(viewer.graph.loop_start == 300 and viewer.graph.loop_end == 360 and not viewer.graph.loop_on, "the timeline shows the segment")
@@ -139,6 +145,39 @@ func run() -> void:
 	normal.battlefield_clicked.connect(func(world_x): clicks.append(world_x))
 	normal._gui_input(press)
 	check(clicks.size() == 1 and not normal.inspect_mode, "outside the viewer, clicks still reach the battlefield signal")
+
+	# Seeking on the worker thread (and the main-thread fallback) lands on exactly the scene the synchronous
+	# seek shows, including when the target moves back while it runs.
+	var expected := {}
+	for tick in [420, 180]:
+		var reference := BattleReplay.Player.new(replay)
+		while reference.ticks < tick and reference.step():
+			pass
+		expected[tick] = reference.model.state_hash()
+	for threaded in [true, false]:
+		viewer.threaded_seek = threaded
+		viewer.seek(0)
+		viewer.request_seek(900)
+		viewer._process(0.0)
+		viewer.request_seek(420)
+		for frame in 4000:
+			if not viewer.is_seeking(): break
+			OS.delay_msec(1)
+			viewer._process(0.0)
+		check(viewer.player.ticks == 420 and viewer.player.model.state_hash() == expected[420], "seek lands on the exact scene (threaded %s, %d)" % [threaded, viewer.player.ticks])
+		viewer.request_seek(180)
+		viewer._process(0.0)
+		check(viewer.is_seeking() or viewer.player.ticks == 180, "a seek back is in progress")
+		for frame in 4000:
+			if not viewer.is_seeking(): break
+			OS.delay_msec(1)
+			viewer._process(0.0)
+		check(viewer.player.ticks == 180 and viewer.player.model.state_hash() == expected[180], "seeking back restarts and lands exactly (threaded %s)" % threaded)
+		viewer.request_seek(600)
+		viewer._process(0.0)
+		viewer.cancel_seek()
+		check(not viewer.is_seeking() and viewer.seek_job == null and viewer.player.ticks == 180, "cancelling stops the worker and keeps the scene (threaded %s)" % threaded)
+	viewer.threaded_seek = not OS.has_feature("nothreads")
 
 	# The bottom row still fits.
 	var row = viewer.find_child("ReplayNoteInput", true, false).get_parent()

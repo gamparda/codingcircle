@@ -19,8 +19,59 @@ const ReportContent = preload("res://scripts/ui/BattleReportContent.gd")
 const ArmyComposition = preload("res://scripts/ui/ArmyComposition.gd")
 const MultiplayerUI = preload("res://scripts/MultiplayerUI.gd")
 const SPEEDS := [0.5, 1.0, 2.0, 4.0, 8.0]
-const SEEK_BATCH_TICKS := 512
-const SEEK_BUDGET_USEC := 4000
+const SEEK_BATCH_TICKS := 2048
+## Without threads (some web builds) seeking simulates on the main thread: the scene is frozen meanwhile, so
+## most of a frame goes to it.
+const SEEK_BUDGET_USEC := 12000
+
+## A seek on a worker thread: simulates `player` toward `target` at full speed while the viewer keeps
+## drawing the last scene. The viewer may move `target` while it runs (dragging the time bar); `ticks`,
+## `target`, `stop` and `running` are shared under `mutex`, and `player` belongs to the worker until
+## `running` is false.
+class SeekJob:
+	var player
+	var target := 0
+	var ticks := 0
+	var stop := false
+	var running := true
+	var ended := false
+	var mutex := Mutex.new()
+	var thread := Thread.new()
+
+	func _init(candidate, destination: int) -> void:
+		player = candidate
+		target = destination
+		ticks = int(candidate.ticks)
+		thread.start(_run)
+
+	func _run() -> void:
+		while true:
+			mutex.lock()
+			if stop or player.ticks >= target:
+				running = false
+				mutex.unlock()
+				return
+			mutex.unlock()
+			var alive: bool = player.step()
+			# Seeking is silent; discard per tick instead of retaining the whole trip.
+			player.model.combat_events.clear()
+			mutex.lock()
+			ticks = player.ticks
+			if not alive:
+				ended = true
+				running = false
+				mutex.unlock()
+				return
+			mutex.unlock()
+
+	## Stops the worker and waits for it (at most one tick).
+	func halt() -> void:
+		mutex.lock()
+		stop = true
+		mutex.unlock()
+		thread.wait_to_finish()
+
+static var threaded_seek := not OS.has_feature("nothreads")
 
 var replay: Dictionary = {}
 var player = null
@@ -79,6 +130,7 @@ var panel_hp: Label
 var panel_stats: Label
 var seek_target := -1
 var seek_player = null
+var seek_job: SeekJob = null
 var seek_panel: PanelContainer
 var seek_label: Label
 var seek_cancel_button: Button
@@ -762,6 +814,7 @@ func _set_seek_busy(busy: bool) -> void:
 	_refresh_loop()
 
 func _reset_seek() -> void:
+	_stop_seek_job()
 	seek_target = -1
 	seek_player = null
 	_set_seek_busy(false)
@@ -782,8 +835,17 @@ func cancel_seek() -> void:
 		progress.grab_focus()
 	_toast("탐색을 취소했습니다 · 이전 장면에서 멈췄습니다")
 
+func _stop_seek_job() -> void:
+	if seek_job != null:
+		seek_job.halt()
+		seek_job = null
+
 func _refresh_seek_status() -> void:
 	var completed: int = seek_player.ticks if seek_player != null else 0
+	if seek_job != null:
+		seek_job.mutex.lock()
+		completed = seek_job.ticks
+		seek_job.mutex.unlock()
 	var percent := clampi(roundi(100.0 * float(completed) / float(maxi(1, seek_target))), 0, 99)
 	seek_label.text = "장면 이동 중 · %s → %s · %d%%\n현재 화면은 이전 장면입니다 · 다른 시점을 선택하거나 취소하세요" % [_report_time(completed), _report_time(seek_target), percent]
 
@@ -796,6 +858,9 @@ func _advance_seek() -> void:
 		_refresh_hud()
 		if return_focus:
 			progress.grab_focus()
+		return
+	if threaded_seek:
+		_advance_seek_threaded()
 		return
 	# Reuse unfinished work when the new target is still ahead of it. Multiple
 	# dragging events in a frame only construct a candidate for the latest target.
@@ -824,8 +889,40 @@ func _advance_seek() -> void:
 	else:
 		_refresh_seek_status()
 
+## The threaded seek: the worker gets the latest target each frame (reusing its progress while the target
+## is still ahead of it) and its player becomes the viewer's once it arrives.
+func _advance_seek_threaded() -> void:
+	if seek_job != null:
+		seek_job.mutex.lock()
+		var running := seek_job.running
+		var at := seek_job.ticks
+		if running and at <= seek_target:
+			seek_job.target = seek_target
+		seek_job.mutex.unlock()
+		if running and at <= seek_target:
+			_refresh_seek_status()
+			return
+		var ended := seek_job.ended
+		var candidate = seek_job.player
+		seek_job.halt()
+		seek_job = null
+		seek_player = candidate if at <= seek_target else null
+		if seek_player != null and (seek_player.ticks >= seek_target or ended):
+			var return_focus := seek_cancel_button.has_focus()
+			player = seek_player
+			_reset_seek()
+			_finish_seek()
+			if return_focus:
+				progress.grab_focus()
+			return
+	if seek_player == null or seek_player.ticks > seek_target:
+		seek_player = BattleReplay.Player.new(replay)
+	seek_job = SeekJob.new(seek_player, seek_target)
+	_refresh_seek_status()
+
 func _exit_tree() -> void:
 	# No pending callbacks or background worker can publish after leaving the viewer.
+	_stop_seek_job()
 	seek_target = -1
 	seek_player = null
 	analysis_pending = false
@@ -859,6 +956,7 @@ func _finish_seek() -> void:
 
 func _process(delta: float) -> void:
 	if is_queued_for_deletion():
+		_stop_seek_job()
 		seek_target = -1
 		seek_player = null
 		analysis_pending = false
