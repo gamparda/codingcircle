@@ -1,6 +1,7 @@
 extends SceneTree
-## Big battles stay cheap: targeting through the per-tick lane index picks exactly what scanning every unit
-## picks (same battle, same state hash), and a tick grows about linearly with the number of units.
+## Big battles stay cheap: targeting through the per-tick lane index, and supports looking only at allies that
+## still need a buff, pick exactly what scanning every unit picks (same battle, same state hash), and a tick
+## grows about linearly with the number of units.
 const AutoPlayer = preload("res://scripts/AutoPlayer.gd")
 var failures := 0
 
@@ -60,6 +61,8 @@ func run() -> void:
 		[["shield", "archer", "sniper", "swordsman"], ["zombie", "necromancer", "warlock", "berserker"]],
 		[["paladin", "sniper", "warlock", "demon_lord"], ["shield", "archer", "swordsman", "necromancer"]],
 		[["berserker", "zombie", "archer", "warlock"], ["sniper", "paladin", "swordsman", "shield"]],
+		[["shield", "archer", "healer", "swordsman"], ["swordsman", "berserker", "healer", "warlock"]],
+		[["healer", "paladin", "sniper", "zombie"], ["healer", "necromancer", "archer", "shield"]],
 	]
 	for index in matchups.size():
 		var pair: Array = matchups[index]

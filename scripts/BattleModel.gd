@@ -25,7 +25,6 @@ const RED_REAR_MIN := 930.0 * WORLD_SCALE
 const SUPPORT_INCREMENT := 0.05
 const SUPPORT_MAX_STACKS := 10
 const SUPPORT_COOLDOWN := 4.0
-const SUPPORT_IDLE_RECHECK := 0.2
 const SUPPORT_FOLLOW_DISTANCE := 65.0
 const CURSE_RADIUS := 45.0
 const CURSE_DURATION := 5.0
@@ -114,8 +113,11 @@ var _curse_xs: Array = [PackedFloat64Array(), PackedFloat64Array()]
 var _indexed := false
 ## Tests turn the index off to check that it picks exactly what the scans pick.
 static var targeting_index := true
-## Per tick: each side's most advanced living non-support unit (supports follow it).
+## Per tick: each side's most advanced living non-support unit (supports follow it), and the living allies a
+## support can still buff (below the stack cap), in field order. Stacks only grow, so that list changes only
+## when units appear, fall, or reach the cap: with every ally maxed, supports have nothing to look at.
 var _fronts: Array = [null, null]
+var _needy: Array = [[], []]
 ## Units that already made their first attack (for the "first_strike" modifier).
 var first_struck: Dictionary = {}
 const MAX_FALLEN := 40
@@ -880,16 +882,15 @@ func _install_curse(caster: Dictionary, x: float) -> void:
 func _tick_support(unit: Dictionary, delta: float) -> void:
 	if float(unit.cooldown) <= 0.0:
 		var cast := false
-		for ally in _allies_near(unit, float(unit.range)):
+		for ally in (_needy[int(unit.side)] if _indexed else units):
 			if ally.side == unit.side and ally.kind != "healer" and float(ally.hp) > 0.0 and abs(float(ally.x) - float(unit.x)) <= float(unit.range):
 				var stacks := int(ally.get("support_stacks", 0))
 				if stacks < SUPPORT_MAX_STACKS:
 					ally.support_stacks = stacks + 1
 					combat_events.append({"type": "SUPPORT_BUFF", "source_id": unit.id, "target_id": ally.id, "stacks": ally.support_stacks, "x": ally.x})
 					cast = true
-		# Nobody to buff: look again shortly rather than every tick (rescanning a crowded field each tick was the
-		# costliest part of a big battle).
-		unit.cooldown = SUPPORT_COOLDOWN if cast else SUPPORT_IDLE_RECHECK
+		if cast:
+			unit.cooldown = SUPPORT_COOLDOWN
 	var direction := 1.0 if int(unit.side) == 0 else -1.0
 	var frontline = _fronts[int(unit.side)] if _indexed else null
 	if not _indexed:
@@ -970,10 +971,13 @@ func _blocking_wall(attacker: Dictionary, target_x: float):
 
 func _index_fronts() -> void:
 	_fronts = [null, null]
+	_needy = [[], []]
 	for unit in units:
 		if unit.kind == "healer" or float(unit.hp) <= 0.0:
 			continue
 		var side := int(unit.side)
+		if int(unit.get("support_stacks", 0)) < SUPPORT_MAX_STACKS:
+			_needy[side].append(unit)
 		var direction := 1.0 if side == 0 else -1.0
 		if _fronts[side] == null or direction * float(unit.x) > direction * float(_fronts[side].x):
 			_fronts[side] = unit
@@ -1068,17 +1072,6 @@ func _enemy_ahead_indexed(unit: Dictionary, reach: float) -> bool:
 		return at < xs.size() and absf(xs[at] - x) <= reach
 	var behind := xs.bsearch(x, false) - 1
 	return behind >= 0 and absf(xs[behind] - x) <= reach
-
-## Living units of `unit`'s side within `reach` of it, in field order (all units outside a tick).
-func _allies_near(unit: Dictionary, reach: float) -> Array:
-	if not _indexed:
-		return units
-	var lane: Dictionary = _lanes[int(unit.side)]
-	var xs: PackedFloat64Array = lane.xs
-	var x := float(unit.x)
-	var low := maxi(0, xs.bsearch(x - reach, true) - 1)
-	var high := mini(xs.size(), xs.bsearch(x + reach, false) + 1)
-	return lane.units.slice(low, high)
 
 func _find_target(unit: Dictionary):
 	if trait_value(String(unit.kind), "target_rearmost", false):
