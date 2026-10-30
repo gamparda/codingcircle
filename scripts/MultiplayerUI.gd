@@ -2,10 +2,10 @@ extends RefCounted
 
 const UIKit = preload("res://scripts/ui/UIKit.gd")
 
-const INK := Color("#101a29")
-const EDGE := Color("#2b415c")
-const MUTED := Color("#92a3bc")
-const GOLD := Color("#f0d592")
+const INK := Color("#1e1610")
+const EDGE := Color("#6a5540")
+const MUTED := Color("#c4ad8e")
+const GOLD := Color("#f3c56a")
 
 static func label(text: String, size: int = 16, color: Color = Color.WHITE) -> Label:
 	var node := Label.new(); node.text = text
@@ -17,13 +17,17 @@ static func label(text: String, size: int = 16, color: Color = Color.WHITE) -> L
 static func panel(main, parent: Node, name: String, bounds: Rect2, padding: int = 24) -> VBoxContainer:
 	var box := PanelContainer.new(); box.name = name; box.position = bounds.position; box.size = bounds.size
 	box.set_meta("design_rect", bounds) # ResponsiveLayout: place by the intended rectangle, not the settling size
-	box.add_theme_stylebox_override("panel",UIKit.with_margins(UIKit.panel_box(),padding,padding)); parent.add_child(box)
+	# The lobby's iron-bound board (its rim drawn just outside the bounds).
+	var frame := UIKit.frame_box().duplicate() as StyleBoxTexture
+	frame.content_margin_left = padding; frame.content_margin_right = padding
+	frame.content_margin_top = padding; frame.content_margin_bottom = padding + 6
+	box.add_theme_stylebox_override("panel",frame); parent.add_child(box)
 	UIKit.reveal(box,0.28,10.0)
 	var content := VBoxContainer.new(); content.add_theme_constant_override("separation",12); box.add_child(content)
 	return content
 
 static func button(main, parent: Node, text: String, name: String, callback: Callable, primary: bool = false) -> Button:
-	var node: Button = main._styled_button(text,Color("#6375d2") if primary else Color("#3d647d"),primary)
+	var node: Button = main._styled_button(text,Color("#d0803a") if primary else Color("#7a6248"),primary)
 	node.name = name; node.custom_minimum_size.y = 44; node.pressed.connect(callback); parent.add_child(node)
 	return node
 

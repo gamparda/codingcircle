@@ -213,6 +213,7 @@ func _ready() -> void:
 	get_tree().root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP if DisplayServer.get_name() == "headless" else Window.CONTENT_SCALE_ASPECT_EXPAND
 	ResponsiveLayout.mark(self)
 	get_tree().node_added.connect(ResponsiveLayout.on_node_added)
+	get_tree().node_added.connect(UIKit.on_node_added) # the theme warms colours screens set by hand
 	_fit_to_viewport()
 	get_viewport().size_changed.connect(_fit_to_viewport)
 	network.connection_status.connect(_on_connection_status)
@@ -962,8 +963,8 @@ static func result_details(snapshot: Dictionary, side: int, deck_name: String) -
 
 func _panel_style(background: Color, border: Color, radius: int) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
-	style.bg_color = background
-	style.border_color = border
+	style.bg_color = UIKit.warm(background)
+	style.border_color = UIKit.warm(border)
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(mini(radius, 8))
 	if radius >= 8:

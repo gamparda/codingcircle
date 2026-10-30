@@ -20,7 +20,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	column.add_theme_constant_override("separation", 8)
 	var tabs: HBoxContainer = column.get_node("Tabs")
 	for tab_index in SaveData.DECK_PRESETS:
-		var tab = main._styled_button(String(main.save_data.deck_presets[tab_index].name), Color("#5e6ad2"), tab_index == index)
+		var tab = main._styled_button(String(main.save_data.deck_presets[tab_index].name), Color("#d0803a"), tab_index == index)
 		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tab.pressed.connect(main._build_deck_screen.bind(tab_index))
 		tabs.add_child(tab)
@@ -89,7 +89,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	# Shown only with a message: the deck has to fit a phone's screen with touch-sized buttons.
 	status.visible = false
 	var save_button: Button = column.get_node("Actions/DeckSaveButton")
-	UIKit.style_button(save_button, Color("#5e6ad2"), true, 16)
+	UIKit.style_button(save_button, Color("#d0803a"), true, 16)
 	save_button.text = Localization.text("덱 저장 및 사용")
 	save_button.pressed.connect(func():
 		var selected_units: Array = []

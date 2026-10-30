@@ -15,8 +15,16 @@ var actions: HBoxContainer
 func setup(title_text: String, subtitle_text: String) -> VBoxContainer:
 	var title: Label = $Column/Title
 	var subtitle: Label = $Column/Subtitle
-	add_theme_stylebox_override("panel", UIKit.with_margins(UIKit.panel_box(UIKit.EDGE, 18, 1.0), 30, 22))
-	UIKit.display(title, 32, UIKit.TEXT)
+	# The lobby's iron-bound board; its rim sits outside the window (UIKit.frame_box).
+	var frame := UIKit.frame_box().duplicate() as StyleBoxTexture
+	frame.content_margin_left = 34
+	frame.content_margin_right = 34
+	frame.content_margin_top = 26
+	frame.content_margin_bottom = 30
+	add_theme_stylebox_override("panel", frame)
+	UIKit.display(title, 32, UIKit.GOLD)
+	title.add_theme_color_override("font_outline_color", Color(0.1, 0.05, 0.02, 0.95))
+	title.add_theme_constant_override("outline_size", 6)
 	title.text = Localization.text(title_text)
 	subtitle.text = Localization.text(subtitle_text)
 	subtitle.add_theme_font_size_override("font_size", 14)

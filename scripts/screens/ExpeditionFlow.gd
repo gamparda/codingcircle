@@ -13,7 +13,7 @@ const RunRecords = preload("res://scripts/run/RunRecords.gd")
 const SPEEDS := [1.0, 2.0]
 const MAX_STEPS := 16
 const NODE_TEXT := {"battle": "⚔ 전투", "elite": "💀 정예", "rest": "🔥 휴식", "shop": "💰 상점", "boss": "👑 보스"}
-const NODE_COLOR := {"battle": Color("#3d647d"), "elite": Color("#8f4652"), "rest": Color("#3d8f83"), "shop": Color("#a07a2c"), "boss": Color("#8b3fa6")}
+const NODE_COLOR := {"battle": Color("#7a6248"), "elite": Color("#8f4652"), "rest": Color("#3d8f83"), "shop": Color("#a07a2c"), "boss": Color("#8b3fa6")}
 
 static func active(main) -> bool:
 	return not main.expedition_run.is_empty()
@@ -79,7 +79,7 @@ static func choose_relic(main) -> void:
 	for id in ExpeditionRun.starting_relics(run_seed, preset.units, preset.structures):
 		var relic: Dictionary = RunBoons.RELICS[id]
 		var pick := String(id)
-		var card = main._styled_button("%s\n%s\n\n%s" % [relic.icon, Localization.text(String(relic.name)), RunBoons.describe(pick)], Color("#3d647d"), false)
+		var card = main._styled_button("%s\n%s\n\n%s" % [relic.icon, Localization.text(String(relic.name)), RunBoons.describe(pick)], Color("#7a6248"), false)
 		card.name = "ExpeditionRelic_" + pick
 		card.custom_minimum_size = Vector2(240, 200)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -267,7 +267,7 @@ static func _upgrade_grid(main, column: VBoxContainer, on_pick: Callable, prefix
 	grid.add_theme_constant_override("v_separation", 8)
 	column.add_child(grid)
 	for kind in run.deck.units + run.deck.structures:
-		var button = main._styled_button(card_label(run, String(kind)) + " → ★" + "★".repeat(int(run.stars.get(kind, 0))), Color("#3d647d"), false)
+		var button = main._styled_button(card_label(run, String(kind)) + " → ★" + "★".repeat(int(run.stars.get(kind, 0))), Color("#7a6248"), false)
 		button.name = prefix + String(kind)
 		button.custom_minimum_size = Vector2(250, 44)
 		button.add_theme_font_size_override("font_size", 13)
@@ -288,7 +288,7 @@ static func show_shop(main) -> void:
 	for i in shop.cards.size():
 		var item: Dictionary = shop.cards[i]
 		var index: int = i
-		var button = main._styled_button(Localization.text("%s\n%d 골드") % [card_name(String(item.kind)), int(item.price)] if not bool(item.sold) else Localization.text("판매 완료"), Color("#3d647d"), false)
+		var button = main._styled_button(Localization.text("%s\n%d 골드") % [card_name(String(item.kind)), int(item.price)] if not bool(item.sold) else Localization.text("판매 완료"), Color("#7a6248"), false)
 		button.name = "ExpeditionShopCard_%d" % i
 		button.custom_minimum_size = Vector2(0, 64)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -456,7 +456,7 @@ static func show_reward(main) -> void:
 		for kind in reward.cards:
 			var card := String(kind)
 			var summary := BattleModel.unit_role(card) if BattleModel.UNIT_STATS.has(card) else Localization.text("전술")
-			var button = main._styled_button("%s\n%s" % [card_name(card), summary], Color("#3d647d"), false)
+			var button = main._styled_button("%s\n%s" % [card_name(card), summary], Color("#7a6248"), false)
 			button.name = "ExpeditionRewardCard_" + card
 			button.custom_minimum_size = Vector2(0, 90)
 			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL

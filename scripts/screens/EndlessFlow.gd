@@ -163,7 +163,7 @@ static func offer(main) -> void:
 	for id in director.offers:
 		var relic: Dictionary = RunBoons.RELICS[id]
 		var owned: int = director.boons.count(id)
-		var card = main._styled_button("%s\n%s\n\n%s%s" % [relic.icon, Localization.text(String(relic.name)), RunBoons.describe(String(id)), Localization.text("\n(보유 %d)") % owned if owned > 0 else ""], UIKit.GOLD_DEEP if String(relic.rarity) == "boss" else (Color("#8b6cf6") if String(relic.rarity) == "rare" else Color("#3d647d")), false)
+		var card = main._styled_button("%s\n%s\n\n%s%s" % [relic.icon, Localization.text(String(relic.name)), RunBoons.describe(String(id)), Localization.text("\n(보유 %d)") % owned if owned > 0 else ""], UIKit.GOLD_DEEP if String(relic.rarity) == "boss" else (Color("#8b6cf6") if String(relic.rarity) == "rare" else Color("#7a6248")), false)
 		card.name = "EndlessBoon_" + String(id)
 		card.custom_minimum_size = Vector2(260, 220)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL

@@ -49,7 +49,7 @@ static func _add_unit_comparison(parent: VBoxContainer, data: Array, state: Dict
 		var button := Button.new()
 		button.name = "BattleReportMetric_" + metric
 		button.text = String(entry[1])
-		UIKit.style_button(button, Color("#3d647d"), false, 16)
+		UIKit.style_button(button, Color("#7a6248"), false, 16)
 		button.pressed.connect(func():
 			state.metric = metric
 			_render_unit_comparison(rows, hint, reports, metric))

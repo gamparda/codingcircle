@@ -1,27 +1,35 @@
 extends RefCounted
-## Keepfall look & feel: palette, gradient rounded boxes, the project-wide Theme and small
-## interaction helpers. Everything is generated at runtime (no imported art needed) and cached.
+## Keepfall look & feel: the castle-at-night theme of the lobby carried through every screen. Dark walnut
+## surfaces, iron and bronze edges, parchment text, gold and ember accents; buttons are wooden plates with an
+## iron rim and rivets, big windows the lobby's iron-bound board (assets/ui, cut from the lobby art). Also the
+## project-wide Theme and small interaction helpers. Generated pieces are cached.
 
 # ---------------------------------------------------------------- palette
 const UISounds = preload("res://scripts/ui/UISounds.gd")
 
-const BG_DEEP := Color("#070b13")
-const BG := Color("#0c1220")
-const SURFACE := Color("#121b2d")
-const SURFACE_HI := Color("#1a2640")
-const EDGE := Color("#2b3d5c")
-const EDGE_SOFT := Color("#1f2d46")
-const TEXT := Color("#eef2fb")
-const TEXT_MUTED := Color("#93a2bd")
-const TEXT_DIM := Color("#62708b")
-const GOLD := Color("#f4d58d")
-const GOLD_DEEP := Color("#c99a3c")
-const ACCENT := Color("#6d7cff")
-const TEAL := Color("#3ec6b0")
-const DANGER := Color("#ff6b81")
+const BG_DEEP := Color("#0c0907")
+const BG := Color("#150f0b")
+const SURFACE := Color("#1e1610")
+const SURFACE_HI := Color("#2a1f16")
+const EDGE := Color("#6a5540")
+const EDGE_SOFT := Color("#3a2d22")
+const TEXT := Color("#f4e8d0")
+const TEXT_MUTED := Color("#c4ad8e")
+const TEXT_DIM := Color("#85725c")
+const GOLD := Color("#f3c56a")
+const GOLD_DEEP := Color("#c08435")
+const ACCENT := Color("#d0803a") # ember bronze
+const TEAL := Color("#6fae94") # verdigris
+const DANGER := Color("#e0604f")
 const TEAM_BLUE := Color("#5b8cff")
 const TEAM_RED := Color("#ff6b81")
-const SUCCESS := Color("#6ee7a1")
+const SUCCESS := Color("#9bd36f")
+
+const PLATE := preload("res://assets/ui/plate_wood.png")
+const PLATE_EMBER := preload("res://assets/ui/plate_ember.png")
+const PLATE_PRESSED := preload("res://assets/ui/plate_pressed.png")
+const CARD := preload("res://assets/ui/card_wood.png")
+const FRAME := preload("res://assets/ui/frame_board.png")
 
 const UNIT_COLORS := {"shield": Color("#5b8cff"), "swordsman": Color("#f0765f"), "archer": Color("#9b7cf0"),
 	"healer": Color("#e6c25e"), "berserker": Color("#ef7a4f"), "warlock": Color("#b57cf0"),
@@ -34,6 +42,47 @@ const TOUCH_MIN_HEIGHT := 58.0
 
 static func is_touch() -> bool:
 	return force_touch or OS.has_feature("mobile") or OS.has_feature("android")
+
+# ---------------------------------------------------------------- warm remap
+## The theme's answer to colours written out in screen code: a muted blue-grey or navy (low chroma, blue
+## hue: the old palette) becomes the same lightness in warm walnut and parchment. Saturated colours (teams,
+## units, spells) are left alone.
+static func warm(color: Color) -> Color:
+	var chroma := maxf(color.r, maxf(color.g, color.b)) - minf(color.r, minf(color.g, color.b))
+	if chroma > 0.22 or color.h < 0.45 or color.h > 0.8 or chroma < 0.015:
+		return color
+	return Color.from_hsv(0.075, clampf(color.s * 0.85 + 0.06, 0.0, 0.6), color.v, color.a)
+
+const WARM_COLOR_NAMES := ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_disabled_color",
+	"font_outline_color", "font_placeholder_color", "font_hover_pressed_color"]
+const WARM_STYLEBOX_NAMES := ["panel", "normal", "hover", "pressed", "disabled", "focus", "background", "fill", "hover_pressed"]
+
+## Called for every node added to the tree (Main connects it): warms the colours a screen set by hand, once
+## the code that built it has finished. A node with the "keep_colors" meta is left as it is.
+static func on_node_added(node: Node) -> void:
+	if node is Control or node is ColorRect:
+		_warm_node.call_deferred(node)
+
+static func _warm_node(node: Node) -> void:
+	if not is_instance_valid(node) or node.has_meta("keep_colors") or node.has_meta("warmed"):
+		return
+	node.set_meta("warmed", true)
+	if node is ColorRect:
+		node.color = warm(node.color)
+	if not node is Control:
+		return
+	var control := node as Control
+	for name in WARM_COLOR_NAMES:
+		if control.has_theme_color_override(name):
+			control.add_theme_color_override(name, warm(control.get_theme_color(name)))
+	for name in WARM_STYLEBOX_NAMES:
+		if control.has_theme_stylebox_override(name):
+			var style := control.get_theme_stylebox(name)
+			if style is StyleBoxFlat:
+				var copy := style.duplicate() as StyleBoxFlat
+				copy.bg_color = warm(copy.bg_color)
+				copy.border_color = warm(copy.border_color)
+				control.add_theme_stylebox_override(name, copy)
 
 # ---------------------------------------------------------------- display font
 ## Black Han Sans (OFL) for titles and big numbers. Glyphs it lacks fall back to the system font.
@@ -53,6 +102,9 @@ static func display(label: Control, size: int, color: Color = Color(0, 0, 0, 0))
 ## drop shadow, as a 9-sliced StyleBoxTexture. `glow` tints the shadow (e.g. accent buttons).
 static func box(top: Color, bottom: Color, border: Color = Color(1, 1, 1, 0.0), radius: int = 10, border_w: float = 1.0,
 		shadow: float = 0.0, glow: Color = Color(0, 0, 0, 0), highlight: float = 0.10, pad_override: int = -1) -> StyleBoxTexture:
+	top = warm(top)
+	bottom = warm(bottom)
+	border = warm(border)
 	var key := "box|%s|%s|%s|%d|%.1f|%.2f|%s|%.2f" % [top.to_html(), bottom.to_html(), border.to_html(), radius, border_w, shadow, glow.to_html(), highlight]
 	if _cache.has(key):
 		return _cache[key]
@@ -116,32 +168,63 @@ static func with_margins(style: StyleBox, horizontal: float, vertical: float) ->
 	copy.content_margin_bottom = vertical
 	return copy
 
-## Card used for panels: dark glassy gradient with a faint tinted border.
-static func panel_box(tint: Color = EDGE, radius: int = 14, shadow: float = 0.9) -> StyleBoxTexture:
-	return box(SURFACE_HI.lerp(tint, 0.06), SURFACE.darkened(0.12), Color(tint.r, tint.g, tint.b, 0.85), radius, 1.0, shadow, Color(0, 0, 0, 0), 0.07)
+## Card used for panels: dark walnut with a thin bronze line, faintly tinted by `tint`.
+static func panel_box(tint: Color = EDGE, _radius: int = 14, _shadow: float = 0.9) -> StyleBoxTexture:
+	return wood(CARD, 14.0, _tint_of(tint, 0.18))
+
+## A wooden piece as a 9-sliced StyleBoxTexture: the edges (rim, rivets) keep their size, the grain stretches.
+static func wood(texture: Texture2D, margin: float, modulate: Color = Color.WHITE) -> StyleBoxTexture:
+	var key := "wood|%s|%.1f|%s" % [texture.resource_path, margin, modulate.to_html()]
+	if _cache.has(key):
+		return _cache[key]
+	var style := StyleBoxTexture.new()
+	style.texture = texture
+	for side in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
+		style.set_texture_margin(side, margin)
+		style.set_content_margin(side, 0.0)
+	style.modulate_color = modulate
+	_cache[key] = style
+	return style
+
+## A colour's faint cast on wood: white leaned `amount` toward the (lightened) accent.
+static func _tint_of(accent: Color, amount: float) -> Color:
+	var cast := warm(accent).lightened(0.35)
+	return Color.WHITE.lerp(Color(cast.r, cast.g, cast.b, 1.0), amount)
+
+## The lobby's iron-bound board for big windows. Its rim is drawn outside the panel (expand margins), so a
+## window keeps the room it had inside.
+static func frame_box() -> StyleBoxTexture:
+	if _cache.has("frame"):
+		return _cache["frame"]
+	var style := StyleBoxTexture.new()
+	style.texture = FRAME
+	style.texture_margin_left = 52
+	style.texture_margin_right = 52
+	style.texture_margin_top = 57
+	style.texture_margin_bottom = 90
+	style.expand_margin_left = 24
+	style.expand_margin_right = 24
+	style.expand_margin_top = 28
+	style.expand_margin_bottom = 34
+	style.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_TILE_FIT
+	_cache["frame"] = style
+	return style
 
 # ---------------------------------------------------------------- buttons
 ## kind: "primary" (filled accent), "secondary" (quiet), "danger". `accent` colors the border/glow.
 static func button_styles(accent: Color, primary: bool) -> Dictionary:
-	var normal: StyleBox
-	var hover: StyleBox
-	var pressed: StyleBox
-	var disabled: StyleBox
-	if primary:
-		normal = box(accent.lightened(0.10), accent.darkened(0.28), accent.lightened(0.35), 10, 1.0, 0.55, Color(accent.r, accent.g, accent.b, 0.55), 0.22)
-		hover = box(accent.lightened(0.24), accent.darkened(0.12), accent.lightened(0.55), 10, 1.0, 0.85, Color(accent.r, accent.g, accent.b, 0.7), 0.30)
-		pressed = box(accent.darkened(0.2), accent.darkened(0.42), accent.lightened(0.15), 10, 1.0, 0.25, Color(accent.r, accent.g, accent.b, 0.4), 0.0)
-	else:
-		var tint := Color(accent.r, accent.g, accent.b, 0.75)
-		normal = box(SURFACE_HI, SURFACE.darkened(0.08), tint, 10, 1.0, 0.4, Color(0, 0, 0, 0), 0.08)
-		hover = box(SURFACE_HI.lightened(0.08), SURFACE.lightened(0.04), accent.lightened(0.3), 10, 1.0, 0.6, Color(accent.r, accent.g, accent.b, 0.35), 0.14)
-		pressed = box(SURFACE.darkened(0.12), BG_DEEP, accent, 10, 1.0, 0.0, Color(0, 0, 0, 0), 0.0)
-	disabled = box(Color("#141c2b"), Color("#0f1623"), Color("#27324a"), 10, 1.0, 0.0, Color(0, 0, 0, 0), 0.0)
+	# Wooden plates: an iron-rimmed one with rivets, glowing like embers when primary; the accent only casts
+	# a faint colour on the wood so screens keep their meaning (red for danger, green for go).
+	var cast := _tint_of(accent, 0.22)
+	var normal: StyleBox = wood(PLATE_EMBER if primary else PLATE, 14.0, cast)
+	var hover: StyleBox = wood(PLATE_EMBER if primary else PLATE, 14.0, Color(cast.r * 1.22, cast.g * 1.18, cast.b * 1.1, 1.0))
+	var pressed: StyleBox = wood(PLATE_PRESSED, 14.0, cast)
+	var disabled: StyleBox = wood(PLATE_PRESSED, 14.0, Color(0.55, 0.52, 0.5, 0.85))
 	var focus := StyleBoxFlat.new()
 	focus.draw_center = false
 	focus.border_color = GOLD
 	focus.set_border_width_all(2)
-	focus.set_corner_radius_all(11)
+	focus.set_corner_radius_all(12)
 	focus.expand_margin_left = 2
 	focus.expand_margin_right = 2
 	focus.expand_margin_top = 2
@@ -335,7 +418,7 @@ static func build_theme() -> Theme:
 	theme.set_color("selection_color", "LineEdit", Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.45))
 
 	# Popup menus (option button drop-downs).
-	var popup := with_margins(box(SURFACE_HI, SURFACE, EDGE, 10, 1.0, 0.8, Color(0, 0, 0, 0), 0.06), 8, 8)
+	var popup := with_margins(wood(CARD, 14.0), 8, 8)
 	theme.set_stylebox("panel", "PopupMenu", popup)
 	var popup_hover := with_margins(box(ACCENT.darkened(0.2), ACCENT.darkened(0.4), Color(1, 1, 1, 0), 7, 0.0, 0.0, Color(0, 0, 0, 0), 0.1), 10, 6)
 	theme.set_stylebox("hover", "PopupMenu", popup_hover)
@@ -362,7 +445,7 @@ static func build_theme() -> Theme:
 
 	# Sliders.
 	var track := StyleBoxFlat.new()
-	track.bg_color = Color("#0b1220")
+	track.bg_color = Color("#120c08")
 	track.border_color = EDGE_SOFT
 	track.set_border_width_all(1)
 	track.set_corner_radius_all(6)
@@ -388,10 +471,10 @@ static func build_theme() -> Theme:
 	scroll_bg.bg_color = Color(1, 1, 1, 0.04)
 	scroll_bg.set_corner_radius_all(6)
 	var scroll_grab := StyleBoxFlat.new()
-	scroll_grab.bg_color = Color("#3b4d70")
+	scroll_grab.bg_color = Color("#5a4632")
 	scroll_grab.set_corner_radius_all(6)
 	var scroll_grab_hi := scroll_grab.duplicate()
-	scroll_grab_hi.bg_color = Color("#5668a0")
+	scroll_grab_hi.bg_color = Color("#8a6a44")
 	for kind in ["VScrollBar", "HScrollBar"]:
 		theme.set_stylebox("scroll", kind, scroll_bg)
 		theme.set_stylebox("grabber", kind, scroll_grab)
@@ -400,7 +483,7 @@ static func build_theme() -> Theme:
 
 	# Progress bars.
 	var bar_bg := StyleBoxFlat.new()
-	bar_bg.bg_color = Color("#0a101c")
+	bar_bg.bg_color = Color("#120c08")
 	bar_bg.border_color = EDGE_SOFT
 	bar_bg.set_border_width_all(1)
 	bar_bg.set_corner_radius_all(7)
@@ -413,16 +496,16 @@ static func build_theme() -> Theme:
 
 	# Separators & panels.
 	var line := StyleBoxLine.new()
-	line.color = Color(1, 1, 1, 0.08)
+	line.color = Color(0.85, 0.66, 0.4, 0.22) # a bronze hairline
 	line.thickness = 1
 	theme.set_stylebox("separator", "HSeparator", line)
 	var vline := StyleBoxLine.new()
-	vline.color = Color(1, 1, 1, 0.08)
+	vline.color = Color(0.85, 0.66, 0.4, 0.22)
 	vline.thickness = 1
 	vline.vertical = true
 	theme.set_stylebox("separator", "VSeparator", vline)
 	theme.set_stylebox("panel", "PanelContainer", with_margins(panel_box(), 16, 14))
-	theme.set_stylebox("panel", "TooltipPanel", with_margins(box(SURFACE_HI, SURFACE, EDGE, 8, 1.0, 0.0, Color(0, 0, 0, 0), 0.0), 10, 6))
+	theme.set_stylebox("panel", "TooltipPanel", with_margins(wood(CARD, 14.0), 12, 8))
 	theme.set_color("font_color", "TooltipLabel", TEXT)
 	theme.set_stylebox("panel", "AcceptDialog", with_margins(panel_box(), 18, 16))
 	theme.set_stylebox("panel", "Window", with_margins(panel_box(), 18, 16))
@@ -437,12 +520,8 @@ static func menu_tile(icon: String, title: String, caption: String, accent: Colo
 	tile.custom_minimum_size = Vector2(0, height)
 	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tile.focus_mode = Control.FOCUS_ALL
-	var base := SURFACE_HI.lerp(accent, 0.30 if primary else 0.10)
-	var normal := box(base.lightened(0.04), SURFACE.lerp(accent, 0.12 if primary else 0.03), Color(accent.r, accent.g, accent.b, 0.9 if primary else 0.45), 16, 1.0, 0.7, Color(accent.r, accent.g, accent.b, 0.45) if primary else Color(0, 0, 0, 0), 0.14)
-	var hover := box(base.lightened(0.12), SURFACE.lerp(accent, 0.2), accent.lightened(0.35), 16, 1.5, 0.9, Color(accent.r, accent.g, accent.b, 0.55), 0.2)
-	var pressed := box(base.darkened(0.15), SURFACE.darkened(0.1), accent, 16, 1.5, 0.2, Color(0, 0, 0, 0), 0.0)
-	var disabled := box(Color("#141c2b"), Color("#0f1623"), Color("#27324a"), 16, 1.0, 0.0, Color(0, 0, 0, 0), 0.0)
-	for entry in [["normal", normal], ["hover", hover], ["pressed", pressed], ["hover_pressed", pressed], ["disabled", disabled]]:
+	var styles := button_styles(accent, primary)
+	for entry in [["normal", styles.normal], ["hover", styles.hover], ["pressed", styles.pressed], ["hover_pressed", styles.pressed], ["disabled", styles.disabled]]:
 		tile.add_theme_stylebox_override(entry[0], with_margins(entry[1], 18, 10))
 	tile.add_theme_stylebox_override("focus", button_styles(accent, primary).focus)
 	var row := HBoxContainer.new()
@@ -472,7 +551,9 @@ static func menu_tile(icon: String, title: String, caption: String, accent: Colo
 	var heading := Label.new()
 	heading.name = "Title"
 	heading.text = title
-	display(heading, 24 if height >= 70.0 else 18, TEXT)
+	display(heading, 24 if height >= 70.0 else 18, Color("#f6d28b"))
+	heading.add_theme_color_override("font_outline_color", Color(0.1, 0.05, 0.02, 0.9))
+	heading.add_theme_constant_override("outline_size", 4)
 	heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	texts.add_child(heading)
 	var sub := Label.new()

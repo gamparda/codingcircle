@@ -23,3 +23,5 @@ The demon lord sheets `demon_lord_sheet.png` and `demon_lord_effects_sheet.png` 
   (https://github.com/google/fonts/tree/main/ofl/cinzeldecorative), SIL Open Font License 1.1
   (`assets/fonts/OFL-CinzelDecorative.txt`). The game title on the lobby plank.
   Downloaded from the Google Fonts repository (`ofl/blackhansans`). Used only for titles and big numbers; body text uses the system font.
+- `assets/ui/frame_board.png`, `plate_wood.png`, `plate_ember.png`, `plate_pressed.png`, `card_wood.png` — cut and
+  composed from the project's own lobby art (`assets/lobby/lobby_panel.png`, `lobby_plank.png`) for the UI theme.

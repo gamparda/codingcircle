@@ -20,7 +20,7 @@ static func _on_update_started(main, version: String) -> void:
 	var panel := PanelContainer.new()
 	panel.position = Vector2(340, 205)
 	panel.size = Vector2(600, 310)
-	var style = main._panel_style(Color("#11141e"), Color("#7170ff"), 18)
+	var style = main._panel_style(Color("#11141e"), Color("#d0803a"), 18)
 	style.shadow_color = Color(0.0, 0.0, 0.0, 0.65)
 	style.shadow_size = 30
 	panel.add_theme_stylebox_override("panel", style)
@@ -57,7 +57,7 @@ static func _on_update_started(main, version: String) -> void:
 	main.update_progress_bar.max_value = 100.0
 	main.update_progress_bar.show_percentage = false
 	main.update_progress_bar.add_theme_stylebox_override("background", main._panel_style(Color("#080a0f"), Color(1.0, 1.0, 1.0, 0.06), 7))
-	main.update_progress_bar.add_theme_stylebox_override("fill", main._panel_style(Color("#7170ff"), Color("#828fff"), 7))
+	main.update_progress_bar.add_theme_stylebox_override("fill", main._panel_style(Color("#d0803a"), Color("#f0a860"), 7))
 	inner.add_child(main.update_progress_bar)
 	main.update_note_label = Label.new()
 	main.update_note_label.text = Localization.text("경기 중에는 설치하지 않으며, 완료 후 게임이 자동으로 재시작됩니다.")
@@ -75,7 +75,7 @@ static func _show_android_apk_notice(main) -> void:
 	main.update_message_label.text = Localization.text("APK 업데이트가 필요합니다.")
 	main.update_progress_bar.visible = false
 	main.update_note_label.text = Localization.text("새 APK를 설치한 뒤 게임을 다시 실행해 주세요.")
-	var download_button = main._styled_button(Localization.text("APK 다운로드"), Color("#7170ff"), true)
+	var download_button = main._styled_button(Localization.text("APK 다운로드"), Color("#d0803a"), true)
 	download_button.position = Vector2(580, 420)
 	download_button.size = Vector2(120, 50)
 	download_button.pressed.connect(func(): OS.shell_open(ANDROID_APK_URL))

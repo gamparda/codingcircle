@@ -215,7 +215,7 @@ static func _show_result(main, winner: int) -> void:
 	details.add_theme_color_override("font_color", Color("#dce1ec"))
 	inner.add_child(details)
 	if main.current_snapshot.has("battle_report"):
-		var report_button = main._styled_button("전투 요약",Color("#3d647d"))
+		var report_button = main._styled_button("전투 요약",Color("#7a6248"))
 		report_button.name = "BattleReportButton"; report_button.position = Vector2(395,25); report_button.size = Vector2(155,44)
 		report_button.pressed.connect(main._show_battle_report); inner.add_child(report_button)
 	if main.local_ai_mode and main.campaign_mode:
@@ -256,7 +256,7 @@ static func _show_result(main, winner: int) -> void:
 		toast.place_center(290.0, notes_y + 32.0)
 		UIKit.UISounds.play("victory", -12.0)
 	var rematch_text := Localization.text("계속") if main.local_ai_mode and not main.expedition_run.is_empty() else Localization.text("다시 도전") if main.local_ai_mode else ("대기실로" if not main.network.client_session.is_empty() else Localization.text("재경기 준비"))
-	var rematch = main._styled_button(rematch_text, Color("#5e6ad2"), true)
+	var rematch = main._styled_button(rematch_text, Color("#d0803a"), true)
 	rematch.position = Vector2(25 if advances else 65, 306 + extra)
 	rematch.size = Vector2(165 if advances else 215, 58)
 	rematch.pressed.connect(func():

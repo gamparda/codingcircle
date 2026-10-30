@@ -80,7 +80,7 @@ func refresh() -> void:
 	add_child(privacy)
 
 func _build_guest() -> void:
-	var sign_in = main._styled_button(Localization.text("Google로 로그인"), Color("#3d647d"), true)
+	var sign_in = main._styled_button(Localization.text("Google로 로그인"), Color("#7a6248"), true)
 	sign_in.name = "AccountSignInButton"
 	sign_in.disabled = not account.can_sign_in() or not account.blocker().is_empty()
 	sign_in.pressed.connect(func(): account.sign_in())
@@ -112,7 +112,7 @@ func _build_sign_up() -> void:
 	cancel.name = "AccountSignUpCancel"
 	cancel.pressed.connect(func(): account.cancel_sign_up())
 	row.add_child(cancel)
-	var create = main._styled_button(Localization.text("계정 만들기"), Color("#5e6ad2"), true)
+	var create = main._styled_button(Localization.text("계정 만들기"), Color("#d0803a"), true)
 	create.name = "AccountCreateButton"
 	create.disabled = true
 	var update := func(_value = null): create.disabled = not age.button_pressed or name_edit.text.strip_edges().is_empty()
@@ -129,7 +129,7 @@ func _build_signed_in() -> void:
 	var name_edit := _nickname_edit("AccountRenameEdit", account.nickname)
 	name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(name_edit)
-	var rename = main._styled_button(Localization.text("닉네임 변경"), Color("#3d647d"), false)
+	var rename = main._styled_button(Localization.text("닉네임 변경"), Color("#7a6248"), false)
 	rename.name = "AccountRenameButton"
 	rename.disabled = not available
 	rename.pressed.connect(func(): account.rename(name_edit.text))

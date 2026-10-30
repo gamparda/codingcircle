@@ -28,7 +28,7 @@ static func show(main, tab: String = "board") -> void:
 	dialog.add_child(tabs)
 	for entry in TABS:
 		var id := String(entry[0])
-		var button: Button = main._styled_button(String(entry[1]), Color("#6375d2") if id == tab else Color("#3d647d"), id == tab)
+		var button: Button = main._styled_button(String(entry[1]), Color("#d0803a") if id == tab else Color("#7a6248"), id == tab)
 		button.name = "RankedTab_" + id
 		button.custom_minimum_size = Vector2(150, 44)
 		button.pressed.connect(func(): show(main, id))

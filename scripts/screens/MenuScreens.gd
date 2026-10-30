@@ -229,7 +229,7 @@ static func _build_ai_stage_screen(main, as_campaign: bool = false) -> void:
 	if not main.campaign_mode:
 		var tools: HBoxContainer = preload("res://scripts/ui/SubMenuFrame.gd").of(stage_column).actions
 		var unlimited := CheckButton.new(); unlimited.name = "PracticeUnlimited"; unlimited.text = "자원 무제한"; unlimited.button_pressed = main.practice.unlimited; unlimited.toggled.connect(func(enabled): main.practice.unlimited=enabled); tools.add_child(unlimited)
-		var edit = main._styled_button("상대 덱 설정",Color("#3d647d")); edit.custom_minimum_size = Vector2(150,44); edit.add_theme_font_size_override("font_size", 14); edit.pressed.connect(main._show_practice_deck); tools.add_child(edit)
+		var edit = main._styled_button("상대 덱 설정",Color("#7a6248")); edit.custom_minimum_size = Vector2(150,44); edit.add_theme_font_size_override("font_size", 14); edit.pressed.connect(main._show_practice_deck); tools.add_child(edit)
 		var normal = main._styled_button("초기화",Color("#596174")); normal.custom_minimum_size = Vector2(90,44); normal.add_theme_font_size_override("font_size", 14); normal.tooltip_text = "연습 설정을 기본값으로 되돌립니다."; normal.pressed.connect(func(): main.practice = PracticeTools.new(); main._build_ai_stage_screen(false)); tools.add_child(normal)
 	stage_column.add_child(grid)
 	for stage in range(ServerAI.MIN_STAGE, ServerAI.MAX_STAGE + 1):

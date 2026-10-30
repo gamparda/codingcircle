@@ -202,7 +202,7 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	data_note.add_theme_font_size_override("font_size", 14)
 	data_note.add_theme_color_override("font_color", Color("#9aa5c0"))
 	pages.data.add_child(data_note)
-	var recovery_button = main._styled_button("진행도 보관·복구", Color("#3d647d"), false)
+	var recovery_button = main._styled_button("진행도 보관·복구", Color("#7a6248"), false)
 	recovery_button.name = "ProfileRecoveryButton"
 	recovery_button.tooltip_text = "현재 진행도 사본을 보관·내보내거나 외부 사본을 가져와 복구합니다. 저장하지 않은 설정 편집은 포함되지 않습니다."
 	recovery_button.pressed.connect(func():
@@ -237,7 +237,7 @@ static func _build_settings_screen(main, mobile_layout_override: bool = false) -
 	back.pressed.connect(func(): main._apply_settings(); main._build_connect_screen())
 	footer.add_child(back)
 	preload("res://scripts/ui/SubMenuFrame.gd").of(outer).adopt_back(back)
-	var save_button = main._styled_button(Localization.text("설정 저장"), Color("#5e6ad2"), true)
+	var save_button = main._styled_button(Localization.text("설정 저장"), Color("#d0803a"), true)
 	save_button.name = "SettingsSaveButton"
 	save_button.custom_minimum_size.x = 220
 	save_button.pressed.connect(func():
@@ -296,7 +296,7 @@ static func _add_binding_settings(main, column: VBoxContainer) -> void:
 	main._add_settings_section(column,"전투 단축키")
 	var grid := GridContainer.new(); grid.name="BattleKeyBindings"; grid.columns=4; grid.add_theme_constant_override("h_separation",12); grid.add_theme_constant_override("v_separation",8); column.add_child(grid)
 	for index in BattleBindings.DEFAULTS.size():
-		var button = main._styled_button("",Color("#3d647d")); button.name="BindingSlot%d"%index; button.custom_minimum_size=Vector2(0,44); button.size_flags_horizontal=Control.SIZE_EXPAND_FILL; button.add_theme_font_size_override("font_size",14); button.pressed.connect(main._begin_binding_capture.bind(index)); grid.add_child(button); main.binding_buttons.append(button)
+		var button = main._styled_button("",Color("#7a6248")); button.name="BindingSlot%d"%index; button.custom_minimum_size=Vector2(0,44); button.size_flags_horizontal=Control.SIZE_EXPAND_FILL; button.add_theme_font_size_override("font_size",14); button.pressed.connect(main._begin_binding_capture.bind(index)); grid.add_child(button); main.binding_buttons.append(button)
 	main.binding_hint = Label.new(); main.binding_hint.name="BindingHint"; main.binding_hint.text="변경할 항목을 누르고 새 키를 입력하세요."; main.binding_hint.add_theme_font_size_override("font_size",13); main.binding_hint.add_theme_color_override("font_color",Color("#f0d592")); column.add_child(main.binding_hint)
 	var reset = main._styled_button("단축키 기본값 복원",Color("#596174")); reset.name="ResetBattleBindings"; reset.pressed.connect(func(): main._cancel_binding_capture(); main.binding_draft=BattleBindings.DEFAULTS.duplicate(); main._refresh_binding_buttons()); column.add_child(reset)
 	main._refresh_binding_buttons()
