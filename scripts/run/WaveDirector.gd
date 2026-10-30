@@ -9,11 +9,11 @@ const RunBoons = preload("res://scripts/run/RunBoons.gd")
 
 const WAVE_SIDE := 1
 ## Wave budget: BUDGET_BASE + BUDGET_STEP * n + BUDGET_CURVE * n² (static so balance tools can try values).
-## Tuned so an automatic player (random or greedy boon picks) falls around wave 6-9: people play much better
+## Tuned so an automatic player (random or greedy boon picks) falls around wave 9-11: people play much better
 ## than the bot, so the bot must clearly lose.
 static var BUDGET_BASE := 60.0
 static var BUDGET_STEP := 40.0
-static var BUDGET_CURVE := 4.0
+static var BUDGET_CURVE := 5.0
 ## Units of one wave arrive spread over this many seconds.
 const SPAWN_WINDOW := 25.0
 ## A wave that is still alive this long after it began no longer holds back the next one.
@@ -21,6 +21,9 @@ const PRESSURE_SECONDS := 45.0
 ## Defenders hold this far from the wave side's edge, out of reach (even with range boons) of where waves
 ## appear, so every wave walks into the fight instead of being caught as it spawns.
 const HOLD_DISTANCE := 600.0
+## Defenders still go after enemies anywhere past the hold line (enemy snipers shoot from 400 and knockback
+## pushes them further), except ones that have only just appeared at the edge.
+const CHASE_DISTANCE := HOLD_DISTANCE - 40.0
 ## The same boon can be taken this many times.
 const MAX_BOON_STACK := 3
 const CLEAR_BONUS := 40.0
@@ -63,6 +66,7 @@ func _init(run_seed: int, start_wave: int = 1, owned_boons: Array = []) -> void:
 func setup(model: BattleModel) -> void:
 	model.invulnerable_bases[WAVE_SIDE] = true
 	model.advance_limit[1 - WAVE_SIDE] = BattleModel.FIELD_RIGHT - HOLD_DISTANCE
+	model.advance_chase[1 - WAVE_SIDE] = CHASE_DISTANCE
 	model.unit_decks[WAVE_SIDE] = []
 	model.structure_decks[WAVE_SIDE] = []
 	model.resources[WAVE_SIDE] = 0.0

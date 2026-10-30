@@ -126,6 +126,24 @@ func run() -> void:
 	for i in 30 * 40:
 		crowded.tick(dt)
 	check(float(holder.x) <= BattleModel.FIELD_RIGHT - WaveDirector.HOLD_DISTANCE + 0.01, "defenders stop at the hold line (%.0f)" % float(holder.x))
+	# ...but go after ranged enemies that stop past it to shoot, then come back to it.
+	var range_fight := BattleModel.new()
+	range_fight.configure_deck(0, ["shield", "archer", "healer", "swordsman"], ["wall", "turret", "generator", "swamp"])
+	WaveDirector.new(11).setup(range_fight)
+	var line := BattleModel.FIELD_RIGHT - WaveDirector.HOLD_DISTANCE
+	var chaser := spawn_defender(range_fight)
+	chaser.x = line
+	range_fight.units.append({"id": 8000, "side": 1, "kind": "sniper", "hp": 60.0, "max_hp": 60.0, "damage": 1.0, "interval": 1.0, "speed": 0.0, "range": 400.0, "x": line + 390.0, "cooldown": 0.0})
+	var sniper: Dictionary = range_fight.units.back()
+	for i in 30 * 30:
+		if float(sniper.hp) <= 0.0: break
+		range_fight.tick(dt)
+	check(float(sniper.hp) <= 0.0, "melee defenders reach an enemy sniper shooting from past the hold line")
+	var spawn_camper := {"id": 8001, "side": 1, "kind": "swordsman", "hp": 9999.0, "max_hp": 9999.0, "damage": 0.0, "interval": 99.0, "speed": 0.0, "range": 1.0, "x": BattleModel.FIELD_RIGHT - 20.0, "cooldown": 99.0}
+	range_fight.units.append(spawn_camper)
+	for i in 30 * 20:
+		range_fight.tick(dt)
+	check(absf(float(chaser.x) - line) < 0.01, "with only fresh arrivals ahead the defender walks back to the line (%.0f)" % float(chaser.x))
 	# The same boon at most MAX_BOON_STACK times.
 	var stacker := WaveDirector.new(9)
 	for i in WaveDirector.MAX_BOON_STACK:

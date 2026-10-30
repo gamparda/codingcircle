@@ -173,9 +173,10 @@ func run() -> void:
 	expected.append("v0.36.0")
 	expected.append("v0.36.1")
 	expected.append("v0.36.2")
+	expected.append("v0.37.0")
 	var versions: Array = history.map(func(entry): return entry.version)
 	check(versions.size() == expected.size() and expected.all(func(version): return versions.count(version) == 1), "every release since 0.3.3 has exactly one patch-note entry")
-	check(history[0].version == "v0.36.2" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
+	check(history[0].version == "v0.37.0" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
 	main.campaign_mode = false
 	var saved_progress: Dictionary = main.save_data.duplicate(true)
 	main._start_local_ai_battle(8)
@@ -183,7 +184,7 @@ func run() -> void:
 	check(main.local_model.campaign_levels[0] == 7, "stage-eight practice simulates seven previous clears")
 	check(main.local_model.resources[0] == BattleModel.campaign_bonuses(7).starting_resources, "practice grants the matching starting resources")
 	check(main.save_data == saved_progress, "practice growth does not grant real campaign records")
-	check(main.purchase_buttons[0].tooltip_text.begins_with(BattleModel.unit_stat_summary("shield", 7)), "practice card stats use the boosted model rather than old save progression")
+	check(main.purchase_buttons[0].get_meta("card_hint").begins_with(BattleModel.unit_stat_summary("shield", 7)), "practice card stats use the boosted model rather than old save progression")
 	main._build_ai_stage_screen(false)
 	await process_frame
 	check(not tree_text(main).contains("09  ") and tree_text(main).contains("08  최종전"), "practice menu ends at stage eight")

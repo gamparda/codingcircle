@@ -82,7 +82,7 @@ func run() -> void:
 		var before: int = main.local_model.units.size()
 		await click(buttons[0])
 		check(main.local_model.units.size() == before + 1 and main.local_model.units.back().kind == kind, "actual portrait click spawns: "+kind)
-		check(buttons[0].tooltip_text.begins_with(BattleModel.unit_stat_summary(kind)), "battle tooltip reflects requested base stats: "+kind)
+		check(buttons[0].get_meta("card_hint").begins_with(BattleModel.unit_stat_summary(kind)), "battle tooltip reflects requested base stats: "+kind)
 	for unit in main.local_model.units: unit.speed=0.0
 	main.local_model.units[0].x = 350.0
 	main.local_model.units[0].hp = main.local_model.units[0].max_hp * 0.5

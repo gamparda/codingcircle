@@ -105,6 +105,10 @@ var invulnerable_bases: Array = [false, false]
 ## How far each side's units march: side 0 never past advance_limit[0], side 1 never before advance_limit[1].
 ## Endless defense holds the defenders short of the wave side's spawn point.
 var advance_limit: Array = [FIELD_RIGHT, FIELD_LEFT]
+## How far past its advance_limit a side's units may go after an enemy that stands there (0: never). Without
+## it enemy archers stopping just beyond the line could shoot a melee army that is not allowed to reach them.
+## Units past the line with no such enemy walk back to it.
+var advance_chase: Array = [0.0, 0.0]
 ## Per tick: each side's living units sorted by x (ties by their place in `units`), and the x of each side's
 ## curses. Targeting looks them up by binary search instead of scanning every unit for every unit, which made
 ## a tick quadratic in the unit count. Only valid while `_indexed` (inside tick); otherwise the scans run.
@@ -704,7 +708,7 @@ func tick(delta: float) -> void:
 			continue
 		var direction := 1.0 if unit.side == 0 else -1.0
 		var stride := clampf(float(unit.x) + direction * float(unit.speed) * _swamp_scale(unit) * delta, FIELD_LEFT, FIELD_RIGHT)
-		stride = minf(stride, maxf(float(unit.x), float(advance_limit[0]))) if unit.side == 0 else maxf(stride, minf(float(unit.x), float(advance_limit[1])))
+		stride = _held_stride(unit, stride, direction, delta)
 		pending_moves.append({"unit":unit, "x":stride})
 
 	_indexed = false # from here on attacks change health and positions
@@ -1064,6 +1068,42 @@ func _rearmost_enemy_indexed(unit: Dictionary):
 	return best
 
 ## Whether a living enemy of `unit` stands ahead of it (or level) within `reach`, from the lane index.
+## Where `unit` may step to (`stride`) given its side's advance limit and chase distance.
+func _held_stride(unit: Dictionary, stride: float, direction: float, delta: float) -> float:
+	var side := int(unit.side)
+	var limit := float(advance_limit[side])
+	var x := float(unit.x)
+	if direction * (stride - limit) <= 0.0:
+		return stride
+	var chase := float(advance_chase[side])
+	if chase <= 0.0:
+		return minf(stride, maxf(x, limit)) if side == 0 else maxf(stride, minf(x, limit))
+	var target := _nearest_ahead_x(unit)
+	if not is_inf(target) and direction * (target - limit) <= chase:
+		return minf(stride, target) if side == 0 else maxf(stride, target)
+	if direction * (x - limit) <= 0.0:
+		return limit if direction * (x - limit) < 0.0 else x
+	# Past the line with nobody to chase: back to the line.
+	var back := x - direction * float(unit.speed) * _swamp_scale(unit) * delta
+	return maxf(back, limit) if side == 0 else minf(back, limit)
+
+## The x of the nearest living enemy ahead of `unit` (INF / -INF when there is none).
+func _nearest_ahead_x(unit: Dictionary) -> float:
+	var x := float(unit.x)
+	var ahead := 1.0 if int(unit.side) == 0 else -1.0
+	if _indexed:
+		var xs: PackedFloat64Array = _lanes[1 - int(unit.side)].xs
+		if ahead > 0.0:
+			var at := xs.bsearch(x, true)
+			return xs[at] if at < xs.size() else INF
+		var behind := xs.bsearch(x, false) - 1
+		return xs[behind] if behind >= 0 else -INF
+	var best := ahead * INF
+	for enemy in units:
+		if int(enemy.side) != int(unit.side) and float(enemy.hp) > 0.0 and ahead * (float(enemy.x) - x) >= 0.0 and ahead * (float(enemy.x) - best) < 0.0:
+			best = float(enemy.x)
+	return best
+
 func _enemy_ahead_indexed(unit: Dictionary, reach: float) -> bool:
 	var xs: PackedFloat64Array = _lanes[1 - int(unit.side)].xs
 	var x := float(unit.x)

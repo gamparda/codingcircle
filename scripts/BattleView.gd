@@ -720,11 +720,14 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	if unit.get("revived", false):
 		draw_circle(Vector2(x, lane_y - 82.0), 3.0, Color(1.0, 0.95, 0.75, 0.9))
 	if show_battle_effects and kind != "healer":
-		var stacks := int(unit.get("support_stacks", 0))
+		var stacks := mini(int(unit.get("support_stacks", 0)), BattleModel.SUPPORT_MAX_STACKS)
 		if stacks > 0:
 			for dot in BattleModel.SUPPORT_MAX_STACKS:
 				draw_circle(Vector2(x - 18.0 + dot * 4.0, bar_y + 10.0), 1.3, Color("#86f7ad") if dot < stacks else Color("#293d39"))
-			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - (32.0 if cursed_units.has(unit.id) else 4.0)), "▲%d%%" % (mini(stacks, BattleModel.SUPPORT_MAX_STACKS) * roundi(BattleModel.SUPPORT_INCREMENT * 100.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#86f7ad"))
+		# One attack-speed figure: support stacks and a blessing multiply, as in BattleModel.support_attack_speed.
+		var boost := (1.0 + stacks * BattleModel.SUPPORT_INCREMENT) * (float(BattleModel.STRUCTURE_STATS.blessing.attack_speed) if unit.has("blessed_remaining") else 1.0)
+		if boost > 1.0001:
+			draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - (32.0 if cursed_units.has(unit.id) else 4.0)), "▲%d%%" % roundi((boost - 1.0) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#ffd75e") if unit.has("blessed_remaining") else Color("#86f7ad"))
 
 func _draw_downed_unit(unit: Dictionary, lane_y: float) -> void:
 	var kind := String(unit.kind)

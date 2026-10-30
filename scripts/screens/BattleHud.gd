@@ -445,9 +445,11 @@ static func _add_spawn_button(main, row: HBoxContainer, title: String, kind: Str
 		stats.cost = main.local_model.unit_cost(main.own_side, kind)
 	var primary := Localization.text("공속 +%d%% 누적") % roundi(BattleModel.SUPPORT_INCREMENT * 100.0) if kind == "healer" else Localization.text("공격 %d") % int(stats.damage)
 	var button = main._styled_button(Localization.text("%s  ·  %d\n체력 %d  ·  %s") % [title, int(stats.cost), int(stats.hp), primary], color)
-	button.tooltip_text = BattleModel.unit_stat_summary(kind, growth_level)
-	button.tooltip_text += "\n짧게 누르면 한 번 생산합니다. 카드·구매 단축키를 누르고 유지하면 자원·생산 대기·전장 한도에 맞춰 반복 생산합니다. 손을 떼거나 카드 밖으로 이동하면 취소합니다."
-	button.set_meta("base_tooltip", button.tooltip_text)
+	# Battle cards show no hover popup (it covered the field); the same text stays in "card_hint" for tests
+	# and the ⓘ reference covers the stats.
+	button.set_meta("base_tooltip", BattleModel.unit_stat_summary(kind, growth_level)
+		+ "\n짧게 누르면 한 번 생산합니다. 카드·구매 단축키를 누르고 유지하면 자원·생산 대기·전장 한도에 맞춰 반복 생산합니다. 손을 떼거나 카드 밖으로 이동하면 취소합니다.")
+	button.set_meta("card_hint", button.get_meta("base_tooltip"))
 	button.set_meta("purchase_cost", float(stats.cost))
 	button.set_meta("unit_kind", kind)
 	button.set_meta("base_text",button.text)
@@ -1029,14 +1031,14 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 			if not limit_error.is_empty(): tooltip += "\n" + limit_error
 			elif missing > 0: tooltip += resource_hint
 			if cooldown > 0.001: tooltip += "\n생산 대기 %.1f초" % (ceilf(cooldown_wait * 10.0) / 10.0)
-		if button.tooltip_text != tooltip: button.tooltip_text = tooltip
+		button.set_meta("card_hint", tooltip)
 		# A ranked ban: the opponent removed this card for the battle.
 		var card_kind := String(button.get_meta("unit_kind", button.get_meta("structure_kind", "")))
 		var bans: Array = main.current_snapshot.get("banned", [[], []])
 		if not awaiting_state and bans.size() == 2 and main.own_side >= 0 and main.own_side < 2 and Array(bans[main.own_side]).has(card_kind):
 			limit_error = "상대가 이번 경기에서 금지한 카드입니다."
 			limit_state = "금지됨"
-			if button.tooltip_text.find(limit_error) < 0: button.tooltip_text += "\n" + limit_error
+			if String(button.get_meta("card_hint")).find(limit_error) < 0: button.set_meta("card_hint", String(button.get_meta("card_hint")) + "\n" + limit_error)
 		var unavailable: bool = not block_reason.is_empty() or waiting or not limit_error.is_empty() or missing>0 or cooldown>0.001
 		var state_label := button.get_node_or_null("PurchaseState") as Label
 		if state_label:

@@ -12,7 +12,7 @@ const WaveDirector = preload("res://scripts/run/WaveDirector.gd")
 const RunBoons = preload("res://scripts/run/RunBoons.gd")
 const RunRecords = preload("res://scripts/run/RunRecords.gd")
 
-const SPEEDS := [1.0, 2.0]
+const SPEEDS := [1.0, 2.0, 4.0, 8.0]
 ## Simulation steps per frame at most, so a slow frame never snowballs.
 const MAX_STEPS := 16
 
@@ -116,7 +116,7 @@ static func refresh(main) -> void:
 
 ## The speed toggle beside the ☰ menu (owned boons are in the pause menu).
 static func add_controls(main, row: Control) -> void:
-	var speed := UIKit.icon_button("%d×" % int(main.endless_run.speed), Localization.text("전투 속도 1배·2배"), UIKit.EDGE, 52.0)
+	var speed := UIKit.icon_button("%d×" % int(main.endless_run.speed), Localization.text("전투 속도 1·2·4·8배"), UIKit.EDGE, 52.0)
 	speed.name = "EndlessSpeedButton"
 	speed.add_theme_font_size_override("font_size", 16)
 	speed.pressed.connect(func():
