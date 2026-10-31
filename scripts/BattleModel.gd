@@ -42,6 +42,13 @@ const SIDE_UNIT_LIMIT := MAX_ACTIVE_UNITS / 2
 ## room to recover, so fights swing back and forth instead of grinding in place.
 const KNOCKBACK_FRACTION := 0.5
 const KNOCKBACK_DISTANCE := 100.0
+## Each castle shoots the nearest enemy unit this close to it (a little past an archer's reach, short of a
+## sniper's), harder the more health the castle has lost: a side that is being pushed back gets help at home.
+const CASTLE_RANGE := 300.0
+const CASTLE_INTERVAL := 1.5
+const CASTLE_DAMAGE := 8.0
+## Damage multiplier at zero castle health (1 at full health, linear in between).
+const CASTLE_DESPERATION := 2.5
 # Unit/structure numbers live in res://data/**.tres (see scripts/data/GameData.gd).
 static var UNIT_STATS: Dictionary = GameData.unit_stats()
 static var SUMMON_STATS: Dictionary = GameData.summon_stats()
@@ -107,10 +114,17 @@ var invulnerable_bases: Array = [false, false]
 ## How far each side's units march: side 0 never past advance_limit[0], side 1 never before advance_limit[1].
 ## Endless defense holds the defenders short of the wave side's spawn point.
 var advance_limit: Array = [FIELD_RIGHT, FIELD_LEFT]
-## How far past its advance_limit a side's units may go after an enemy that stands there (0: never). Without
-## it enemy archers stopping just beyond the line could shoot a melee army that is not allowed to reach them.
-## Units past the line with no such enemy walk back to it.
-var advance_chase: Array = [0.0, 0.0]
+## Endless defense's spawn zone: this deep from its own edge a side's units can neither be targeted nor attack.
+## Waves gather there out of reach, then march out together.
+var shelter: Array = [0.0, 0.0]
+## Formation: a side's units stop short of its advance_limit by role (tanks in front, other melee just behind
+## them, ranged at a distance) instead of all standing on the same line.
+var formation: Array = [false, false]
+const FORMATION_MELEE := 35.0
+## Mustering units wait this far inside the spawn zone's edge.
+const MUSTER_INSET := 10.0
+const FORMATION_RANGED_MIN := 60.0
+const FORMATION_RANGED_MAX := 160.0
 ## Per tick: each side's living units sorted by x (ties by their place in `units`), and the x of each side's
 ## curses. Targeting looks them up by binary search instead of scanning every unit for every unit, which made
 ## a tick quadratic in the unit count. Only valid while `_indexed` (inside tick); otherwise the scans run.
@@ -126,6 +140,8 @@ var _fronts: Array = [null, null]
 var _needy: Array = [[], []]
 ## Units that already made their first attack (for the "first_strike" modifier).
 var first_struck: Dictionary = {}
+## Seconds until each castle may shoot again.
+var castle_cooldowns: Array = [CASTLE_INTERVAL, CASTLE_INTERVAL]
 const MAX_FALLEN := 40
 var battle_report: Array = [Report.empty_side(),Report.empty_side()]
 
@@ -663,6 +679,7 @@ func tick(delta: float) -> void:
 	var pending_base_hits: Array = []
 	var pending_moves: Array = []
 	_tick_turrets(delta, pending_attacks)
+	_tick_castles(delta, pending_attacks)
 	var pending_summons: Array = []
 	var live_skeletons := {}
 	for unit in units:
@@ -691,7 +708,7 @@ func tick(delta: float) -> void:
 	for unit in units:
 		if float(unit.hp) <= 0.0 or unit.kind == "healer" or unit.has("frozen_remaining"):
 			continue
-		var target = _find_target(unit)
+		var target = null if sheltered(unit) else _find_target(unit)
 		if target != null:
 			if unit.has("skill_remaining") and float(unit.skill_remaining) <= 0.0:
 				pending_skills.append({"caster": unit, "x": float(target.x)})
@@ -727,9 +744,9 @@ func tick(delta: float) -> void:
 		else:
 			var before := maxf(0.0, float(attack.target.hp))
 			var effective := minf(before, float(attack.damage))
-			_record_damage(int(attack.attacker.side), "turret", effective, attack.target.has("speed") and before > 0.0 and effective >= before)
+			_record_damage(int(attack.attacker.side), String(attack.attacker.kind), effective, attack.target.has("speed") and before > 0.0 and effective >= before)
 			attack.target.hp = maxf(0.0, before - float(attack.damage))
-			combat_events.append({"type":"ATTACK", "attacker_id":attack.attacker.id, "target_id":attack.target.id, "attack_kind":"turret", "x":attack.attacker.x})
+			combat_events.append({"type":"ATTACK", "attacker_id":attack.attacker.id, "target_id":attack.target.id, "attack_kind":String(attack.attacker.kind), "x":attack.attacker.x, "target_x":attack.target.x})
 			combat_events.append({"type":"DAMAGE", "target_id":attack.target.id, "amount":attack.damage, "x":attack.target.x})
 	for hit in pending_base_hits:
 		var enemy_side := 1 - int(hit.attacker.side)
@@ -923,7 +940,7 @@ func _tick_support(unit: Dictionary, delta: float) -> void:
 	if frontline != null:
 		var follow_x := float(frontline.x) - direction * SUPPORT_FOLLOW_DISTANCE
 		destination = min(destination, follow_x) if direction > 0.0 else max(destination, follow_x)
-	unit.x = clamp(destination, FIELD_LEFT, FIELD_RIGHT)
+	unit.x = _held_stride(unit, clamp(destination, FIELD_LEFT, FIELD_RIGHT), direction, delta)
 
 
 ## Ground slam around `x` (or the caster): every living enemy unit in the radius takes the
@@ -1006,7 +1023,7 @@ func _index_lanes() -> void:
 	var keyed: Array = [[], []]
 	for index in units.size():
 		var unit: Dictionary = units[index]
-		if float(unit.hp) > 0.0:
+		if float(unit.hp) > 0.0 and targetable(unit):
 			keyed[int(unit.side)].append([float(unit.x), index])
 	for side in 2:
 		var entries: Array = keyed[side]
@@ -1023,6 +1040,25 @@ func _index_lanes() -> void:
 			refs[i] = units[entries[i][1]]
 		_lanes[side] = {"xs": xs, "order": order, "units": refs}
 	_indexed = targeting_index
+
+## Whether `unit` stands inside its side's spawn zone (see `shelter`).
+func sheltered(unit: Dictionary) -> bool:
+	var depth := float(shelter[int(unit.side)])
+	if depth <= 0.0:
+		return false
+	return float(unit.x) < FIELD_LEFT + depth if int(unit.side) == 0 else float(unit.x) > FIELD_RIGHT - depth
+
+func targetable(unit: Dictionary) -> bool:
+	return not sheltered(unit)
+
+## How far behind its side's advance_limit `unit` stops when its side keeps formation.
+static func formation_offset(kind: String) -> float:
+	if trait_value(kind, "guard", false):
+		return 0.0
+	var scope := unit_scope(kind)
+	if scope == "ranged":
+		return clampf(float(UNIT_STATS.get(kind, SUMMON_STATS.get(kind, {})).get("range", 0.0)) * 0.5, FORMATION_RANGED_MIN, FORMATION_RANGED_MAX)
+	return FORMATION_MELEE if scope == "melee" else 0.0
 
 ## The first entry of the run of equal x that `at` belongs to: the earliest of them in `units`.
 static func _run_start(xs: PackedFloat64Array, at: int) -> int:
@@ -1074,7 +1110,7 @@ func _guard_beside(unit: Dictionary, nearest: Dictionary) -> Dictionary:
 				best_order = lane.order[i]
 		return best
 	for enemy in units:
-		if int(enemy.side) == int(unit.side) or float(enemy.hp) <= 0.0 or absf(float(enemy.x) - spot) > GUARD_SPOT:
+		if int(enemy.side) == int(unit.side) or float(enemy.hp) <= 0.0 or absf(float(enemy.x) - spot) > GUARD_SPOT or not targetable(enemy):
 			continue
 		var distance := absf(float(enemy.x) - x)
 		if distance <= reach and distance < best_distance and trait_value(String(enemy.kind), "guard", false):
@@ -1106,41 +1142,23 @@ func _rearmost_enemy_indexed(unit: Dictionary):
 	return best
 
 ## Whether a living enemy of `unit` stands ahead of it (or level) within `reach`, from the lane index.
-## Where `unit` may step to (`stride`) given its side's advance limit and chase distance.
+## Where `unit` may step to (`stride`) given its side's advance limit: never past it, and back toward it at
+## walking pace when the limit has moved behind the unit (endless defense pulls its defenders back between waves).
 func _held_stride(unit: Dictionary, stride: float, direction: float, delta: float) -> float:
 	var side := int(unit.side)
 	var limit := float(advance_limit[side])
-	var x := float(unit.x)
+	if unit.has("muster"):
+		# Waiting in the spawn zone for the rest of its wave.
+		limit = FIELD_LEFT + float(shelter[side]) - MUSTER_INSET if side == 0 else FIELD_RIGHT - float(shelter[side]) + MUSTER_INSET
+	elif bool(formation[side]):
+		limit -= direction * formation_offset(String(unit.kind))
 	if direction * (stride - limit) <= 0.0:
 		return stride
-	var chase := float(advance_chase[side])
-	if chase <= 0.0:
-		return minf(stride, maxf(x, limit)) if side == 0 else maxf(stride, minf(x, limit))
-	var target := _nearest_ahead_x(unit)
-	if not is_inf(target) and direction * (target - limit) <= chase:
-		return minf(stride, target) if side == 0 else maxf(stride, target)
+	var x := float(unit.x)
 	if direction * (x - limit) <= 0.0:
-		return limit if direction * (x - limit) < 0.0 else x
-	# Past the line with nobody to chase: back to the line.
+		return limit
 	var back := x - direction * float(unit.speed) * _swamp_scale(unit) * delta
 	return maxf(back, limit) if side == 0 else minf(back, limit)
-
-## The x of the nearest living enemy ahead of `unit` (INF / -INF when there is none).
-func _nearest_ahead_x(unit: Dictionary) -> float:
-	var x := float(unit.x)
-	var ahead := 1.0 if int(unit.side) == 0 else -1.0
-	if _indexed:
-		var xs: PackedFloat64Array = _lanes[1 - int(unit.side)].xs
-		if ahead > 0.0:
-			var at := xs.bsearch(x, true)
-			return xs[at] if at < xs.size() else INF
-		var behind := xs.bsearch(x, false) - 1
-		return xs[behind] if behind >= 0 else -INF
-	var best := ahead * INF
-	for enemy in units:
-		if int(enemy.side) != int(unit.side) and float(enemy.hp) > 0.0 and ahead * (float(enemy.x) - x) >= 0.0 and ahead * (float(enemy.x) - best) < 0.0:
-			best = float(enemy.x)
-	return best
 
 func _enemy_ahead_indexed(unit: Dictionary, reach: float) -> bool:
 	var xs: PackedFloat64Array = _lanes[1 - int(unit.side)].xs
@@ -1162,7 +1180,7 @@ func _find_target(unit: Dictionary):
 		best_unit = _nearest_enemy_indexed(unit)
 	else:
 		for enemy in units:
-			if enemy.side == unit.side or enemy.hp <= 0.0:
+			if enemy.side == unit.side or enemy.hp <= 0.0 or not targetable(enemy):
 				continue
 			var distance: float = abs(float(enemy.x) - float(unit.x))
 			if distance <= float(unit.range) and distance < best_distance:
@@ -1192,7 +1210,7 @@ func _rearmost_enemy(unit: Dictionary):
 	var best = null
 	var best_distance := -1.0
 	for enemy in units:
-		if enemy.side == unit.side or float(enemy.hp) <= 0.0:
+		if enemy.side == unit.side or float(enemy.hp) <= 0.0 or not targetable(enemy):
 			continue
 		var distance: float = absf(float(enemy.x) - float(unit.x))
 		if distance <= float(unit.range) and distance > best_distance:
@@ -1211,7 +1229,7 @@ func _tick_turrets(delta: float, pending_attacks: Array) -> void:
 		var target = null
 		var nearest := INF
 		for enemy in units:
-			if int(enemy.side) == int(structure.side) or float(enemy.hp) <= 0.0:
+			if int(enemy.side) == int(structure.side) or float(enemy.hp) <= 0.0 or not targetable(enemy):
 				continue
 			var enemy_distance: float = abs(float(enemy.x) - float(structure.x))
 			if enemy_distance > float(STRUCTURE_STATS.turret.range):
@@ -1226,6 +1244,34 @@ func _tick_turrets(delta: float, pending_attacks: Array) -> void:
 			var damage := float(STRUCTURE_STATS.turret.damage)
 			pending_attacks.append({"attacker":structure, "target":target, "damage":damage})
 			structure_cooldowns[id] = float(STRUCTURE_STATS.turret.interval)
+
+## Castles shoot the nearest enemy unit within CASTLE_RANGE (not structures, not through nothing: a castle
+## stands behind every wall). A base that cannot fall (endless defense's wave side) has no castle.
+func _tick_castles(delta: float, pending_attacks: Array) -> void:
+	for side in 2:
+		if bool(invulnerable_bases[side]):
+			continue
+		castle_cooldowns[side] = maxf(0.0, float(castle_cooldowns[side]) - delta)
+		if float(castle_cooldowns[side]) > 0.0:
+			continue
+		var castle_x := FIELD_LEFT if side == 0 else FIELD_RIGHT
+		var target = null
+		var nearest := INF
+		for enemy in units:
+			if int(enemy.side) == side or float(enemy.hp) <= 0.0 or not targetable(enemy):
+				continue
+			var distance := absf(float(enemy.x) - castle_x)
+			if distance <= CASTLE_RANGE and distance < nearest:
+				target = enemy
+				nearest = distance
+		if target != null:
+			pending_attacks.append({"attacker": {"id": -1 - side, "side": side, "kind": "castle", "x": castle_x}, "target": target, "damage": castle_damage(side)})
+			castle_cooldowns[side] = CASTLE_INTERVAL
+
+## A castle's shot: CASTLE_DAMAGE at full health, rising to CASTLE_DESPERATION times that as it falls.
+func castle_damage(side: int) -> float:
+	var lost := 1.0 - clampf(float(base_hp[side]) / maxf(1.0, float(base_max_hp[side])), 0.0, 1.0)
+	return CASTLE_DAMAGE * (1.0 + (CASTLE_DESPERATION - 1.0) * lost)
 
 func _swamp_scale(unit: Dictionary) -> float:
 	for structure in structures:
@@ -1285,6 +1331,7 @@ func snapshot() -> Dictionary:
 	var data := {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "base_max_hp": base_max_hp.duplicate(), "units": units.duplicate(true), "structures": structures.duplicate(true), "curses": curses.duplicate(true), "winner": winner, "elapsed": elapsed,
 		"spawn_cooldowns":spawn_cooldowns.duplicate(true), "spells": spell_casts.duplicate(true), "spell_cooldowns": spell_cooldowns.duplicate(true), "spell_uses": spell_uses.duplicate(true)}
 	if not banned[0].is_empty() or not banned[1].is_empty(): data["banned"] = banned.duplicate(true)
+	if float(shelter[0]) > 0.0 or float(shelter[1]) > 0.0: data["shelter"] = shelter.duplicate()
 	# Per-unit report is authoritative but sent only after the result, not at every live tick.
 	if winner != -1: data["battle_report"] = battle_report.duplicate(true)
 	return data

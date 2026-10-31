@@ -2,6 +2,9 @@ extends RefCounted
 ## Endless defense opponent: sends ever larger waves at the player until their base falls. It plays the
 ## opponent's part in the local battle loop (update(model, delta), like ServerAI). The wave side has no base
 ## (BattleModel.invulnerable_bases) and pays nothing for its units: each wave has a budget in unit costs.
+## A wave gathers in the spawn zone at the far edge (BattleModel.shelter: out of reach, unable to fight), then
+## marches out all at once. The defenders wait in formation at the rally line, go out to meet a marching wave
+## and fall back to the rally line once it is beaten.
 ## Between waves the director waits for the player to pick one of three boons (awaiting_choice); the
 ## battle loop pauses meanwhile and calls choose().
 
@@ -14,16 +17,18 @@ const WAVE_SIDE := 1
 static var BUDGET_BASE := 60.0
 static var BUDGET_STEP := 40.0
 static var BUDGET_CURVE := 5.0
-## Units of one wave arrive spread over this many seconds.
-const SPAWN_WINDOW := 25.0
-## A wave that is still alive this long after it began no longer holds back the next one.
-const PRESSURE_SECONDS := 45.0
-## Defenders hold this far from the wave side's edge, out of reach (even with range boons) of where waves
-## appear, so every wave walks into the fight instead of being caught as it spawns.
-const HOLD_DISTANCE := 600.0
-## Defenders still go after enemies anywhere past the hold line (enemy snipers shoot from 400 and knockback
-## pushes them further), except ones that have only just appeared at the edge.
-const CHASE_DISTANCE := HOLD_DISTANCE - 40.0
+## Units of one wave appear in the spawn zone spread over this many seconds; the wave marches when all are
+## there (or MUSTER_LIMIT after it began, if the field is too full to take them all).
+const SPAWN_WINDOW := 6.0
+const MUSTER_LIMIT := 12.0
+## A wave still on the field this long after it marched no longer holds back the next one.
+const PRESSURE_SECONDS := 50.0
+## Depth of the spawn zone at the wave side's edge.
+const SHELTER_DEPTH := 160.0
+## Defenders never step closer than this to the spawn zone.
+const SHELTER_GAP := 20.0
+## Where defenders wait between waves: this share of the field out from their own castle.
+const RALLY_SHARE := 0.4
 ## The same boon can be taken this many times.
 const MAX_BOON_STACK := 3
 const CLEAR_BONUS := 40.0
@@ -54,6 +59,9 @@ var boons: Array = []
 ## Waves whose clear has not been rewarded yet.
 var unrewarded := 0
 var resources_awarded := 0.0
+## Whether the wave in progress has marched out of the spawn zone.
+var marched := false
+var marched_at := 0.0
 
 func _init(run_seed: int, start_wave: int = 1, owned_boons: Array = []) -> void:
 	seed_value = run_seed
@@ -65,14 +73,22 @@ func _init(run_seed: int, start_wave: int = 1, owned_boons: Array = []) -> void:
 ## Prepares `model` for endless defense: the wave side has no base and the defender owns `boons`.
 func setup(model: BattleModel) -> void:
 	model.invulnerable_bases[WAVE_SIDE] = true
-	model.advance_limit[1 - WAVE_SIDE] = BattleModel.FIELD_RIGHT - HOLD_DISTANCE
-	model.advance_chase[1 - WAVE_SIDE] = CHASE_DISTANCE
+	model.shelter[WAVE_SIDE] = SHELTER_DEPTH
+	model.formation[1 - WAVE_SIDE] = true
+	model.advance_limit[1 - WAVE_SIDE] = rally_line()
 	model.unit_decks[WAVE_SIDE] = []
 	model.structure_decks[WAVE_SIDE] = []
 	model.resources[WAVE_SIDE] = 0.0
 	var start := float(model.resources[1 - WAVE_SIDE])
 	model.configure_modifiers(1 - WAVE_SIDE, RunBoons.combine(boons))
 	model.resources[1 - WAVE_SIDE] = maxf(start, model.resources[1 - WAVE_SIDE])
+
+static func rally_line() -> float:
+	return BattleModel.FIELD_LEFT + (BattleModel.FIELD_RIGHT - BattleModel.FIELD_LEFT) * RALLY_SHARE
+
+## The farthest the defenders go: just short of the spawn zone.
+static func front_line() -> float:
+	return BattleModel.FIELD_RIGHT - SHELTER_DEPTH - SHELTER_GAP
 
 static func is_boss_wave(number: int) -> bool:
 	return number > 0 and number % BOSS_EVERY == 0
@@ -117,6 +133,7 @@ static func plan(number: int, random: RandomNumberGenerator) -> Array:
 func update(model: BattleModel, delta: float) -> void:
 	if model.winner != -1 or awaiting_choice:
 		return
+	_steer_defenders(model)
 	if wave == 0 or (queue.is_empty() and _enemies(model) == 0):
 		if wave > 0 and unrewarded > 0:
 			_reward(model)
@@ -125,15 +142,36 @@ func update(model: BattleModel, delta: float) -> void:
 		if intermission <= 0.0:
 			_begin_wave(model)
 		return
-	# A wave that is still alive (or still waiting to come in) after PRESSURE_SECONDS lets the next one in.
-	if model.elapsed - wave_started_at >= PRESSURE_SECONDS:
+	# A wave that is still on the field PRESSURE_SECONDS after it marched lets the next one gather.
+	if marched and model.elapsed - marched_at >= PRESSURE_SECONDS:
 		_begin_wave(model)
 	_spawn_due(model)
+	if not marched and (queue.is_empty() or model.elapsed - wave_started_at >= MUSTER_LIMIT):
+		_march(model)
+
+## Defenders go out to the spawn zone while marching enemies are on the field, otherwise back to the rally line.
+func _steer_defenders(model: BattleModel) -> void:
+	var engaged := false
+	for unit in model.units:
+		if int(unit.side) == WAVE_SIDE and float(unit.hp) > 0.0 and not unit.has("muster"):
+			engaged = true
+			break
+	model.advance_limit[1 - WAVE_SIDE] = front_line() if engaged else rally_line()
+
+func _march(model: BattleModel) -> void:
+	marched = true
+	marched_at = model.elapsed
+	for unit in model.units:
+		if int(unit.side) == WAVE_SIDE:
+			unit.erase("muster")
+	model.combat_events.append({"type": "WAVE_MARCH", "wave": wave})
+	_steer_defenders(model)
 
 func _begin_wave(model: BattleModel) -> void:
 	wave += 1
 	unrewarded += 1
 	wave_started_at = model.elapsed
+	marched = false
 	intermission = INTERMISSION
 	# Units an earlier wave could not field yet come first.
 	var leftover: Array = queue.map(func(entry): return {"t": 0.0, "kind": entry.kind})
@@ -157,7 +195,10 @@ func _spawn_due(model: BattleModel) -> void:
 			waiting.append(entry)
 			continue
 		model.resources[WAVE_SIDE] = 1000.0
-		if not model.spawn_unit(WAVE_SIDE, String(entry.kind)):
+		if model.spawn_unit(WAVE_SIDE, String(entry.kind)):
+			if not marched:
+				model.units.back()["muster"] = true
+		else:
 			waiting.append(entry) # cooldown or field limit: try again next tick
 	model.resources[WAVE_SIDE] = 0.0
 	queue = waiting

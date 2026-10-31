@@ -315,6 +315,29 @@ func _draw_art(texture: Texture2D, x: float, ground_y: float, width: float, alph
 	else:
 		draw_texture_rect(texture, Rect2(x - width * 0.5, ground_y - height, width, height), false, Color(1, 1, 1, alpha))
 
+## Endless defense's spawn zone: a violet haze from the edge `depth` into the field, with a shimmering rim.
+func _draw_spawn_zone(world_side: int, depth: float, lane_y: float) -> void:
+	var edge := BattleModel.FIELD_LEFT if world_side == 0 else BattleModel.FIELD_RIGHT
+	var inner := edge + depth if world_side == 0 else edge - depth
+	var a := world_to_screen_x(edge)
+	var b := world_to_screen_x(inner)
+	var left := minf(a, b)
+	var width := absf(a - b)
+	var top := lane_y - 170.0
+	var bands := 8
+	for band in bands:
+		# Thicker toward the edge, fading toward the rim.
+		var share := float(band) / float(bands)
+		var x0 := lerpf(a, b, share)
+		var x1 := lerpf(a, b, share + 1.0 / float(bands))
+		draw_rect(Rect2(minf(x0, x1), top, absf(x1 - x0), lane_y + 24.0 - top), Color(0.45, 0.25, 0.75, 0.22 * (1.0 - share)))
+	var pulse := 0.5 + 0.5 * sin(animation_time * 3.0)
+	draw_line(Vector2(b, top), Vector2(b, lane_y + 24.0), Color(0.78, 0.6, 1.0, 0.35 + 0.35 * pulse), 2.0)
+	for spark in 6:
+		var phase := fmod(animation_time * 0.4 + float(spark) * 0.37, 1.0)
+		var sx := left + width * fmod(float(spark) * 0.618, 1.0)
+		draw_circle(Vector2(sx, lane_y + 10.0 - phase * 170.0), 2.0, Color(0.85, 0.7, 1.0, 0.6 * (1.0 - phase)))
+
 ## A cast waiting to land: its area on the ground, the first frames of its effect, and a thrown fireball.
 func _draw_spell_cast(cast: Dictionary, scale_x: float, lane_y: float) -> void:
 	var kind := String(cast.kind)
@@ -510,6 +533,11 @@ func _draw() -> void:
 	_draw_ground(lane_y)
 	_draw_base(world_to_screen_x(BattleModel.FIELD_LEFT), lane_y, 0)
 	_draw_base(world_to_screen_x(BattleModel.FIELD_RIGHT), lane_y, 1)
+	var shelter = snapshot.get("shelter", [])
+	if shelter is Array and shelter.size() == 2:
+		for world_side in 2:
+			if float(shelter[world_side]) > 0.0:
+				_draw_spawn_zone(world_side, float(shelter[world_side]), lane_y)
 
 	for curse in snapshot.get("curses", []):
 		_draw_curse(curse, scale_x, lane_y)
@@ -850,7 +878,14 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 		var x := world_to_screen_x(float(event.get("x", 640.0)))
 		var life := float(event.life)
 		if show_battle_effects:
-			if event_type in ["ATTACK", "DAMAGE", "BASE_HIT"]:
+			if event_type == "ATTACK" and String(event.get("attack_kind", "")) == "castle":
+				# A bolt from the castle's battlements to its target.
+				var to := Vector2(world_to_screen_x(float(event.get("target_x", event.get("x", 640.0)))), lane_y - 40.0)
+				var from := Vector2(x, lane_y - 120.0)
+				var head := from.lerp(to, clampf((1.0 - life) * 2.2, 0.0, 1.0))
+				draw_line(from.lerp(head, 0.6), head, Color(1.0, 0.86, 0.45, life * effect_intensity), 3.0)
+				draw_circle(head, 4.0, Color(1.0, 0.95, 0.75, life * effect_intensity))
+			elif event_type in ["ATTACK", "DAMAGE", "BASE_HIT"]:
 				draw_circle(Vector2(x, lane_y - 55.0), 18.0 + life * 20.0, Color(1.0, 0.55, 0.2, life * effect_intensity * 0.18))
 				draw_circle(Vector2(x, lane_y - 55.0), 9.0 + life * 10.0, Color(1.0, 0.72, 0.28, life * effect_intensity))
 				draw_circle(Vector2(x, lane_y - 55.0), 4.0 + life * 4.0, Color(1.0, 0.96, 0.8, life * effect_intensity))

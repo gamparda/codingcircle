@@ -24,7 +24,7 @@ static func show_brief(main) -> void:
 	var saved: Dictionary = record.saved
 	var column = main._action_panel(Localization.text("무한 방어"), Rect2(300, 100, 680, 520))
 	main.action_overlay.name = "EndlessBriefOverlay"
-	var intro := MultiplayerUI.label(Localization.text("끝없이 몰려오는 적을 막아 내세요. 웨이브를 막을 때마다 자원을 받고 강화 3개 중 하나를 고릅니다. 강화는 겹쳐 쌓입니다. 5웨이브마다 보스가 나오고, 그때마다 적이 더 강해집니다."), 15, MultiplayerUI.MUTED)
+	var intro := MultiplayerUI.label(Localization.text("끝없이 몰려오는 적을 막아 내세요. 적은 오른쪽 끝의 보라색 출현 구역에 모였다가 한꺼번에 진격합니다. 아군은 집결선에서 탱커는 앞, 원거리는 뒤로 진형을 갖추고 기다리다가 나가 싸웁니다. 웨이브를 막을 때마다 자원을 받고 강화 3개 중 하나를 고릅니다. 강화는 겹쳐 쌓입니다. 5웨이브마다 보스가 나오고, 그때마다 적이 더 강해집니다."), 15, MultiplayerUI.MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(intro)
 	var best := Localization.text("최고 기록 · 웨이브 %d 돌파 · 도전 %d회") % [int(record.best_wave), int(record.runs)] if int(record.runs) > 0 else Localization.text("아직 기록이 없습니다.")

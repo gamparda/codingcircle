@@ -87,7 +87,7 @@ func run() -> void:
 	pressing.setup(slow)
 	slow.base_max_hp[0] = 100000.0
 	slow.base_hp[0] = 100000.0
-	while slow.elapsed < WaveDirector.INTERMISSION + WaveDirector.PRESSURE_SECONDS + 2.0:
+	while slow.elapsed < WaveDirector.INTERMISSION + WaveDirector.MUSTER_LIMIT + WaveDirector.PRESSURE_SECONDS + 2.0:
 		pressing.update(slow, dt)
 		slow.tick(dt)
 	check(pressing.wave >= 2 and not pressing.awaiting_choice, "an unbeaten wave does not stop the next one")
@@ -116,34 +116,84 @@ func run() -> void:
 	crowd_director.queue.append({"t": 0.0, "kind": "demon_lord"}) # one lord at a time: the second waits
 	var wave_before: int = crowd_director.wave
 	for i in 30 * 60:
-		if crowded.elapsed - crowd_director.wave_started_at >= WaveDirector.PRESSURE_SECONDS + 1.0 or crowd_director.wave > wave_before: break
+		if crowded.elapsed - crowd_director.wave_started_at >= WaveDirector.MUSTER_LIMIT + WaveDirector.PRESSURE_SECONDS + 1.0 or crowd_director.wave > wave_before: break
 		crowd_director.update(crowded, dt)
 		crowded.tick(dt)
 	check(crowd_director.wave == wave_before + 1, "a wave that cannot finish coming in still lets the next one in")
 	check(crowd_director.waves_cleared() == crowd_director.wave - 1, "waves pushed past count as survived")
-	# Defenders hold short of where the waves appear.
-	var holder := spawn_defender(crowded)
-	for i in 30 * 40:
-		crowded.tick(dt)
-	check(float(holder.x) <= BattleModel.FIELD_RIGHT - WaveDirector.HOLD_DISTANCE + 0.01, "defenders stop at the hold line (%.0f)" % float(holder.x))
-	# ...but go after ranged enemies that stop past it to shoot, then come back to it.
-	var range_fight := BattleModel.new()
-	range_fight.configure_deck(0, ["shield", "archer", "healer", "swordsman"], ["wall", "turret", "generator", "swamp"])
-	WaveDirector.new(11).setup(range_fight)
-	var line := BattleModel.FIELD_RIGHT - WaveDirector.HOLD_DISTANCE
-	var chaser := spawn_defender(range_fight)
-	chaser.x = line
-	range_fight.units.append({"id": 8000, "side": 1, "kind": "sniper", "hp": 60.0, "max_hp": 60.0, "damage": 1.0, "interval": 1.0, "speed": 0.0, "range": 400.0, "x": line + 390.0, "cooldown": 0.0})
-	var sniper: Dictionary = range_fight.units.back()
-	for i in 30 * 30:
-		if float(sniper.hp) <= 0.0: break
-		range_fight.tick(dt)
-	check(float(sniper.hp) <= 0.0, "melee defenders reach an enemy sniper shooting from past the hold line")
-	var spawn_camper := {"id": 8001, "side": 1, "kind": "swordsman", "hp": 9999.0, "max_hp": 9999.0, "damage": 0.0, "interval": 99.0, "speed": 0.0, "range": 1.0, "x": BattleModel.FIELD_RIGHT - 20.0, "cooldown": 99.0}
-	range_fight.units.append(spawn_camper)
+	# A wave gathers in the spawn zone, out of reach, and marches out all at once.
+	var gather := BattleModel.new()
+	gather.configure_deck(0, ["shield", "archer", "healer", "swordsman"], ["wall", "turret", "generator", "swamp"])
+	var gatherer := WaveDirector.new(11)
+	gatherer.setup(gather)
+	while gatherer.wave == 0:
+		gatherer.update(gather, dt)
+		gather.tick(dt)
+	for i in 30 * 2:
+		gatherer.update(gather, dt)
+		gather.tick(dt)
+	var waiting := gather.units.filter(func(unit): return int(unit.side) == 1)
+	check(not waiting.is_empty() and waiting.all(func(unit): return unit.has("muster") and gather.sheltered(unit)), "a gathering wave waits in the spawn zone")
+	var sniper_probe := spawn_defender(gather)
+	sniper_probe.x = BattleModel.FIELD_RIGHT - WaveDirector.SHELTER_DEPTH - 5.0
+	sniper_probe.range = 9999.0
+	check(gather._find_target(sniper_probe) == null, "units in the spawn zone cannot be targeted")
+	gather.units.erase(sniper_probe)
+	for i in 30 * int(WaveDirector.MUSTER_LIMIT):
+		if gatherer.marched: break
+		gatherer.update(gather, dt)
+		gather.tick(dt)
+	check(gatherer.marched and gather.units.all(func(unit): return int(unit.side) == 0 or not unit.has("muster")), "the whole wave marches together")
+	check(gather.advance_limit[0] == WaveDirector.front_line(), "defenders go out to meet a marching wave")
+
+	# Defenders wait at the rally line in formation: tanks in front, ranged behind.
+	var rally := BattleModel.new()
+	rally.configure_deck(0, ["shield", "archer", "healer", "swordsman"], ["wall", "turret", "generator", "swamp"])
+	var rally_director := WaveDirector.new(11)
+	rally_director.setup(rally)
+	rally.resources[0] = 999.0
+	rally.spawn_unit(0, "shield")
+	var tank: Dictionary = rally.units.back()
+	rally.spawn_cooldowns[0].clear()
+	rally.spawn_unit(0, "archer")
+	var bow: Dictionary = rally.units.back()
 	for i in 30 * 20:
-		range_fight.tick(dt)
-	check(absf(float(chaser.x) - line) < 0.01, "with only fresh arrivals ahead the defender walks back to the line (%.0f)" % float(chaser.x))
+		rally_director._steer_defenders(rally)
+		rally.tick(dt)
+	check(absf(float(tank.x) - WaveDirector.rally_line()) < 0.01, "a tank waits at the rally line (%.0f)" % float(tank.x))
+	check(float(bow.x) < float(tank.x) - 50.0, "an archer waits behind the tank (%.0f vs %.0f)" % [float(bow.x), float(tank.x)])
+	# A marched enemy sniper: melee defenders reach it, then fall back to the rally line.
+	rally.units.append({"id": 8000, "side": 1, "kind": "sniper", "hp": 60.0, "max_hp": 60.0, "damage": 1.0, "interval": 1.0, "speed": 30.0, "range": 400.0, "x": BattleModel.FIELD_RIGHT - WaveDirector.SHELTER_DEPTH - 1.0, "cooldown": 0.0})
+	var sniper: Dictionary = rally.units.back()
+	for i in 30 * 40:
+		if float(sniper.hp) <= 0.0: break
+		rally_director._steer_defenders(rally)
+		rally.tick(dt)
+	check(float(sniper.hp) <= 0.0, "melee defenders reach an enemy sniper at the spawn zone")
+	for i in 30 * 40:
+		rally_director._steer_defenders(rally)
+		rally.tick(dt)
+	check(absf(float(tank.x) - WaveDirector.rally_line()) < 0.01, "with the wave beaten the tank falls back to the rally line (%.0f)" % float(tank.x))
+
+	# Castles shoot enemies that come close, harder when hurt; endless waves have no castle.
+	var siege := BattleModel.new()
+	siege.units.append({"id": 7000, "side": 1, "kind": "swordsman", "hp": 500.0, "max_hp": 500.0, "damage": 0.0, "interval": 99.0, "speed": 0.0, "range": 1.0, "x": BattleModel.FIELD_LEFT + BattleModel.CASTLE_RANGE - 10.0, "cooldown": 99.0})
+	for i in 30 * 4:
+		siege.tick(dt)
+	check(float(siege.units[0].hp) < 500.0, "a castle shoots an enemy in range")
+	siege.base_hp[0] = 0.5 * siege.base_max_hp[0]
+	check(siege.castle_damage(0) > BattleModel.CASTLE_DAMAGE and siege.castle_damage(1) == BattleModel.CASTLE_DAMAGE, "a hurt castle shoots harder")
+	var far := BattleModel.new()
+	far.units.append({"id": 7001, "side": 1, "kind": "swordsman", "hp": 500.0, "max_hp": 500.0, "damage": 0.0, "interval": 99.0, "speed": 0.0, "range": 1.0, "x": BattleModel.FIELD_LEFT + BattleModel.CASTLE_RANGE + 10.0, "cooldown": 99.0})
+	for i in 30 * 4:
+		far.tick(dt)
+	check(float(far.units[0].hp) == 500.0, "a castle does not reach past its range")
+	var no_castle := BattleModel.new()
+	WaveDirector.new(1).setup(no_castle)
+	no_castle.units.append({"id": 7002, "side": 0, "kind": "swordsman", "hp": 500.0, "max_hp": 500.0, "damage": 0.0, "interval": 99.0, "speed": 0.0, "range": 1.0, "x": BattleModel.FIELD_RIGHT - WaveDirector.SHELTER_DEPTH - 30.0, "cooldown": 99.0})
+	for i in 30 * 4:
+		no_castle.tick(dt)
+	check(float(no_castle.units[0].hp) == 500.0, "the wave side has no castle")
 	# The same boon at most MAX_BOON_STACK times.
 	var stacker := WaveDirector.new(9)
 	for i in WaveDirector.MAX_BOON_STACK:
