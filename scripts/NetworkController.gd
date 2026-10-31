@@ -15,6 +15,7 @@ const TransportSecurity = preload("res://scripts/net/TransportSecurity.gd")
 const AccountFlow = preload("res://scripts/net/AccountFlow.gd")
 const RankedFlow = preload("res://scripts/net/RankedFlow.gd")
 const CloudFlow = preload("res://scripts/net/CloudFlow.gd")
+const TitleFlow = preload("res://scripts/net/TitleFlow.gd")
 const CloudSaves = preload("res://scripts/accounts/CloudSaves.gd")
 const ReportLog = preload("res://scripts/accounts/ReportLog.gd")
 const RankedStats = preload("res://scripts/accounts/RankedStats.gd")
@@ -114,6 +115,8 @@ var cloud := CloudSaves.new()
 var cloud_store_times: Dictionary = {}
 var reports := ReportLog.new()
 var ranked_stats := RankedStats.new()
+## Offline feats waiting for the server to re-simulate them (TitleVerifier jobs, oldest first).
+var title_jobs: Array = []
 ## Daily copies of the state directory (ServerBackup); empty when the server keeps no files.
 var state_dir := ""
 var backup_elapsed := 0.0
@@ -440,6 +443,7 @@ func _process(delta: float) -> void:
 		backup_elapsed = 0.0
 		_backup_state()
 	RankedFlow.advance(self)
+	TitleFlow.advance(self)
 	for waiting_peer in ranked_queue.expire(Time.get_ticks_msec()):
 		if _peer_is_connected(int(waiting_peer)):
 			receive_quick_status.rpc_id(int(waiting_peer),"timeout"); request_room_list_for(int(waiting_peer))
@@ -1409,6 +1413,61 @@ func receive_cloud_save(revision: int, text: String) -> void:
 func receive_cloud_stored(ok: bool, revision: int, error: String) -> void:
 	if CloudFlow.valid_stored(ok, revision, error):
 		cloud_save_stored.emit(ok, revision, error)
+
+# ---------- Titles and roles (signed-in accounts) ----------
+
+signal title_state_received(data: Dictionary)
+
+func send_title_state_request() -> bool:
+	if not account_ready(): return false
+	request_title_state.rpc_id(1)
+	return true
+
+func send_wear_title(title: String) -> bool:
+	if not account_ready(): return false
+	request_wear_title.rpc_id(1, title)
+	return true
+
+func send_appoint(nickname: String, enabled: bool) -> bool:
+	if not account_ready(): return false
+	request_appoint.rpc_id(1, nickname, enabled)
+	return true
+
+func send_cheat_titles() -> bool:
+	if not account_ready(): return false
+	request_cheat_titles.rpc_id(1)
+	return true
+
+## Sends an offline feat (campaign / daily / endless command log, as JSON) for the server to verify.
+func send_title_verify(kind: String, text: String) -> bool:
+	if not account_ready() or text.length() > TitleFlow.TitleVerifier.MAX_TEXT: return false
+	request_title_verify.rpc_id(1, kind, text)
+	return true
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_title_state() -> void:
+	TitleFlow.request_state(self)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_wear_title(title: String) -> void:
+	TitleFlow.request_wear(self, title)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_appoint(nickname: String, enabled: bool) -> void:
+	TitleFlow.request_appoint(self, nickname, enabled)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_cheat_titles() -> void:
+	TitleFlow.request_cheat_titles(self)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_title_verify(kind: String, text: String) -> void:
+	TitleFlow.request_verify(self, kind, text)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_title_state(data: Dictionary) -> void:
+	if TitleFlow.valid_state(data):
+		title_state_received.emit(data)
 
 func client_is_online() -> bool:
 	return not (client_connection_state in ["idle", "connecting", "recovering"]) and not client_reconnecting

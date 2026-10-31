@@ -8,6 +8,7 @@ extends RefCounted
 const Rating = preload("res://scripts/accounts/Rating.gd")
 const SessionStore = preload("res://scripts/RoomSessions.gd")
 const RankedStats = preload("res://scripts/accounts/RankedStats.gd")
+const Titles = preload("res://scripts/accounts/Titles.gd")
 
 const LEADERBOARD_SIZE := 20
 const BAN_SECONDS := 15.0
@@ -72,6 +73,9 @@ static func pair(main) -> void:
 				if main._peer_is_connected(int(entry.peer)): main.receive_session_error.rpc_id(int(entry.peer), "랭크 대전 방을 만들지 못했습니다. 다시 시도하세요.")
 			continue
 		main.sessions.set_ready(int(second.peer), true)
+		# Both players wear their titles in the room.
+		for index in 2:
+			main.sessions.rooms[code].members[int(found[index].peer)]["title"] = main.accounts.worn_title(String(accounts[index]))
 		for entry in found:
 			main.lobby_pages.erase(int(entry.peer))
 		print("RANKED_MATCH room=%s" % code)
@@ -164,16 +168,18 @@ static func settle(main, match_id: int, winner: int) -> void:
 		before.append(int(profile.get("rating", main.accounts.START_RATING)))
 		var ranked: Dictionary = profile.get("ranked", {})
 		games.append(int(ranked.get("wins", 0)) + int(ranked.get("losses", 0)) + int(ranked.get("draws", 0)))
+	var model = main.models.get(match_id)
 	for side in 2:
 		var score := 0.5 if winner == 2 else (1.0 if winner == side else 0.0)
 		var outcome := "draws" if winner == 2 else ("wins" if winner == side else "losses")
 		var rating: int = Rating.updated(int(before[side]), int(before[1 - side]), score, int(games[side]))
 		main.accounts.record_ranked(String(accounts[side]), rating, outcome)
+		if model != null:
+			main.accounts.record_summons(String(accounts[side]), int(model.battle_report[side].units.necromancer.summoned))
 		for peer in main.peer_accounts:
 			if String(main.peer_accounts[peer]) == String(accounts[side]) and main._peer_is_connected(int(peer)):
 				main.receive_ranked_result.rpc_id(int(peer), {"rating": rating, "delta": rating - int(before[side]), "outcome": outcome})
 	main.accounts.flush()
-	var model = main.models.get(match_id)
 	if model != null:
 		main.ranked_stats.record(model, winner, main.accounts.current_season())
 		main.ranked_stats.flush()
@@ -253,6 +259,8 @@ static func valid_profile(data: Variant) -> bool:
 		for key in ["rating", "wins", "losses", "draws"]:
 			if not row.get(key) is int:
 				return false
+		if not row.get("title", "") is String or not (String(row.get("title", "")).is_empty() or Titles.valid_id(row.title)):
+			return false
 	return true
 
 static func valid_ban_phase(data: Variant) -> bool:

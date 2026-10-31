@@ -66,7 +66,7 @@ func public_state(code: String) -> Dictionary:
 	var members: Array = []
 	for id in room.members:
 		var member: Dictionary = room.members[id]
-		members.append({"id":int(id),"nickname":member.nickname,"role":member.role,"ready":member.ready,"returned":member.returned,"deck":member.deck.duplicate(true),"connected":member.connected,"reconnect_remaining":maxf(0.0,(int(member.reconnect_deadline)-Time.get_ticks_msec())/1000.0)})
+		members.append({"id":int(id),"nickname":member.nickname,"role":member.role,"ready":member.ready,"returned":member.returned,"deck":member.deck.duplicate(true),"connected":member.connected,"reconnect_remaining":maxf(0.0,(int(member.reconnect_deadline)-Time.get_ticks_msec())/1000.0),"title":String(member.get("title",""))})
 	return {"code":code,"name":room.name,"owner":room.owner,"phase":room.phase,"locked":not room.secret.is_empty(),"members":members}
 
 func set_ready(peer_id: int, ready: bool) -> bool:

@@ -237,7 +237,7 @@ static func _build_battle_screen(main) -> void:
 		corner.add_child(goal)
 	if not main.local_ai_mode:
 		for side in 2:
-			var name_label := ToastLabel.new(); name_label.name = "BattlePlayerName%d"%side; name_label.text = main._report_side_name(side)
+			var name_label := ToastLabel.new(); name_label.name = "BattlePlayerName%d"%side; name_label.text = _titled_name(main, side)
 			name_label.tone = UIKit.TEAM_BLUE if side == main.own_side else UIKit.TEAM_RED
 			main.root_background.add_child(name_label)
 			name_label.place_edge(164.0 if side == main.own_side else 1116.0, 154.0, side != main.own_side)
@@ -257,6 +257,12 @@ static func _build_battle_screen(main) -> void:
 	_battle_intro(main)
 	if main.local_ai_mode and main.local_battle_backgrounded and DisplayServer.get_name() != "headless":
 		preload("res://scripts/screens/LocalBattlePause.gd").pause(main, true)
+
+## A player's name over the battlefield, with the title they wear.
+static func _titled_name(main, side: int) -> String:
+	var players: Array = main.network.client_session.get("members", []).filter(func(member): return member.role == "player")
+	var badge := preload("res://scripts/accounts/Titles.gd").badge(String(players[side].get("title", ""))) if players.size() == 2 else ""
+	return badge + main._report_side_name(side)
 
 ## Online battles cannot pause: the menu offers surrender (players) or leaving (spectators).
 static func _online_menu(main) -> void:

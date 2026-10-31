@@ -268,7 +268,8 @@ static func valid_session_state(data: Dictionary) -> bool:
 	if data.members.size()<1 or data.members.size()>TRANSPORT_MAX_PEERS: return false
 	var players := 0; var ids: Dictionary = {}
 	for member in data.members:
-		if not member is Dictionary or not _has_required_optional_keys(member,["id","nickname","role","ready","returned","deck"],["connected","reconnect_remaining"]): return false
+		if not member is Dictionary or not _has_required_optional_keys(member,["id","nickname","role","ready","returned","deck"],["connected","reconnect_remaining","title"]): return false
+		if member.has("title") and (not member.title is String or not (String(member.title).is_empty() or preload("res://scripts/accounts/Titles.gd").valid_id(member.title))): return false
 		if not _number_in_range(member.id,1,2147483647) or float(member.id)!=floor(float(member.id)) or ids.has(int(member.id)): return false
 		if not member.nickname is String or not SessionStore.safe_text(member.nickname,SessionStore.MAX_NICKNAME) or member.role not in ["player","spectator"] or not member.ready is bool or not member.returned is bool: return false
 		if not member.deck is Dictionary or not _has_exact_keys(member.deck,["units","structures"]) or not member.deck.units is Array or not member.deck.structures is Array or not validate_deck_payload(member.deck.units,member.deck.structures): return false
