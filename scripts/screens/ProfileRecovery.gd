@@ -282,9 +282,9 @@ static func _nickname_comparison(live: Dictionary, restored: Dictionary) -> Dict
 	var rows: Array = []
 	var warning := ""
 	if before != after:
-		warning = "닉네임이 「%s」에서 「%s」로 바뀝니다." % [before, after]
+		warning = "닉네임이 '%s'에서 '%s'로 바뀝니다." % [before, after]
 		rows.append({"text": "복구 후 멀티플레이의 닉네임 입력에 사본의 이름이 표시됩니다. 멀티플레이 화면에서 다시 수정할 수 있습니다. 서버에 이미 보관된 기록을 바꾸는 복구는 아닙니다.", "risk": true})
-	return {"rows": rows, "summary": "닉네임: 「%s」 → 「%s」" % [before, after], "warning": warning, "empty": "닉네임 변경 없음"}
+	return {"rows": rows, "summary": "닉네임: '%s' → '%s'" % [before, after], "warning": warning, "empty": "닉네임 변경 없음"}
 
 static func _features_comparison(live: Dictionary, restored: Dictionary) -> Dictionary:
 	var reset: Array = []

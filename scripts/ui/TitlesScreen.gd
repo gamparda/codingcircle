@@ -38,13 +38,13 @@ static func show(main) -> void:
 		row.add_theme_constant_override("separation", 10)
 		list.add_child(row)
 		var secret: bool = bool(entry.get("hidden", false)) and not owned
-		var text := MultiplayerUI.label("%s%s\n%s" % ["✓ " if owned else "", Titles.badge(id) if not secret else "「???」", Localization.text(String(entry.how)) if not secret else Localization.text("숨겨진 칭호")], 15, Color.WHITE if owned else MultiplayerUI.MUTED)
+		var text := MultiplayerUI.label("%s%s\n%s" % ["✓ " if owned else "", Titles.badge(id) if not secret else "[???]", Localization.text(String(entry.how)) if not secret else Localization.text("숨겨진 칭호")], 15, Color.WHITE if owned else MultiplayerUI.MUTED)
 		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		row.add_child(text)
 		if owned:
 			var wearing: bool = account.worn == id
-			var button = main._styled_button(Localization.text("해제") if wearing else Localization.text("달기"), Color("#697386") if wearing else Color("#7a6248"), not wearing)
+			var button = main._styled_button(Localization.text("해제") if wearing else Localization.text("장착"), Color("#697386") if wearing else Color("#7a6248"), not wearing)
 			button.name = "WearTitle_" + String(id)
 			button.custom_minimum_size = Vector2(110, 44)
 			var pick := "" if wearing else String(id)

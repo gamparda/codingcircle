@@ -261,8 +261,7 @@ static func _build_battle_screen(main) -> void:
 ## A player's name over the battlefield, with the title they wear.
 static func _titled_name(main, side: int) -> String:
 	var players: Array = main.network.client_session.get("members", []).filter(func(member): return member.role == "player")
-	var badge := preload("res://scripts/accounts/Titles.gd").badge(String(players[side].get("title", ""))) if players.size() == 2 else ""
-	return badge + main._report_side_name(side)
+	return preload("res://scripts/accounts/Titles.gd").titled(String(players[side].get("title", "")) if players.size() == 2 else "", main._report_side_name(side))
 
 ## Online battles cannot pause: the menu offers surrender (players) or leaving (spectators).
 static func _online_menu(main) -> void:

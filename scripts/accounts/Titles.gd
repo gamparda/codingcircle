@@ -42,9 +42,14 @@ static func valid_id(id: Variant) -> bool:
 static func name_of(id: String) -> String:
 	return String(CATALOG[id].name) if CATALOG.has(id) else ""
 
-## "「성주」" for a worn title, "" for none.
+## "[성주]" for a worn title, "" for none. (Plain brackets: CJK corner brackets make some Android fonts drop the
+## Hangul right after them.)
 static func badge(id: String) -> String:
-	return "「%s」" % name_of(id) if CATALOG.has(id) else ""
+	return "[%s]" % name_of(id) if CATALOG.has(id) else ""
+
+## "[성주] 닉네임", or just the nickname without a title.
+static func titled(id: String, nickname: String) -> String:
+	return badge(id) + " " + nickname if CATALOG.has(id) else nickname
 
 static func can_cheat(role: String) -> bool:
 	return role in ["super", "hyper"]

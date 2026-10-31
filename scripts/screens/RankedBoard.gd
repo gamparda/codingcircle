@@ -70,7 +70,7 @@ static func _board(list: VBoxContainer, profile: Dictionary) -> void:
 		list.add_child(MultiplayerUI.label("이번 시즌 랭크 대전 기록이 아직 없습니다.", 15, MultiplayerUI.MUTED))
 	for index in rows.size():
 		var row: Dictionary = rows[index]
-		list.add_child(MultiplayerUI.label("%d. %s%s  ·  %d점  ·  %d승 %d패 %d무" % [index + 1, preload("res://scripts/accounts/Titles.gd").badge(String(row.get("title", ""))), String(row.nickname), int(row.rating), int(row.wins), int(row.losses), int(row.draws)], 15, MultiplayerUI.GOLD if index < 3 else Color.WHITE))
+		list.add_child(MultiplayerUI.label("%d. %s  ·  %d점  ·  %d승 %d패 %d무" % [index + 1, preload("res://scripts/accounts/Titles.gd").titled(String(row.get("title", "")), String(row.nickname)), int(row.rating), int(row.wins), int(row.losses), int(row.draws)], 15, MultiplayerUI.GOLD if index < 3 else Color.WHITE))
 
 static func _cards(list: VBoxContainer, profile: Dictionary) -> void:
 	var matches := int(profile.card_matches)

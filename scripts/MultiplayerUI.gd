@@ -202,7 +202,7 @@ static func update_room(main, data: Dictionary) -> void:
 		var text := VBoxContainer.new(); text.size_flags_horizontal = Control.SIZE_EXPAND_FILL; text.alignment = BoxContainer.ALIGNMENT_CENTER; text.add_theme_constant_override("separation",6); row.add_child(text)
 		if filled:
 			var member: Dictionary = players[index]
-			text.add_child(label(preload("res://scripts/accounts/Titles.gd").badge(String(member.get("title","")))+String(member.nickname)+("  ·  방장" if int(member.id)==int(data.owner) else ""),20))
+			text.add_child(label(preload("res://scripts/accounts/Titles.gd").titled(String(member.get("title","")),String(member.nickname))+("  ·  방장" if int(member.id)==int(data.owner) else ""),20))
 			var status := label("준비 완료" if member.ready else ("결과 확인 중" if not member.returned else "준비 대기"),13,Color("#8ad4bb") if member.ready else MUTED)
 			if member.ready: status.text = "✓ " + status.text
 			text.add_child(status)
