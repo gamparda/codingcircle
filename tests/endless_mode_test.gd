@@ -40,7 +40,7 @@ func run() -> void:
 	var boss := WaveDirector.plan(10, rng)
 	check(boss.any(func(entry): return entry.kind == "demon_lord"), "wave 10 brings a boss")
 	var early_boss := WaveDirector.plan(5, rng)
-	check(String(early_boss[0].kind) == "paladin", "wave 5's boss is a paladin")
+	check(early_boss.any(func(entry): return entry.kind == "paladin") and not early_boss.any(func(entry): return entry.kind == "demon_lord"), "wave 5's boss is a paladin")
 	var again := RandomNumberGenerator.new()
 	again.seed = 5
 	check(WaveDirector.plan(1, again) == first, "plans follow the seed")

@@ -14,9 +14,9 @@ const WAVE_SIDE := 1
 ## Wave budget: BUDGET_BASE + BUDGET_STEP * n + BUDGET_CURVE * n² (static so balance tools can try values).
 ## Tuned so an automatic player (random or greedy boon picks) falls around wave 9-11: people play much better
 ## than the bot, so the bot must clearly lose.
-static var BUDGET_BASE := 60.0
-static var BUDGET_STEP := 40.0
-static var BUDGET_CURVE := 5.0
+static var BUDGET_BASE := 100.0
+static var BUDGET_STEP := 35.0
+static var BUDGET_CURVE := 4.0
 ## Units of one wave appear in the spawn zone spread over this many seconds; the wave marches when all are
 ## there (or MUSTER_LIMIT after it began, if the field is too full to take them all).
 const SPAWN_WINDOW := 6.0
