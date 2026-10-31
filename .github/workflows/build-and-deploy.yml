@@ -330,10 +330,18 @@ jobs:
           name: android-build
           path: |
             dist/CatWar.apk
-            dist/CatWar-onestore.apk
             dist/CatWarContent.pck
           if-no-files-found: error
           retention-days: 1
+
+      # The ONE store build is uploaded to the store by hand: it stays a private workflow artifact and is never
+      # published on the update site or in a release.
+      - uses: actions/upload-artifact@v5
+        with:
+          name: onestore-apk
+          path: dist/CatWar-onestore.apk
+          if-no-files-found: error
+          retention-days: 30
 
   publish:
     if: github.event_name != 'pull_request'
@@ -357,7 +365,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force site | Out-Null
-          foreach ($file in @("CatWarSetup.exe", "CatWar.apk", "CatWar-onestore.apk", "CatWarContent.pck", "CatWarDesktop.pck")) {
+          foreach ($file in @("CatWarSetup.exe", "CatWar.apk", "CatWarContent.pck", "CatWarDesktop.pck")) {
             Copy-Item "dist/$file" "site/$file"
           }
           $sha = (Get-FileHash site/CatWarSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()

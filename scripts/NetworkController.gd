@@ -1470,7 +1470,7 @@ func request_cheat(action: String) -> void:
 		replays.drop(match_id) # a cheat is not a command: the log could not replay this battle
 		for peer in registry.get_players_for_peer(sender):
 			if int(peer) != sender and _peer_is_connected(int(peer)):
-				receive_session_error.rpc_id(int(peer), Localization.text("상대가 관리용 치트를 사용했습니다. 이 판은 랭크 점수에 반영되지 않습니다."))
+				receive_session_error.rpc_id(int(peer), Localization.text("이 판은 랭크 점수에 반영되지 않습니다."))
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_title_state() -> void:

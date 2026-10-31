@@ -21,8 +21,8 @@ const CATALOG := {
 	"ranked_season_top": {"name": "시즌의 영웅", "how": "랭크 시즌을 10위 안에서 마감", "group": "랭크 대전"},
 	"necro_lord": {"name": "망자의 군주", "how": "랭크 대전에서 네크로맨서로 해골 300마리 소환(누적)", "group": "랭크 대전", "hidden": true},
 	"daily_30": {"name": "성실한 파수꾼", "how": "일일·주간 도전을 서로 다른 30일에 완료", "group": "도전"},
-	"founder": {"name": "성을 세운 자", "how": "하이퍼 계정", "group": "특별", "hidden": true},
-	"warden": {"name": "성의 수호자", "how": "슈퍼 계정", "group": "특별", "hidden": true},
+	"founder": {"name": "성을 세운 자", "how": "특별히 받은 칭호", "group": "특별", "hidden": true},
+	"warden": {"name": "성의 수호자", "how": "특별히 받은 칭호", "group": "특별", "hidden": true},
 }
 ## Ranked rating thresholds and their titles.
 const RANKED_TIERS := [[1200, "ranked_1200"], [1400, "ranked_1400"], [1600, "ranked_1600"]]
