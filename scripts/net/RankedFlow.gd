@@ -160,6 +160,10 @@ static func settle(main, match_id: int, winner: int) -> void:
 		return
 	entry.settled = true
 	main.ranked_matches.erase(match_id)
+	if main.cheated_matches.has(match_id):
+		# A super account cheated: neither player's rating, record or card statistics move.
+		print("RANKED_RESULT_SKIPPED cheat")
+		return
 	var accounts: Array = entry.accounts
 	var before := []
 	var games := []

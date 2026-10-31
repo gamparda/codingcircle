@@ -23,6 +23,7 @@ func _init() -> void:
 	_roles_and_titles()
 	_campaign_proof()
 	_endless_proof()
+	_cheats()
 	print("titles_test checks=%d failures=%d" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -188,3 +189,22 @@ func _endless_proof() -> void:
 	var earned := store.record_endless(id, 30, true, true)
 	check(earned.has("endless_10") and earned.has("endless_30") and earned.has("endless_flawless") and earned.has("endless_melee"), "verified waves earn the endless titles")
 	check(store.record_campaign(id, 8, 3, true).has("campaign_flawless"), "an untouched stage 8 win earns its title")
+
+func _cheats() -> void:
+	var Cheats = load("res://scripts/Cheats.gd")
+	var model := BattleModel.new()
+	check(Cheats.perform(model, 0, "resources") and model.cheats[0].has("resources"), "a toggle switches on")
+	model.resources[0] = 0.0
+	model.tick(1.0 / 30.0)
+	check(is_equal_approx(float(model.resources[0]), model.resource_capacity(0)), "infinite resources refill every tick")
+	Cheats.perform(model, 0, "castle")
+	model.base_hp[0] = 10.0
+	model.tick(1.0 / 30.0)
+	check(float(model.base_hp[0]) == float(model.base_max_hp[0]), "an invincible castle heals every tick")
+	check(not Cheats.perform(model, 0, "teleport"), "unknown cheats do nothing")
+	Cheats.perform(model, 0, "win")
+	model.tick(1.0 / 30.0)
+	check(model.winner == 0, "instant win ends the battle for the cheater")
+	var endless := BattleModel.new()
+	WaveDirector.new(1).setup(endless)
+	check(not Cheats.perform(endless, 0, "win"), "there is no base to win against in endless defense")

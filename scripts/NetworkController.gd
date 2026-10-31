@@ -16,6 +16,7 @@ const AccountFlow = preload("res://scripts/net/AccountFlow.gd")
 const RankedFlow = preload("res://scripts/net/RankedFlow.gd")
 const CloudFlow = preload("res://scripts/net/CloudFlow.gd")
 const TitleFlow = preload("res://scripts/net/TitleFlow.gd")
+const Cheats = preload("res://scripts/Cheats.gd")
 const CloudSaves = preload("res://scripts/accounts/CloudSaves.gd")
 const ReportLog = preload("res://scripts/accounts/ReportLog.gd")
 const RankedStats = preload("res://scripts/accounts/RankedStats.gd")
@@ -115,6 +116,8 @@ var cloud := CloudSaves.new()
 var cloud_store_times: Dictionary = {}
 var reports := ReportLog.new()
 var ranked_stats := RankedStats.new()
+## Online matches where a super account used a cheat (match id -> true): never rated, never kept as a replay.
+var cheated_matches: Dictionary = {}
 ## Offline feats waiting for the server to re-simulate them (TitleVerifier jobs, oldest first).
 var title_jobs: Array = []
 ## Daily copies of the state directory (ServerBackup); empty when the server keeps no files.
@@ -580,6 +583,7 @@ func _on_peer_disconnected(peer_id: int) -> void:
 		if int(player_id) != peer_id and _peer_is_connected(int(player_id)):
 			_disconnect_orphaned_peer.call_deferred(int(player_id))
 	models.erase(match_id)
+	cheated_matches.erase(match_id)
 	replays.drop(match_id)
 	rematch_ready.erase(match_id)
 	peer_decks.erase(peer_id)
@@ -1443,6 +1447,30 @@ func send_title_verify(kind: String, text: String) -> bool:
 	if not account_ready() or text.length() > TitleFlow.TitleVerifier.MAX_TEXT: return false
 	request_title_verify.rpc_id(1, kind, text)
 	return true
+
+## A cheat in the current online match (super and hyper accounts only; the server checks).
+func send_cheat(action: String) -> bool:
+	if not account_ready() or not Cheats.valid(action): return false
+	request_cheat.rpc_id(1, action)
+	return true
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_cheat(action: String) -> void:
+	if not server_mode: return
+	var sender := multiplayer.get_remote_sender_id()
+	if not can_process_request(sender) or not Cheats.valid(action): return
+	var account := String(peer_accounts.get(sender, ""))
+	if account.is_empty() or not TitleFlow.Titles.can_cheat(accounts.role_of(account)): return
+	var match_id := registry.get_match_id(sender)
+	var side := registry.get_side(sender)
+	if not models.has(match_id) or side < 0 or side > 1 or not Cheats.perform(models[match_id], side, action): return
+	print("CHEAT_USED match=%d action=%s" % [match_id, action])
+	if not cheated_matches.has(match_id):
+		cheated_matches[match_id] = true
+		replays.drop(match_id) # a cheat is not a command: the log could not replay this battle
+		for peer in registry.get_players_for_peer(sender):
+			if int(peer) != sender and _peer_is_connected(int(peer)):
+				receive_session_error.rpc_id(int(peer), Localization.text("상대가 관리용 치트를 사용했습니다. 이 판은 랭크 점수에 반영되지 않습니다."))
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_title_state() -> void:

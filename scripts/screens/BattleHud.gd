@@ -268,7 +268,7 @@ static func _titled_name(main, side: int) -> String:
 static func _online_menu(main) -> void:
 	if not main.battle_active or main.result_shown:
 		return
-	var column = main._action_panel(Localization.text("메뉴"), Rect2(440, 220, 400, 260))
+	var column = main._action_panel(Localization.text("메뉴"), Rect2(440, 190, 400, 330) if main.account.can_cheat() else Rect2(440, 220, 400, 260))
 	if not main.network.client_is_spectator:
 		var surrender := MultiplayerUI.button(main, column, Localization.text("항복"), "SurrenderButton", func():
 			main._dismiss_action_overlay()
@@ -278,6 +278,8 @@ static func _online_menu(main) -> void:
 		MultiplayerUI.button(main, column, Localization.text("관전 나가기"), "LeaveSpectateButton", func():
 			main._dismiss_action_overlay()
 			main._exit_battle_to_menu())
+	if main.account.can_cheat() and not main.network.client_is_spectator:
+		MultiplayerUI.button(main, column, Localization.text("치트"), "OnlineCheatButton", func(): preload("res://scripts/screens/CheatPanel.gd").show(main))
 	MultiplayerUI.button(main, column, Localization.text("닫기"), "CloseBattleMenu", main._dismiss_action_overlay, true)
 
 ## "STAGE 03 · 전진" style band that slides in, holds, and leaves. Purely decorative (ignores input).

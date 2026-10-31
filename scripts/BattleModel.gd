@@ -140,6 +140,8 @@ var _fronts: Array = [null, null]
 var _needy: Array = [[], []]
 ## Units that already made their first attack (for the "first_strike" modifier).
 var first_struck: Dictionary = {}
+## Cheats switched on per side (super accounts; see Cheats.gd): "resources", "cooldowns", "castle".
+var cheats: Array = [{}, {}]
 ## Seconds until each castle may shoot again.
 var castle_cooldowns: Array = [CASTLE_INTERVAL, CASTLE_INTERVAL]
 const MAX_FALLEN := 40
@@ -643,6 +645,8 @@ func tick(delta: float) -> void:
 	if winner != -1:
 		return
 	elapsed += delta
+	if not cheats[0].is_empty() or not cheats[1].is_empty():
+		_apply_cheats()
 	curses = curses.filter(func(curse): return float(curse.expires_at) > elapsed)
 	for structure in structures:
 		if structure_expirations.has(structure.id) and elapsed >= float(structure_expirations[structure.id]):
@@ -1244,6 +1248,18 @@ func _tick_turrets(delta: float, pending_attacks: Array) -> void:
 			var damage := float(STRUCTURE_STATS.turret.damage)
 			pending_attacks.append({"attacker":structure, "target":target, "damage":damage})
 			structure_cooldowns[id] = float(STRUCTURE_STATS.turret.interval)
+
+func _apply_cheats() -> void:
+	for side in 2:
+		var on: Dictionary = cheats[side]
+		if on.has("resources"):
+			resources[side] = resource_capacity(side)
+		if on.has("cooldowns"):
+			spawn_cooldowns[side].clear()
+			spell_cooldowns[side].clear()
+			spell_uses[side].clear()
+		if on.has("castle"):
+			base_hp[side] = base_max_hp[side]
 
 ## Castles shoot the nearest enemy unit within CASTLE_RANGE (not structures, not through nothing: a castle
 ## stands behind every wall). A base that cannot fall (endless defense's wave side) has no castle.
