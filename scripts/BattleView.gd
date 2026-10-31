@@ -323,20 +323,19 @@ func _draw_spawn_zone(world_side: int, depth: float, lane_y: float) -> void:
 	var b := world_to_screen_x(inner)
 	var left := minf(a, b)
 	var width := absf(a - b)
-	var top := lane_y - 170.0
-	var bands := 8
-	for band in bands:
-		# Thicker toward the edge, fading toward the rim.
-		var share := float(band) / float(bands)
-		var x0 := lerpf(a, b, share)
-		var x1 := lerpf(a, b, share + 1.0 / float(bands))
-		draw_rect(Rect2(minf(x0, x1), top, absf(x1 - x0), lane_y + 24.0 - top), Color(0.45, 0.25, 0.75, 0.22 * (1.0 - share)))
+	var top := lane_y - 200.0
+	var bottom := lane_y + 24.0
+	# Thick at the edge and the ground, fading toward the rim and the sky.
+	var haze := Color(0.42, 0.2, 0.72)
+	draw_polygon(PackedVector2Array([Vector2(a, top), Vector2(a, bottom), Vector2(b, bottom), Vector2(b, top)]),
+		PackedColorArray([Color(haze, 0.0), Color(haze, 0.5), Color(haze, 0.14), Color(haze, 0.0)]))
 	var pulse := 0.5 + 0.5 * sin(animation_time * 3.0)
-	draw_line(Vector2(b, top), Vector2(b, lane_y + 24.0), Color(0.78, 0.6, 1.0, 0.35 + 0.35 * pulse), 2.0)
+	draw_polygon(PackedVector2Array([Vector2(b - 2.0, top + 60.0), Vector2(b - 2.0, bottom), Vector2(b + 2.0, bottom), Vector2(b + 2.0, top + 60.0)]),
+		PackedColorArray([Color(0.8, 0.62, 1.0, 0.0), Color(0.8, 0.62, 1.0, 0.5 + 0.4 * pulse), Color(0.8, 0.62, 1.0, 0.5 + 0.4 * pulse), Color(0.8, 0.62, 1.0, 0.0)]))
 	for spark in 6:
 		var phase := fmod(animation_time * 0.4 + float(spark) * 0.37, 1.0)
 		var sx := left + width * fmod(float(spark) * 0.618, 1.0)
-		draw_circle(Vector2(sx, lane_y + 10.0 - phase * 170.0), 2.0, Color(0.85, 0.7, 1.0, 0.6 * (1.0 - phase)))
+		draw_circle(Vector2(sx, lane_y + 10.0 - phase * 170.0), 2.5, Color(0.88, 0.74, 1.0, 0.8 * (1.0 - phase)))
 
 ## A cast waiting to land: its area on the ground, the first frames of its effect, and a thrown fireball.
 func _draw_spell_cast(cast: Dictionary, scale_x: float, lane_y: float) -> void:
