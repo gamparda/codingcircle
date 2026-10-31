@@ -15,11 +15,12 @@ const MAX_ACCOUNTS := 200000
 const START_RATING := 1000
 ## Past seasons kept per account (newest first when shown).
 const SEASON_HISTORY := 24
-## The hyper account (appoints super accounts): the account that already had this nickname when titles came
-## out. Binding it once, by account and only to an account created before HYPER_CREATED_BEFORE, means a later
+## The hyper account (appoints super accounts): the account that already had the nickname whose SHA-256 is
+## HYPER_NICKNAME_SHA256 when titles came out (only the hash is kept here, so the name is not in the game data).
+## Binding it once, by account and only to an account created before HYPER_CREATED_BEFORE, means a later
 ## sign-up under the same name (after a rename) never inherits the role. CATWAR_HYPER_ACCOUNT names an
 ## account id instead.
-const HYPER_NICKNAME := "감파르다"
+static var HYPER_NICKNAME_SHA256 := "c7e498a9907c963726c7e076f59e77001f18d0a86b120e602dfdf1378841655a"
 const HYPER_CREATED_BEFORE := 1793433600 # 2026-10-31 08:00 UTC
 const HYPER_ENV := "CATWAR_HYPER_ACCOUNT"
 ## Distinct challenge days remembered per account (enough for the daily title).
@@ -448,7 +449,10 @@ func bind_hyper() -> void:
 			return
 	var chosen := OS.get_environment(HYPER_ENV).strip_edges()
 	if not accounts.has(chosen):
-		chosen = find_by_nickname(HYPER_NICKNAME)
+		chosen = ""
+		for id in accounts:
+			if String(accounts[id].nickname).sha256_text() == HYPER_NICKNAME_SHA256:
+				chosen = id
 		if chosen.is_empty() or int(accounts[chosen].created) <= 0 or int(accounts[chosen].created) >= HYPER_CREATED_BEFORE:
 			return
 	set_role(chosen, "hyper")

@@ -326,7 +326,7 @@ godot --headless --path . --export-release "Windows Desktop" "$PWD\builds\CatWar
 ### 3. 설치 프로그램
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\build_managed_client.ps1 -OutputDirectory "$PWD\dist" -SetupFilename CatWarSetup
+powershell -ExecutionPolicy Bypass -File .\tools\build_release.ps1
 ```
 
 ## 실행 방법
@@ -473,7 +473,7 @@ python -m pip install -r .\tools\requirements.txt; python .\tools\extract_sprite
 3. 외부 UDP 7777을 전용 서버로 전달하고 방화벽에서 허용합니다.
 4. `catwar-server.service`와 `catwar-update.timer`가 활성 상태인지 확인합니다.
 5. 두 클라이언트가 공식 서버에 접속해 서로 다른 진영과 같은 매치 스냅샷을 받는지 확인합니다.
-6. 같은 LAN에서는 NAT loopback 우회를 위해 `192.168.0.4:7777`, 외부에서는 `ruellyya.kr:7777`과 공인 IP fallback을 사용합니다. 모두 동일한 중앙 서버 경로입니다.
+6. 클라이언트는 공식 서버 도메인과 예비 주소로 접속합니다. 모두 동일한 중앙 서버 경로입니다.
 
 ## 방 기반 멀티플레이
 

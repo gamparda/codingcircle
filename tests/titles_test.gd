@@ -33,23 +33,24 @@ func _store() -> AccountStore:
 	return store
 
 func _roles_and_titles() -> void:
+	AccountStore.HYPER_NICKNAME_SHA256 = "성주님".sha256_text() # the real name stays out of the repository
 	var store := _store()
-	var hyper: String = store.create("sub-hyper", "감파르다", AccountStore.HYPER_CREATED_BEFORE - 100).id
+	var hyper: String = store.create("sub-hyper", "성주님", AccountStore.HYPER_CREATED_BEFORE - 100).id
 	var other: String = store.create("sub-other", "손님", AccountStore.HYPER_CREATED_BEFORE - 50).id
 	store.bind_hyper()
-	check(store.role_of(hyper) == "hyper" and store.titles_of(hyper).has("founder"), "the existing 감파르다 account becomes the hyper account")
-	check(store.appoint(other, "감파르다", false) == "forbidden", "only the hyper account appoints")
+	check(store.role_of(hyper) == "hyper" and store.titles_of(hyper).has("founder"), "the existing account with the hyper nickname becomes the hyper account")
+	check(store.appoint(other, "성주님", false) == "forbidden", "only the hyper account appoints")
 	check(store.appoint(hyper, "손님", true) == "" and store.role_of(other) == "super" and store.titles_of(other).has("warden"), "the hyper account appoints a super account by nickname")
 	check(store.super_nicknames() == ["손님"], "super accounts are listed")
 	check(store.appoint(hyper, "없는사람", true) == "no_account", "an unknown nickname is refused")
-	check(store.appoint(hyper, "감파르다", false) == "forbidden" and store.role_of(hyper) == "hyper", "the hyper account cannot be dismissed")
+	check(store.appoint(hyper, "성주님", false) == "forbidden" and store.role_of(hyper) == "hyper", "the hyper account cannot be dismissed")
 	check(store.wear(other, "warden") == "" and store.worn_title(other) == "warden", "an owned title can be worn")
 	check(store.appoint(hyper, "손님", false) == "" and store.role_of(other) == "" and not store.titles_of(other).has("warden") and store.worn_title(other) == "", "dismissal takes the role title off")
 	check(store.wear(other, "ranked_1600") == "not_owned", "a title not owned cannot be worn")
 
 	# A later sign-up under the hyper nickname never inherits the role.
 	var late := _store()
-	var newcomer: String = late.create("sub-late", "감파르다", AccountStore.HYPER_CREATED_BEFORE + 10).id
+	var newcomer: String = late.create("sub-late", "성주님", AccountStore.HYPER_CREATED_BEFORE + 10).id
 	late.bind_hyper()
 	check(late.role_of(newcomer) == "", "an account created after the cutoff is not bound as hyper")
 	# Renaming keeps the role on the account, not the name.

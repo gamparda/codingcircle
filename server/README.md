@@ -127,7 +127,7 @@ keep older files for audit rather than clearing them or changing rules solely to
 ## Encrypted connections (DTLS)
 
 Every ENet connection is DTLS-encrypted; unencrypted clients cannot connect. Official clients
-connect to `ruellyya.kr`, `211.176.222.145` or `192.168.0.4` and verify the server certificate as
+connect to the official domain (or its fallback addresses) and verify the server certificate as
 `ruellyya.kr` against the public CA list, so a production server needs a CA-signed certificate
 for that name (Let's Encrypt works). Point the server at the PEM files, for example in
 `/etc/catwar/server.env` (read by the server service as an `EnvironmentFile`):
@@ -224,7 +224,7 @@ safety rules stay: the target must be a forward descendant of the installed/last
 `origin/main`. That is answered by a root-owned, commits-only mirror (`$CONTROL_DIR/history.git`) that downloads only new
 commits on each run and never executes anything from the repository.
 
-One-time switch (the agent that manages the server does this):
+One-time switch:
 
 1. Install `server/linux/run-server.sh` next to the updater (root-owned, mode 0755):
    `install -o root -g root -m 0755 server/linux/run-server.sh /usr/local/libexec/catwar/run-server.sh`
