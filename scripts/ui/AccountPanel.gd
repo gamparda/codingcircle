@@ -153,6 +153,69 @@ func _build_signed_in() -> void:
 		delete_armed = false
 		account.delete_account())
 	actions.add_child(delete)
+	_build_titles(available)
+	if account.role == "hyper":
+		_build_admin(available)
+	if account.can_cheat():
+		_build_cheats(available)
+
+## The worn title and the way to the titles list.
+func _build_titles(available: bool) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	add_child(row)
+	var worn := _label(Localization.text("칭호 · %s · 보유 %d개") % [ClientAccount.Titles.badge(account.worn) if not account.worn.is_empty() else Localization.text("없음"), account.titles.size()], 15, UIKit.TEXT)
+	worn.name = "AccountTitleSummary"
+	worn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(worn)
+	var open = main._styled_button(Localization.text("칭호 관리") + (" (새 칭호 %d)" % account.new_titles.size() if not account.new_titles.is_empty() else ""), Color("#7a6248"), not account.new_titles.is_empty())
+	open.name = "AccountTitlesButton"
+	open.disabled = not available
+	open.pressed.connect(func(): preload("res://scripts/ui/TitlesScreen.gd").show(main))
+	row.add_child(open)
+	if not String(account.title_message).is_empty():
+		add_child(_note(account.title_message, Color("#f0d592")))
+
+## Hyper account: appoints and dismisses super accounts by nickname.
+func _build_admin(available: bool) -> void:
+	add_child(_label(Localization.text("하이퍼 계정 · 슈퍼계정 관리"), 16, UIKit.GOLD))
+	add_child(_note("슈퍼계정은 혼자 하는 모드에서 치트를 쓸 수 있습니다. 치트를 쓴 판은 기록·칭호에 들어가지 않습니다."))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	add_child(row)
+	var name_edit := _nickname_edit("AdminNicknameEdit", "")
+	name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(name_edit)
+	for spec in [["지정", true, "AdminAppointButton"], ["해제", false, "AdminDismissButton"]]:
+		var button = main._styled_button(Localization.text(String(spec[0])), Color("#7a6248") if bool(spec[1]) else Color("#697386"), false)
+		button.name = String(spec[2])
+		button.disabled = not available
+		var enabled: bool = bool(spec[1])
+		button.pressed.connect(func(): account.appoint(name_edit.text, enabled))
+		row.add_child(button)
+	var names: Array = account.supers
+	var listing := _note(Localization.text("슈퍼계정 · %s") % (", ".join(names) if not names.is_empty() else Localization.text("없음")))
+	listing.name = "AdminSuperList"
+	add_child(listing)
+
+## Cheats that live outside battles: every title (server) and the whole campaign (this device).
+func _build_cheats(available: bool) -> void:
+	add_child(_label(Localization.text("치트"), 16, UIKit.GOLD))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	add_child(row)
+	var titles = main._styled_button(Localization.text("모든 칭호 받기"), Color("#7a6248"), false)
+	titles.name = "CheatAllTitles"
+	titles.disabled = not available
+	titles.pressed.connect(func(): account.cheat_titles())
+	row.add_child(titles)
+	var campaign = main._styled_button(Localization.text("캠페인 전부 클리어(별 3개)"), Color("#7a6248"), false)
+	campaign.name = "CheatCampaign"
+	campaign.pressed.connect(func():
+		preload("res://scripts/screens/CheatPanel.gd").clear_campaign(main)
+		account.title_message = Localization.text("이 기기의 캠페인 8단계를 모두 별 3개로 클리어했습니다.")
+		refresh())
+	row.add_child(campaign)
 
 func _nickname_edit(node_name: String, value: String) -> LineEdit:
 	var edit := LineEdit.new()

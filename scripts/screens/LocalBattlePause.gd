@@ -60,6 +60,8 @@ static func _actions(main) -> Array:
 		actions.append(["처음부터 다시", "PracticeResetButton", main._restart_practice])
 		actions.append(["상대 덱 바꾸기", "PracticeEnemyDeckButton", main._show_practice_deck])
 	actions.append(["유닛·구조물 정보", "PauseInfoButton", main._toggle_stats_panel])
+	if main.account.can_cheat():
+		actions.append(["치트", "PauseCheatButton", func(): preload("res://scripts/screens/CheatPanel.gd").show(main)])
 	actions.append(["항복" if main.endless_run.is_empty() else "도전 끝내기", "ExitAIBattleButton", main._confirm_surrender, UIKit.DANGER])
 	return actions
 

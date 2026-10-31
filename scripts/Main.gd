@@ -18,6 +18,7 @@ const Tutorial = preload("res://scripts/screens/Tutorial.gd")
 const PracticeUI = preload("res://scripts/screens/PracticeUI.gd")
 const LocalBattlePause = preload("res://scripts/screens/LocalBattlePause.gd")
 const EndlessFlow = preload("res://scripts/screens/EndlessFlow.gd")
+const CheatPanel = preload("res://scripts/screens/CheatPanel.gd")
 const ExpeditionFlow = preload("res://scripts/screens/ExpeditionFlow.gd")
 const UnitPurchaseHold = preload("res://scripts/screens/UnitPurchaseHold.gd")
 const PatchNotes = preload("res://scripts/PatchNotes.gd")
@@ -79,6 +80,9 @@ const PracticeTools = preload("res://scripts/PracticeTools.gd")
 const BattleReplay = preload("res://scripts/BattleReplay.gd")
 var practice = PracticeTools.new()
 var practice_used_tools := false
+## Cheats (super accounts, CheatPanel): whether this battle used any, and the ones switched on.
+var cheats_used := false
+var cheat_flags: Dictionary = {}
 var practice_pause_button: Button
 var practice_speed_button: Button
 var action_overlay: Control
@@ -361,6 +365,7 @@ func _process(delta: float) -> void:
 		# modal. Discard that delta without discarding the recorded tick remainder.
 		var battle_delta := 0.0 if local_battle_skip_delta else delta
 		local_battle_skip_delta = false
+		if not cheat_flags.is_empty(): CheatPanel.apply(self)
 		if not endless_run.is_empty(): EndlessFlow.step(self, battle_delta)
 		elif not expedition_run.is_empty(): ExpeditionFlow.step(self, battle_delta)
 		elif campaign_mode or not ghost_context.is_empty() or not daily_challenge.is_empty() or (local_recorder != null and practice.speed == 1.0 and not practice.unlimited):

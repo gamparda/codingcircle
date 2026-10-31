@@ -18,6 +18,7 @@ const Goals = preload("res://scripts/Goals.gd")
 const ServerLink = preload("res://scripts/ServerLink.gd")
 const BattleReportBrowser = preload("res://scripts/ui/BattleReportBrowser.gd")
 const EndlessFlow = preload("res://scripts/screens/EndlessFlow.gd")
+const RunRecords = preload("res://scripts/run/RunRecords.gd")
 const ExpeditionFlow = preload("res://scripts/screens/ExpeditionFlow.gd")
 
 ## Account for the confirmed result before any visual delay; keep the reward
@@ -31,11 +32,25 @@ static func _record_result(main, winner: int) -> Dictionary:
 	var unlocked: Array = []
 	if not main.result_recorded and not main.network.client_is_spectator:
 		main.result_recorded = true
-		if main.local_ai_mode:
+		if main.local_ai_mode and main.cheats_used:
+			# A battle with cheats counts nowhere: no records, stars, statistics, achievements or titles.
+			main.local_recorder = null
+			if not main.expedition_run.is_empty():
+				ExpeditionFlow.record(main, winner)
+			if not main.endless_run.is_empty():
+				main.endless_run.outcome = {"waves": main.endless_run.director.waves_cleared(), "seconds": float(main.endless_run.seconds_before) + float(main.local_model.elapsed), "best": false, "best_wave": int(RunRecords.endless(main.save_data).best_wave)}
+				RunRecords.endless(main.save_data).saved = {}
+				EndlessFlow._write_log({})
+		elif main.local_ai_mode:
+			var replay: Dictionary = {}
 			if main.local_recorder != null and is_instance_valid(main.local_model):
 				if main.local_recorder.ticks > 0:
-					main._store_battle_replay(main.local_recorder.finish(main.local_model), "stage%d" % main.current_ai_stage)
+					replay = main.local_recorder.finish(main.local_model)
+					main._store_battle_replay(replay, "stage%d" % main.current_ai_stage)
 				main.local_recorder = null
+			# Wins the server can re-simulate earn titles (TitleFlow); nothing happens without a confirmed account.
+			if not replay.is_empty() and winner == main.own_side and (main.campaign_mode or not main.daily_challenge.is_empty()):
+				main.account.verify("campaign" if main.campaign_mode else "daily", JSON.stringify(replay))
 			if not main.endless_run.is_empty():
 				EndlessFlow.record(main)
 			if not main.expedition_run.is_empty():
@@ -54,8 +69,8 @@ static func _record_result(main, winner: int) -> Dictionary:
 			main.save_data.stats.online_wins += 1 if winner == main.own_side else 0
 			main.save_data.stats.online_losses += 1 if winner != main.own_side and winner != 2 else 0
 			main.save_data.stats.online_draws += 1 if winner == 2 else 0
-		unlocked = _judge_achievements(main, winner)
-		var queued := _share_result(main, winner)
+		unlocked = _judge_achievements(main, winner) if not main.cheats_used else []
+		var queued := _share_result(main, winner) if not main.cheats_used else false
 		if main._save_profile() and queued:
 			ServerLink.run(main, main._flush_shared_results, Callable(), false)
 	main.result_presentation = {"winner": winner, "goals_before": goals_before,

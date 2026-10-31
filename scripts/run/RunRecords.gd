@@ -65,7 +65,7 @@ static func sanitize_saved(raw: Variant) -> Dictionary:
 		return {}
 	var boons: Array = raw.boons.filter(func(id): return RunBoons.RELICS.has(id)).slice(0, 200)
 	return {"wave": wave, "base_hp": minf(float(base), 100000.0), "units": raw.units.duplicate(), "structures": raw.structures.duplicate(),
-		"boons": boons, "seed": _count(raw.get("seed"), 2147483647), "seconds": float(_count(roundf(float(raw.get("seconds", 0.0))) if (raw.get("seconds") is int or raw.get("seconds") is float) and is_finite(float(raw.seconds)) else 0))}
+		"boons": boons, "seed": _count(raw.get("seed"), 2147483647), "cheated": bool(raw.get("cheated", false)) if raw.get("cheated", false) is bool else false, "seconds": float(_count(roundf(float(raw.get("seconds", 0.0))) if (raw.get("seconds") is int or raw.get("seconds") is float) and is_finite(float(raw.seconds)) else 0))}
 
 ## Records a finished endless run; returns true when it set a new best (more waves, then a longer stand).
 static func record_endless(data: Dictionary, waves_cleared: int, seconds: float) -> bool:

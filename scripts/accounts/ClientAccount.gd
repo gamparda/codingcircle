@@ -10,6 +10,7 @@ signal changed
 const GoogleIdToken = preload("res://scripts/accounts/GoogleIdToken.gd")
 const AccountStore = preload("res://scripts/accounts/AccountStore.gd")
 const DesktopLogin = preload("res://scripts/accounts/DesktopLogin.gd")
+const Titles = preload("res://scripts/accounts/Titles.gd")
 
 const PLUGIN := "KeepfallSignIn"
 const PRIVACY_URL := "https://gampa.xyz/privacy_policy.html"
@@ -44,6 +45,14 @@ var verified_at := 0
 var cloud_revision := 0
 var cloud_hash := ""
 var message := ""
+## Titles (TitleFlow): the account's role ("" | "super" | "hyper", saved so cheats work offline), owned title
+## ids, the worn one, the super accounts (hyper only) and titles earned since the player last looked.
+var role := ""
+var titles: Array = []
+var worn := ""
+var supers: Array = []
+var new_titles: Array = []
+var title_message := ""
 var busy_elapsed := 0.0
 var _busy_return := "guest"
 var _was_ready := false
@@ -65,6 +74,7 @@ func setup(network_node, sign_in_plugin: Object = null) -> void:
 	network.account_desktop_client_received.connect(func(client_id): desktop_client_id = client_id)
 	network.account_nonce_received.connect(_on_nonce)
 	network.account_result_received.connect(_on_result)
+	network.title_state_received.connect(_on_title_state)
 	network.server_ready.connect(resume)
 	_load()
 
@@ -186,6 +196,11 @@ func forget() -> void:
 	verified_at = 0
 	cloud_revision = 0
 	cloud_hash = ""
+	role = ""
+	titles = []
+	worn = ""
+	supers = []
+	new_titles = []
 	state = "guest"
 	if FileAccess.file_exists(save_path):
 		DirAccess.remove_absolute(save_path)
@@ -261,6 +276,7 @@ func _on_result(result: Dictionary) -> void:
 			elif error.is_empty():
 				_save_session(String(result.session), String(result.nickname))
 				_finish("signed_in", "%s 님으로 로그인했습니다." % nickname)
+				network.send_title_state_request()
 			else:
 				_finish("needs_nickname" if String(result.action) == "create" and error in ["nickname_taken", "invalid_nickname"] else "guest", _error_text(error))
 		"resume":
@@ -271,6 +287,7 @@ func _on_result(result: Dictionary) -> void:
 				verified = true
 				_save_session(session, String(result.nickname) if not String(result.nickname).is_empty() else nickname)
 				_finish("signed_in", "")
+				network.send_title_state_request()
 			else:
 				forget()
 				_finish("guest", "로그인이 만료되었습니다. 다시 로그인하세요.")
@@ -288,6 +305,58 @@ func _on_result(result: Dictionary) -> void:
 				_finish("guest", "계정을 삭제했습니다.")
 			else:
 				_finish("signed_in", _error_text(error))
+
+# ---------- titles and roles ----------
+
+func can_cheat() -> bool:
+	return is_signed_in() and Titles.can_cheat(role)
+
+func wear(title: String) -> bool:
+	return _title_request(network.send_wear_title(title) if online else false)
+
+func appoint(nickname_text: String, enabled: bool) -> bool:
+	if role != "hyper" or nickname_text.strip_edges().is_empty():
+		return false
+	return _title_request(network.send_appoint(nickname_text.strip_edges(), enabled) if online else false)
+
+func cheat_titles() -> bool:
+	return _title_request(network.send_cheat_titles() if online and can_cheat() else false)
+
+## Sends an offline feat for the server to verify (quietly does nothing without a confirmed account).
+func verify(kind: String, text: String) -> bool:
+	return online and network.send_title_verify(kind, text)
+
+func _title_request(sent: bool) -> bool:
+	title_message = "" if sent else "서버에 연결된 계정에서만 할 수 있습니다."
+	changed.emit()
+	return sent
+
+func _on_title_state(data: Dictionary) -> void:
+	if not is_signed_in():
+		return
+	var role_changed := String(data.role) != role
+	role = String(data.role)
+	titles = data.owned.duplicate()
+	worn = String(data.worn)
+	supers = data.supers.duplicate()
+	for id in data.granted:
+		if not new_titles.has(id):
+			new_titles.append(String(id))
+	title_message = _title_error_text(String(data.error), String(data.verified)) if not String(data.error).is_empty() else ""
+	if role_changed:
+		save()
+	changed.emit()
+
+static func _title_error_text(error: String, verified_kind: String) -> String:
+	if not verified_kind.is_empty():
+		return {"mismatch": "서버에서 전투를 다시 계산한 결과가 달라 칭호 기록에 넣지 못했습니다.", "expired": "지난 도전이라 칭호 기록에 넣지 못했습니다.", "busy": "다른 기록을 확인하는 중입니다. 다음 판에 다시 보냅니다."}.get(error, "칭호 기록을 확인하지 못했습니다.")
+	return {
+		"not_signed_in": "로그인한 계정만 칭호를 쓸 수 있습니다.",
+		"not_owned": "아직 얻지 못한 칭호입니다.",
+		"forbidden": "권한이 없습니다.",
+		"no_account": "그 닉네임의 계정이 없습니다.",
+		"busy": "다른 기록을 확인하는 중입니다. 잠시 후 다시 시도하세요.",
+	}.get(error, "요청을 처리하지 못했습니다.")
 
 static func _error_text(error: String) -> String:
 	return {
@@ -353,7 +422,7 @@ func save() -> bool:
 	var file := FileAccess.open(save_path, FileAccess.WRITE)
 	if file == null:
 		return false
-	file.store_string(JSON.stringify({"session": session, "nickname": nickname, "verified_at": verified_at, "cloud_revision": cloud_revision, "cloud_hash": cloud_hash}))
+	file.store_string(JSON.stringify({"session": session, "nickname": nickname, "verified_at": verified_at, "cloud_revision": cloud_revision, "cloud_hash": cloud_hash, "role": role}))
 	return true
 
 func _load() -> void:
@@ -372,3 +441,5 @@ func _load() -> void:
 	if (data.get("cloud_revision") is float or data.get("cloud_revision") is int) and data.get("cloud_hash") is String:
 		cloud_revision = maxi(0, int(data.cloud_revision))
 		cloud_hash = String(data.cloud_hash)
+	if String(data.get("role", "")) in Titles.ROLES:
+		role = String(data.get("role", ""))

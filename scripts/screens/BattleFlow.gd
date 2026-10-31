@@ -24,6 +24,8 @@ static func _reset_result(main) -> void:
 	main.curve_next_elapsed = 0.0
 	main.endless_run = {}
 	main.expedition_run = {}
+	main.cheats_used = false
+	main.cheat_flags = {}
 
 static func _start_local_ai_battle(main, stage: int = 1, reuse_deck: bool = false) -> void:
 	main.ghost_context = {}
@@ -193,6 +195,7 @@ static func _on_battlefield_clicked(main, world_x: float) -> void:
 		if not main.campaign_mode: main.practice.refill(main.local_model,main.own_side)
 		if main.local_model.place_structure(main.own_side, kind, world_x):
 			if main.local_recorder != null: main.local_recorder.on_place(main.own_side, kind, world_x)
+			if not main.endless_run.is_empty(): preload("res://scripts/screens/EndlessFlow.gd").log_command(main, {"c": "place", "k": kind, "x": world_x})
 			main._show_placement_status(Localization.text("건설 완료"))
 			main.battle_view.selected_structure = ""
 			main._refresh_structure_selection()
@@ -481,6 +484,7 @@ static func _purchase_unit(main, kind: String) -> void:
 		if not main.campaign_mode: main.practice.refill(main.local_model,main.own_side)
 		accepted = main.local_model.spawn_unit(main.own_side,kind)
 		if accepted and main.local_recorder != null: main.local_recorder.on_spawn(main.own_side, kind)
+		if accepted and not main.endless_run.is_empty(): preload("res://scripts/screens/EndlessFlow.gd").log_command(main, {"c": "spawn", "k": kind})
 		if accepted: main._tutorial_advance(0)
 	else:
 		main.network.send_spawn(kind); accepted = true

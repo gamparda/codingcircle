@@ -13,6 +13,10 @@ const RunBoons = preload("res://scripts/run/RunBoons.gd")
 const RunRecords = preload("res://scripts/run/RunRecords.gd")
 
 const SPEEDS := [1.0, 2.0, 4.0, 8.0]
+## The run's command log (TitleVerifier's endless format), kept on disk at every save point so a resumed run
+## still proves its whole length. Runs of at least LOG_MIN_WAVES waves go to the server for titles.
+static var log_path := "user://endless_log.json"
+const LOG_MIN_WAVES := 10
 ## Simulation steps per frame at most, so a slow frame never snowballs.
 const MAX_STEPS := 16
 
@@ -66,14 +70,49 @@ static func start(main, saved: Dictionary = {}) -> void:
 	director.setup(model)
 	if not saved.is_empty():
 		model.base_hp[0] = minf(float(model.base_max_hp[0]), float(saved.base_hp))
-	main.endless_run = {"director": director, "speed": 1.0, "seconds_before": float(saved.get("seconds", 0.0)), "seed": run_seed, "shown_wave": 0, "outcome": {}}
+	main.endless_run = {"director": director, "speed": 1.0, "seconds_before": float(saved.get("seconds", 0.0)), "seed": run_seed, "shown_wave": 0, "outcome": {},
+		"log": _open_log(saved, run_seed, units, structures, float(model.base_hp[0]))}
 	main.local_model = model
 	main.local_ai = director
 	main.battle_preset = {"name": Localization.text("무한 방어"), "units": units.duplicate(), "structures": structures.duplicate()}
 	main._build_battle_screen()
 	main.local_step_accumulator = 0.0
 	main.local_recorder = null
+	main.cheats_used = bool(saved.get("cheated", false))
 	main._on_snapshot(model.snapshot())
+
+## A new run starts a fresh log; a resume continues the saved log if it ends exactly at this save point.
+static func _open_log(saved: Dictionary, run_seed: int, units: Array, structures: Array, base_hp: float) -> Dictionary:
+	var start := {"wave": int(saved.get("wave", 1)), "boons": saved.get("boons", []).duplicate(), "base_hp": base_hp if saved.is_empty() else float(saved.base_hp),
+		"seed": run_seed, "units": units.duplicate(), "structures": structures.duplicate()}
+	var segment := {"start": start, "commands": [], "choices": [], "end": "", "ticks": 0}
+	if saved.is_empty():
+		_write_log({})
+		return {"segments": [segment]}
+	var stored = JSON.parse_string(FileAccess.get_file_as_string(log_path)) if FileAccess.file_exists(log_path) else null
+	if not stored is Dictionary or not stored.get("segments") is Array or stored.segments.is_empty() or String(stored.segments.back().get("end", "")) != "save":
+		return {} # no proof of the earlier waves: this run plays on without one
+	stored.segments.append(segment)
+	return stored
+
+static func _write_log(data: Dictionary) -> void:
+	if data.is_empty():
+		if FileAccess.file_exists(log_path): DirAccess.remove_absolute(log_path)
+		return
+	var file := FileAccess.open(log_path, FileAccess.WRITE)
+	if file != null:
+		file.store_string(JSON.stringify(data))
+
+static func _segment(main) -> Dictionary:
+	var log: Dictionary = main.endless_run.get("log", {})
+	return {} if log.is_empty() else log.segments.back()
+
+## A player command at the current tick (BattleFlow calls this after the model accepted it).
+static func log_command(main, entry: Dictionary) -> void:
+	var segment := _segment(main)
+	if not segment.is_empty() and segment.commands.size() < 20000:
+		entry["t"] = int(segment.ticks)
+		segment.commands.append(entry)
 
 ## The battle loop's step for this mode (instead of the fixed-rate step of recorded battles).
 static func step(main, delta: float) -> void:
@@ -89,6 +128,8 @@ static func step(main, delta: float) -> void:
 		director.update(model, tick)
 		model.tick(tick)
 		main.local_step_accumulator -= tick
+		var segment := _segment(main)
+		if not segment.is_empty(): segment.ticks = int(segment.ticks) + 1
 	if director.awaiting_choice:
 		main.local_step_accumulator = 0.0
 
@@ -184,12 +225,19 @@ static func choose(main, id: String) -> void:
 	var director = run.director
 	var model: BattleModel = main.local_model
 	director.choose(model, id)
+	var segment := _segment(main)
+	if not segment.is_empty(): segment.choices.append({"t": int(segment.ticks), "id": id})
 	main._dismiss_action_overlay()
 	main.local_battle_skip_delta = true
 	# A break is a safe point: leaving the app now resumes from the next wave.
 	RunRecords.endless(main.save_data).saved = {"wave": director.wave + 1, "boons": director.boons.duplicate(), "base_hp": float(model.base_hp[0]),
 		"units": model.unit_decks[0].duplicate(), "structures": model.structure_decks[0].duplicate(), "seed": int(run.seed),
-		"seconds": float(run.seconds_before) + model.elapsed}
+		"seconds": float(run.seconds_before) + model.elapsed, "cheated": main.cheats_used}
+	if not segment.is_empty():
+		# On disk the open segment ends at this save point, where a resume would pick it up.
+		var copy: Dictionary = run.log.duplicate(true)
+		copy.segments.back().end = "save"
+		_write_log(copy)
 	main._save_profile()
 	main._refresh_purchase_buttons(main.latest_resources)
 
@@ -203,6 +251,11 @@ static func record(main) -> Dictionary:
 	var cleared: int = director.waves_cleared()
 	var best := RunRecords.record_endless(main.save_data, cleared, seconds)
 	run.outcome = {"waves": cleared, "seconds": seconds, "best": best, "best_wave": int(RunRecords.endless(main.save_data).best_wave)}
+	var log: Dictionary = run.get("log", {})
+	if not log.is_empty() and cleared >= LOG_MIN_WAVES:
+		log.segments.back().end = "end"
+		main.account.verify("endless", JSON.stringify(log))
+	_write_log({})
 	return run.outcome
 
 static func result_title(outcome: Dictionary) -> String:

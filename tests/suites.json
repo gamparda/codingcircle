@@ -27,7 +27,8 @@
     "tests/run_modifiers_test.gd",
     "tests/battle_performance_test.gd",
     "tests/guard_and_swamp_test.gd",
-    "tests/pack_patcher_test.gd"
+    "tests/pack_patcher_test.gd",
+    "tests/titles_test.gd"
   ],
   "network": [
     "tests/transport_security_test.gd",
