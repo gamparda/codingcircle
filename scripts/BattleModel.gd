@@ -142,6 +142,8 @@ var _needy: Array = [[], []]
 var first_struck: Dictionary = {}
 ## Cheats switched on per side (super accounts; see Cheats.gd): "resources", "cooldowns", "castle".
 var cheats: Array = [{}, {}]
+## Stats a cheat toggle replaced (unit id -> {"damage" | "speed": original}), restored when it is switched off.
+var cheat_saved: Dictionary = {}
 ## Seconds until each castle may shoot again.
 var castle_cooldowns: Array = [CASTLE_INTERVAL, CASTLE_INTERVAL]
 const MAX_FALLEN := 40
@@ -301,7 +303,7 @@ func configure_deck(side: int, selected_units: Array, selected_structures: Array
 func spawn_unit(side: int, kind: String) -> bool:
 	if winner != -1 or side < 0 or side > 1 or side_full(side) or not UNIT_STATS.has(kind) or not unit_decks[side].has(kind) or banned[side].has(kind):
 		return false
-	if not field_limit_error(units, side, kind).is_empty():
+	if not field_limit_error(units, side, kind).is_empty() and not cheats[side].has("no_cap"):
 		return false
 	var stats: Dictionary = UNIT_STATS[kind]
 	var stat_scale := float(campaign_bonuses(int(campaign_levels[side])).stat_scale)
@@ -1252,6 +1254,8 @@ func _tick_turrets(delta: float, pending_attacks: Array) -> void:
 func _apply_cheats() -> void:
 	for side in 2:
 		var on: Dictionary = cheats[side]
+		if on.is_empty():
+			continue
 		if on.has("resources"):
 			resources[side] = resource_capacity(side)
 		if on.has("cooldowns"):
@@ -1260,6 +1264,20 @@ func _apply_cheats() -> void:
 			spell_uses[side].clear()
 		if on.has("castle"):
 			base_hp[side] = base_max_hp[side]
+		for unit in units:
+			if float(unit.hp) <= 0.0:
+				continue
+			if int(unit.side) == side:
+				if on.has("immortal"):
+					unit.hp = float(unit.max_hp)
+				for stat in (["damage"] if on.has("one_hit") else []) + (["speed"] if on.has("haste") else []):
+					var saved: Dictionary = cheat_saved.get(unit.id, {})
+					if not saved.has(stat):
+						saved[stat] = unit[stat]
+						cheat_saved[unit.id] = saved
+						unit[stat] = 100000.0 if stat == "damage" else float(unit.speed) * 2.0
+			elif on.has("freeze"):
+				unit["frozen_remaining"] = maxf(float(unit.get("frozen_remaining", 0.0)), 0.2)
 
 ## Castles shoot the nearest enemy unit within CASTLE_RANGE (not structures, not through nothing: a castle
 ## stands behind every wall). A base that cannot fall (endless defense's wave side) has no castle.
