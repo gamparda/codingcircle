@@ -519,5 +519,18 @@ const HISTORY := [
 	}
 ]
 
+## Words that mark a change as being about installing the GitHub APK; store builds leave those lines out.
+const APK_WORDS := ["APK", "업데이트 설치", "앱 설치 허용"]
+
 static func entries() -> Array:
-	return HISTORY.duplicate(true)
+	return entries_for(OS.has_feature("onestore"))
+
+## The history; for a store build, without the lines about installing APKs (the store installs the app).
+static func entries_for(store_build: bool) -> Array:
+	var history: Array = HISTORY.duplicate(true)
+	if not store_build:
+		return history
+	for entry in history:
+		var kept: Array = entry.changes.filter(func(line): return not APK_WORDS.any(func(word): return String(line).contains(word)))
+		entry.changes = kept if not kept.is_empty() else ["앱 안정성을 개선했습니다."]
+	return history

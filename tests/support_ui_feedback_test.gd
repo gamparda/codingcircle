@@ -195,6 +195,8 @@ func run() -> void:
 	var versions: Array = history.map(func(entry): return entry.version)
 	check(versions.size() == expected.size() and expected.all(func(version): return versions.count(version) == 1), "every release since 0.3.3 has exactly one patch-note entry")
 	check(history[0].version == "v0.47.1" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
+	var store_history: Array = PatchNotes.entries_for(true)
+	check(store_history.size() == history.size() and not store_history.any(func(entry): return entry.changes.any(func(line): return String(line).contains("APK"))), "store builds show every release without the APK install lines")
 	main.campaign_mode = false
 	var saved_progress: Dictionary = main.save_data.duplicate(true)
 	main._start_local_ai_battle(8)
