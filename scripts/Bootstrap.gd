@@ -7,7 +7,7 @@ const BUILD_INFO_PATH := "res://build_info.json"
 const SAVE_PATH := "user://catwar_save.json"
 const UPDATE_URL := "https://gamparda.github.io/codingcircle/update.json"
 const OFFICIAL_CONTENT_PREFIX := "https://gamparda.github.io/codingcircle/"
-## The ONE store build (export preset "Android OneStore", feature tag "onestore") updates its app through ONE
+## The ONE store build (export preset "Android-OneStore", feature tag "onestore") updates its app through ONE
 ## store instead of the APK published here; game data still updates in the game as everywhere else.
 const ONESTORE_PRODUCT_ID := "0001011694"
 const CONTENT_DIR := "user://content"
