@@ -208,6 +208,10 @@ static func _show_result(main, winner: int) -> void:
 	var details := Label.new()
 	details.name = "ResultDetails"
 	details.text = main.result_details(main.current_snapshot, main.own_side, String(main.battle_preset.get("name", "")))
+	if not endless_outcome.is_empty():
+		# The whole run, not the stretch since it was last resumed.
+		var run_seconds := int(endless_outcome.seconds)
+		details.text = Localization.text("최고 기록 웨이브 %d  ·  버틴 시간 %d:%02d\n사용 덱: %s") % [int(endless_outcome.best_wave), run_seconds / 60, run_seconds % 60, String(main.battle_preset.get("name", ""))]
 	details.position = Vector2(32, 193)
 	details.size = Vector2(516, 54)
 	details.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -216,7 +220,10 @@ static func _show_result(main, winner: int) -> void:
 	inner.add_child(details)
 	if main.current_snapshot.has("battle_report"):
 		var report_button = main._styled_button("전투 요약",Color("#7a6248"))
-		report_button.name = "BattleReportButton"; report_button.position = Vector2(395,25); report_button.size = Vector2(155,44)
+		# A small corner button above the title band, so a long title ("웨이브 28 돌파") never runs under it.
+		report_button.text = "📊 " + Localization.text("요약"); report_button.tooltip_text = Localization.text("전투 요약")
+		report_button.add_theme_font_size_override("font_size", 14)
+		report_button.name = "BattleReportButton"; report_button.position = Vector2(452,10); report_button.size = Vector2(110,40)
 		report_button.pressed.connect(main._show_battle_report); inner.add_child(report_button)
 	if main.local_ai_mode and main.campaign_mode:
 		var growth := Label.new()
@@ -232,7 +239,8 @@ static func _show_result(main, winner: int) -> void:
 	if not main.local_ai_mode:
 		inner.add_child(_match_strip(main, winner, Vector2(28, 252), 524))
 	var notes_y := 300.0 + strip_extra
-	var summary_text := "" if main.network.client_is_spectator else String(presentation.summary)
+	# Coaching lines judge a won or lost battle; an endless run always ends at the base, so none fits it.
+	var summary_text := "" if main.network.client_is_spectator or not endless_outcome.is_empty() else String(presentation.summary)
 	if not summary_text.is_empty():
 		var summary_label := Label.new()
 		summary_label.name = "MatchSummaryLine"

@@ -142,5 +142,6 @@ static func result_lines(save: Dictionary, before: Array) -> Array:
 		lines.append({"text": "목표 달성 ▸ %s" % Localization.text(String(entry.title)), "tone": "gold"})
 	var next := next_goal(save)
 	if not next.is_empty():
-		lines.append({"text": "다음 추천 ▸ %s  ·  %s" % [Localization.text(String(next.title)), Localization.text(String(next.go))], "tone": "muted"})
+		var where := "" if String(next.go) == String(next.title) else "  ·  " + Localization.text(String(next.go))
+		lines.append({"text": "다음 추천 ▸ %s%s" % [Localization.text(String(next.title)), where], "tone": "muted"})
 	return lines

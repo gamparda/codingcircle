@@ -267,6 +267,8 @@ static func _on_snapshot(main, data: Dictionary) -> void:
 	main.blue_hp_label.text = "%d / %d" % [int(bases[0]), int(maxima[0])]
 	main.red_hp_label.text = "%d / %d" % [int(bases[1]), int(maxima[1])]
 	var elapsed_seconds := int(data.get("elapsed", 0.0))
+	if main.local_ai_mode and not main.endless_run.is_empty():
+		elapsed_seconds += int(main.endless_run.get("seconds_before", 0.0)) # the whole run, across resumes
 	main.timer_label.text = "%02d:%02d" % [elapsed_seconds / 60, elapsed_seconds % 60]
 	main._update_base_warning(data)
 	var winner: int = int(data.get("winner", -1))
