@@ -7,6 +7,9 @@ const BUILD_INFO_PATH := "res://build_info.json"
 const SAVE_PATH := "user://catwar_save.json"
 const UPDATE_URL := "https://gamparda.github.io/codingcircle/update.json"
 const OFFICIAL_CONTENT_PREFIX := "https://gamparda.github.io/codingcircle/"
+## The ONE store build (export preset "Android OneStore", feature tag "onestore") updates its app through ONE
+## store instead of the APK published here; game data still updates in the game as everywhere else.
+const ONESTORE_PRODUCT_ID := "0001011694"
 const CONTENT_DIR := "user://content"
 const ACTIVE_PACK := CONTENT_DIR + "/active.pck"
 const PREVIOUS_PACK := CONTENT_DIR + "/previous.pck"
@@ -128,9 +131,13 @@ func _build_interface() -> void:
 	offline_button.pressed.connect(_launch_game)
 	buttons.add_child(offline_button)
 	apk_button = Button.new()
-	apk_button.text = Localization.text("APK 다운로드")
+	apk_button.text = Localization.text("원스토어에서 업데이트") if store_build() else Localization.text("APK 다운로드")
 	apk_button.visible = false
-	apk_button.pressed.connect(func(): OS.shell_open(String(manifest.get("android_apk_url", ""))))
+	apk_button.pressed.connect(func():
+		if store_build():
+			open_store_page()
+		else:
+			OS.shell_open(String(manifest.get("android_apk_url", ""))))
 	buttons.add_child(apk_button)
 
 func _check_for_update() -> void:
@@ -379,7 +386,7 @@ func _show_recoverable_error(message: String) -> void:
 
 func _show_apk_update_required() -> void:
 	state = "apk_required"
-	status_label.text = Localization.text("APK 업데이트가 필요합니다.\n새 APK를 설치한 뒤 다시 실행해 주세요.")
+	status_label.text = Localization.text("앱 업데이트가 필요합니다.\n원스토어에서 업데이트한 뒤 다시 실행해 주세요.") if store_build() else Localization.text("APK 업데이트가 필요합니다.\n새 APK를 설치한 뒤 다시 실행해 주세요.")
 	progress_bar.value = 0.0
 	retry_button.visible = false
 	offline_button.visible = false
@@ -404,6 +411,14 @@ func _write_json_atomic(path: String, data: Dictionary) -> bool:
 	file.close()
 	DirAccess.remove_absolute(absolute_path)
 	return DirAccess.rename_absolute(temporary_path, absolute_path) == OK
+
+static func store_build() -> bool:
+	return OS.has_feature("onestore")
+
+## ONE store's own app on the product page, or its web shop when the app is missing.
+static func open_store_page() -> void:
+	if OS.shell_open("onestore://common/product/" + ONESTORE_PRODUCT_ID) != OK:
+		OS.shell_open("https://webshop.onestore.net/title/" + ONESTORE_PRODUCT_ID)
 
 static func is_trusted_content_url(url: String) -> bool:
 	return url.begins_with(OFFICIAL_CONTENT_PREFIX) and url.ends_with(".pck")

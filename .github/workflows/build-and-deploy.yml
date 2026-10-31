@@ -284,6 +284,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "APK package inspection failed" }
           $manifest = & (Join-Path $buildTools.FullName "aapt2.exe") dump xmltree --file AndroidManifest.xml dist/CatWar.apk | Out-String
           if ($manifest -notmatch "org\.godotengine\.plugin\.v2\.KeepfallSignIn") { throw "Sign-in plugin missing from the APK" }
+          # The ONE store build: the same app with the "onestore" feature tag (app updates go through ONE store).
+          $exported = $false
+          for ($attempt = 1; $attempt -le 3 -and -not $exported; $attempt++) {
+            $export = Start-Process -FilePath $env:GODOT_CONSOLE -ArgumentList "--headless", "--path", ".", "--export-release", "Android OneStore", "dist/CatWar-onestore.apk" -NoNewWindow -PassThru
+            $null = $export.Handle
+            if (-not $export.WaitForExit(1200000)) {
+              & taskkill /T /F /PID $export.Id | Out-Null
+              throw "ONE store APK export timed out"
+            }
+            if ($export.ExitCode -eq 0 -and (Test-Path dist/CatWar-onestore.apk)) { $exported = $true } else { Start-Sleep -Seconds 60 }
+          }
+          if (-not $exported) { throw "ONE store APK export failed" }
+          & (Join-Path $buildTools.FullName "apksigner.bat") verify --print-certs dist/CatWar-onestore.apk
+          if ($LASTEXITCODE -ne 0) { throw "ONE store APK signature verification failed" }
           & $env:GODOT_CONSOLE --headless --path . --export-pack Android dist/CatWarContent.pck
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWarContent.pck)) { throw "Android content pack export failed" }
 
@@ -292,6 +306,7 @@ jobs:
           name: android-build
           path: |
             dist/CatWar.apk
+            dist/CatWar-onestore.apk
             dist/CatWarContent.pck
           if-no-files-found: error
           retention-days: 1
@@ -318,7 +333,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force site | Out-Null
-          foreach ($file in @("CatWarSetup.exe", "CatWar.apk", "CatWarContent.pck", "CatWarDesktop.pck")) {
+          foreach ($file in @("CatWarSetup.exe", "CatWar.apk", "CatWar-onestore.apk", "CatWarContent.pck", "CatWarDesktop.pck")) {
             Copy-Item "dist/$file" "site/$file"
           }
           $sha = (Get-FileHash site/CatWarSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()

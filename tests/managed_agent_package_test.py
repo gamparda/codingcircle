@@ -15,7 +15,7 @@ class ManagedAgentPackageTests(unittest.TestCase):
     def test_no_installer_payload_can_enter_game_or_android_packs(self):
         presets = (ROOT / "export_presets.cfg").read_text(encoding="utf-8")
         filters = re.findall(r'^exclude_filter="([^"]+)"', presets, re.MULTILINE)
-        self.assertEqual(len(filters), 2)
+        self.assertEqual(len(filters), 3) # Windows, Android and the ONE store Android build
         for excluded in filters:
             for directory in ("installer/**", "tools/**", "dist/**", "builds/**"):
                 self.assertIn(directory, excluded.split(","))
