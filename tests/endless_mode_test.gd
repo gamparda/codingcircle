@@ -175,6 +175,21 @@ func run() -> void:
 		rally.tick(dt)
 	check(absf(float(tank.x) - WaveDirector.rally_line()) < 0.01, "with the wave beaten the tank falls back to the rally line (%.0f)" % float(tank.x))
 
+	# An archer that stops right at the zone's edge is still in reach of melee that is not a tank.
+	var edge := BattleModel.new()
+	edge.configure_deck(0, ["paladin", "archer", "healer", "swordsman"], ["wall", "turret", "generator", "swamp"])
+	var edge_director := WaveDirector.new(11)
+	edge_director.setup(edge)
+	edge.resources[0] = 999.0
+	edge.spawn_unit(0, "paladin")
+	edge.units.append({"id": 8100, "side": 1, "kind": "archer", "hp": 8.0, "max_hp": 8.0, "damage": 1.0, "interval": 1.5, "speed": 0.0, "range": 280.0, "x": BattleModel.FIELD_RIGHT - WaveDirector.SHELTER_DEPTH - 1.0, "cooldown": 0.0})
+	var edge_archer: Dictionary = edge.units.back()
+	for i in 30 * 60:
+		if float(edge_archer.hp) <= 0.0: break
+		edge_director._steer_defenders(edge)
+		edge.tick(dt)
+	check(float(edge_archer.hp) <= 0.0, "a paladin reaches an archer shooting from the zone's edge")
+
 	# Castles shoot enemies that come close, harder when hurt; endless waves have no castle.
 	var siege := BattleModel.new()
 	siege.units.append({"id": 7000, "side": 1, "kind": "swordsman", "hp": 500.0, "max_hp": 500.0, "damage": 0.0, "interval": 99.0, "speed": 0.0, "range": 1.0, "x": BattleModel.FIELD_LEFT + BattleModel.CASTLE_RANGE - 10.0, "cooldown": 99.0})

@@ -25,8 +25,6 @@ const MUSTER_LIMIT := 12.0
 const PRESSURE_SECONDS := 50.0
 ## Depth of the spawn zone at the wave side's edge.
 const SHELTER_DEPTH := 160.0
-## Defenders never step closer than this to the spawn zone.
-const SHELTER_GAP := 20.0
 ## Where defenders wait between waves: this share of the field out from their own castle.
 const RALLY_SHARE := 0.4
 ## The same boon can be taken this many times.
@@ -86,9 +84,10 @@ func setup(model: BattleModel) -> void:
 static func rally_line() -> float:
 	return BattleModel.FIELD_LEFT + (BattleModel.FIELD_RIGHT - BattleModel.FIELD_LEFT) * RALLY_SHARE
 
-## The farthest the defenders go: just short of the spawn zone.
+## The farthest the defenders go: the spawn zone's edge, so even short-reach melee hits a wave unit that
+## stands just outside it (an archer shooting from there must not be out of everyone's reach).
 static func front_line() -> float:
-	return BattleModel.FIELD_RIGHT - SHELTER_DEPTH - SHELTER_GAP
+	return BattleModel.FIELD_RIGHT - SHELTER_DEPTH
 
 static func is_boss_wave(number: int) -> bool:
 	return number > 0 and number % BOSS_EVERY == 0
@@ -150,6 +149,8 @@ func update(model: BattleModel, delta: float) -> void:
 		_march(model)
 
 ## Defenders go out to the spawn zone while marching enemies are on the field, otherwise back to the rally line.
+## They keep formation (tanks in front, ranged behind) only while they wait; in the fight every unit may close
+## in, or melee units behind the tanks could never reach enemies at the edge.
 func _steer_defenders(model: BattleModel) -> void:
 	var engaged := false
 	for unit in model.units:
@@ -157,6 +158,7 @@ func _steer_defenders(model: BattleModel) -> void:
 			engaged = true
 			break
 	model.advance_limit[1 - WAVE_SIDE] = front_line() if engaged else rally_line()
+	model.formation[1 - WAVE_SIDE] = not engaged
 
 func _march(model: BattleModel) -> void:
 	marched = true
