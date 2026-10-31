@@ -2,7 +2,7 @@ class_name UpdateManager
 extends Node
 
 const Localization = preload("res://scripts/Localization.gd")
-const Bootstrap = preload("res://scripts/Bootstrap.gd")
+const ContentUpdater = preload("res://scripts/ContentUpdater.gd")
 const PackPatcher = preload("res://scripts/PackPatcher.gd")
 
 signal update_started(version: String)
@@ -144,18 +144,18 @@ func accept_manifest(body: PackedByteArray) -> bool:
 ## against the published desktop pack. Only where the launcher would actually swap packs.
 func content_pack_is_newer(candidate: Dictionary) -> bool:
 	var args := OS.get_cmdline_user_args()
-	if not Bootstrap.content_updates_wanted(OS.get_name(), OS.has_feature("release"), DisplayServer.get_name() == "headless", args):
+	if not ContentUpdater.content_updates_wanted(OS.get_name(), OS.has_feature("release"), DisplayServer.get_name() == "headless", args):
 		return false
-	if not Bootstrap.validate_desktop_manifest(candidate):
+	if not ContentUpdater.validate_desktop_manifest(candidate):
 		return false
-	return Bootstrap.should_install_content(String(candidate.desktop_pack_version), current_version_content, String(candidate.desktop_pack_commit), current_commit)
+	return ContentUpdater.should_install_content(String(candidate.desktop_pack_version), current_version_content, String(candidate.desktop_pack_commit), current_commit)
 
 ## The Windows dedicated server runs the game data its executable shipped with (it never loads a pack), so newer
 ## data reaches it by reinstalling: every published installer carries the latest data.
 static func server_reinstall_wanted(os_name: String, args: PackedStringArray, candidate: Dictionary, content_version: String, commit: String) -> bool:
-	if os_name != "Windows" or not args.has("--server") or not Bootstrap.validate_desktop_manifest(candidate):
+	if os_name != "Windows" or not args.has("--server") or not ContentUpdater.validate_desktop_manifest(candidate):
 		return false
-	return Bootstrap.should_install_content(String(candidate.desktop_pack_version), content_version, String(candidate.desktop_pack_commit), commit)
+	return ContentUpdater.should_install_content(String(candidate.desktop_pack_version), content_version, String(candidate.desktop_pack_commit), commit)
 
 ## True from the moment a newer build is known until the restart; the dedicated server drains meanwhile.
 func update_pending() -> bool:
@@ -173,7 +173,7 @@ func _restart_for_content() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://content"))
 	var pack_url := String(manifest.get("desktop_pack_url", ""))
 	var pack_sha := String(manifest.get("desktop_pack_sha256", ""))
-	if not is_instance_valid(content_patcher) and Bootstrap.is_trusted_content_url(pack_url) and RegEx.create_from_string("^[0-9a-fA-F]{64}$").search(pack_sha) != null:
+	if not is_instance_valid(content_patcher) and ContentUpdater.is_trusted_content_url(pack_url) and RegEx.create_from_string("^[0-9a-fA-F]{64}$").search(pack_sha) != null:
 		# Fetch only what changed now, while the game runs; whatever happens, the restart follows and the
 		# launcher downloads anything still missing.
 		state = "installing"

@@ -1,0 +1,32 @@
+// Godot Android plugin (v2) that installs a downloaded APK update in the app (PackageInstaller session).
+// Only the GitHub-distributed build includes it (addons/keepfall_updater/plugin.gd skips the ONE store
+// preset), since its manifest asks for REQUEST_INSTALL_PACKAGES.
+// Build: ./gradlew assembleRelease, then copy build/outputs/aar/keepfall_updater-release.aar to
+// addons/keepfall_updater/bin/ (CI does both; see .github/workflows/build-and-deploy.yml).
+plugins {
+    id 'com.android.library' version '8.6.1'
+    id 'org.jetbrains.kotlin.android' version '2.1.21'
+}
+
+android {
+    namespace 'kr.ruellyya.keepfall.updater'
+    compileSdk 36
+    buildToolsVersion '36.1.0'
+
+    defaultConfig {
+        minSdk 24
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    compileOnly 'org.godotengine:godot:4.7.2.stable'
+}

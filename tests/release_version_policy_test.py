@@ -71,7 +71,7 @@ class ReleasePolicyTest(unittest.TestCase):
         localized_scripts = [
             "BattleModel.gd",
             "BattleView.gd",
-            "Bootstrap.gd",
+            "ContentUpdater.gd",
             "Main.gd",
             "NetworkController.gd",
             "SaveData.gd",

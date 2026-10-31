@@ -1,332 +1,87 @@
 extends Control
-
-const Localization = preload("res://scripts/Localization.gd")
+## The launcher, the one game script that only ever changes with a new APK or executable. It loads the newest
+## installed game-data pack that is known to work, then hands over to that pack's updater
+## (scripts/ContentUpdater.gd), so update logic itself arrives with pack updates. Its only other job is
+## recovery: a pack that has not yet proven it starts (pending_boot) is rolled back to the previous one, and a
+## pack whose updater or game cannot load is dropped so the next start falls back.
+##
+## It deliberately preloads nothing: every script loaded before the pack would stay the APK's copy for the
+## whole session. The layout under CONTENT_DIR is shared with ContentUpdater.gd.
 
 const MAIN_SCENE := "res://scenes/Main.tscn"
+const UPDATER_SCRIPT := "res://scripts/ContentUpdater.gd"
 const BUILD_INFO_PATH := "res://build_info.json"
-const SAVE_PATH := "user://catwar_save.json"
-const UPDATE_URL := "https://gamparda.github.io/codingcircle/update.json"
-const OFFICIAL_CONTENT_PREFIX := "https://gamparda.github.io/codingcircle/"
-## The ONE store build (export preset "Android-OneStore", feature tag "onestore") updates its app through ONE
-## store instead of the APK published here; game data still updates in the game as everywhere else.
-const ONESTORE_PRODUCT_ID := "0001011694"
 const CONTENT_DIR := "user://content"
 const ACTIVE_PACK := CONTENT_DIR + "/active.pck"
 const PREVIOUS_PACK := CONTENT_DIR + "/previous.pck"
-const PENDING_PACK := CONTENT_DIR + "/pending.pck"
 const ACTIVE_METADATA := CONTENT_DIR + "/active.json"
 const PREVIOUS_METADATA := CONTENT_DIR + "/previous.json"
 const PACK_BOOT_STABILITY_SECONDS := 5.0
-const ResumableDownload = preload("res://scripts/ResumableDownload.gd")
-const PackPatcher = preload("res://scripts/PackPatcher.gd")
 
 var bundled_version := "0.0.0"
 var bundled_binary_version := "0.0.0"
 var bundled_windows_version := "0.0.0"
-var pack_kind := "content" # manifest field prefix: Android reads content_pack_*, Windows reads desktop_pack_*
 var bundled_commit := "unknown"
 var active_version := "0.0.0"
 var active_commit := "unknown"
 var active_pack_loaded := false
-var state := "idle"
-var manifest: Dictionary = {}
-var http: HTTPRequest
-var pack_download: ResumableDownload
-var pack_patcher: PackPatcher
-## Patching is tried once per start; after a failure the full download runs.
-var patch_tried := false
-var status_label: Label
-var progress_bar: ProgressBar
-var retry_button: Button
-var offline_button: Button
-var apk_button: Button
+var launched := false
+var message_label: Label
 
 func _ready() -> void:
 	# The project name (which also names the save folder) stays as it was; only the window title changes.
 	if DisplayServer.get_name() != "headless":
 		DisplayServer.window_set_title("Keepfall")
-	Localization.install(preferred_locale(_read_json(SAVE_PATH), OS.get_locale()))
-	_build_interface()
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var build_info := _read_json(BUILD_INFO_PATH)
-	var versions := build_versions(build_info)
-	bundled_version = String(versions.content)
-	bundled_binary_version = String(versions.binary)
+	bundled_version = String(build_info.get("version", "0.0.0"))
+	bundled_binary_version = String(build_info.get("binary_version", bundled_version))
 	bundled_commit = String(build_info.get("commit", bundled_commit))
 	bundled_windows_version = String(build_info.get("windows_version", bundled_version))
 	Engine.set_meta("bundled_windows_version", bundled_windows_version) # the installer version this executable shipped with
 	active_version = bundled_version
 	active_commit = bundled_commit
-	var args := OS.get_cmdline_user_args()
-	if OS.get_name() == "Windows":
-		pack_kind = "desktop"
-	if not content_updates_wanted(OS.get_name(), OS.has_feature("release"), DisplayServer.get_name() == "headless", args):
-		_launch_game()
+	if not _updates_wanted():
+		launch_game()
 		return
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(CONTENT_DIR))
-	_recover_interrupted_update()
+	if _read_json(ACTIVE_METADATA).get("pending_boot", false) == true:
+		rollback_pack() # the last new pack never confirmed a good start
 	_load_installed_pack()
-	_check_for_update()
+	var updater_script = load(UPDATER_SCRIPT)
+	var updater = updater_script.new() if updater_script is GDScript and updater_script.can_instantiate() else null
+	if updater == null or not updater.has_method("begin"):
+		# A pack whose updater cannot run must not stay: drop it for the next start, and play this one as it is.
+		push_warning("content updater unavailable")
+		if active_pack_loaded:
+			rollback_pack()
+		launch_game()
+		return
+	updater.name = "ContentUpdater"
+	add_child(updater)
+	updater.begin(self)
 
-## Android always updates its content pack; Windows only in release builds (or when asked), never for the headless
-## dedicated server, which is updated by the Linux updater or by the installer.
-static func content_updates_wanted(os_name: String, is_release: bool, is_headless: bool, args: PackedStringArray) -> bool:
-	if args.has("--server") or args.has("--disable-content-updates") or is_headless:
+## Android always updates its content pack; Windows only in release builds (or when asked), never for the
+## headless dedicated server, which is updated by the Linux updater or by the installer.
+func _updates_wanted() -> bool:
+	var args := OS.get_cmdline_user_args()
+	if args.has("--server") or args.has("--disable-content-updates") or DisplayServer.get_name() == "headless":
 		return false
-	if os_name == "Android":
+	if OS.get_name() == "Android":
 		return true
-	return os_name == "Windows" and (is_release or args.has("--force-content-updates"))
-
-static func preferred_locale(_saved_data: Dictionary, _system_locale: String) -> String:
-	return "ko"
-
-static func build_versions(build_info: Dictionary) -> Dictionary:
-	var content := String(build_info.get("version", "0.0.0"))
-	return {"content": content, "binary": String(build_info.get("binary_version", content))}
-
-func _process(_delta: float) -> void:
-	if state != "downloading" or not is_instance_valid(pack_download) or pack_download.total <= 0 or not pack_download.active:
-		return
-	progress_bar.value = clampf(float(pack_download.received()) / float(pack_download.total) * 100.0, 0.0, 100.0)
-
-func _build_interface() -> void:
-	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var background := ColorRect.new()
-	background.color = Color("#090d18")
-	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(background)
-	var panel := VBoxContainer.new()
-	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.position = Vector2(-280, -125)
-	panel.size = Vector2(560, 250)
-	panel.add_theme_constant_override("separation", 18)
-	background.add_child(panel)
-	var title := Label.new()
-	title.text = "KEEPFALL"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 34)
-	title.add_theme_color_override("font_color", Color("#7ee8ff"))
-	panel.add_child(title)
-	status_label = Label.new()
-	status_label.text = Localization.text("게임을 준비하는 중...")
-	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status_label.custom_minimum_size = Vector2(560, 54)
-	panel.add_child(status_label)
-	progress_bar = ProgressBar.new()
-	progress_bar.custom_minimum_size = Vector2(560, 22)
-	progress_bar.show_percentage = false
-	panel.add_child(progress_bar)
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	buttons.add_theme_constant_override("separation", 12)
-	panel.add_child(buttons)
-	retry_button = Button.new()
-	retry_button.text = Localization.text("다시 시도")
-	retry_button.visible = false
-	retry_button.pressed.connect(_check_for_update)
-	buttons.add_child(retry_button)
-	offline_button = Button.new()
-	offline_button.text = Localization.text("현재 버전으로 시작")
-	offline_button.visible = false
-	offline_button.pressed.connect(_launch_game)
-	buttons.add_child(offline_button)
-	apk_button = Button.new()
-	apk_button.text = Localization.text("원스토어에서 업데이트") if store_build() else Localization.text("APK 다운로드")
-	apk_button.visible = false
-	apk_button.pressed.connect(func():
-		if store_build():
-			open_store_page()
-		else:
-			OS.shell_open(String(manifest.get("android_apk_url", ""))))
-	buttons.add_child(apk_button)
-
-func _check_for_update() -> void:
-	if state == "checking" or state == "downloading" or state == "launching":
-		return
-	retry_button.visible = false
-	offline_button.visible = false
-	apk_button.visible = false
-	progress_bar.value = 0.0
-	status_label.text = Localization.text("최신 게임 데이터를 확인하는 중...")
-	if is_instance_valid(http):
-		http.queue_free()
-	http = HTTPRequest.new()
-	http.timeout = 20.0
-	http.max_redirects = 0
-	http.use_threads = true
-	http.request_completed.connect(_on_request_completed)
-	add_child(http)
-	state = "checking"
-	var error := http.request(UPDATE_URL, ["Cache-Control: no-cache"])
-	if error != OK:
-		_show_recoverable_error(Localization.text("업데이트 확인을 시작하지 못했습니다."))
-
-func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
-	if state == "checking":
-		_handle_manifest(result, response_code, body)
-
-func _handle_manifest(result: int, response_code: int, body: PackedByteArray) -> void:
-	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
-		_show_recoverable_error(Localization.text("업데이트 서버에 연결하지 못했습니다."))
-		return
-	var candidate = JSON.parse_string(body.get_string_from_utf8())
-	if candidate is Dictionary and pack_kind == "desktop":
-		# A newer installer (a new executable) is the job of the main scene updater; this step only swaps game data.
-		if not validate_desktop_manifest(candidate) or is_newer_version(String(candidate.version), bundled_windows_version):
-			_launch_game()
-			return
-	elif not candidate is Dictionary or not validate_content_manifest(candidate):
-		_show_recoverable_error(Localization.text("업데이트 정보가 올바르지 않습니다."))
-		return
-	manifest = candidate
-	if pack_kind == "content" and requires_apk_update(manifest_android_binary_version(manifest), bundled_binary_version, String(manifest.get("android_apk_url", ""))):
-		_show_apk_update_required()
-		return
-	var remote_version := _pack("version")
-	var remote_commit := _pack("commit")
-	if not should_install_content(remote_version, active_version, remote_commit, active_commit):
-		status_label.text = Localization.text("최신 버전입니다.")
-		_launch_game()
-		return
-	_begin_pack_download()
-
-func _pack(field: String) -> String:
-	return String(manifest.get("%s_pack_%s" % [pack_kind, field], ""))
-
-## First tries to fetch only what changed since the installed data (PackPatcher); a full download in progress
-## is continued instead, and a patch that fails or would save little falls back to the full download.
-func _begin_pack_download() -> void:
-	var resume = JSON.parse_string(FileAccess.get_file_as_string(PENDING_PACK + ".json")) if FileAccess.file_exists(PENDING_PACK + ".json") else null
-	var full_in_progress: bool = resume is Dictionary and String(resume.get("key", "")) == _pack("sha256").to_lower()
-	if patch_tried or full_in_progress:
-		_begin_full_download()
-		return
-	patch_tried = true
-	status_label.text = Localization.text("바뀐 게임 데이터를 확인하는 중...")
-	progress_bar.value = 0.0
-	if not is_instance_valid(pack_patcher):
-		pack_patcher = PackPatcher.new()
-		pack_patcher.progressed.connect(func(done: int, size: int):
-			if state == "downloading" and size > 0:
-				progress_bar.value = clampf(float(done) / float(size) * 100.0, 0.0, 100.0)
-				status_label.text = Localization.text("바뀐 게임 데이터만 받는 중 · %.1f / %.1f MB") % [done / 1048576.0, size / 1048576.0])
-		pack_patcher.finished.connect(func(ok: bool):
-			if ok:
-				_handle_pack_download(true)
-			else:
-				push_warning("content patch unavailable (%s): full download" % pack_patcher.reason)
-				_begin_full_download())
-		add_child(pack_patcher)
-	state = "downloading"
-	pack_patcher.start(_pack("url"), ProjectSettings.globalize_path(PENDING_PACK), _pack("sha256"))
-
-## Downloads in chunks and resumes after drops and restarts (ResumableDownload), so slow or throttled
-## connections finish instead of timing out.
-func _begin_full_download() -> void:
-	status_label.text = Localization.text("게임 데이터 업데이트 다운로드 중...")
-	progress_bar.value = 0.0
-	if not is_instance_valid(pack_download):
-		pack_download = ResumableDownload.new()
-		pack_download.progressed.connect(func(done: int, size: int):
-			if state == "downloading":
-				status_label.text = Localization.text("게임 데이터 업데이트 다운로드 중 · %.1f / %.1f MB") % [done / 1048576.0, size / 1048576.0])
-		pack_download.retrying.connect(func(attempt: int, attempts: int):
-			if state == "downloading":
-				status_label.text = Localization.text("연결이 불안정해 이어서 받는 중... (%d/%d)") % [attempt, attempts])
-		pack_download.finished.connect(_handle_pack_download)
-		add_child(pack_download)
-	state = "downloading"
-	pack_download.start(_pack("url"), ProjectSettings.globalize_path(PENDING_PACK), _pack("sha256").to_lower(), PackedStringArray(["Cache-Control: no-cache"]))
-
-func _handle_pack_download(ok: bool) -> void:
-	var pending_path := ProjectSettings.globalize_path(PENDING_PACK)
-	if not ok or not FileAccess.file_exists(pending_path):
-		# The partial file stays: "다시 시도" or the next start continues from it.
-		_show_recoverable_error(Localization.text("게임 데이터 다운로드가 멈췄습니다. 네트워크가 느리거나 끊겼을 수 있습니다. 다시 시도하면 받은 부분부터 이어서 받습니다."))
-		return
-	status_label.text = Localization.text("다운로드한 게임 데이터를 검증하는 중...")
-	progress_bar.value = 100.0
-	var expected_hash := _pack("sha256").to_lower()
-	if FileAccess.get_sha256(pending_path).to_lower() != expected_hash:
-		if is_instance_valid(pack_download):
-			pack_download.discard()
-		else:
-			DirAccess.remove_absolute(pending_path)
-			DirAccess.remove_absolute(pending_path + ".json")
-		_show_recoverable_error(Localization.text("게임 데이터의 SHA-256 검증에 실패했습니다."))
-		return
-	if not _activate_pending_pack(expected_hash):
-		_show_recoverable_error(Localization.text("게임 데이터 교체에 실패했습니다."))
-		return
-	active_version = _pack("version")
-	active_commit = _pack("commit")
-	active_pack_loaded = ProjectSettings.load_resource_pack(ACTIVE_PACK, true)
-	if not active_pack_loaded:
-		_rollback_pack()
-		_show_recoverable_error(Localization.text("새 게임 데이터를 불러오지 못해 이전 버전으로 복구했습니다."))
-		return
-	status_label.text = Localization.text("업데이트 완료 · 게임을 시작합니다.")
-	_launch_game(true)
-
-func _activate_pending_pack(expected_hash: String) -> bool:
-	var active_path := ProjectSettings.globalize_path(ACTIVE_PACK)
-	var previous_path := ProjectSettings.globalize_path(PREVIOUS_PACK)
-	var pending_path := ProjectSettings.globalize_path(PENDING_PACK)
-	var metadata_path := ProjectSettings.globalize_path(ACTIVE_METADATA)
-	var previous_metadata_path := ProjectSettings.globalize_path(PREVIOUS_METADATA)
-	DirAccess.remove_absolute(previous_path)
-	DirAccess.remove_absolute(previous_metadata_path)
-	if FileAccess.file_exists(active_path):
-		if DirAccess.rename_absolute(active_path, previous_path) != OK:
-			return false
-	if FileAccess.file_exists(metadata_path):
-		DirAccess.rename_absolute(metadata_path, previous_metadata_path)
-	DirAccess.remove_absolute(pending_path + ".json") # the download's resume record
-	if DirAccess.rename_absolute(pending_path, active_path) != OK:
-		if FileAccess.file_exists(previous_path):
-			DirAccess.rename_absolute(previous_path, active_path)
-		if FileAccess.file_exists(previous_metadata_path):
-			DirAccess.rename_absolute(previous_metadata_path, metadata_path)
-		return false
-	var metadata := {
-		"version": _pack("version"),
-		"commit": _pack("commit"),
-		"sha256": expected_hash,
-		"pending_boot": true,
-	}
-	if not _write_json_atomic(ACTIVE_METADATA, metadata):
-		_rollback_pack()
-		return false
-	return true
-
-func _recover_interrupted_update() -> void:
-	var metadata := _read_json(ACTIVE_METADATA)
-	if metadata.get("pending_boot", false) == true:
-		_rollback_pack()
-
-func _rollback_pack() -> void:
-	var active_path := ProjectSettings.globalize_path(ACTIVE_PACK)
-	var previous_path := ProjectSettings.globalize_path(PREVIOUS_PACK)
-	var metadata_path := ProjectSettings.globalize_path(ACTIVE_METADATA)
-	var previous_metadata_path := ProjectSettings.globalize_path(PREVIOUS_METADATA)
-	DirAccess.remove_absolute(active_path)
-	DirAccess.remove_absolute(metadata_path)
-	if FileAccess.file_exists(previous_path):
-		DirAccess.rename_absolute(previous_path, active_path)
-	if FileAccess.file_exists(previous_metadata_path):
-		DirAccess.rename_absolute(previous_metadata_path, metadata_path)
+	return OS.get_name() == "Windows" and (OS.has_feature("release") or args.has("--force-content-updates"))
 
 func _load_installed_pack() -> void:
 	var metadata := _read_json(ACTIVE_METADATA)
-	if not validate_active_metadata(metadata):
-		return
 	var active_path := ProjectSettings.globalize_path(ACTIVE_PACK)
-	if not FileAccess.file_exists(active_path) or FileAccess.get_sha256(active_path).to_lower() != String(metadata.sha256).to_lower():
-		_rollback_pack()
+	if not metadata.get("version") is String or not metadata.get("commit") is String or not metadata.get("sha256") is String:
 		return
-	if is_newer_version(bundled_version, String(metadata.version)):
-		# A freshly installed executable already carries newer game data than the downloaded pack.
-		_rollback_pack()
+	if not FileAccess.file_exists(active_path) or FileAccess.get_sha256(active_path).to_lower() != String(metadata.sha256).to_lower():
+		rollback_pack()
+		return
+	if _is_newer(bundled_version, String(metadata.version)):
+		# A freshly installed APK already carries newer game data than the downloaded pack.
+		rollback_pack()
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(PREVIOUS_PACK))
 		return
 	if ProjectSettings.load_resource_pack(ACTIVE_PACK, true):
@@ -334,25 +89,19 @@ func _load_installed_pack() -> void:
 		active_version = String(metadata.version)
 		active_commit = String(metadata.commit)
 	else:
-		_rollback_pack()
+		rollback_pack()
 
-func _launch_game(confirm_new_pack: bool = false) -> void:
-	if state == "launching":
+## Starts the game; with `confirm_new_pack` (a pack installed this run) it is kept only once the game runs.
+func launch_game(confirm_new_pack: bool = false) -> void:
+	if launched:
 		return
-	state = "launching"
-	retry_button.visible = false
-	offline_button.visible = false
+	launched = true
 	var packed_scene := load(MAIN_SCENE) as PackedScene
-	if packed_scene == null:
-		if active_pack_loaded:
-			_rollback_pack()
-		status_label.text = Localization.text("게임 장면을 불러오지 못했습니다. 앱을 다시 실행해 주세요.")
-		state = "failed"
-		return
-	var game := packed_scene.instantiate()
+	var game: Node = packed_scene.instantiate() if packed_scene != null else null
 	if game == null:
-		status_label.text = Localization.text("게임을 시작하지 못했습니다.")
-		state = "failed"
+		if active_pack_loaded:
+			rollback_pack()
+		_give_up("게임을 불러오지 못했습니다. 앱을 다시 실행해 주세요.")
 		return
 	for child in get_children():
 		if child is CanvasItem:
@@ -372,33 +121,40 @@ func _confirm_pack_boot() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(PREVIOUS_PACK))
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(PREVIOUS_METADATA))
 
-func _show_recoverable_error(message: String) -> void:
-	if pack_kind == "desktop":
-		push_warning(message) # a PC starts with what it has; the main scene updater retries later
-		_launch_game()
-		return
-	state = "failed"
-	status_label.text = message
-	progress_bar.value = 0.0
-	retry_button.visible = true
-	offline_button.visible = true
-	apk_button.visible = false
+## Puts the previous pack back (or none, which leaves the APK's own game data).
+func rollback_pack() -> void:
+	var active_path := ProjectSettings.globalize_path(ACTIVE_PACK)
+	var previous_path := ProjectSettings.globalize_path(PREVIOUS_PACK)
+	var metadata_path := ProjectSettings.globalize_path(ACTIVE_METADATA)
+	var previous_metadata_path := ProjectSettings.globalize_path(PREVIOUS_METADATA)
+	DirAccess.remove_absolute(active_path)
+	DirAccess.remove_absolute(metadata_path)
+	if FileAccess.file_exists(previous_path):
+		DirAccess.rename_absolute(previous_path, active_path)
+	if FileAccess.file_exists(previous_metadata_path):
+		DirAccess.rename_absolute(previous_metadata_path, metadata_path)
 
-func _show_apk_update_required() -> void:
-	state = "apk_required"
-	status_label.text = Localization.text("앱 업데이트가 필요합니다.\n원스토어에서 업데이트한 뒤 다시 실행해 주세요.") if store_build() else Localization.text("APK 업데이트가 필요합니다.\n새 APK를 설치한 뒤 다시 실행해 주세요.")
-	progress_bar.value = 0.0
-	retry_button.visible = false
-	offline_button.visible = false
-	apk_button.visible = true
+## Last resort, in plain text (no localization or theme is loaded here).
+func _give_up(text: String) -> void:
+	if active_pack_loaded:
+		rollback_pack()
+	if not is_instance_valid(message_label):
+		var background := ColorRect.new()
+		background.color = Color("#0c0907")
+		background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		add_child(background)
+		message_label = Label.new()
+		message_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		message_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		add_child(message_label)
+	message_label.text = text
 
 func _read_json(path: String) -> Dictionary:
 	if not FileAccess.file_exists(path):
 		return {}
-	var file := FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return {}
-	var parsed = JSON.parse_string(file.get_as_text())
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
 	return parsed if parsed is Dictionary else {}
 
 func _write_json_atomic(path: String, data: Dictionary) -> bool:
@@ -412,82 +168,12 @@ func _write_json_atomic(path: String, data: Dictionary) -> bool:
 	DirAccess.remove_absolute(absolute_path)
 	return DirAccess.rename_absolute(temporary_path, absolute_path) == OK
 
-static func store_build() -> bool:
-	return OS.has_feature("onestore")
-
-## ONE store's own app on the product page, or its web shop when the app is missing.
-static func open_store_page() -> void:
-	if OS.shell_open("onestore://common/product/" + ONESTORE_PRODUCT_ID) != OK:
-		OS.shell_open("https://webshop.onestore.net/title/" + ONESTORE_PRODUCT_ID)
-
-static func is_trusted_content_url(url: String) -> bool:
-	return url.begins_with(OFFICIAL_CONTENT_PREFIX) and url.ends_with(".pck")
-
-static func requires_apk_update(remote_version: String, installed_version: String, apk_url: String) -> bool:
-	return is_newer_version(remote_version, installed_version) and apk_url == OFFICIAL_CONTENT_PREFIX + "CatWar.apk"
-
-static func manifest_android_binary_version(candidate: Dictionary) -> String:
-	return String(candidate.get("android_binary_version", candidate.get("version", "")))
-
-static func _validate_content_pack_fields(candidate: Dictionary, kind: String = "content") -> bool:
-	var keys := {}
-	for field in ["version", "commit", "url", "sha256"]:
-		keys[field] = "%s_pack_%s" % [kind, field]
-		if not candidate.has(keys[field]) or not candidate[keys[field]] is String:
-			return false
-	var version_pattern := RegEx.create_from_string("^[0-9]+\\.[0-9]+\\.[0-9]+$")
-	var commit_pattern := RegEx.create_from_string("^[0-9a-fA-F]{40}$")
-	var hash_pattern := RegEx.create_from_string("^[0-9a-fA-F]{64}$")
-	return version_pattern.search(candidate[keys.version]) != null \
-		and commit_pattern.search(candidate[keys.commit]) != null \
-		and hash_pattern.search(candidate[keys.sha256]) != null \
-		and is_trusted_content_url(candidate[keys.url])
-
-## Windows: the installer version plus the desktop game-data pack.
-static func validate_desktop_manifest(candidate: Dictionary) -> bool:
-	if not _validate_content_pack_fields(candidate, "desktop"):
-		return false
-	return candidate.get("version") is String and RegEx.create_from_string("^[0-9]+\\.[0-9]+\\.[0-9]+$").search(candidate.version) != null
-
-static func validate_content_manifest(candidate: Dictionary) -> bool:
-	if not _validate_content_pack_fields(candidate):
-		return false
-	for field in ["version", "android_apk_url", "android_sha256"]:
-		if not candidate.has(field) or not candidate[field] is String:
-			return false
-	if candidate.has("android_binary_version") and not candidate.android_binary_version is String:
-		return false
-	var version_pattern := RegEx.create_from_string("^[0-9]+\\.[0-9]+\\.[0-9]+$")
-	var hash_pattern := RegEx.create_from_string("^[0-9a-fA-F]{64}$")
-	return version_pattern.search(candidate.version) != null \
-		and version_pattern.search(manifest_android_binary_version(candidate)) != null \
-		and candidate.android_apk_url == OFFICIAL_CONTENT_PREFIX + "CatWar.apk" \
-		and hash_pattern.search(candidate.android_sha256) != null
-
-static func validate_active_metadata(candidate: Dictionary) -> bool:
-	if not _validate_content_pack_fields({
-		"content_pack_version": candidate.get("version", ""),
-		"content_pack_commit": candidate.get("commit", ""),
-		"content_pack_url": OFFICIAL_CONTENT_PREFIX + "CatWarContent.pck",
-		"content_pack_sha256": candidate.get("sha256", ""),
-	}):
-		return false
-	return candidate.get("pending_boot", false) is bool
-
-static func should_install_content(remote_version: String, current_version: String, remote_commit: String, current_commit: String) -> bool:
-	if is_newer_version(remote_version, current_version):
-		return true
-	return remote_version == current_version and remote_commit != current_commit
-
-static func is_newer_version(remote: String, current: String) -> bool:
+static func _is_newer(remote: String, current: String) -> bool:
 	var remote_parts := remote.trim_prefix("v").split(".")
 	var current_parts := current.trim_prefix("v").split(".")
-	var count: int = max(remote_parts.size(), current_parts.size())
-	for index in count:
+	for index in maxi(remote_parts.size(), current_parts.size()):
 		var remote_value := int(remote_parts[index]) if index < remote_parts.size() else 0
 		var current_value := int(current_parts[index]) if index < current_parts.size() else 0
-		if remote_value > current_value:
-			return true
-		if remote_value < current_value:
-			return false
+		if remote_value != current_value:
+			return remote_value > current_value
 	return false

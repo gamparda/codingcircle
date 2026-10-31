@@ -2,7 +2,8 @@ extends RefCounted
 ## UpdateOverlay: screen/UI code moved out of Main.gd. `main` is the Main node; state stays on Main.
 
 const Localization = preload("res://scripts/Localization.gd")
-const Bootstrap = preload("res://scripts/Bootstrap.gd")
+const ContentUpdater = preload("res://scripts/ContentUpdater.gd")
+const ApkInstaller = preload("res://scripts/ApkInstaller.gd")
 const ANDROID_APK_URL := "https://gamparda.github.io/codingcircle/CatWar.apk"
 
 static func _on_update_started(main, version: String) -> void:
@@ -73,19 +74,32 @@ static func _show_android_apk_notice(main) -> void:
 	main._on_update_started(main.build_binary_version())
 	if not is_instance_valid(main.update_overlay):
 		return
-	var store := Bootstrap.store_build()
-	main.update_message_label.text = Localization.text("앱 업데이트가 필요합니다.") if store else Localization.text("APK 업데이트가 필요합니다.")
-	main.update_progress_bar.visible = false
-	main.update_note_label.text = Localization.text("원스토어에서 업데이트한 뒤 게임을 다시 실행해 주세요.") if store else Localization.text("새 APK를 설치한 뒤 게임을 다시 실행해 주세요.")
-	var download_button = main._styled_button(Localization.text("원스토어에서 업데이트") if store else Localization.text("APK 다운로드"), Color("#d0803a"), true)
+	var store := ContentUpdater.store_build()
+	var in_app := not store and ApkInstaller.available()
+	main.update_message_label.text = Localization.text("앱 업데이트가 필요합니다.") if store or in_app else Localization.text("APK 업데이트가 필요합니다.")
+	main.update_progress_bar.visible = in_app
+	main.update_progress_bar.value = 0.0
+	main.update_note_label.text = Localization.text("원스토어에서 업데이트한 뒤 게임을 다시 실행해 주세요.") if store else (Localization.text("'업데이트 설치'를 누르면 받아서 바로 설치합니다.") if in_app else Localization.text("새 APK를 설치한 뒤 게임을 다시 실행해 주세요."))
+	var download_button = main._styled_button(Localization.text("원스토어에서 업데이트") if store else (Localization.text("업데이트 설치") if in_app else Localization.text("APK 다운로드")), Color("#d0803a"), true)
+	download_button.name = "ApkUpdateButton"
 	download_button.position = Vector2(580, 420)
 	download_button.size = Vector2(120, 50)
-	if store:
+	if store or in_app:
 		download_button.size = Vector2(200, 50)
 		download_button.position = Vector2(540, 420)
 	download_button.pressed.connect(func():
 		if store:
-			Bootstrap.open_store_page()
+			ContentUpdater.open_store_page()
+		elif in_app:
+			var installer: ApkInstaller = main.update_overlay.get_node_or_null("ApkInstaller")
+			if installer == null:
+				installer = ApkInstaller.new()
+				installer.name = "ApkInstaller"
+				installer.status.connect(func(text: String, progress: float):
+					if is_instance_valid(main.update_note_label): main.update_note_label.text = text
+					if is_instance_valid(main.update_progress_bar) and progress >= 0.0: main.update_progress_bar.value = progress * 100.0)
+				main.update_overlay.add_child(installer)
+			installer.start_latest()
 		else:
 			OS.shell_open(ANDROID_APK_URL))
 	main.update_overlay.add_child(download_button)

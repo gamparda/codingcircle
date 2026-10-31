@@ -310,8 +310,9 @@ func _init() -> void:
 		expect_true(not UpdateManager.is_newer_version("0.3.1", "0.3.1"), "same version is not an update")
 		expect_true(not UpdateManager.is_newer_version("0.2.9", "0.3.0"), "older version is rejected")
 
-	var Bootstrap = load("res://scripts/Bootstrap.gd")
-	expect_true(Bootstrap != null, "Android content bootstrap script loads")
+	var Bootstrap = load("res://scripts/ContentUpdater.gd")
+	var Launcher = load("res://scripts/Bootstrap.gd")
+	expect_true(Bootstrap != null and Launcher != null, "Android content launcher and updater scripts load")
 	if Bootstrap != null:
 		expect_eq(Bootstrap.build_versions({"version": "0.5.0", "binary_version": "0.4.9"}), {"content": "0.5.0", "binary": "0.4.9"}, "Android bootstrap keeps bundled content and APK versions independent")
 		expect_eq(Bootstrap.build_versions({"version": "0.4.8"}), {"content": "0.4.8", "binary": "0.4.8"}, "legacy bundled build metadata safely shares one version")
@@ -368,7 +369,7 @@ func _init() -> void:
 		expect_true(Bootstrap.should_install_content("0.4.5", "0.4.4", "a".repeat(40), "b".repeat(40)), "newer content versions are installed")
 		expect_true(Bootstrap.should_install_content("0.4.4", "0.4.4", "a".repeat(40), "b".repeat(40)), "rebuilt content with a new commit is installed")
 		expect_true(not Bootstrap.should_install_content("0.4.3", "0.4.4", "a".repeat(40), "b".repeat(40)), "older content packs never replace a newer version")
-		expect_true(Bootstrap.PACK_BOOT_STABILITY_SECONDS >= 3.0, "new content packs must survive a stability window before rollback is disabled")
+		expect_true(Launcher.PACK_BOOT_STABILITY_SECONDS >= 3.0, "new content packs must survive a stability window before rollback is disabled")
 		expect_true(Bootstrap.requires_apk_update("0.4.5", "0.4.4", "https://gamparda.github.io/codingcircle/CatWar.apk"), "newer Android binary versions require an APK update message")
 		expect_true(not Bootstrap.requires_apk_update("0.4.4", "0.4.4", "https://gamparda.github.io/codingcircle/CatWar.apk"), "same Android binary version does not require APK replacement")
 

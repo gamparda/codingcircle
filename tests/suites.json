@@ -105,7 +105,8 @@
     "tests/suite_runner_test.py",
     "tests/release_version_policy_test.py",
     "tests/localization_catalog_test.py",
-    "tests/suites_cover_all_tests_test.py"
+    "tests/suites_cover_all_tests_test.py",
+    "tests/launcher_test.gd"
   ],
   "render": [
     "tests/battle_button_input_test.gd",

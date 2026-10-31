@@ -1,7 +1,7 @@
 {
-  "version": "0.46.0",
+  "version": "0.47.0",
   "windows_version": "0.16.4",
-  "binary_version": "0.7.1",
+  "binary_version": "0.8.0",
   "commit": "development",
   "update_url": "https://gamparda.github.io/codingcircle/update.json"
 }

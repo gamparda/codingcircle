@@ -186,10 +186,18 @@ jobs:
           path: android/plugins/keepfall_signin/build/outputs/aar/keepfall_signin-release.aar
           key: keepfall-signin-${{ hashFiles('android/plugins/keepfall_signin/src/**', 'android/plugins/keepfall_signin/*.gradle', 'android/plugins/keepfall_signin/gradle.properties', 'android/plugins/keepfall_signin/gradle/wrapper/gradle-wrapper.properties') }}
 
+      - name: Cache the updater plugin
+        id: updater-cache
+        uses: actions/cache@v4
+        with:
+          path: android/plugins/keepfall_updater/build/outputs/aar/keepfall_updater-release.aar
+          key: keepfall-updater-${{ hashFiles('android/plugins/keepfall_updater/src/**', 'android/plugins/keepfall_updater/*.gradle', 'android/plugins/keepfall_updater/gradle.properties', 'android/plugins/keepfall_updater/gradle/wrapper/gradle-wrapper.properties') }}
+
       - name: Prepare Gradle Android build and sign-in plugin
         shell: pwsh
         env:
           SIGNIN_CACHED: ${{ steps.signin-cache.outputs.cache-hit }}
+          UPDATER_CACHED: ${{ steps.updater-cache.outputs.cache-hit }}
         run: |
           $ErrorActionPreference = "Stop"
           # Versions follow the Godot build template (android/build/config.gradle).
@@ -220,6 +228,18 @@ jobs:
           }
           New-Item -ItemType Directory -Force addons/keepfall_signin/bin | Out-Null
           Copy-Item android/plugins/keepfall_signin/build/outputs/aar/keepfall_signin-release.aar addons/keepfall_signin/bin/ -Force
+          if ($env:UPDATER_CACHED -ne "true") {
+            Push-Location android/plugins/keepfall_updater
+            $built = $false
+            for ($attempt = 1; $attempt -le 3 -and -not $built; $attempt++) {
+              & ./gradlew.bat --no-daemon assembleRelease
+              if ($LASTEXITCODE -eq 0) { $built = $true } else { Start-Sleep -Seconds 60 }
+            }
+            Pop-Location
+            if (-not $built) { throw "Updater plugin build failed" }
+          }
+          New-Item -ItemType Directory -Force addons/keepfall_updater/bin | Out-Null
+          Copy-Item android/plugins/keepfall_updater/build/outputs/aar/keepfall_updater-release.aar addons/keepfall_updater/bin/ -Force
 
       - name: Configure signed Android export
         shell: pwsh
@@ -284,6 +304,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "APK package inspection failed" }
           $manifest = & (Join-Path $buildTools.FullName "aapt2.exe") dump xmltree --file AndroidManifest.xml dist/CatWar.apk | Out-String
           if ($manifest -notmatch "org\.godotengine\.plugin\.v2\.KeepfallSignIn") { throw "Sign-in plugin missing from the APK" }
+          if ($manifest -notmatch "org\.godotengine\.plugin\.v2\.KeepfallUpdater" -or $manifest -notmatch "REQUEST_INSTALL_PACKAGES") { throw "In-app updater missing from the GitHub APK" }
           # The ONE store build: the same app with the "onestore" feature tag (app updates go through ONE store).
           $exported = $false
           for ($attempt = 1; $attempt -le 3 -and -not $exported; $attempt++) {
@@ -298,6 +319,9 @@ jobs:
           if (-not $exported) { throw "ONE store APK export failed" }
           & (Join-Path $buildTools.FullName "apksigner.bat") verify --print-certs dist/CatWar-onestore.apk
           if ($LASTEXITCODE -ne 0) { throw "ONE store APK signature verification failed" }
+          # ONE store updates its app through the store: its APK must not carry the in-app installer.
+          $storeManifest = & (Join-Path $buildTools.FullName "aapt2.exe") dump xmltree --file AndroidManifest.xml dist/CatWar-onestore.apk | Out-String
+          if ($storeManifest -match "REQUEST_INSTALL_PACKAGES" -or $storeManifest -match "KeepfallUpdater") { throw "The ONE store APK must not include the in-app installer" }
           & $env:GODOT_CONSOLE --headless --path . --export-pack Android dist/CatWarContent.pck
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWarContent.pck)) { throw "Android content pack export failed" }
 
