@@ -1,5 +1,6 @@
 extends SceneTree
-## Phone back button (BackNavigation) and holding deck cards for their description (DeckScreen).
+## Phone back button (BackNavigation), holding deck cards for their description (DeckScreen) and touch
+## scrolling over buttons (TouchScroll).
 
 var failures := 0
 
@@ -50,5 +51,17 @@ func run() -> void:
 	for i in 2: await process_frame
 	check(not is_instance_valid(main.local_pause_overlay) or not main.local_pause_overlay.is_inside_tree(), "back again resumes it")
 	check(not quit_on_go_back, "the back button never closes the app by itself")
+	# Buttons inside a scrolling list let a drag through to the list (touch scrolling) and press on release.
+	var scroll := ScrollContainer.new()
+	var list := VBoxContainer.new()
+	var inside := Button.new()
+	list.add_child(inside)
+	scroll.add_child(list)
+	var outside := Button.new()
+	main.add_child(scroll)
+	main.add_child(outside)
+	for i in 2: await process_frame
+	check(inside.mouse_filter == Control.MOUSE_FILTER_PASS and inside.action_mode == BaseButton.ACTION_MODE_BUTTON_RELEASE, "a button in a scrolling list passes drags to the list")
+	check(outside.mouse_filter == Control.MOUSE_FILTER_STOP, "buttons outside lists are unchanged")
 	print("back_navigation_test failures=%d" % failures)
 	quit(1 if failures > 0 else 0)

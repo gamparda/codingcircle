@@ -219,6 +219,7 @@ func _ready() -> void:
 	ResponsiveLayout.mark(self)
 	get_tree().node_added.connect(ResponsiveLayout.on_node_added)
 	get_tree().node_added.connect(UIKit.on_node_added) # the theme warms colours screens set by hand
+	get_tree().node_added.connect(preload("res://scripts/ui/TouchScroll.gd").on_node_added) # drag-scroll over buttons
 	_fit_to_viewport()
 	get_viewport().size_changed.connect(_fit_to_viewport)
 	network.connection_status.connect(_on_connection_status)
