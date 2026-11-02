@@ -201,6 +201,8 @@ var settings_touch_dragged := false
 var settings_touch_start := Vector2.ZERO
 
 func _ready() -> void:
+	# The phone's back button navigates inside the game (BackNavigation) instead of closing it.
+	get_tree().quit_on_go_back = false
 	if DisplayServer.get_name() == "headless":
 		finale_seconds = 0.0
 		link_enabled = false
@@ -335,6 +337,9 @@ func _arg_string(args: PackedStringArray, prefix: String, fallback: String) -> S
 	return fallback
 
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		preload("res://scripts/screens/BackNavigation.gd").go_back(self)
+		return
 	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED]:
 		build_confirm_key = 0 # The OS may deliver the release to another window.
 		unit_purchase_hold.reset()

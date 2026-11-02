@@ -49,6 +49,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_dress_card(card, UIKit.UNIT_COLORS[kind], kind, true)
 		_add_community_chip(card, "units", kind)
+		_add_long_press_info(main, card, String(unit_names[kind]), card.tooltip_text)
 		unit_buttons[kind] = card
 		unit_row.add_child(card)
 	var structure_grid: GridContainer = choices.get_node("DeckStructureGrid")
@@ -71,6 +72,7 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_dress_card(card, Color("#c9a0ff") if BattleModel.is_spell(kind) else Color("#3ec6b0"), kind, false)
 		_add_community_chip(card, "structures", kind)
+		_add_long_press_info(main, card, String(structure_names[kind]), "%s\n%s" % [card_text, BattleModel.tactic_role(kind)])
 		structure_buttons[kind] = card
 		structure_grid.add_child(card)
 	ServerLink.run(main, func(): main.network.send_stats_request([]), Callable(), false)
@@ -268,3 +270,38 @@ static func _dress_card(card: Button, color: Color, kind: String, is_unit: bool)
 static func _refresh_deck_card(main, card: Button) -> void:
 	var marker := Localization.text("✓ 선택됨") if card.button_pressed else Localization.text("○ 선택 가능")
 	card.text = marker + "\n" + String(card.get_meta("deck_base_text", ""))
+
+## Phones have no hover tooltip: holding a card for LONG_PRESS_SECONDS shows its full description instead,
+## and the touch that opened it does not also pick or drop the card.
+const LONG_PRESS_SECONDS := 0.5
+
+static func _add_long_press_info(main, card: Button, title: String, body: String) -> void:
+	var press := {"id": 0, "fired": false, "was": false}
+	card.gui_input.connect(func(event: InputEvent):
+		var down: bool = (event is InputEventScreenTouch and event.pressed) or (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed)
+		var up: bool = (event is InputEventScreenTouch and not event.pressed) or (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed)
+		if down:
+			press.id = int(press.id) + 1
+			press.fired = false
+			press.was = card.button_pressed
+			var id := int(press.id)
+			card.get_tree().create_timer(LONG_PRESS_SECONDS).timeout.connect(func():
+				if is_instance_valid(card) and int(press.id) == id:
+					press.fired = true
+					_show_card_info(main, title, body))
+		elif up:
+			press.id = int(press.id) + 1 # a release cancels a hold still waiting
+			if bool(press.fired):
+				# Undo the pick this release would make.
+				var restore: bool = bool(press.was)
+				(func(): if is_instance_valid(card) and card.button_pressed != restore: card.button_pressed = restore).call_deferred())
+
+static func _show_card_info(main, title: String, body: String) -> void:
+	var column = main._action_panel(Localization.text(title), Rect2(340, 160, 600, 400))
+	main.action_overlay.name = "DeckCardInfoOverlay"
+	var text := MultiplayerUI.label(body, 16, UIKit.TEXT)
+	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	text.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(text)
+	MultiplayerUI.button(main, column, Localization.text("닫기"), "CloseDeckCardInfo", main._dismiss_action_overlay)
+

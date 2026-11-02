@@ -305,8 +305,10 @@ static func _battle_intro(main) -> void:
 		sub_text = Localization.text("온라인 대전")
 	var band := Control.new()
 	band.name = "BattleIntroBanner"
+	# Wide phones show more than 1280 units across: the band spans the whole screen and centres its text.
+	var width := maxf(1280.0, main.root_background.size.x)
 	band.position = Vector2(0, 250)
-	band.size = Vector2(1280, 120)
+	band.size = Vector2(width, 120)
 	band.z_index = 40
 	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var fill := ColorRect.new()
@@ -320,12 +322,12 @@ static func _battle_intro(main) -> void:
 		edge.stretch_mode = TextureRect.STRETCH_SCALE
 		edge.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		edge.position = Vector2(0, edge_y)
-		edge.size = Vector2(1280, 2)
+		edge.size = Vector2(width, 2)
 		edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		band.add_child(edge)
 	var title := Label.new()
 	title.text = title_text
-	title.size = Vector2(1280, 70)
+	title.size = Vector2(width, 70)
 	title.position = Vector2(0, 8)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -336,7 +338,7 @@ static func _battle_intro(main) -> void:
 	band.add_child(title)
 	var sub := Label.new()
 	sub.text = sub_text
-	sub.size = Vector2(1280, 30)
+	sub.size = Vector2(width, 30)
 	sub.position = Vector2(0, 78)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_font_size_override("font_size", 18)

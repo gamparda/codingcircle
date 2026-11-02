@@ -86,7 +86,8 @@
     "tests/replay_viewer_plus_test.gd",
     "tests/data_reset_test.gd",
     "tests/login_gate_test.gd",
-    "tests/battlefield_art_test.gd"
+    "tests/battlefield_art_test.gd",
+    "tests/back_navigation_test.gd"
   ],
   "security": [
     "tests/security_windows_updater.gd",
