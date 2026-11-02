@@ -60,13 +60,14 @@ static func show(main, tab: String = "quests") -> void:
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_theme_constant_override("separation", 10)
 	scroll.add_child(body)
-	var state := {"tab": tab}
-	var redraw := func(): pass
-	redraw = func():
+	# The redraw callable lives in `state`: a lambda captures locals by value, so a tab button holding `redraw`
+	# itself would keep the placeholder it saw when it was made.
+	var state := {"tab": tab, "redraw": Callable()}
+	var redraw := func():
 		if not is_instance_valid(body):
 			return
 		_fill_header(main, header)
-		for child in tabs.get_children(): child.queue_free()
+		_clear(tabs)
 		for entry in TABS:
 			var id := String(entry[0])
 			var button = main._styled_button(Localization.text(String(entry[1])), UIKit.GOLD_DEEP if id == String(state.tab) else UIKit.EDGE.lightened(0.2), id == String(state.tab))
@@ -77,15 +78,16 @@ static func show(main, tab: String = "quests") -> void:
 			button.pressed.connect(func():
 				state.tab = id
 				scroll.scroll_vertical = 0
-				redraw.call())
+				state.redraw.call())
 			tabs.add_child(button)
-		for child in body.get_children(): child.queue_free()
+		_clear(body)
 		match String(state.tab):
 			"quests": _quests(main, body)
 			"shop": _shop(main, body)
 			"wardrobe": _wardrobe(main, body)
 			"codex": _codex(main, body)
 			"profile": _profile(main, body)
+	state.redraw = redraw
 	var watcher := Watcher.new()
 	watcher.name = "MetaWatcher"
 	watcher.account = account
@@ -93,8 +95,14 @@ static func show(main, tab: String = "quests") -> void:
 	column.add_child(watcher)
 	redraw.call()
 
+## Detaches and frees a container's children at once, so rebuilt nodes keep their names.
+static func _clear(container: Node) -> void:
+	for child in container.get_children():
+		container.remove_child(child)
+		child.queue_free()
+
 static func _fill_header(main, header: HBoxContainer) -> void:
-	for child in header.get_children(): child.queue_free()
+	_clear(header)
 	var account = main.account
 	var meta: Dictionary = account.meta
 	if not account.is_signed_in():
@@ -166,9 +174,16 @@ static func _quests(main, body: VBoxContainer) -> void:
 		var shown_progress := int(quest.progress)
 		if String(quest.id).begins_with("time") or String(quest.id).begins_with("w_time"):
 			shown_goal /= 60; shown_progress /= 60
-		row.add_child(_bar(float(shown_progress), float(shown_goal), 160.0))
-		row.add_child(MultiplayerUI.label("%d / %d" % [shown_progress, shown_goal], 14, UIKit.TEXT_MUTED))
-		row.add_child(MultiplayerUI.label("%s %d" % [GOLD_ICON, int(quest.reward)], 14, UIKit.GOLD))
+		# Fixed-width columns so every quest's bar, count and reward line up.
+		row.add_child(_bar(float(shown_progress), float(shown_goal), 200.0))
+		var count := MultiplayerUI.label("%d / %d" % [shown_progress, shown_goal], 14, UIKit.TEXT_MUTED)
+		count.custom_minimum_size = Vector2(80, 0)
+		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(count)
+		var reward := MultiplayerUI.label("%s %d" % [GOLD_ICON, int(quest.reward)], 14, UIKit.GOLD)
+		reward.custom_minimum_size = Vector2(70, 0)
+		reward.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(reward)
 		body.add_child(parts[0])
 	var pass_data: Dictionary = meta.pass
 	var tier := int(pass_data.tier)
