@@ -489,7 +489,9 @@ static func _purchase_unit(main, kind: String) -> void:
 	else:
 		main.network.send_spawn(kind); accepted = true
 	if accepted:
-		main.client_purchase_gates[kind] = Time.get_ticks_msec()+350
+		# Online, wait for the server's answer before the next tap counts; a solo battle's model already
+		# enforces the production cooldown in battle time, at any speed.
+		if not main.local_ai_mode: main.client_purchase_gates[kind] = Time.get_ticks_msec()+350
 		if main.local_ai_mode:
 			main._on_snapshot(main.local_model.snapshot())
 		else:

@@ -305,15 +305,16 @@ static func _battle_intro(main) -> void:
 		sub_text = Localization.text("온라인 대전")
 	var band := Control.new()
 	band.name = "BattleIntroBanner"
-	# Wide phones show more than 1280 units across: the band spans the whole screen and centres its text.
-	var width := maxf(1280.0, main.root_background.size.x)
-	band.position = Vector2(0, 250)
-	band.size = Vector2(width, 120)
+	# Anchored to both screen edges, so on wide phones it spans the whole width and centres its text (and the
+	# layout code that stretches hand-placed 1280-wide controls leaves it alone).
+	band.anchor_right = 1.0
+	band.offset_top = 250
+	band.offset_bottom = 370
 	band.z_index = 40
 	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var fill := ColorRect.new()
 	fill.color = Color(0.02, 0.03, 0.08, 0.72)
-	fill.size = band.size
+	fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	band.add_child(fill)
 	for edge_y in [0.0, 118.0]:
@@ -321,14 +322,12 @@ static func _battle_intro(main) -> void:
 		edge.texture = _team_gradient(main.own_side)
 		edge.stretch_mode = TextureRect.STRETCH_SCALE
 		edge.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		edge.position = Vector2(0, edge_y)
-		edge.size = Vector2(width, 2)
+		_span(edge, edge_y, 2.0)
 		edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		band.add_child(edge)
 	var title := Label.new()
 	title.text = title_text
-	title.size = Vector2(width, 70)
-	title.position = Vector2(0, 8)
+	_span(title, 8.0, 70.0)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	UIKit.display(title, 58, UIKit.GOLD)
@@ -338,8 +337,7 @@ static func _battle_intro(main) -> void:
 	band.add_child(title)
 	var sub := Label.new()
 	sub.text = sub_text
-	sub.size = Vector2(width, 30)
-	sub.position = Vector2(0, 78)
+	_span(sub, 78.0, 30.0)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_font_size_override("font_size", 18)
 	sub.add_theme_color_override("font_color", UIKit.TEXT_MUTED)
@@ -356,6 +354,12 @@ static func _battle_intro(main) -> void:
 	tween.tween_property(band, "modulate:a", 0.0, 0.3)
 	tween.parallel().tween_property(band, "position:x", 160.0, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	tween.tween_callback(band.queue_free)
+
+## Stretches `control` across its parent's width, `height` tall at `top`.
+static func _span(control: Control, top: float, height: float) -> void:
+	control.anchor_right = 1.0
+	control.offset_top = top
+	control.offset_bottom = top + height
 
 static func _team_gradient(own_side: int) -> GradientTexture2D:
 	var gradient := Gradient.new()

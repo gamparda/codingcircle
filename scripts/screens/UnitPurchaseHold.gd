@@ -3,6 +3,9 @@ extends RefCounted
 ## disabled card or a newly opened panel cannot receive the end of the gesture.
 
 const HOLD_DELAY_MSEC := 350
+## Holding a card produces at most once per this many battle seconds (the model's production cooldown), so
+## at 2x-8x speed it keeps the same pace in battle time instead of falling behind.
+const REPEAT_BATTLE_SECONDS := 0.35
 const EMULATED_DEVICE := -1
 
 var button: Button
@@ -11,6 +14,8 @@ var touch_index := -1
 var mouse_hold := false
 var repeat_at := 0
 var repeating := false
+## Battle time of the last repeated purchase.
+var last_repeat_time := -1000.0
 var captured_keys: Dictionary = {}
 var captured_touches: Dictionary = {}
 var captured_mouse := false
@@ -31,6 +36,7 @@ func cancel() -> void:
 	mouse_hold = false
 	repeat_at = 0
 	repeating = false
+	last_repeat_time = -1000.0
 
 func reset() -> void:
 	cancel()
@@ -94,10 +100,17 @@ func advance(main) -> void:
 	repeating = true
 	_refresh_hint()
 	if button.disabled: return
-	# Never catch up with a burst after a slow frame. In addition to the existing
-	# gate, wait at least one normal production interval between repeat attempts.
-	repeat_at = Time.get_ticks_msec() + HOLD_DELAY_MSEC
+	# Try every frame once the cooldown allows, but never more than once per production interval of
+	# battle time (no burst to catch up after a slow frame).
+	var now := battle_time(main)
+	if now - last_repeat_time < REPEAT_BATTLE_SECONDS: return
+	last_repeat_time = now
 	_purchase(main, button)
+
+static func battle_time(main) -> float:
+	if main.local_ai_mode and is_instance_valid(main.local_model):
+		return float(main.local_model.elapsed)
+	return float(main.current_snapshot.get("elapsed", 0.0))
 
 func handle_input(main, event: InputEvent) -> bool:
 	if button != null and (not is_instance_valid(button) or not can_hold(main)): cancel()

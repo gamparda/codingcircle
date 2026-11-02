@@ -589,6 +589,21 @@ static func icon_button(symbol: String, tooltip: String, accent: Color = EDGE, s
 		style.content_margin_top = 0
 		style.content_margin_bottom = 0
 		button.add_theme_stylebox_override(state, style)
+	if symbol == "←":
+		# Drawn, not typed: the arrow glyph comes from a fallback font whose baseline sits low on phones.
+		button.text = ""
+		button.set_meta("back_arrow", true)
+		var glyph := Control.new()
+		glyph.name = "ArrowGlyph"
+		glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		glyph.draw.connect(func():
+			var center := glyph.size * 0.5
+			var half := minf(glyph.size.x, glyph.size.y) * 0.2
+			var color: Color = button.get_theme_color("font_color")
+			glyph.draw_line(center + Vector2(half, 0), center - Vector2(half, 0), color, 2.5, true)
+			glyph.draw_polyline(PackedVector2Array([center + Vector2(-half * 0.2, -half * 0.8), center - Vector2(half, 0), center + Vector2(-half * 0.2, half * 0.8)]), color, 2.5, true))
+		button.add_child(glyph)
 	return button
 
 ## Small rounded status pill (non-interactive).

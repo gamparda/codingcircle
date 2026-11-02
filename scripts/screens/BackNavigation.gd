@@ -51,6 +51,6 @@ static func _top_control(main) -> Button:
 		var text := button.text.strip_edges()
 		if text in CLOSE_TEXTS or text.begins_with("▶  계속하기") or String(button.name).begins_with("Close"):
 			close = button
-		elif text == "←" or String(button.name).ends_with("BackButton") or String(button.name) == "SubMenuBack":
+		elif text == "←" or button.has_meta("back_arrow") or String(button.name).ends_with("BackButton") or String(button.name) == "SubMenuBack":
 			back = button
 	return close if close != null else back
