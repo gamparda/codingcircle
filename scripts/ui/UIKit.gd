@@ -585,6 +585,9 @@ static func icon_button(symbol: String, tooltip: String, accent: Color = EDGE, s
 		var style: StyleBox = button.get_theme_stylebox(state).duplicate()
 		style.content_margin_left = 0
 		style.content_margin_right = 0
+		# The plate's text margins are uneven top/bottom; a lone symbol is centred in the whole button instead.
+		style.content_margin_top = 0
+		style.content_margin_bottom = 0
 		button.add_theme_stylebox_override(state, style)
 	return button
 
