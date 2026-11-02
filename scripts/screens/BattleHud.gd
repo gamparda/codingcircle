@@ -796,6 +796,31 @@ static func _unit_population(main) -> Dictionary:
 static func _unit_limit_hint() -> String:
 	return "진영마다 병력과 소환수를 합쳐 전장에 최대 %d명까지 유지할 수 있습니다. 병력이 사망하고 정리되어 빈자리가 생기면 다시 생산할 수 있습니다. 구조물은 별도 한도를 사용합니다." % BattleModel.SIDE_UNIT_LIMIT
 
+## The cheat that lifts one-of-a-kind limits (demon lord) is on for this player.
+static func _field_limit_lifted(main) -> bool:
+	if main.local_ai_mode and is_instance_valid(main.local_model):
+		return main.local_model.cheats[main.own_side].has("no_cap")
+	return main.cheat_flags.has("no_cap")
+
+## Unit prices change during a run (a boon like 징병관): cards follow the model's price, badge and text included.
+static func _refresh_unit_costs(main) -> void:
+	if not main.local_ai_mode or not is_instance_valid(main.local_model):
+		return
+	for button in main.purchase_buttons:
+		if not is_instance_valid(button) or not button.has_meta("unit_kind"):
+			continue
+		var cost: float = main.local_model.unit_cost(main.own_side, String(button.get_meta("unit_kind")))
+		var before := float(button.get_meta("purchase_cost", cost))
+		if is_equal_approx(cost, before):
+			continue
+		button.set_meta("purchase_cost", cost)
+		var badge := button.get_node_or_null("CostBadge") as Label
+		if badge != null:
+			badge.text = "%d" % int(cost)
+		for key in ["base_text"]:
+			button.set_meta(key, String(button.get_meta(key, "")).replace("  ·  %d\n" % int(before), "  ·  %d\n" % int(cost)))
+		button.text = button.text.replace("  ·  %d\n" % int(before), "  ·  %d\n" % int(cost))
+
 static func _unit_production_limit_error(main) -> String:
 	return "전장 병력 한도 %d명 · 병력이 줄어들면 다시 생산할 수 있습니다." % BattleModel.SIDE_UNIT_LIMIT if BattleModel.side_count(_battle_units(main), main.own_side) >= BattleModel.SIDE_UNIT_LIMIT else ""
 
@@ -941,6 +966,7 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 	var army_panel = main.stats_overlay.get_node_or_null("BattleArmyPanel") if is_instance_valid(main.stats_overlay) else null
 	var production: Dictionary = {}
 	var clear_selection := false
+	_refresh_unit_costs(main)
 	for button in main.purchase_buttons:
 		if not is_instance_valid(button):
 			continue
@@ -985,7 +1011,7 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 				limit_state = "전장 한도 %d/%d" % [int(population.sides[main.own_side]), BattleModel.SIDE_UNIT_LIMIT]
 			else:
 				var unit_kind := String(button.get_meta("unit_kind"))
-				limit_error = BattleModel.field_limit_error(_battle_units(main), main.own_side, unit_kind)
+				limit_error = "" if _field_limit_lifted(main) else BattleModel.field_limit_error(_battle_units(main), main.own_side, unit_kind)
 				if not limit_error.is_empty():
 					limit_state = "출전 중 %d/%d" % [BattleModel.field_limit(unit_kind), BattleModel.field_limit(unit_kind)]
 		if button.has_meta("structure_kind") and BattleModel.is_spell(String(button.get_meta("structure_kind"))):
