@@ -3,9 +3,10 @@ extends RefCounted
 ## disabled card or a newly opened panel cannot receive the end of the gesture.
 
 const HOLD_DELAY_MSEC := 350
-## Holding a card produces at most once per this many battle seconds (the model's production cooldown), so
-## at 2x-8x speed it keeps the same pace in battle time instead of falling behind.
-const REPEAT_BATTLE_SECONDS := 0.35
+## Holding a card produces as soon as the card allows (the model's production cooldown sets the pace), and at
+## most once per this many battle seconds, so 2x-8x speed keeps the same pace in battle time and a battle
+## without a cooldown (a cheat) still does not produce every frame.
+const REPEAT_BATTLE_SECONDS := 0.0875
 const EMULATED_DEVICE := -1
 
 var button: Button
