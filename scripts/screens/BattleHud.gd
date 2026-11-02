@@ -796,6 +796,10 @@ static func _unit_population(main) -> Dictionary:
 static func _unit_limit_hint() -> String:
 	return "진영마다 병력과 소환수를 합쳐 전장에 최대 %d명까지 유지할 수 있습니다. 병력이 사망하고 정리되어 빈자리가 생기면 다시 생산할 수 있습니다. 구조물은 별도 한도를 사용합니다." % BattleModel.SIDE_UNIT_LIMIT
 
+## This player's unit limit (the solo-battle cheat can raise it).
+static func _side_limit(main) -> int:
+	return main.local_model.side_limit(main.own_side) if main.local_ai_mode and is_instance_valid(main.local_model) else BattleModel.SIDE_UNIT_LIMIT
+
 ## The cheat that lifts one-of-a-kind limits (demon lord) is on for this player.
 static func _field_limit_lifted(main) -> bool:
 	if main.local_ai_mode and is_instance_valid(main.local_model):
@@ -822,7 +826,7 @@ static func _refresh_unit_costs(main) -> void:
 		button.text = button.text.replace("  ·  %d\n" % int(before), "  ·  %d\n" % int(cost))
 
 static func _unit_production_limit_error(main) -> String:
-	return "전장 병력 한도 %d명 · 병력이 줄어들면 다시 생산할 수 있습니다." % BattleModel.SIDE_UNIT_LIMIT if BattleModel.side_count(_battle_units(main), main.own_side) >= BattleModel.SIDE_UNIT_LIMIT else ""
+	return "전장 병력 한도 %d명 · 병력이 줄어들면 다시 생산할 수 있습니다." % _side_limit(main) if BattleModel.side_count(_battle_units(main), main.own_side) >= _side_limit(main) else ""
 
 static func _refresh_unit_population(main, counts: Dictionary) -> void:
 	var awaiting: bool = main.current_snapshot.is_empty() or (not main.local_ai_mode and (main.awaiting_battle_snapshot or main.network.client_reconnecting or main.network_paused))
@@ -850,8 +854,8 @@ static func _refresh_unit_population(main, counts: Dictionary) -> void:
 		if label.text != text: label.text = text
 		if label.tooltip_text != tooltip: label.tooltip_text = tooltip
 	if not is_instance_valid(main.unit_capacity_label): return
-	var capacity_text := "전장 병력 — / %d" % BattleModel.SIDE_UNIT_LIMIT if awaiting else "전장 병력 %d / %d" % [int(counts.sides[main.own_side]), BattleModel.SIDE_UNIT_LIMIT]
-	var full: bool = not awaiting and int(counts.sides[main.own_side]) >= BattleModel.SIDE_UNIT_LIMIT
+	var capacity_text := "전장 병력 — / %d" % _side_limit(main) if awaiting else "전장 병력 %d / %d" % [int(counts.sides[main.own_side]), _side_limit(main)]
+	var full: bool = not awaiting and int(counts.sides[main.own_side]) >= _side_limit(main)
 	if full: capacity_text += " · 생산 한도"
 	var capacity_hint := "최신 전투 상태를 받은 뒤 전체 병력 수와 생산 한도를 표시합니다." if awaiting else _unit_limit_hint()
 	var pending := int(counts.occupied) - int(counts.living[0]) - int(counts.living[1])
@@ -1006,9 +1010,9 @@ static func _refresh_purchase_buttons(main, resources: float) -> void:
 		var expiration_wait := -1.0
 		var tooltip := String(button.get_meta("base_tooltip", ""))
 		if button.has_meta("unit_kind") and not awaiting_state:
-			if int(population.sides[main.own_side]) >= BattleModel.SIDE_UNIT_LIMIT:
+			if int(population.sides[main.own_side]) >= _side_limit(main):
 				limit_error = _unit_limit_hint()
-				limit_state = "전장 한도 %d/%d" % [int(population.sides[main.own_side]), BattleModel.SIDE_UNIT_LIMIT]
+				limit_state = "전장 한도 %d/%d" % [int(population.sides[main.own_side]), _side_limit(main)]
 			else:
 				var unit_kind := String(button.get_meta("unit_kind"))
 				limit_error = "" if _field_limit_lifted(main) else BattleModel.field_limit_error(_battle_units(main), main.own_side, unit_kind)

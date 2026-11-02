@@ -13,6 +13,7 @@ const TOGGLES := {
 	"haste": "내 병력 2배 빠르게",
 	"freeze": "적 병력 얼리기",
 	"no_cap": "마왕 등 1기 제한 없음",
+	"army_cap": "병력 한도 2배 (혼자 하는 전투)",
 }
 ## One-shot action id -> label, in panel order.
 const ONE_SHOTS := {
@@ -26,6 +27,9 @@ const ONE_SHOTS := {
 	"win": "즉시 승리",
 	"lose": "즉시 패배",
 }
+
+## Toggles the server never applies: online snapshots carry at most 256 units in all.
+const SOLO_ONLY := ["army_cap"]
 
 static func valid(action: Variant) -> bool:
 	return action is String and (TOGGLES.has(action) or ONE_SHOTS.has(action))

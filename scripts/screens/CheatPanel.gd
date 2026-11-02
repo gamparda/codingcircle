@@ -48,6 +48,8 @@ static func show(main) -> void:
 	scroll.add_child(list)
 	var grid := _section(list, "켜고 끄기")
 	for id in Cheats.TOGGLES:
+		if not main.local_ai_mode and id in Cheats.SOLO_ONLY:
+			continue
 		var toggle := String(id)
 		var on := _toggled(main, toggle)
 		var button = _add(main, grid, "%s · %s" % [Localization.text(String(Cheats.TOGGLES[id])), Localization.text("켜짐") if on else Localization.text("꺼짐")], "Cheat_" + toggle, func():

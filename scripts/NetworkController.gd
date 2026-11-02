@@ -1458,7 +1458,7 @@ func send_cheat(action: String) -> bool:
 func request_cheat(action: String) -> void:
 	if not server_mode: return
 	var sender := multiplayer.get_remote_sender_id()
-	if not can_process_request(sender) or not Cheats.valid(action): return
+	if not can_process_request(sender) or not Cheats.valid(action) or action in Cheats.SOLO_ONLY: return
 	var account := String(peer_accounts.get(sender, ""))
 	if account.is_empty() or not TitleFlow.Titles.can_cheat(accounts.role_of(account)): return
 	var match_id := registry.get_match_id(sender)

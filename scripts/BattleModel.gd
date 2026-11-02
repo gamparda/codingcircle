@@ -835,7 +835,11 @@ static func side_count(values: Array, side: int) -> int:
 	return count
 
 func side_full(side: int) -> bool:
-	return side_count(units, side) >= SIDE_UNIT_LIMIT
+	return side_count(units, side) >= side_limit(side)
+
+## Units a side may field: SIDE_UNIT_LIMIT, doubled by the solo-battle cheat "army_cap".
+func side_limit(side: int) -> int:
+	return SIDE_UNIT_LIMIT * 2 if cheats[side].has("army_cap") else SIDE_UNIT_LIMIT
 
 static func field_limit(kind: String) -> int:
 	return int(trait_value(kind, "field_limit", 0))
@@ -932,10 +936,14 @@ func _tick_support(unit: Dictionary, delta: float) -> void:
 			if ally.side == unit.side and ally.kind != "healer" and float(ally.hp) > 0.0:
 				if frontline == null or direction * float(ally.x) > direction * float(frontline.x):
 					frontline = ally
+	var step := float(unit.speed) * _swamp_scale(unit) * delta
+	if sheltered(unit) and not unit.has("muster"):
+		# A support that marched must leave the spawn zone (it can be hit nowhere else), whatever it sees ahead.
+		unit.x = _held_stride(unit, clampf(float(unit.x) + direction * step, FIELD_LEFT, FIELD_RIGHT), direction, delta)
+		return
 	if frontline != null and direction * (float(frontline.x) - float(unit.x)) <= SUPPORT_FOLLOW_DISTANCE:
 		return
 	# Support units never attack units, buildings or bases, even with no wounded ally.
-	var step := float(unit.speed) * _swamp_scale(unit) * delta
 	var enemy_ahead: bool = _enemy_ahead_indexed(unit, max(float(unit.range), step)) if _indexed else units.any(func(enemy): return enemy.side != unit.side and float(enemy.hp) > 0.0 and direction * (float(enemy.x) - float(unit.x)) >= 0.0 and abs(float(enemy.x) - float(unit.x)) <= max(float(unit.range), step))
 	if enemy_ahead or _blocking_wall(unit, float(unit.x) + direction * step) != null or _find_target(unit) != null:
 		return

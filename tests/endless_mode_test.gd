@@ -190,6 +190,17 @@ func run() -> void:
 		edge.tick(dt)
 	check(float(edge_archer.hp) <= 0.0, "a paladin reaches an archer shooting from the zone's edge")
 
+	# A marched enemy healer inside the spawn zone walks out even with defenders right in front of it.
+	var zone := BattleModel.new()
+	var zone_director := WaveDirector.new(11)
+	zone_director.setup(zone)
+	zone.units.append({"id": 8200, "side": 0, "kind": "paladin", "hp": 9999.0, "max_hp": 9999.0, "damage": 0.0, "interval": 99.0, "speed": 0.0, "range": 45.0, "x": WaveDirector.front_line(), "cooldown": 99.0})
+	zone.units.append({"id": 8201, "side": 1, "kind": "healer", "hp": 66.0, "max_hp": 66.0, "damage": 0.0, "heal": 0.0, "interval": 4.0, "speed": 34.0, "range": 125.0, "x": BattleModel.FIELD_RIGHT - 60.0, "cooldown": 0.0, "support_stacks": 0})
+	var stuck_healer: Dictionary = zone.units.back()
+	for i in 30 * 10:
+		zone.tick(dt)
+	check(not zone.sheltered(stuck_healer), "a marched healer leaves the spawn zone (%.0f)" % float(stuck_healer.x))
+
 	# Castles shoot enemies that come close, harder when hurt; endless waves have no castle.
 	var siege := BattleModel.new()
 	siege.units.append({"id": 7000, "side": 1, "kind": "swordsman", "hp": 500.0, "max_hp": 500.0, "damage": 0.0, "interval": 99.0, "speed": 0.0, "range": 1.0, "x": BattleModel.FIELD_LEFT + BattleModel.CASTLE_RANGE - 10.0, "cooldown": 99.0})

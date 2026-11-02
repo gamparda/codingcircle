@@ -41,5 +41,8 @@ func run() -> void:
 	main._on_snapshot(main.local_model.snapshot())
 	await process_frame
 	check(float(paladin.get_meta("purchase_cost")) == main.local_model.unit_cost(0, "paladin") and paladin.get_node("CostBadge").text == str(int(main.local_model.unit_cost(0, "paladin"))) and main.local_model.unit_cost(0, "paladin") < 65.0, "the card shows the boon price")
+	Cheats.perform(main.local_model, 0, "army_cap")
+	check(main.local_model.side_limit(0) == 2 * BattleModel.SIDE_UNIT_LIMIT, "the solo cheat doubles the unit limit")
+	check(not load("res://scripts/Cheats.gd").SOLO_ONLY.is_empty(), "the doubled limit stays out of online battles")
 	print("cheat_ui_test failures=%d" % failures)
 	quit(1 if failures > 0 else 0)
