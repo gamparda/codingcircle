@@ -72,6 +72,7 @@ static func _build_battle_screen(main) -> void:
 	main.battle_view.battlefield_clicked.connect(main._on_battlefield_clicked)
 	main.battle_view.build_touch_cancelled.connect(func(): main._show_placement_status("설치 동작을 취소했습니다. 전장에서 다시 위치를 선택하세요."))
 	main.root_background.add_child(main.battle_view)
+	preload("res://scripts/screens/BattleEmotes.gd").apply_looks(main)
 	# The battlefield takes all the room between the top bar and the card tray on any screen shape.
 	main.battle_view.set_anchor_and_offset(SIDE_RIGHT, 1.0, 0.0)
 	main.battle_view.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -140.0)
@@ -212,6 +213,7 @@ static func _build_battle_screen(main) -> void:
 	info.z_index = 10
 	info.pressed.connect(main._toggle_stats_panel)
 	main.root_background.add_child(info)
+	preload("res://scripts/screens/BattleEmotes.gd").add_button(main)
 	var corner := HBoxContainer.new()
 	corner.name = "BattleCorner"
 	corner.position = Vector2(14, 98)
@@ -521,6 +523,7 @@ static func _decorate_battle_card(main, button: Button) -> void:
 		style.content_margin_left = 4
 		style.content_margin_right = 4
 		button.add_theme_stylebox_override(state, style)
+	preload("res://scripts/screens/BattleEmotes.gd").frame_card(main, button)
 	UIKit.juice(button, 1.04)
 
 static func _card_badges(main, button: Button, color: Color) -> void:

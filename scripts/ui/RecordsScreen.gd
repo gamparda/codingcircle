@@ -39,6 +39,12 @@ var _replay_status: Label
 var _scroll_revision := 0
 var _return_focus := ""
 
+## "3시간 12분" style, short for the records cards.
+static func _hours(seconds: int) -> String:
+	if seconds >= 3600:
+		return "%d시간 %d분" % [seconds / 3600, (seconds % 3600) / 60]
+	return "%d분" % (seconds / 60)
+
 func populate(save_data: Dictionary, session_state: Dictionary = {}) -> void:
 	_session_state = session_state
 	if session_state.has("history"):
@@ -60,6 +66,8 @@ func populate(save_data: Dictionary, session_state: Dictionary = {}) -> void:
 	summary.add_child(_card("온라인", [
 		[str(stats.online_completed), "완료", UIKit.TEXT], [str(stats.online_wins), "승", UIKit.SUCCESS], [str(stats.online_losses), "패", UIKit.DANGER],
 		[str(stats.online_draws), "무", UIKit.TEXT_MUTED], [str(stats.online_interrupted), "중단", UIKit.TEXT_MUTED], ["%.1f%%" % online_rate, "승률", UIKit.GOLD]]))
+	summary.add_child(_card("플레이 시간", [
+		[_hours(int(stats.get("play_seconds", 0))), "전체", UIKit.GOLD], [_hours(int(stats.get("solo_seconds", 0))), "혼자", UIKit.TEXT], [_hours(int(stats.get("online_seconds", 0))), "대전", UIKit.TEXT]]))
 	column.add_child(summary)
 	_records_summary = summary
 

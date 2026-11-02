@@ -21,6 +21,11 @@ const CATALOG := {
 	"ranked_season_top": {"name": "시즌의 영웅", "how": "랭크 시즌을 10위 안에서 마감", "group": "랭크 대전"},
 	"necro_lord": {"name": "망자의 군주", "how": "랭크 대전에서 네크로맨서로 해골 300마리 소환(누적)", "group": "랭크 대전", "hidden": true},
 	"daily_30": {"name": "성실한 파수꾼", "how": "일일·주간 도전을 서로 다른 30일에 완료", "group": "도전"},
+	"play_1h": {"name": "첫 불씨", "how": "확인된 전투 시간 1시간", "group": "플레이 시간"},
+	"play_10h": {"name": "성벽의 단골", "how": "확인된 전투 시간 10시간", "group": "플레이 시간"},
+	"play_50h": {"name": "노련한 지휘관", "how": "확인된 전투 시간 50시간", "group": "플레이 시간"},
+	"play_100h": {"name": "성과 함께한 세월", "how": "확인된 전투 시간 100시간", "group": "플레이 시간"},
+	"season_pass": {"name": "시즌 완주자", "how": "시즌 패스 30단계 달성", "group": "시즌 패스"},
 	"founder": {"name": "성을 세운 자", "how": "특별히 받은 칭호", "group": "특별", "hidden": true},
 	"warden": {"name": "성의 수호자", "how": "특별히 받은 칭호", "group": "특별", "hidden": true},
 }
@@ -33,6 +38,8 @@ const NECRO_SUMMONS := 300
 const DAILY_DAYS := 30
 const ENDLESS_TIERS := [[10, "endless_10"], [20, "endless_20"], [30, "endless_30"]]
 const ENDLESS_FEAT_WAVES := 15
+## Verified battle hours and their titles.
+const PLAY_TIERS := [[1, "play_1h"], [10, "play_10h"], [50, "play_50h"], [100, "play_100h"]]
 ## Roles: a hyper account appoints super accounts; both may use cheats in solo modes.
 const ROLES := ["", "super", "hyper"]
 

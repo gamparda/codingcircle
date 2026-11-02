@@ -88,6 +88,7 @@ static func _begin_session_match(main, owner_id: int, mode: String) -> void:
 	main.models[match_id] = model; main.session_matches[match_id] = room.code
 	main.replays.begin(match_id, model, {"mode": mode})
 	main.RankedFlow.on_match_begin(main, match_id, ids, room, mode)
+	main.MetaFlow.on_match_begin(main, match_id, ids, mode)
 	main._push_session(room.code); main.lobby_dirty = true
 	for side in 2: main.match_started.rpc_id(int(ids[side]),side)
 	for id in room.members:

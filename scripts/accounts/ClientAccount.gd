@@ -53,6 +53,13 @@ var worn := ""
 var supers: Array = []
 var new_titles: Array = []
 var title_message := ""
+## Progression (MetaFlow): the server's state ({} until it arrives), the reward of the battle it last counted
+## (shown on the result screen, then cleared), the last error, and the last profile card looked up.
+signal meta_changed
+var meta: Dictionary = {}
+var last_reward: Dictionary = {}
+var meta_message := ""
+var profile_card: Dictionary = {}
 var busy_elapsed := 0.0
 var _busy_return := "guest"
 var _was_ready := false
@@ -75,6 +82,10 @@ func setup(network_node, sign_in_plugin: Object = null) -> void:
 	network.account_nonce_received.connect(_on_nonce)
 	network.account_result_received.connect(_on_result)
 	network.title_state_received.connect(_on_title_state)
+	network.meta_state_received.connect(_on_meta_state)
+	network.profile_card_received.connect(func(card):
+		profile_card = card
+		meta_changed.emit())
 	network.server_ready.connect(resume)
 	_load()
 
@@ -196,6 +207,8 @@ func forget() -> void:
 	verified_at = 0
 	cloud_revision = 0
 	cloud_hash = ""
+	meta = {}
+	last_reward = {}
 	role = ""
 	titles = []
 	worn = ""
@@ -277,6 +290,7 @@ func _on_result(result: Dictionary) -> void:
 				_save_session(String(result.session), String(result.nickname))
 				_finish("signed_in", "%s 님으로 로그인했습니다." % nickname)
 				network.send_title_state_request()
+				network.send_meta_request()
 			else:
 				_finish("needs_nickname" if String(result.action) == "create" and error in ["nickname_taken", "invalid_nickname"] else "guest", _error_text(error))
 		"resume":
@@ -288,6 +302,7 @@ func _on_result(result: Dictionary) -> void:
 				_save_session(session, String(result.nickname) if not String(result.nickname).is_empty() else nickname)
 				_finish("signed_in", "")
 				network.send_title_state_request()
+				network.send_meta_request()
 			else:
 				forget()
 				_finish("guest", "로그인이 만료되었습니다. 다시 로그인하세요.")
@@ -326,6 +341,40 @@ func cheat_titles() -> bool:
 func verify(kind: String, text: String) -> bool:
 	return online and network.send_title_verify(kind, text)
 
+# ---------- progression ----------
+
+func refresh_meta() -> bool:
+	return online and network.send_meta_request()
+
+func buy(item: String) -> bool:
+	return _meta_request(network.send_buy(item) if online else false)
+
+func equip(item: String, index: int = 0) -> bool:
+	return _meta_request(network.send_equip(item, index) if online else false)
+
+func look_up(nickname_text: String) -> bool:
+	return network.send_profile_card_request(nickname_text.strip_edges())
+
+func _meta_request(sent: bool) -> bool:
+	meta_message = "" if sent else "서버에 연결된 계정에서만 할 수 있습니다."
+	meta_changed.emit()
+	return sent
+
+func _on_meta_state(data: Dictionary) -> void:
+	if not is_signed_in():
+		return
+	if not data.state.is_empty():
+		meta = data.state
+	if not data.reward.is_empty():
+		last_reward = data.reward
+	meta_message = {"not_signed_in": "로그인한 계정만 쓸 수 있습니다.", "owned": "이미 가진 물건입니다.", "not_in_shop": "오늘 상점에 없는 물건입니다.",
+		"no_gold": "금화가 부족합니다.", "not_owned": "아직 갖지 않은 물건입니다.", "invalid": "요청을 처리하지 못했습니다."}.get(String(data.error), "")
+	meta_changed.emit()
+
+## The cosmetic worn in `slot` ("" without an account or before the server answered).
+func worn_cosmetic(slot: String) -> String:
+	return String(meta.get("equipped", {}).get(slot, "")) if is_signed_in() else ""
+
 func _title_request(sent: bool) -> bool:
 	title_message = "" if sent else "서버에 연결된 계정에서만 할 수 있습니다."
 	changed.emit()
@@ -349,7 +398,7 @@ func _on_title_state(data: Dictionary) -> void:
 
 static func _title_error_text(error: String, verified_kind: String) -> String:
 	if not verified_kind.is_empty():
-		return {"mismatch": "서버에서 전투를 다시 계산한 결과가 달라 칭호 기록에 넣지 못했습니다.", "expired": "지난 도전이라 칭호 기록에 넣지 못했습니다.", "busy": "다른 기록을 확인하는 중입니다. 다음 판에 다시 보냅니다."}.get(error, "칭호 기록을 확인하지 못했습니다.")
+		return {"mismatch": "서버에서 전투를 다시 계산한 결과가 달라 기록에 넣지 못했습니다.", "expired": "지난 도전이라 기록에 넣지 못했습니다.", "busy": "다른 기록을 확인하는 중입니다. 다음 판에 다시 보냅니다."}.get(error, "전투 기록을 확인하지 못했습니다.")
 	return {
 		"not_signed_in": "로그인한 계정만 칭호를 쓸 수 있습니다.",
 		"not_owned": "아직 얻지 못한 칭호입니다.",

@@ -82,6 +82,8 @@ var practice_used_tools := false
 ## Cheats (super accounts, CheatPanel): whether this battle used any, and the toggles asked of the server online.
 var cheats_used := false
 var cheat_flags: Dictionary = {}
+## Both sides' cosmetics in the current online battle (MetaFlow), [] when none arrived.
+var match_looks: Array = []
 var practice_pause_button: Button
 var practice_speed_button: Button
 var action_overlay: Control
@@ -232,6 +234,10 @@ func _ready() -> void:
 	network.room_join_failed.connect(_on_room_join_failed)
 	network.room_list_received.connect(_on_room_list)
 	network.session_changed.connect(_on_session_changed)
+	network.match_looks_received.connect(func(looks):
+		match_looks = looks
+		preload("res://scripts/screens/BattleEmotes.gd").apply_looks(self))
+	network.emote_received.connect(func(side, emote): preload("res://scripts/screens/BattleEmotes.gd").show_bubble(self, side, emote))
 	network.session_error.connect(_on_session_error)
 	network.server_ready.connect(_on_server_ready)
 	network.result_report_saved.connect(_on_result_report_saved)

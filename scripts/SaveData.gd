@@ -57,6 +57,7 @@ static func default_data() -> Dictionary:
 			"ai_matches": 0, "ai_wins": 0, "ai_losses": 0, "highest_campaign": 0, "total_stars": 0,
 			"online_completed": 0, "online_wins": 0, "online_losses": 0, "online_draws": 0, "online_interrupted": 0,
 			"win_streak": 0, "best_streak": 0, "daily_completed": 0, "weekly_completed": 0,
+			"play_seconds": 0, "solo_seconds": 0, "online_seconds": 0,
 		},
 		"achievements": {},
 		"daily": {},

@@ -9,6 +9,7 @@ const BattleReplay = preload("res://scripts/BattleReplay.gd")
 const DailyChallenge = preload("res://scripts/DailyChallenge.gd")
 const WaveDirector = preload("res://scripts/run/WaveDirector.gd")
 const ServerStats = preload("res://scripts/ServerStats.gd")
+const Progression = preload("res://scripts/accounts/Progression.gd")
 
 const KINDS := ["campaign", "daily", "endless"]
 ## Upload size limit (characters of JSON).
@@ -21,6 +22,8 @@ const DT := 1.0 / 30.0
 var kind := ""
 var account := ""
 var peer := 0
+## SHA-256 of the uploaded log, so the same log never pays twice.
+var log_hash := ""
 ## {"ok": bool, "error": String, ...facts}; empty while running.
 var result: Dictionary = {}
 var _steps: Callable
@@ -32,6 +35,7 @@ static func create(job_kind: String, text: String, account_id: String, from_peer
 	job.kind = job_kind
 	job.account = account_id
 	job.peer = from_peer
+	job.log_hash = text.sha256_text()
 	var parsed = JSON.parse_string(text) if text.length() <= MAX_TEXT else null
 	match job_kind:
 		"campaign", "daily":
@@ -117,7 +121,7 @@ func _battle_step() -> bool:
 		_fail("mismatch"); return false
 	var model: BattleModel = player.model
 	var won := int(played.winner) == 0
-	result = {"ok": true, "error": "", "won": won, "stage": int(_state.stage)}
+	result = {"ok": true, "error": "", "won": won, "stage": int(_state.stage), "event": Progression.event_from_model(model, 0, kind)}
 	if kind == "campaign" and won:
 		result.stars = SaveData.campaign_stars(int(_state.stage), true, float(model.elapsed), float(model.base_hp[0]))
 		result.untouched = float(model.base_hp[0]) >= float(model.base_max_hp[0])
@@ -140,7 +144,7 @@ func _prepare_endless(data: Variant) -> void:
 	var first: Dictionary = data.segments[0].start
 	if int(first.wave) != 1 or not first.boons.is_empty() or float(first.base_hp) != BattleModel.BASE_MAX_HP:
 		_fail("mismatch"); return
-	_state = {"segments": data.segments, "index": -1, "lowest": 1.0, "melee": not first.units.any(func(unit): return BattleModel.unit_scope(String(unit)) == "ranged")}
+	_state = {"segments": data.segments, "index": -1, "lowest": 1.0, "seconds": 0.0, "units": {}, "melee": not first.units.any(func(unit): return BattleModel.unit_scope(String(unit)) == "ranged")}
 	_steps = _endless_step
 	_begin_segment(0)
 
@@ -240,6 +244,14 @@ func _segment_over(segment: Dictionary, saved: bool) -> bool:
 	var model: BattleModel = _state.model
 	var director = _state.director
 	var index := int(_state.index)
+	# Battle time and units of this segment add to the run's totals.
+	var part: Dictionary = Progression.event_from_model(model, 0, "endless")
+	_state.seconds = float(_state.seconds) + float(part.seconds)
+	for kind in part.units:
+		var row: Dictionary = _state.units.get(kind, {"spawned": 0, "kills": 0})
+		row.spawned = int(row.spawned) + int(part.units[kind].spawned)
+		row.kills = int(row.kills) + int(part.units[kind].kills)
+		_state.units[kind] = row
 	if saved:
 		var next: Dictionary = _state.segments[index + 1].start
 		if int(next.wave) != director.wave + 1 or _canonical(next.boons) != _canonical(director.boons) or float(next.base_hp) != float(model.base_hp[0]):
@@ -249,5 +261,6 @@ func _segment_over(segment: Dictionary, saved: bool) -> bool:
 	if String(segment.end) != "end" or int(_state.ticks) != int(segment.ticks):
 		_fail("mismatch"); return false
 	var waves: int = director.waves_cleared()
-	result = {"ok": true, "error": "", "waves": waves, "flawless": float(_state.lowest) >= 0.5, "melee": bool(_state.melee)}
+	result = {"ok": true, "error": "", "waves": waves, "flawless": float(_state.lowest) >= 0.5, "melee": bool(_state.melee),
+		"event": {"mode": "endless", "seconds": float(_state.seconds), "won": false, "units": _state.units, "waves": waves}}
 	return false

@@ -7,6 +7,7 @@ const ServerStats = preload("res://scripts/ServerStats.gd")
 const ServerBackup = preload("res://scripts/ServerBackup.gd")
 const SessionStore = preload("res://scripts/RoomSessions.gd")
 const Titles = preload("res://scripts/accounts/Titles.gd")
+const MetaStore = preload("res://scripts/accounts/MetaStore.gd")
 
 const FILE_NAME := "accounts.json"
 const SESSION_SECONDS := 30 * 86400
@@ -31,7 +32,8 @@ var path := ""
 ##   "rating": int, "ranked": {"wins": int, "losses": int, "draws": int},
 ##   "season": "YYYY-MM", "best": int, "history": {season: {"rating", "best", "wins", "losses", "draws"}},
 ##   "role": "" | "super" | "hyper", "titles": {title id: unix time earned}, "title": worn title id or "",
-##   "progress": {"streak", "ranked_games", "summons", "campaign": {"1".."8": best stars}, "daily": [date keys], "endless": best verified wave}}
+##   "progress": {"streak", "ranked_games", "summons", "campaign": {"1".."8": best stars}, "daily": [date keys], "endless": best verified wave},
+##   "meta": gold, verified battle time, quests, season pass, cosmetics and mastery (MetaStore)}
 ## Ranked seasons follow the UTC calendar month. When an account first plays or looks at its profile in a
 ## new month, the finished season is archived, its rating moves halfway back to START_RATING and the
 ## win/loss counts start over (so the first PROVISIONAL_GAMES games of a season are placement games).
@@ -110,7 +112,7 @@ func _adopt(id: String, record: Variant) -> void:
 				titles[String(title)] = int(record.titles[title])
 	var worn := String(record.get("title", "")) if titles.has(String(record.get("title", ""))) else ""
 	accounts[id] = {"subject": String(record.subject), "nickname": nickname, "created": int(record.get("created", 0)), "last_login": int(record.get("last_login", 0)), "sessions": sessions, "rating": rating, "ranked": ranked, "season": season, "best": best, "history": history,
-		"role": role, "titles": titles, "title": worn, "progress": _clean_progress(record.get("progress"))}
+		"role": role, "titles": titles, "title": worn, "progress": _clean_progress(record.get("progress")), "meta": MetaStore.clean(record.get("meta"))}
 	by_subject[String(record.subject)] = id
 	by_nickname[nickname.to_lower()] = id
 	for token_hash in sessions:
@@ -141,7 +143,7 @@ func create(subject: String, nickname: String, now: int) -> Dictionary:
 		return {"error": "full"}
 	var id := Crypto.new().generate_random_bytes(16).hex_encode()
 	accounts[id] = {"subject": subject_hash(subject), "nickname": nickname, "created": now, "last_login": now, "sessions": {}, "rating": START_RATING, "ranked": {"wins": 0, "losses": 0, "draws": 0}, "season": current_season(), "best": START_RATING, "history": {},
-		"role": "", "titles": {}, "title": "", "progress": _clean_progress(null)}
+		"role": "", "titles": {}, "title": "", "progress": _clean_progress(null), "meta": MetaStore.fresh()}
 	by_subject[accounts[id].subject] = id
 	by_nickname[nickname.to_lower()] = id
 	dirty = true
@@ -441,6 +443,65 @@ func grant_all(id: String) -> Array:
 		if not String(title) in ["founder", "warden"] and grant(id, String(title)):
 			earned.append(String(title))
 	return earned
+
+# ---------- progression (gold, quests, pass, cosmetics) ----------
+
+## Counts one battle the server saw or re-simulated; grants the titles it earns. Returns the reward (MetaStore).
+func apply_play(id: String, event: Dictionary, log_hash: String = "") -> Dictionary:
+	if not accounts.has(id):
+		return {}
+	var reward: Dictionary = MetaStore.apply_play(accounts[id].meta, id, event, now(), log_hash)
+	if reward.is_empty():
+		return reward
+	var earned: Array = []
+	for title in reward.titles:
+		if grant(id, String(title)):
+			earned.append(String(title))
+	reward.titles = earned
+	dirty = true
+	return reward
+
+func meta_state(id: String) -> Dictionary:
+	if not accounts.has(id):
+		return {}
+	return MetaStore.state(accounts[id].meta, id, now())
+
+func buy(id: String, item: String) -> String:
+	if not accounts.has(id):
+		return "not_signed_in"
+	MetaStore.roll(accounts[id].meta, now())
+	var error: String = MetaStore.buy(accounts[id].meta, id, item, now())
+	if error.is_empty():
+		dirty = true
+	return error
+
+func equip(id: String, item: String, index: int) -> String:
+	if not accounts.has(id):
+		return "not_signed_in"
+	var error: String = MetaStore.equip(accounts[id].meta, item, index)
+	if error.is_empty():
+		dirty = true
+	return error
+
+## Cosmetics `id` shows in battle ({} without an account).
+func look(id: String) -> Dictionary:
+	return MetaStore.look(accounts[id].meta) if accounts.has(id) else {}
+
+## The public profile card of the account named `nickname` (or {}).
+func profile_card(nickname: String) -> Dictionary:
+	var id := find_by_nickname(nickname)
+	if id.is_empty():
+		return {}
+	_roll_season(id)
+	var account: Dictionary = accounts[id]
+	var meta: Dictionary = account.meta
+	MetaStore.roll(meta, now())
+	var totals: Dictionary = MetaStore.total_battles(meta)
+	var ranked: Dictionary = account.ranked
+	return {"nickname": String(account.nickname), "title": String(account.title), "banner": String(meta.equipped.banner), "frame": String(meta.equipped.frame),
+		"rating": int(account.rating), "best": int(account.best), "ranked_games": int(ranked.wins) + int(ranked.losses) + int(ranked.draws),
+		"seconds": int(meta.seconds), "battles": int(totals.battles), "wins": int(totals.wins), "titles": account.titles.size(),
+		"pass_tier": int(meta.pass.tier), "units": MetaStore.top_units(meta), "since": int(account.created)}
 
 ## Binds the hyper role once (see HYPER_NICKNAME).
 func bind_hyper() -> void:

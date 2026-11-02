@@ -147,6 +147,9 @@ const ZOOM_MAX := 3.0
 signal unit_clicked(unit: Dictionary)
 signal zoom_changed(zoom: float)
 var finale_age := 0.0
+## Cosmetics per world side (MetaFlow looks): a tint over that side's units and one over its castle.
+var unit_tints: Array = [Color.WHITE, Color.WHITE]
+var castle_tints: Array = [Color.WHITE, Color.WHITE]
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -306,14 +309,15 @@ const BattlefieldArt = preload("res://scripts/ui/BattlefieldArt.gd")
 const SPELL_COLORS := {"lightning": Color(0.62, 0.8, 1.0), "fireball": Color(1.0, 0.5, 0.18), "frost": Color(0.6, 0.9, 1.0), "blessing": Color(1.0, 0.84, 0.36), "seraph": Color(1.0, 0.95, 0.8)}
 
 ## Draws `texture` standing on `ground_y`, centered on `x`, `width` wide (height keeps the aspect).
-func _draw_art(texture: Texture2D, x: float, ground_y: float, width: float, alpha: float = 1.0, flip: bool = false) -> void:
+func _draw_art(texture: Texture2D, x: float, ground_y: float, width: float, alpha: float = 1.0, flip: bool = false, tint: Color = Color.WHITE) -> void:
 	var height := width * float(texture.get_height()) / maxf(1.0, float(texture.get_width()))
+	var shade := Color(tint.r, tint.g, tint.b, alpha)
 	if flip:
 		draw_set_transform_matrix(_view_transform() * Transform2D(0.0, Vector2(-1.0, 1.0), 0.0, Vector2(x, 0.0)))
-		draw_texture_rect(texture, Rect2(-width * 0.5, ground_y - height, width, height), false, Color(1, 1, 1, alpha))
+		draw_texture_rect(texture, Rect2(-width * 0.5, ground_y - height, width, height), false, shade)
 		draw_set_transform_matrix(_view_transform())
 	else:
-		draw_texture_rect(texture, Rect2(x - width * 0.5, ground_y - height, width, height), false, Color(1, 1, 1, alpha))
+		draw_texture_rect(texture, Rect2(x - width * 0.5, ground_y - height, width, height), false, shade)
 
 ## Endless defense's spawn zone: a violet haze from the edge `depth` into the field, with a shimmering rim.
 func _draw_spawn_zone(world_side: int, depth: float, lane_y: float) -> void:
@@ -523,6 +527,19 @@ func world_to_screen_x(world_x: float) -> float:
 func display_side(world_side: int) -> int:
 	return 0 if world_side == own_side else 1
 
+## Applies two sides' looks (MetaFlow; {} for none): palette and castle colours.
+func set_looks(looks: Array) -> void:
+	for world_side in 2:
+		var look: Dictionary = looks[world_side] if world_side < looks.size() and looks[world_side] is Dictionary else {}
+		unit_tints[world_side] = look_tint(String(look.get("palette", "")), 0.4)
+		castle_tints[world_side] = look_tint(String(look.get("castle", "")), 0.45)
+	queue_redraw()
+
+## White lerped toward the cosmetic's colour (white for none), used as a modulate.
+static func look_tint(id: String, strength: float) -> Color:
+	var entry: Dictionary = preload("res://scripts/accounts/Progression.gd").cosmetic(id) if not id.is_empty() else {}
+	return Color.WHITE.lerp(entry.color, strength) if entry.get("color") is Color else Color.WHITE
+
 func _draw() -> void:
 	if view_zoom != 1.0 or view_offset != Vector2.ZERO:
 		draw_set_transform_matrix(_view_transform())
@@ -635,7 +652,7 @@ func _draw_base(x: float, lane_y: float, world_side: int) -> void:
 	var hp: Array = snapshot.get("base_hp", [1.0, 1.0])
 	var max_hp: Array = snapshot.get("base_max_hp", [1.0, 1.0])
 	var state := 2 if collapsing else BattlefieldArt.base_state(float(hp[world_side]), float(max_hp[world_side]))
-	_draw_art(BattlefieldArt.BASES[side][state], x, lane_y + 10.0, 196.0, 1.0, side == 1)
+	_draw_art(BattlefieldArt.BASES[side][state], x, lane_y + 10.0, 196.0, 1.0, side == 1, castle_tints[world_side])
 	if collapsing:
 		draw_set_transform_matrix(_view_transform())
 
@@ -706,7 +723,7 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 		var soul_max := maxf(1.0, float(BattleModel.trait_value(kind, "soul_max", 1)))
 		draw_texture_rect(aura, Rect2(x - aura_width * 0.5, lane_y + 8.0 - aura_height, aura_width, aura_height), false, Color(1, 1, 1, (0.35 + 0.55 * souls / soul_max) * effect_intensity))
 	draw_set_transform_matrix(_view_transform() * Transform2D(0.0, Vector2(facing, 1.0), 0.0, Vector2(x, lane_y)))
-	var tint := Color.WHITE.lerp(Color("#ffb37a"), 0.25) if BattleModel.is_enraged(unit) else Color.WHITE
+	var tint: Color = (Color.WHITE.lerp(Color("#ffb37a"), 0.25) if BattleModel.is_enraged(unit) else Color.WHITE) * unit_tints[int(unit.side)]
 	if texture != walk_texture and action_blend < 1.0:
 		var walk_height := (DEMON_LORD_HEIGHT if kind == "demon_lord" else 86.0) * float(walk_texture.get_height()) / float(UNIT_TEXTURES[kind].get_height())
 		var walk_width := walk_height * float(walk_texture.get_width()) / float(walk_texture.get_height())

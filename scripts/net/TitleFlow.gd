@@ -104,6 +104,9 @@ static func advance(main) -> void:
 			granted = main.accounts.record_endless(job.account, int(outcome.waves), bool(outcome.flawless), bool(outcome.melee))
 	main.accounts.flush()
 	print("TITLE_VERIFIED kind=%s granted=%d" % [job.kind, granted.size()])
+	# The battle also counts for gold, quests, the pass and battle time (once per log).
+	if outcome.get("event") is Dictionary:
+		main.MetaFlow.credit(main, String(job.account), outcome.event, String(job.log_hash))
 	# The run may have finished after its player reconnected under a new peer id.
 	var targets: Array = []
 	for peer in main.peer_accounts:

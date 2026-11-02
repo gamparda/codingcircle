@@ -48,8 +48,9 @@ static func _record_result(main, winner: int) -> Dictionary:
 					replay = main.local_recorder.finish(main.local_model)
 					main._store_battle_replay(replay, "stage%d" % main.current_ai_stage)
 				main.local_recorder = null
-			# Wins the server can re-simulate earn titles (TitleFlow); nothing happens without a confirmed account.
-			if not replay.is_empty() and winner == main.own_side and (main.campaign_mode or not main.daily_challenge.is_empty()):
+			# Battles the server can re-simulate earn titles (TitleFlow); nothing happens without a confirmed account.
+			# Every finished campaign or challenge battle also counts for gold, quests and battle time (MetaFlow).
+			if not replay.is_empty() and replay.get("forced_end", {}).is_empty() and (main.campaign_mode or not main.daily_challenge.is_empty()):
 				main.account.verify("campaign" if main.campaign_mode else "daily", JSON.stringify(replay))
 			if not main.endless_run.is_empty():
 				EndlessFlow.record(main)
@@ -69,6 +70,12 @@ static func _record_result(main, winner: int) -> Dictionary:
 			main.save_data.stats.online_wins += 1 if winner == main.own_side else 0
 			main.save_data.stats.online_losses += 1 if winner != main.own_side and winner != 2 else 0
 			main.save_data.stats.online_draws += 1 if winner == 2 else 0
+		# Battle time on this device (shown in the records), cheats or not: it is time played.
+		var played := int(float(main.current_snapshot.get("elapsed", 0.0)))
+		if played > 0 and played < 6 * 3600:
+			main.save_data.stats.play_seconds = int(main.save_data.stats.get("play_seconds", 0)) + played
+			var bucket := "solo_seconds" if main.local_ai_mode else "online_seconds"
+			main.save_data.stats[bucket] = int(main.save_data.stats.get(bucket, 0)) + played
 		unlocked = _judge_achievements(main, winner) if not main.cheats_used else []
 		var queued := _share_result(main, winner) if not main.cheats_used else false
 		if main._save_profile() and queued:
@@ -152,6 +159,8 @@ static func _show_result(main, winner: int) -> void:
 				hint_box.add_child(hint)
 			pill.add_child(hint_box)
 			screen.add_child(pill)
+	main.match_looks = [] # the next battle brings its own
+	preload("res://scripts/screens/MetaHub.gd").attach_reward(main, screen, Vector2(350, maxf(6.0, overlay.position.y - 40.0)))
 	main.root_background.add_child(screen)
 	UIKit.reveal(overlay, 0.35, 18.0)
 	UIKit.UISounds.play("victory" if won else ("click" if winner == 2 else "defeat"), -6.0)

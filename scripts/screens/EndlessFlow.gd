@@ -14,9 +14,9 @@ const RunRecords = preload("res://scripts/run/RunRecords.gd")
 
 const SPEEDS := [1.0, 2.0, 4.0, 8.0]
 ## The run's command log (TitleVerifier's endless format), kept on disk at every save point so a resumed run
-## still proves its whole length. Runs of at least LOG_MIN_WAVES waves go to the server for titles.
+## still proves its whole length. Runs of at least LOG_MIN_WAVES waves go to the server for titles and progression.
 static var log_path := "user://endless_log.json"
-const LOG_MIN_WAVES := 10
+const LOG_MIN_WAVES := 1
 ## Simulation steps per frame at most, so a slow frame never snowballs.
 const MAX_STEPS := 16
 

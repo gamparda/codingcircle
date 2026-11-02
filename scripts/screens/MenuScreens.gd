@@ -94,7 +94,7 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	tools.name = "MenuTools"
 	tools.add_theme_constant_override("separation", 6)
 	column.add_child(tools)
-	var entries := [["📊 " + Localization.text("전적"), main._build_records_screen, "RecordsButton"], ["🎬 " + Localization.text("리플레이"), main._build_replay_list, "ReplaysButton"], ["⚙ " + Localization.text("설정"), main._build_settings_screen, "SettingsButton"]]
+	var entries := [["💰 " + Localization.text("성장"), func(): load("res://scripts/screens/MetaHub.gd").show(main), "MetaHubButton"], ["📊 " + Localization.text("전적"), main._build_records_screen, "RecordsButton"], ["🎬 " + Localization.text("리플레이"), main._build_replay_list, "ReplaysButton"], ["⚙ " + Localization.text("설정"), main._build_settings_screen, "SettingsButton"]]
 	if not UIKit.is_touch():
 		entries.append(["⏻", main._quit_game, "QuitButton"])
 	for entry in entries:

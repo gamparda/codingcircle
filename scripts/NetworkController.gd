@@ -16,6 +16,7 @@ const AccountFlow = preload("res://scripts/net/AccountFlow.gd")
 const RankedFlow = preload("res://scripts/net/RankedFlow.gd")
 const CloudFlow = preload("res://scripts/net/CloudFlow.gd")
 const TitleFlow = preload("res://scripts/net/TitleFlow.gd")
+const MetaFlow = preload("res://scripts/net/MetaFlow.gd")
 const Cheats = preload("res://scripts/Cheats.gd")
 const CloudSaves = preload("res://scripts/accounts/CloudSaves.gd")
 const ReportLog = preload("res://scripts/accounts/ReportLog.gd")
@@ -120,6 +121,10 @@ var ranked_stats := RankedStats.new()
 var cheated_matches: Dictionary = {}
 ## Offline feats waiting for the server to re-simulate them (TitleVerifier jobs, oldest first).
 var title_jobs: Array = []
+## Session matches being played, for progression: match id -> {"accounts": [side 0, side 1], "mode"}.
+var meta_matches: Dictionary = {}
+## peer -> time of its last emote (msec).
+var emote_times: Dictionary = {}
 ## Daily copies of the state directory (ServerBackup); empty when the server keeps no files.
 var state_dir := ""
 var backup_elapsed := 0.0
@@ -476,6 +481,8 @@ func _process(delta: float) -> void:
 		var match_id: int = tick.match_id
 		if tick.finished and ranked_matches.has(match_id):
 			RankedFlow.settle(self, match_id, models[match_id].winner)
+		if tick.finished and meta_matches.has(match_id):
+			MetaFlow.on_match_finished(self, match_id)
 		if tick.finished and session_matches.has(match_id):
 			var code: String = session_matches[match_id]
 			if sessions.rooms.has(code) and sessions.rooms[code].phase == "playing":
@@ -584,6 +591,8 @@ func _on_peer_disconnected(peer_id: int) -> void:
 			_disconnect_orphaned_peer.call_deferred(int(player_id))
 	models.erase(match_id)
 	cheated_matches.erase(match_id)
+	meta_matches.erase(match_id)
+	emote_times.erase(peer_id)
 	replays.drop(match_id)
 	rematch_ready.erase(match_id)
 	peer_decks.erase(peer_id)
@@ -1051,6 +1060,7 @@ func _finish_match(match_id: int, winner: int) -> void:
 	models[match_id].winner = winner
 	replays.settle(match_id, models[match_id])
 	RankedFlow.settle(self, match_id, winner)
+	MetaFlow.on_match_finished(self, match_id)
 	if session_matches.has(match_id):
 		sessions.finish(String(session_matches[match_id])); _push_session(String(session_matches[match_id]))
 	_broadcast_snapshot(match_id); lobby_dirty = true
@@ -1496,6 +1506,78 @@ func request_title_verify(kind: String, text: String) -> void:
 func receive_title_state(data: Dictionary) -> void:
 	if TitleFlow.valid_state(data):
 		title_state_received.emit(data)
+
+# ---------- Progression: gold, quests, pass, shop, cosmetics, profile cards, emotes ----------
+
+signal meta_state_received(data: Dictionary)
+signal profile_card_received(card: Dictionary)
+signal match_looks_received(looks: Array)
+signal emote_received(side: int, emote: String)
+
+func send_meta_request() -> bool:
+	if not account_ready(): return false
+	request_meta.rpc_id(1)
+	return true
+
+func send_buy(item: String) -> bool:
+	if not account_ready(): return false
+	request_buy.rpc_id(1, item)
+	return true
+
+func send_equip(item: String, index: int) -> bool:
+	if not account_ready(): return false
+	request_equip.rpc_id(1, item, index)
+	return true
+
+func send_profile_card_request(nickname: String) -> bool:
+	if not client_is_online(): return false
+	request_profile_card.rpc_id(1, nickname)
+	return true
+
+func send_emote(emote: String) -> bool:
+	if not client_in_match or client_is_spectator or not client_is_online(): return false
+	request_emote.rpc_id(1, emote)
+	return true
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_meta() -> void:
+	MetaFlow.request_state(self)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_buy(item: String) -> void:
+	MetaFlow.request_buy(self, item)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_equip(item: String, index: int) -> void:
+	MetaFlow.request_equip(self, item, index)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_profile_card(nickname: String) -> void:
+	MetaFlow.request_profile_card(self, nickname)
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_emote(emote: String) -> void:
+	MetaFlow.request_emote(self, emote)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_meta_state(data: Dictionary) -> void:
+	if MetaFlow.valid_state(data):
+		meta_state_received.emit(data)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_profile_card(card: Dictionary) -> void:
+	if MetaFlow.valid_card(card):
+		profile_card_received.emit(card)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_match_looks(looks: Array) -> void:
+	if MetaFlow.valid_looks(looks):
+		match_looks_received.emit(looks)
+
+@rpc("authority", "call_remote", "reliable")
+func receive_emote(side: int, emote: String) -> void:
+	if (side == 0 or side == 1) and MetaFlow.Progression.valid_cosmetic(emote) and String(MetaFlow.Progression.cosmetic(emote).slot) == "emote":
+		emote_received.emit(side, emote)
 
 func client_is_online() -> bool:
 	return not (client_connection_state in ["idle", "connecting", "recovering"]) and not client_reconnecting
