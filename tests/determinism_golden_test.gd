@@ -3,7 +3,7 @@ extends SceneTree
 ## in tests/golden/battle_digests.json (from the code before the optimizations). Run with `-- --record` to
 ## write the digests (only when a rule change is intended).
 
-const GoldenBattles = preload("res://tests/golden_battles.gd")
+const GoldenBattles = preload("res://tests/golden/golden_battles.gd")
 const DIGESTS := "res://tests/golden/battle_digests.json"
 
 func _init() -> void:

@@ -1,5 +1,5 @@
 extends RefCounted
-## A fixed corpus of battles for checking that optimizations leave the battle rules bit-for-bit unchanged. Each
+## (Helper, not a test.) A fixed corpus of battles for checking that optimizations leave the battle rules bit-for-bit unchanged. Each
 ## scenario runs from fixed seeds and folds, every tick, the full snapshot (17 significant digits, sorted keys)
 ## and that tick's combat events into one SHA-256 digest. determinism_golden_test.gd compares the digests with
 ## tests/golden/battle_digests.json, recorded from the code before any optimization.

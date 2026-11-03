@@ -339,7 +339,7 @@ func _draw_spawn_zone(world_side: int, depth: float, lane_y: float) -> void:
 	for spark in 6:
 		var phase := fmod(animation_time * 0.4 + float(spark) * 0.37, 1.0)
 		var sx := left + width * fmod(float(spark) * 0.618, 1.0)
-		draw_circle(Vector2(sx, lane_y + 10.0 - phase * 170.0), 2.5, Color(0.88, 0.74, 1.0, 0.8 * (1.0 - phase)))
+		_disc(Vector2(sx, lane_y + 10.0 - phase * 170.0), 2.5, Color(0.88, 0.74, 1.0, 0.8 * (1.0 - phase)))
 
 ## A cast waiting to land: its area on the ground, the first frames of its effect, and a thrown fireball.
 func _draw_spell_cast(cast: Dictionary, scale_x: float, lane_y: float) -> void:
@@ -599,7 +599,7 @@ func _draw_sky(lane_y: float) -> void:
 		var cx := fposmod(float(i) * size.x * 0.37 + clock * (4.0 + float(i) * 2.0), size.x + 400.0) - 200.0
 		var cy := lane_y * (0.30 + 0.12 * float(i))
 		for puff in 5:
-			draw_circle(Vector2(cx + float(puff) * 34.0, cy + sin(float(puff) * 1.9) * 6.0), 30.0 - float(puff % 3) * 6.0, Color(0.5, 0.6, 0.9, 0.03))
+			_disc(Vector2(cx + float(puff) * 34.0, cy + sin(float(puff) * 1.9) * 6.0), 30.0 - float(puff % 3) * 6.0, Color(0.5, 0.6, 0.9, 0.03))
 	# Ruins in front of the far scenery, a little darker so units stay readable.
 	var ruins_height := clampf(size.y * 0.21, 110.0, 190.0)
 	_draw_strip(BattlefieldArt.RUINS, _ground_top(lane_y) + _ground_height() * 0.26 - ruins_height, ruins_height, Color(0.66, 0.70, 0.84), 0.37)
@@ -630,8 +630,8 @@ func _draw_ground(lane_y: float) -> void:
 		draw_rect(Rect2(0, lane_y, w, size.y - lane_y), Color(0.20, 0.36, 0.85, 0.010 + t * 0.008))
 		draw_rect(Rect2(size.x - w, lane_y, w, size.y - lane_y), Color(0.90, 0.22, 0.38, 0.010 + t * 0.008))
 	draw_line(Vector2(size.x * 0.5, lane_y + 6.0), Vector2(size.x * 0.5, size.y), Color(0.85, 0.88, 1.0, 0.10), 1.0)
-	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 6.0, Color(0.5, 0.56, 0.78, 0.30))
-	draw_circle(Vector2(size.x * 0.5, lane_y + 12.0), 3.0, Color("#aab4d2"))
+	_disc(Vector2(size.x * 0.5, lane_y + 12.0), 6.0, Color(0.5, 0.56, 0.78, 0.30))
+	_disc(Vector2(size.x * 0.5, lane_y + 12.0), 3.0, Color("#aab4d2"))
 
 func _draw_base(x: float, lane_y: float, world_side: int) -> void:
 	var side := display_side(world_side)
@@ -648,7 +648,7 @@ func _draw_base(x: float, lane_y: float, world_side: int) -> void:
 		draw_set_transform_matrix(_view_transform() * local)
 	# Soft territory glow.
 	for i in 6:
-		draw_circle(Vector2(x, lane_y - 56.0), 100.0 - float(i) * 12.0, Color(color.r, color.g, color.b, 0.025 + float(i) * 0.012))
+		_disc(Vector2(x, lane_y - 56.0), 100.0 - float(i) * 12.0, Color(color.r, color.g, color.b, 0.025 + float(i) * 0.012))
 	var hp: Array = snapshot.get("base_hp", [1.0, 1.0])
 	var max_hp: Array = snapshot.get("base_max_hp", [1.0, 1.0])
 	var state := 2 if collapsing else BattlefieldArt.base_state(float(hp[world_side]), float(max_hp[world_side]))
@@ -712,8 +712,8 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 
 	# Team halo and contact shadow stay independent from the supplied artwork.
 	if not crowded:
-		draw_circle(Vector2(x, lane_y - 38.0), 43.0, Color(color.r, color.g, color.b, 0.08))
-	draw_ellipse(Vector2(x, lane_y - 2.0), sprite_width * 0.37, 6.0, Color(0.0, 0.0, 0.0, 0.38))
+		_disc(Vector2(x, lane_y - 38.0), 43.0, Color(color.r, color.g, color.b, 0.08))
+	_oval(Vector2(x, lane_y - 2.0), sprite_width * 0.37, 6.0, Color(0.0, 0.0, 0.0, 0.38))
 	var souls := int(unit.get("souls", 0))
 	if souls > 0 and show_battle_effects:
 		# The aura brightens with every harvested soul.
@@ -731,10 +731,10 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	draw_texture_rect(texture, Rect2(-sprite_width * 0.5, -sprite_height, sprite_width, sprite_height), false, Color(tint.r, tint.g, tint.b, action_blend if texture != walk_texture else 1.0))
 	draw_set_transform_matrix(_view_transform())
 	# Small faction pip remains visible when both teams use the same character art.
-	draw_circle(Vector2(x - 25.0, lane_y - 74.0), 5.0, color)
-	draw_circle(Vector2(x - 25.0, lane_y - 74.0), 2.0, Color("#f5f7fb"))
+	_disc(Vector2(x - 25.0, lane_y - 74.0), 5.0, color)
+	_disc(Vector2(x - 25.0, lane_y - 74.0), 2.0, Color("#f5f7fb"))
 	if unit.kind == "healer" and unit.cooldown > unit.interval * 0.70 and not crowded:
-		draw_circle(Vector2(x, lane_y - 50.0), 28.0, Color(0.42, 1.0, 0.67, 0.12))
+		_disc(Vector2(x, lane_y - 50.0), 28.0, Color(0.42, 1.0, 0.67, 0.12))
 		draw_string(ThemeDB.fallback_font, Vector2(x - 8.0, lane_y - 46.0), "▲", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color("#86f7ad"))
 
 	var hp_ratio: float = float(unit.hp) / max(float(unit.max_hp), 1.0)
@@ -762,12 +762,12 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 	if unit.has("frozen_remaining"):
 		draw_string(ThemeDB.fallback_font, Vector2(x - 20.0, bar_y - 32.0), "빙결", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#a8e6ff"))
 	if unit.get("revived", false):
-		draw_circle(Vector2(x, lane_y - 82.0), 3.0, Color(1.0, 0.95, 0.75, 0.9))
+		_disc(Vector2(x, lane_y - 82.0), 3.0, Color(1.0, 0.95, 0.75, 0.9))
 	if show_battle_effects and kind != "healer":
 		var stacks := mini(int(unit.get("support_stacks", 0)), BattleModel.SUPPORT_MAX_STACKS)
 		if stacks > 0:
 			for dot in BattleModel.SUPPORT_MAX_STACKS:
-				draw_circle(Vector2(x - 18.0 + dot * 4.0, bar_y + 10.0), 1.3, Color("#86f7ad") if dot < stacks else Color("#293d39"))
+				_disc(Vector2(x - 18.0 + dot * 4.0, bar_y + 10.0), 1.3, Color("#86f7ad") if dot < stacks else Color("#293d39"))
 		# One attack-speed figure: support stacks and a blessing multiply, as in BattleModel.support_attack_speed.
 		var boost := (1.0 + stacks * BattleModel.SUPPORT_INCREMENT) * (float(BattleModel.STRUCTURE_STATS.blessing.attack_speed) if unit.has("blessed_remaining") else 1.0)
 		if boost > 1.0001:
@@ -791,41 +791,81 @@ func _draw_downed_unit(unit: Dictionary, lane_y: float) -> void:
 	var height := 86.0 * float(texture.get_height()) / float(UNIT_TEXTURES[kind].get_height())
 	var width := height * float(texture.get_width()) / maxf(float(texture.get_height()), 1.0)
 	var facing := 1.0 if display_side(int(unit.side)) == 0 else -1.0
-	draw_ellipse(Vector2(x, lane_y - 2.0), width * 0.37, 6.0, Color(0.0, 0.0, 0.0, 0.38))
+	_oval(Vector2(x, lane_y - 2.0), width * 0.37, 6.0, Color(0.0, 0.0, 0.0, 0.38))
 	draw_set_transform_matrix(_view_transform() * Transform2D(0.0, Vector2(facing, 1.0), 0.0, Vector2(x, lane_y)))
 	draw_texture_rect(texture, Rect2(-width * 0.5, -height, width, height), false, Color(1, 1, 1, 0.92))
 	draw_set_transform_matrix(_view_transform())
 	var bar_y := lane_y - 40.0
 	draw_rect(Rect2(x - 20.0, bar_y, 40.0, 3.0), Color("#242038"))
 	draw_rect(Rect2(x - 20.0, bar_y, 40.0 * clampf(down_for / maxf(delay, 0.01), 0.0, 1.0), 3.0), Color("#9fd18b"))
-	draw_circle(Vector2(x - 25.0, bar_y - 4.0), 4.0, color)
+	_disc(Vector2(x - 25.0, bar_y - 4.0), 4.0, color)
+
+## Filled circles and ellipses drawn as one soft-edged disc texture: draw_circle / draw_ellipse build their
+## outline on the CPU every call (~3 µs each), a textured rect costs about a tenth of a microsecond, and a big
+## battle draws several per unit every frame.
+static var _disc_texture: Texture2D = null
+
+static func _disc_tex() -> Texture2D:
+	if _disc_texture == null:
+		var size := 64
+		var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+		var centre := (size - 1) * 0.5
+		for y in size:
+			for x in size:
+				var edge := float(size) * 0.5 - Vector2(x - centre, y - centre).length()
+				image.set_pixel(x, y, Color(1, 1, 1, clampf(edge + 0.5, 0.0, 1.0)))
+		_disc_texture = ImageTexture.create_from_image(image)
+	return _disc_texture
+
+func _disc(centre: Vector2, radius: float, color: Color) -> void:
+	draw_texture_rect(_disc_tex(), Rect2(centre - Vector2(radius, radius), Vector2(radius, radius) * 2.0), false, color)
+
+func _oval(centre: Vector2, radius_x: float, radius_y: float, color: Color) -> void:
+	draw_texture_rect(_disc_tex(), Rect2(centre - Vector2(radius_x, radius_y), Vector2(radius_x, radius_y) * 2.0), false, color)
+
+## Health bars from small pre-drawn textures (a rounded StyleBoxFlat cost ~12 µs a draw): the frame per team
+## colour, the fill per tone, cropped to the health left.
+static var _bar_textures: Dictionary = {}
+
+static func _rounded_bar(width: int, height: int, radius: float, fill: Color, border: Color) -> Texture2D:
+	var image := Image.create(width, height, false, Image.FORMAT_RGBA8)
+	for y in height:
+		for x in width:
+			# Distance outside the rounded rectangle (negative inside), sampled at the pixel centre.
+			var px := float(x) + 0.5
+			var py := float(y) + 0.5
+			var qx := maxf(absf(px - width * 0.5) - (width * 0.5 - radius), 0.0)
+			var qy := maxf(absf(py - height * 0.5) - (height * 0.5 - radius), 0.0)
+			var outside := Vector2(qx, qy).length() - radius
+			var alpha := clampf(0.5 - outside, 0.0, 1.0)
+			var tone := border if border.a > 0.0 and outside > -1.0 else fill
+			image.set_pixel(x, y, Color(tone.r, tone.g, tone.b, tone.a * alpha))
+	return ImageTexture.create_from_image(image)
 
 func _draw_unit_bar(rect: Rect2, ratio: float, team: Color) -> void:
-	var back := StyleBoxFlat.new()
-	back.bg_color = Color(0.02, 0.03, 0.06, 0.92)
-	back.border_color = Color(team.r, team.g, team.b, 0.75)
-	back.set_border_width_all(1)
-	back.set_corner_radius_all(4)
-	back.anti_aliasing = true
-	draw_style_box(back, rect)
+	var back_key := "back" + team.to_html()
+	if not _bar_textures.has(back_key):
+		_bar_textures[back_key] = _rounded_bar(44, 7, 3.5, Color(0.02, 0.03, 0.06, 0.92), Color(team.r, team.g, team.b, 0.75))
+	draw_texture_rect(_bar_textures[back_key], rect, false)
 	if ratio <= 0.0:
 		return
-	var tone := Color("#6ee7a1") if ratio > 0.35 else Color("#ff6b81")
+	var healthy := ratio > 0.35
+	var fill_key := "fill" + str(healthy)
+	if not _bar_textures.has(fill_key):
+		_bar_textures[fill_key] = _rounded_bar(41, 4, 2.0, (Color("#6ee7a1") if healthy else Color("#ff6b81")).darkened(0.2), Color(0, 0, 0, 0))
 	var inner := rect.grow(-1.5)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = tone.darkened(0.2)
-	fill.set_corner_radius_all(3)
-	fill.anti_aliasing = true
-	draw_style_box(fill, Rect2(inner.position, Vector2(maxf(inner.size.y, inner.size.x * ratio), inner.size.y)))
+	var width := maxf(inner.size.y, inner.size.x * ratio)
+	var fill: Texture2D = _bar_textures[fill_key]
+	draw_texture_rect_region(fill, Rect2(inner.position, Vector2(width, inner.size.y)), Rect2(0, 0, fill.get_width() * width / inner.size.x, fill.get_height()))
 	draw_rect(Rect2(inner.position + Vector2(1.5, 0.0), Vector2(maxf(0.0, inner.size.x * ratio - 3.0), inner.size.y * 0.45)), Color(1, 1, 1, 0.28))
 
 func _draw_curse(curse: Dictionary, scale_x: float, lane_y: float) -> void:
 	var x := world_to_screen_x(float(curse.x))
 	var radius := BattleModel.CURSE_RADIUS * scale_x
 	var team := BLUE if display_side(int(curse.side)) == 0 else RED
-	draw_ellipse(Vector2(x, lane_y - 2.0), radius, 11.0, Color(0.43, 0.18, 0.66, 0.58))
+	_oval(Vector2(x, lane_y - 2.0), radius, 11.0, Color(0.43, 0.18, 0.66, 0.58))
 	draw_arc(Vector2(x, lane_y - 3.0), radius, PI, TAU, 20, Color("#b483ef"), 2.0)
-	draw_circle(Vector2(x, lane_y + 3.0), 3.0, team)
+	_disc(Vector2(x, lane_y + 3.0), 3.0, team)
 	var remaining := effect_remaining(curse)
 	draw_rect(Rect2(x - radius, lane_y + 12.0, radius * 2.0 * remaining / BattleModel.CURSE_DURATION, 3.0), Color("#b483ef"))
 	draw_string(ThemeDB.fallback_font, Vector2(x - 13.0, lane_y + 30.0), "%.1fs" % remaining, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#c8a9ef"))
@@ -854,10 +894,10 @@ func _draw_structure(structure: Dictionary, scale_x: float, lane_y: float) -> vo
 			if fmod(animation_time, 1.5) < 0.16:
 				var facing := 1.0 if side == 0 else -1.0
 				var height := width * float(BattlefieldArt.TURRET[side].get_height()) / float(BattlefieldArt.TURRET[side].get_width())
-				draw_circle(Vector2(x + width * 0.5 * facing, lane_y + 6.0 - height * 0.78), 7.0, Color("#ffd36a"))
+				_disc(Vector2(x + width * 0.5 * facing, lane_y + 6.0 - height * 0.78), 7.0, Color("#ffd36a"))
 		"generator":
 			var pulse := 0.85 + sin(animation_time * 4.0) * 0.15
-			draw_circle(Vector2(x, lane_y - 40.0), 26.0 * pulse, Color(0.55, 1.0, 0.85, 0.08))
+			_disc(Vector2(x, lane_y - 40.0), 26.0 * pulse, Color(0.55, 1.0, 0.85, 0.08))
 			_draw_art(BattlefieldArt.GENERATOR, x, lane_y + 6.0, 70.0, 1.0, flip)
 
 func _draw_structure_lifetimes(lane_y: float) -> void:
@@ -900,17 +940,17 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 				var from := Vector2(x, lane_y - 120.0)
 				var head := from.lerp(to, clampf((1.0 - life) * 2.2, 0.0, 1.0))
 				draw_line(from.lerp(head, 0.6), head, Color(1.0, 0.86, 0.45, life * effect_intensity), 3.0)
-				draw_circle(head, 4.0, Color(1.0, 0.95, 0.75, life * effect_intensity))
+				_disc(head, 4.0, Color(1.0, 0.95, 0.75, life * effect_intensity))
 			elif event_type in ["ATTACK", "DAMAGE", "BASE_HIT"]:
-				draw_circle(Vector2(x, lane_y - 55.0), 18.0 + life * 20.0, Color(1.0, 0.55, 0.2, life * effect_intensity * 0.18))
-				draw_circle(Vector2(x, lane_y - 55.0), 9.0 + life * 10.0, Color(1.0, 0.72, 0.28, life * effect_intensity))
-				draw_circle(Vector2(x, lane_y - 55.0), 4.0 + life * 4.0, Color(1.0, 0.96, 0.8, life * effect_intensity))
+				_disc(Vector2(x, lane_y - 55.0), 18.0 + life * 20.0, Color(1.0, 0.55, 0.2, life * effect_intensity * 0.18))
+				_disc(Vector2(x, lane_y - 55.0), 9.0 + life * 10.0, Color(1.0, 0.72, 0.28, life * effect_intensity))
+				_disc(Vector2(x, lane_y - 55.0), 4.0 + life * 4.0, Color(1.0, 0.96, 0.8, life * effect_intensity))
 			elif event_type in ["CURSE", "SUMMON"]:
-				draw_circle(Vector2(x, lane_y - 28.0), 22.0, Color(0.66, 0.28, 1.0, life * effect_intensity))
+				_disc(Vector2(x, lane_y - 28.0), 22.0, Color(0.66, 0.28, 1.0, life * effect_intensity))
 			elif event_type == "SUPPORT_BUFF":
-				draw_circle(Vector2(x, lane_y - 60.0), 18.0, Color(0.35, 1.0, 0.58, life * effect_intensity))
+				_disc(Vector2(x, lane_y - 60.0), 18.0, Color(0.35, 1.0, 0.58, life * effect_intensity))
 			elif event_type in ["DEATH", "STRUCTURE_DESTROYED"]:
-				draw_circle(Vector2(x, lane_y - 35.0), 32.0 * (1.0 - life), Color(0.8, 0.84, 0.92, life * effect_intensity))
+				_disc(Vector2(x, lane_y - 35.0), 32.0 * (1.0 - life), Color(0.8, 0.84, 0.92, life * effect_intensity))
 			elif event_type == "SKILL" and String(event.get("kind", "")) == "demon_lord":
 				var roar: Texture2D = DEMON_ROAR_TEXTURES[clampi(int((1.0 - life) * DEMON_ROAR_TEXTURES.size()), 0, DEMON_ROAR_TEXTURES.size() - 1)]
 				var roar_width := float(event.get("radius", 0.0)) * scale_x * 2.6
@@ -948,7 +988,7 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 				# Dust where the thrown unit lands.
 				for puff in 4:
 					var spread := (float(puff) - 1.5) * 12.0 * (1.6 - life)
-					draw_circle(Vector2(x + spread, lane_y - 6.0 - float(puff % 2) * 5.0), 7.0 + (1.0 - life) * 9.0, Color(0.72, 0.66, 0.58, life * 0.55 * effect_intensity))
+					_disc(Vector2(x + spread, lane_y - 6.0 - float(puff % 2) * 5.0), 7.0 + (1.0 - life) * 9.0, Color(0.72, 0.66, 0.58, life * 0.55 * effect_intensity))
 			elif event_type == "JUMP":
 				draw_arc(Vector2(x, lane_y - 28.0), 34.0, PI, TAU, 24, Color(1.0, 0.82, 0.32, life), 4.0)
 		if show_damage_numbers and event_type in ["DAMAGE", "HEAL", "BASE_HIT"]:
@@ -1053,7 +1093,7 @@ func _draw_build_preview(lane_y: float) -> void:
 	draw_line(Vector2(right,lane_y-8.0), Vector2(right,lane_y+24.0), Color("#86f7ad"), 2.0)
 	var radius := float(preview.radius) / BattleModel.WORLD_WIDTH * size.x
 	if radius > 0.0:
-		draw_ellipse(Vector2(mouse_position.x, lane_y), radius, 21.0, build_color)
+		_oval(Vector2(mouse_position.x, lane_y), radius, 21.0, build_color)
 		draw_line(Vector2(mouse_position.x-radius,lane_y+4.0), Vector2(mouse_position.x+radius,lane_y+4.0), build_color.lightened(0.4), 2.0)
 	draw_rect(Rect2(mouse_position.x-23.0,lane_y-60.0,46.0,60.0), build_color)
 	draw_rect(Rect2(mouse_position.x-23.0,lane_y-60.0,46.0,60.0), build_color.lightened(0.4), false, 2.0)
