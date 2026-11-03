@@ -157,6 +157,15 @@ static func native_available() -> bool:
 		_native_checked = true
 		if not ClassDB.class_exists("BattleCore") and FileAccess.file_exists(NATIVE_EXTENSION):
 			GDExtensionManager.load_extension(NATIVE_EXTENSION)
+		# The Linux server runs a game-data pack: its updater puts the library next to it (CATWAR_NATIVE_LIB).
+		var library := OS.get_environment("CATWAR_NATIVE_LIB")
+		if not ClassDB.class_exists("BattleCore") and not library.is_empty() and FileAccess.file_exists(library):
+			var config := "user://battle_native_local.gdextension"
+			var file := FileAccess.open(config, FileAccess.WRITE)
+			if file != null:
+				file.store_string("[configuration]\nentry_symbol = \"battle_native_init\"\ncompatibility_minimum = \"4.5\"\n\n[libraries]\nlinux.x86_64 = \"%s\"\n" % library.c_escape())
+				file.close()
+				GDExtensionManager.load_extension(config)
 		_native_ok = ClassDB.class_exists("BattleCore") and String(ClassDB.instantiate("BattleCore").rules_hash()) == preload("res://scripts/BattleRulesHash.gd").HASH
 	return _native_ok
 
@@ -342,7 +351,7 @@ func configure_deck(side: int, selected_units: Array, selected_structures: Array
 func spawn_unit(side: int, kind: String) -> bool:
 	if winner != -1 or side < 0 or side > 1 or side_full(side) or not UNIT_STATS.has(kind) or not unit_decks[side].has(kind) or banned[side].has(kind):
 		return false
-	if not field_limit_error(units, side, kind).is_empty() and not cheats[side].has("no_cap"):
+	if field_limit(kind) > 0 and (_core.fielded(side, kind) if _core != null else _fielded(units, side, kind)) >= field_limit(kind) and not cheats[side].has("no_cap"):
 		return false
 	var stats: Dictionary = UNIT_STATS[kind]
 	var stat_scale := float(campaign_bonuses(int(campaign_levels[side])).stat_scale)
@@ -357,20 +366,24 @@ func spawn_unit(side: int, kind: String) -> bool:
 	return true
 
 func _create_unit(side: int, kind: String, stats: Dictionary, hp_scale: float, damage_scale: float, x: float) -> void:
-	units.append({"id": next_unit_id, "side": side, "kind": kind,
+	var unit := {"id": next_unit_id, "side": side, "kind": kind,
 		"x": clampf(x, FIELD_LEFT, FIELD_RIGHT),
 		"hp": stats.hp * hp_scale, "max_hp": stats.hp * hp_scale, "damage": stats.damage * damage_scale,
 		"heal": stats.get("heal", 0.0) * damage_scale, "interval": stats.interval,
 		"cooldown": 0.0 if kind == "healer" else max(MIN_ATTACK_INTERVAL, float(stats.interval)),
 		"support_stacks": 0,
-		"speed": stats.speed, "range": float(stats.range) + (float(modifier(side, "range:ranged", 0.0)) if unit_scope(kind) == "ranged" else 0.0)})
+		"speed": stats.speed, "range": float(stats.range) + (float(modifier(side, "range:ranged", 0.0)) if unit_scope(kind) == "ranged" else 0.0)}
 	if kind == "necromancer":
 		summon_timers[next_unit_id] = SUMMON_INTERVAL
-		units.back()["summon_remaining"] = SUMMON_INTERVAL
+		unit["summon_remaining"] = SUMMON_INTERVAL
 	if trait_value(kind, "skill_cooldown") != null:
-		units.back()["skill_remaining"] = float(trait_value(kind, "skill_cooldown"))
+		unit["skill_remaining"] = float(trait_value(kind, "skill_cooldown"))
 	if trait_value(kind, "soul_max") != null:
-		units.back()["souls"] = 0
+		unit["souls"] = 0
+	if _core != null:
+		_core.append_unit(unit)
+	else:
+		units.append(unit)
 	next_unit_id += 1
 
 static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
@@ -879,7 +892,53 @@ static func side_count(values: Array, side: int) -> int:
 	return count
 
 func side_full(side: int) -> bool:
-	return side_count(units, side) >= side_limit(side)
+	return (_core.side_count(side) if _core != null else side_count(units, side)) >= side_limit(side)
+
+## Units of `side` holding a field slot of `kind` (alive or downed), as field_limit_error counts them.
+static func _fielded(values: Array, side: int, kind: String) -> int:
+	var fielded := 0
+	for unit in values:
+		if int(unit.side) == side and String(unit.kind) == kind and (float(unit.hp) > 0.0 or unit.has("revive_remaining")):
+			fielded += 1
+	return fielded
+
+# ---------- unit queries that work the same on both engines ----------
+
+## The units for reading only (a copy with the native engine): no write-back, so no cost on the next tick.
+func units_view() -> Array:
+	return _core.export_units() if _core != null else units
+
+## Units of `side` alive (and downed, with include_downed).
+func count_units(side: int, include_downed: bool) -> int:
+	if _core != null:
+		return _core.count_units(side, include_downed)
+	var count := 0
+	for unit in units:
+		if int(unit.side) == side and (float(unit.hp) > 0.0 or (include_downed and unit.has("revive_remaining"))):
+			count += 1
+	return count
+
+## Whether a living unit of `side` has left its muster (endless defense: the wave is marching).
+func has_marching(side: int) -> bool:
+	if _core != null:
+		return _core.has_marching(side)
+	for unit in units:
+		if int(unit.side) == side and float(unit.hp) > 0.0 and not unit.has("muster"):
+			return true
+	return false
+
+## Lets every unit of `side` leave its muster.
+func clear_muster(side: int) -> void:
+	if _core != null:
+		_core.clear_muster(side)
+		return
+	for unit in units:
+		if int(unit.side) == side:
+			unit.erase("muster")
+
+## The newest unit, to adjust right after it appeared (changes are kept).
+func last_unit() -> Dictionary:
+	return _core.last_unit() if _core != null else units.back()
 
 ## Units a side may field: SIDE_UNIT_LIMIT, doubled by the solo-battle cheat "army_cap".
 func side_limit(side: int) -> int:
@@ -1494,7 +1553,7 @@ func state_hash() -> String:
 	return JSON.stringify(data, "", true).sha256_text()
 
 func snapshot() -> Dictionary:
-	var data := {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "base_max_hp": base_max_hp.duplicate(), "units": units.duplicate(true), "structures": structures.duplicate(true), "curses": curses.duplicate(true), "winner": winner, "elapsed": elapsed,
+	var data := {"resources": resources.duplicate(), "base_hp": base_hp.duplicate(), "base_max_hp": base_max_hp.duplicate(), "units": _core.export_units() if _core != null else units.duplicate(true), "structures": structures.duplicate(true), "curses": curses.duplicate(true), "winner": winner, "elapsed": elapsed,
 		"spawn_cooldowns":spawn_cooldowns.duplicate(true), "spells": spell_casts.duplicate(true), "spell_cooldowns": spell_cooldowns.duplicate(true), "spell_uses": spell_uses.duplicate(true)}
 	if not banned[0].is_empty() or not banned[1].is_empty(): data["banned"] = banned.duplicate(true)
 	if float(shelter[0]) > 0.0 or float(shelter[1]) > 0.0: data["shelter"] = shelter.duplicate()

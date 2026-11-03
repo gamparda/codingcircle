@@ -648,7 +648,7 @@ func set_loop_start() -> void:
 		return
 	loop_start = player.ticks
 	loop_start_report = player.model.battle_report.duplicate(true)
-	loop_start_army = ArmyComposition.capture(player.model.units)
+	loop_start_army = ArmyComposition.capture(player.model.units_view())
 	if loop_end <= loop_start:
 		loop_end = -1
 		loop_end_report = []
@@ -668,7 +668,7 @@ func set_loop_end() -> bool:
 		return false
 	loop_end = player.ticks
 	loop_end_report = player.model.battle_report.duplicate(true)
-	loop_end_army = ArmyComposition.capture(player.model.units)
+	loop_end_army = ArmyComposition.capture(player.model.units_view())
 	_refresh_loop()
 	_toast("선택 구간 ▸ %s–%s · 구간 복사로 공유하거나 전투 요약에서 비교하세요" % [_report_time(loop_start), _report_time(loop_end)])
 	return true
@@ -1179,7 +1179,7 @@ func _show_battle_report() -> void:
 	report_overlay.size = size
 	report_overlay.z_index = 150
 	# Freeze counts with the report; switching scopes never reads a later playhead.
-	report_overlay.set_meta("current_army", ArmyComposition.capture(player.model.units))
+	report_overlay.set_meta("current_army", ArmyComposition.capture(player.model.units_view()))
 	report_overlay.set_meta("start_army", loop_start_army.duplicate(true))
 	report_overlay.set_meta("end_army", loop_end_army.duplicate(true))
 	add_child(report_overlay)

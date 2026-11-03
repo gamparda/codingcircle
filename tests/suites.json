@@ -111,6 +111,7 @@
   ],
   "release": [
     "tests/suite_runner_test.py",
+    "tests/native_rules_hash_test.py",
     "tests/release_version_policy_test.py",
     "tests/localization_catalog_test.py",
     "tests/suites_cover_all_tests_test.py",

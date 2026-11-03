@@ -51,6 +51,7 @@ Name: "pcremoteagent"; Description: "PC Remote Agent 설치 및 관리 서버 �
 
 [Files]
 Source: "..\builds\CatWar.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\builds\libbattle_native.windows.x86_64.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\server\StartServer.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\ASSET_SOURCES.md"; DestDir: "{app}"; Flags: ignoreversion

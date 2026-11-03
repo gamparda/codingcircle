@@ -35,7 +35,11 @@ class ReleasePolicyTest(unittest.TestCase):
         matrix = re.search(r"suite: \[([^\]]+)\]", workflow).group(1)
         self.assertEqual([item.strip() for item in matrix.split(",")], default, "CI matrix must list every default suite")
         # Builds run alongside the tests, but nothing is published until every suite has passed.
-        self.assertIn("needs: [tests, multiplayer-preview, build-windows, build-android]", workflow.split("\n  publish:\n", 1)[1])
+        self.assertIn("needs: [build-native, tests, multiplayer-preview, build-windows, build-android]", workflow.split("\n  publish:\n", 1)[1])
+        # Only main releases: a manual run on another branch must never reach the update channel.
+        for job in ("publish", "deploy"):
+            body = workflow.split(f"\n  {job}:\n", 1)[1]
+            self.assertTrue(body.lstrip().startswith("if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"), job)
         self.assertIn("needs: [publish]", workflow.split("\n  deploy:\n", 1)[1])
         # Each build stamps the commit, so shipped game data matches the published pack and needs no download.
         self.assertIn('release_meta.py sync "${{ github.sha }}"', workflow.split("\n  build-android:\n", 1)[1].split("\n  publish:\n", 1)[0])

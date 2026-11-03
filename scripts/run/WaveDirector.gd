@@ -152,20 +152,14 @@ func update(model: BattleModel, delta: float) -> void:
 ## They keep formation (tanks in front, ranged behind) only while they wait; in the fight every unit may close
 ## in, or melee units behind the tanks could never reach enemies at the edge.
 func _steer_defenders(model: BattleModel) -> void:
-	var engaged := false
-	for unit in model.units:
-		if int(unit.side) == WAVE_SIDE and float(unit.hp) > 0.0 and not unit.has("muster"):
-			engaged = true
-			break
+	var engaged := model.has_marching(WAVE_SIDE)
 	model.advance_limit[1 - WAVE_SIDE] = front_line() if engaged else rally_line()
 	model.formation[1 - WAVE_SIDE] = not engaged
 
 func _march(model: BattleModel) -> void:
 	marched = true
 	marched_at = model.elapsed
-	for unit in model.units:
-		if int(unit.side) == WAVE_SIDE:
-			unit.erase("muster")
+	model.clear_muster(WAVE_SIDE)
 	model.combat_events.append({"type": "WAVE_MARCH", "wave": wave})
 	_steer_defenders(model)
 
@@ -199,18 +193,14 @@ func _spawn_due(model: BattleModel) -> void:
 		model.resources[WAVE_SIDE] = 1000.0
 		if model.spawn_unit(WAVE_SIDE, String(entry.kind)):
 			if not marched:
-				model.units.back()["muster"] = true
+				model.last_unit()["muster"] = true
 		else:
 			waiting.append(entry) # cooldown or field limit: try again next tick
 	model.resources[WAVE_SIDE] = 0.0
 	queue = waiting
 
 func _enemies(model: BattleModel) -> int:
-	var count := 0
-	for unit in model.units:
-		if int(unit.side) == WAVE_SIDE and (float(unit.hp) > 0.0 or unit.has("revive_remaining")):
-			count += 1
-	return count
+	return model.count_units(WAVE_SIDE, true)
 
 func _reward(model: BattleModel) -> void:
 	var side := 1 - WAVE_SIDE

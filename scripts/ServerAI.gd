@@ -82,7 +82,7 @@ func tactical_state(model: BattleModel) -> Dictionary:
 	var state := {"own": 0, "enemy": 0, "frontline": 0, "buff_need": 0,
 		"enemy_melee": 0, "enemy_undead": 0, "enemy_backline": 0, "counts": {}, "nearest_enemy": -1.0, "distance": INF, "danger": false}
 	var base_x := BattleModel.FIELD_LEFT if side == 0 else BattleModel.FIELD_RIGHT
-	for unit in model.units:
+	for unit in model.units_view():
 		if float(unit.hp) <= 0.0: continue
 		var kind := String(unit.kind)
 		if int(unit.side) == side:
@@ -160,7 +160,7 @@ func _try_spawn(model: BattleModel) -> void:
 	for kind in available:
 		if stage >= 3 and kind == "healer" and _unit_score(kind, state) <= 8.0: continue
 		if model.spawn_unit(side, String(kind)):
-			_apply_stage_unit_bonus(model.units.back())
+			_apply_stage_unit_bonus(model.last_unit())
 			unit_cursor += 1
 			spawn_timer = _spawn_interval()
 			return
@@ -193,8 +193,9 @@ static func spell_target(model: BattleModel, side: int, kind: String) -> float:
 	var stats: Dictionary = BattleModel.STRUCTURE_STATS[kind]
 	var radius := float(stats.get("radius", 0.0))
 	var base_x := BattleModel.FIELD_LEFT if side == 0 else BattleModel.FIELD_RIGHT
-	var enemies: Array = model.units.filter(func(unit): return int(unit.side) != side and float(unit.hp) > 0.0)
-	var allies: Array = model.units.filter(func(unit): return int(unit.side) == side and float(unit.hp) > 0.0)
+	var view: Array = model.units_view()
+	var enemies: Array = view.filter(func(unit): return int(unit.side) != side and float(unit.hp) > 0.0)
+	var allies: Array = view.filter(func(unit): return int(unit.side) == side and float(unit.hp) > 0.0)
 	match String(stats.get("effect", "")):
 		"strike":
 			# Worth the cast when the bolt removes enough value: a kill counts the unit's full cost.

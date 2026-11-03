@@ -22,7 +22,7 @@ func _init() -> void:
 	var engines: Array = ["gdscript"]
 	if not record and BattleModel.native_available():
 		engines.append("native")
-	elif not record and OS.get_cmdline_user_args().has("--require-native"):
+	elif not record and (OS.get_cmdline_user_args().has("--require-native") or OS.get_environment("CATWAR_REQUIRE_NATIVE") == "1"):
 		printerr("FAIL: the native battle engine is not available")
 		failures += 1
 	for engine in engines:

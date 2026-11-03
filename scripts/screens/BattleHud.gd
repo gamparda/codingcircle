@@ -781,7 +781,7 @@ static func _purchase_block_hint(reason: String) -> String:
 ## The cap applies to both sides and summons together, using the raw array size.
 ## Living counts describe the army; dead entries still occupy a slot until cleanup.
 static func _battle_units(main) -> Array:
-	if main.local_ai_mode and is_instance_valid(main.local_model): return main.local_model.units
+	if main.local_ai_mode and is_instance_valid(main.local_model): return main.local_model.units_view()
 	return main.current_snapshot.get("units", [])
 
 static func _unit_population(main) -> Dictionary:

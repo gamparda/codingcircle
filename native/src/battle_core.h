@@ -49,6 +49,10 @@ struct Unit {
 	Variant muster;
 	// Keys this engine does not know, kept as they came.
 	Dictionary extra;
+	// The dictionary GDScript holds for this unit (once it asked for it): kept in step both ways, so a reference
+	// taken before a tick sees the unit after it, as with the GDScript engine.
+	Dictionary handle;
+	bool has_handle = false;
 };
 
 class BattleCore : public RefCounted {
@@ -62,10 +66,18 @@ public:
 	void configure(const Dictionary &unit_stats, const Dictionary &summon_stats, const Dictionary &structure_stats, const Array &report_kinds);
 	void set_units(const Array &values);
 	Array get_units();
-	int64_t unit_count() const;
-	int64_t side_count(int64_t side) const;
+	int64_t unit_count();
+	int64_t side_count(int64_t side);
+	Array export_units();
+	int64_t count_units(int64_t side, bool include_downed);
+	int64_t fielded(int64_t side, const String &kind);
+	bool has_marching(int64_t side);
+	void clear_muster(int64_t side);
+	Dictionary last_unit();
+	void append_unit(const Dictionary &value);
 	void tick(Object *model, double delta);
 	int kind_of_public(const String &name);
+	void write_back(Unit &unit);
 
 private:
 	std::vector<KindInfo> kinds;
@@ -73,14 +85,20 @@ private:
 	Dictionary structure_stats;
 	Array report_kinds;
 	std::vector<Unit> units;
-	// The array handed out by get_units (its dictionaries may have been edited): read back before the next tick.
+	// The array handed out by get_units (it may have been edited: entries added, removed, replaced) and whether
+	// it still describes the current units; read back before the next tick.
 	Array exposed;
 	bool has_exposed = false;
 
 	int kind_of(const String &name);
 	Dictionary to_dictionary(const Unit &unit) const;
+	void write_into(Dictionary &target, const Unit &unit) const;
 	Unit from_dictionary(const Dictionary &value);
+	Dictionary handle_of(Unit &unit);
+
+public:
 	void sync_in();
+	void sync_out();
 };
 
 } // namespace godot

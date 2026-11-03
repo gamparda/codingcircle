@@ -18,8 +18,12 @@ target_compile_definitions(battle_native PRIVATE BATTLE_RULES_HASH="${BATTLE_RUL
 target_link_libraries(battle_native PRIVATE godot-cpp)
 # Bit-identical doubles with GDScript on every platform: no fused multiply-add, no fast-math reassociation.
 if(MSVC)
-	target_compile_options(battle_native PRIVATE /fp:precise /fp:contract-)
+	target_compile_options(battle_native PRIVATE /fp:precise)
 else()
 	target_compile_options(battle_native PRIVATE -ffp-contract=off -fno-fast-math)
+	# A missing definition is a build error, not a library that fails to load.
+	if(NOT APPLE)
+		target_link_options(battle_native PRIVATE -Wl,--no-undefined)
+	endif()
 endif()
 set_target_properties(battle_native PROPERTIES PREFIX "lib" OUTPUT_NAME "battle_native.${BATTLE_TARGET_SUFFIX}")

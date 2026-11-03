@@ -9,6 +9,10 @@ PORT="${CATWAR_SERVER_PORT:-7777}"
 [[ "$PORT" =~ ^[0-9]+$ ]] && (( PORT >= 1 && PORT <= 65535 )) || { echo "invalid CATWAR_SERVER_PORT" >&2; exit 2; }
 
 if [[ -f "$APP_DIR/server.pck" && ! -L "$APP_DIR/server.pck" ]]; then
+  # The native battle engine the updater installed next to the pack (battles fall back to GDScript without it).
+  if [[ -f "$APP_DIR/libbattle_native.linux.x86_64.so" && ! -L "$APP_DIR/libbattle_native.linux.x86_64.so" ]]; then
+    export CATWAR_NATIVE_LIB="$APP_DIR/libbattle_native.linux.x86_64.so"
+  fi
   exec "$GODOT_BIN" --headless --main-pack "$APP_DIR/server.pck" -- --server --port="$PORT"
 fi
 exec "$GODOT_BIN" --headless --path "$APP_DIR" -- --server --port="$PORT"

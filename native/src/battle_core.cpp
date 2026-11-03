@@ -154,6 +154,13 @@ void BattleCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("unit_count"), &BattleCore::unit_count);
 	ClassDB::bind_method(D_METHOD("side_count", "side"), &BattleCore::side_count);
 	ClassDB::bind_method(D_METHOD("tick", "model", "delta"), &BattleCore::tick);
+	ClassDB::bind_method(D_METHOD("export_units"), &BattleCore::export_units);
+	ClassDB::bind_method(D_METHOD("count_units", "side", "include_downed"), &BattleCore::count_units);
+	ClassDB::bind_method(D_METHOD("fielded", "side", "kind"), &BattleCore::fielded);
+	ClassDB::bind_method(D_METHOD("has_marching", "side"), &BattleCore::has_marching);
+	ClassDB::bind_method(D_METHOD("clear_muster", "side"), &BattleCore::clear_muster);
+	ClassDB::bind_method(D_METHOD("last_unit"), &BattleCore::last_unit);
+	ClassDB::bind_method(D_METHOD("append_unit", "value"), &BattleCore::append_unit);
 }
 
 String BattleCore::rules_hash() { return String(BATTLE_RULES_HASH); }
@@ -306,40 +313,178 @@ Unit BattleCore::from_dictionary(const Dictionary &d) {
 	return u;
 }
 
+void BattleCore::write_into(Dictionary &d, const Unit &u) const {
+	d[N->id] = u.id;
+	d[N->side] = u.side;
+	d[N->kind] = kinds[u.kind].name;
+	d[N->x] = u.x;
+	d[N->hp] = u.hp;
+	d[N->max_hp] = u.max_hp;
+	d[N->damage] = u.damage;
+	d[N->heal] = u.heal;
+	d[N->interval] = u.interval;
+	d[N->cooldown] = u.cooldown;
+	if (u.has_support_stacks) d[N->support_stacks] = u.support_stacks;
+	else d.erase(N->support_stacks);
+	d[N->speed] = u.speed;
+	d[N->range] = u.range;
+	if (u.has_summon) d[N->summon_remaining] = u.summon_remaining;
+	else d.erase(N->summon_remaining);
+	if (u.has_skill) d[N->skill_remaining] = u.skill_remaining;
+	else d.erase(N->skill_remaining);
+	if (u.has_souls) d[N->souls] = u.souls;
+	else d.erase(N->souls);
+	if (u.has_frozen) d[N->frozen] = u.frozen_remaining;
+	else d.erase(N->frozen);
+	if (u.has_blessed) d[N->blessed] = u.blessed_remaining;
+	else d.erase(N->blessed);
+	if (u.has_revive) d[N->revive] = u.revive_remaining;
+	else d.erase(N->revive);
+	if (u.has_revived) d[N->revived] = u.revived;
+	else d.erase(N->revived);
+	if (u.has_muster) d[N->muster] = u.muster;
+	else d.erase(N->muster);
+}
+
+Dictionary BattleCore::handle_of(Unit &u) {
+	if (!u.has_handle) {
+		u.handle = to_dictionary(u);
+		u.has_handle = true;
+	}
+	return u.handle;
+}
+
 void BattleCore::set_units(const Array &values) {
 	units.clear();
 	units.reserve(values.size());
 	for (int64_t i = 0; i < values.size(); i++) {
-		units.push_back(from_dictionary(values[i]));
+		Dictionary d = values[i];
+		Unit u = from_dictionary(d);
+		u.handle = d; // `units = values`: these dictionaries are the units now
+		u.has_handle = true;
+		units.push_back(u);
 	}
-	exposed = Array();
-	has_exposed = false;
+	exposed = values;
+	has_exposed = true;
 }
 
 Array BattleCore::get_units() {
 	if (!has_exposed) {
 		exposed = Array();
-		for (const Unit &u : units) exposed.push_back(to_dictionary(u));
+		for (Unit &u : units) exposed.push_back(handle_of(u));
 		has_exposed = true;
 	}
 	return exposed;
 }
 
+// Reads back what GDScript may have changed: the handed-out array (entries added, removed or replaced) and
+// every unit dictionary it holds.
 void BattleCore::sync_in() {
 	if (has_exposed) {
 		Array values = exposed;
-		set_units(values); // read back whatever was changed or appended through the dictionaries
+		std::vector<Unit> rebuilt;
+		rebuilt.reserve(values.size());
+		size_t cursor = 0;
+		for (int64_t i = 0; i < values.size(); i++) {
+			Dictionary d = values[i];
+			Unit u = from_dictionary(d);
+			u.handle = d;
+			u.has_handle = true;
+			(void)cursor;
+			rebuilt.push_back(u);
+		}
+		units.swap(rebuilt); // the array stays handed out (and valid) until the next tick replaces it
+		return;
+	}
+	for (Unit &u : units) {
+		if (u.has_handle) {
+			Dictionary d = u.handle;
+			Unit fresh = from_dictionary(d);
+			fresh.handle = d;
+			fresh.has_handle = true;
+			u = fresh;
+		}
 	}
 }
 
-int64_t BattleCore::unit_count() const { return int64_t(units.size()); }
+// Writes the engine's units back into the dictionaries GDScript holds.
+void BattleCore::sync_out() {
+	for (Unit &u : units) {
+		if (u.has_handle) write_into(u.handle, u);
+	}
+}
 
-int64_t BattleCore::side_count(int64_t side) const {
+int64_t BattleCore::unit_count() {
+	sync_in();
+	return int64_t(units.size());
+}
+
+int64_t BattleCore::side_count(int64_t side) {
+	sync_in();
 	int64_t count = 0;
 	for (const Unit &u : units) {
 		if (u.side == side) count++;
 	}
 	return count;
+}
+
+Array BattleCore::export_units() {
+	sync_in();
+	Array values;
+	for (const Unit &u : units) values.push_back(to_dictionary(u));
+	return values;
+}
+
+int64_t BattleCore::count_units(int64_t side, bool include_downed) {
+	sync_in();
+	int64_t count = 0;
+	for (const Unit &u : units) {
+		if (u.side == side && (u.hp > 0.0 || (include_downed && u.has_revive))) count++;
+	}
+	return count;
+}
+
+int64_t BattleCore::fielded(int64_t side, const String &kind) {
+	sync_in();
+	int k = kind_of(kind);
+	int64_t count = 0;
+	for (const Unit &u : units) {
+		if (u.side == side && u.kind == k && (u.hp > 0.0 || u.has_revive)) count++;
+	}
+	return count;
+}
+
+bool BattleCore::has_marching(int64_t side) {
+	sync_in();
+	for (const Unit &u : units) {
+		if (u.side == side && u.hp > 0.0 && !u.has_muster) return true;
+	}
+	return false;
+}
+
+void BattleCore::clear_muster(int64_t side) {
+	sync_in();
+	for (Unit &u : units) {
+		if (u.side == side) {
+			u.has_muster = false;
+			u.muster = Variant();
+		}
+	}
+	sync_out();
+}
+
+void BattleCore::append_unit(const Dictionary &value) {
+	if (has_exposed) {
+		exposed.push_back(value); // part of the handed-out array: read back with it
+		return;
+	}
+	units.push_back(from_dictionary(value));
+}
+
+Dictionary BattleCore::last_unit() {
+	sync_in();
+	if (units.empty()) return Dictionary();
+	return handle_of(units.back());
 }
 
 // ----------------------------------------------------------------------------------------------------------------
@@ -1414,6 +1559,7 @@ void Tick::run() {
 		kept.reserve(U().size());
 		for (Unit &u : U()) {
 			if (u.hp > 0.0 || u.has_revive) kept.push_back(u);
+			else if (u.has_handle) core->write_back(u); // a reference GDScript kept sees the unit as it fell
 		}
 		U().swap(kept);
 	}
@@ -1484,10 +1630,14 @@ void Tick::run() {
 
 int BattleCore::kind_of_public(const String &name) { return kind_of(name); }
 
+void BattleCore::write_back(Unit &u) { write_into(u.handle, u); }
+
 void BattleCore::tick(Object *model, double delta) {
 	if (model == nullptr) return;
 	if (int64_t(model->get("winner")) != -1) return;
 	sync_in();
+	exposed = Array(); // the tick makes a new units array, as `units = units.filter(...)` does in GDScript
+	has_exposed = false;
 	Tick t;
 	t.core = this;
 	t.kinds = &kinds;
@@ -1518,6 +1668,5 @@ void BattleCore::tick(Object *model, double delta) {
 	if (t.casts_replaced) model->set("spell_casts", t.spell_casts);
 	model->set("next_unit_id", t.next_unit_id);
 	if (t.winner != -1) model->set("winner", t.winner);
-	exposed = Array();
-	has_exposed = false;
+	sync_out();
 }

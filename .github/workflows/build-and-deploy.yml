@@ -20,18 +20,89 @@ env:
   GODOT_STATUS: stable
 
 jobs:
+  # The native battle engine (native/, a GDExtension): one library per platform, used by the tests, the exports and
+  # the Linux server. godot-cpp and the build tree are cached; a change to the engine or BattleModel.gd rebuilds it.
+  build-native:
+    name: native (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    timeout-minutes: 40
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: linux.x86_64
+            os: ubuntu-24.04
+          - target: windows.x86_64
+            os: windows-latest
+          - target: android.arm64
+            os: ubuntu-24.04
+            abi: arm64-v8a
+          - target: android.arm32
+            os: ubuntu-24.04
+            abi: armeabi-v7a
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache godot-cpp and the build tree
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/godot-cpp
+            native/build
+          key: native-${{ matrix.target }}-godot-cpp-4.5-${{ hashFiles('native/src/**', 'native/CMakeLists.txt', 'scripts/BattleModel.gd') }}
+          restore-keys: native-${{ matrix.target }}-godot-cpp-4.5-
+
+      - name: Build the native battle engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d native/godot-cpp/.git ]; then
+            rm -rf native/godot-cpp
+            git clone --depth 1 --branch godot-4.5-stable https://github.com/godotengine/godot-cpp native/godot-cpp
+          fi
+          args=(-S native -B native/build -DCMAKE_BUILD_TYPE=Release -DGODOT_CPP_DIR="$PWD/native/godot-cpp" -DBATTLE_TARGET_SUFFIX=${{ matrix.target }})
+          case "${{ matrix.target }}" in
+            windows.*) args+=(-G "Visual Studio 17 2022" -A x64) ;;
+            android.*) args+=(-G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-24) ;;
+            *) args+=(-G "Unix Makefiles") ;;
+          esac
+          cmake "${args[@]}"
+          cmake --build native/build --config Release --parallel 4
+          mkdir -p native/bin
+          find native/build -maxdepth 3 -type f \( -name "libbattle_native.${{ matrix.target }}.so" -o -name "libbattle_native.${{ matrix.target }}.dll" \) -exec cp {} native/bin/ \;
+          ls -la native/bin
+          test -n "$(ls native/bin)"
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: native-${{ matrix.target }}
+          path: native/bin/*
+          if-no-files-found: error
+          retention-days: 3
+
   tests:
     name: tests (${{ matrix.suite }})
+    needs: build-native
     runs-on: windows-latest
     permissions:
       contents: read
     timeout-minutes: 25
+    env:
+      # Battles in the tests run on the native engine; the determinism test also checks it against GDScript.
+      CATWAR_REQUIRE_NATIVE: "1"
     strategy:
       fail-fast: false
       matrix:
         suite: [unit, network, ui, security, balance, release]
     steps:
       - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: native-windows.x86_64
+          path: native/bin
 
       - name: Download Godot
         shell: pwsh
@@ -54,6 +125,7 @@ jobs:
   # The builds run alongside the tests; only publishing waits for the tests to pass.
   build-windows:
     if: github.event_name != 'pull_request'
+    needs: build-native
     runs-on: windows-latest
     permissions:
       contents: read
@@ -61,6 +133,11 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: native-windows.x86_64
+          path: native/bin
 
       - name: Cache Godot export templates
         uses: actions/cache@v4
@@ -126,6 +203,7 @@ jobs:
 
   build-android:
     if: github.event_name != 'pull_request'
+    needs: build-native
     runs-on: windows-latest
     permissions:
       contents: read
@@ -133,6 +211,12 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: native-android.*
+          path: native/bin
+          merge-multiple: true
 
       - name: Cache Godot export templates
         uses: actions/cache@v4
@@ -305,6 +389,18 @@ jobs:
           $manifest = & (Join-Path $buildTools.FullName "aapt2.exe") dump xmltree --file AndroidManifest.xml dist/CatWar.apk | Out-String
           if ($manifest -notmatch "org\.godotengine\.plugin\.v2\.KeepfallSignIn") { throw "Sign-in plugin missing from the APK" }
           if ($manifest -notmatch "org\.godotengine\.plugin\.v2\.KeepfallUpdater" -or $manifest -notmatch "REQUEST_INSTALL_PACKAGES") { throw "In-app updater missing from the GitHub APK" }
+          # The native battle engine for both ABIs.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          function Assert-NativeLibs([string]$apk) {
+            $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $apk))
+            try {
+              $names = $zip.Entries | ForEach-Object { $_.FullName }
+              foreach ($lib in @("lib/arm64-v8a/libbattle_native.android.arm64.so", "lib/armeabi-v7a/libbattle_native.android.arm32.so")) {
+                if (-not ($names -contains $lib)) { throw "$apk is missing $lib" }
+              }
+            } finally { $zip.Dispose() }
+          }
+          Assert-NativeLibs dist/CatWar.apk
           # The ONE store build: the same app with the "onestore" feature tag (app updates go through ONE store).
           $exported = $false
           for ($attempt = 1; $attempt -le 3 -and -not $exported; $attempt++) {
@@ -322,6 +418,7 @@ jobs:
           # ONE store updates its app through the store: its APK must not carry the in-app installer.
           $storeManifest = & (Join-Path $buildTools.FullName "aapt2.exe") dump xmltree --file AndroidManifest.xml dist/CatWar-onestore.apk | Out-String
           if ($storeManifest -match "REQUEST_INSTALL_PACKAGES" -or $storeManifest -match "KeepfallUpdater") { throw "The ONE store APK must not include the in-app installer" }
+          Assert-NativeLibs dist/CatWar-onestore.apk
           & $env:GODOT_CONSOLE --headless --path . --export-pack Android dist/CatWarContent.pck
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist/CatWarContent.pck)) { throw "Android content pack export failed" }
 
@@ -343,9 +440,10 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Only main publishes: a manual run on another branch builds and tests everything without releasing it.
   publish:
-    if: github.event_name != 'pull_request'
-    needs: [tests, multiplayer-preview, build-windows, build-android]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [build-native, tests, multiplayer-preview, build-windows, build-android]
     runs-on: ubuntu-latest
     steps:
       - name: Check out tested source
@@ -365,9 +463,10 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force site | Out-Null
-          foreach ($file in @("CatWarSetup.exe", "CatWar.apk", "CatWarContent.pck", "CatWarDesktop.pck")) {
+          foreach ($file in @("CatWarSetup.exe", "CatWar.apk", "CatWarContent.pck", "CatWarDesktop.pck", "libbattle_native.linux.x86_64.so")) {
             Copy-Item "dist/$file" "site/$file"
           }
+          $nativeSha = (Get-FileHash site/libbattle_native.linux.x86_64.so -Algorithm SHA256).Hash.ToLowerInvariant()
           $sha = (Get-FileHash site/CatWarSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           $androidSha = (Get-FileHash site/CatWar.apk -Algorithm SHA256).Hash.ToLowerInvariant()
           $contentSha = (Get-FileHash site/CatWarContent.pck -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -388,11 +487,13 @@ jobs:
             desktop_pack_commit = "${{ github.sha }}"
             desktop_pack_url = "https://gamparda.github.io/codingcircle/CatWarDesktop.pck"
             desktop_pack_sha256 = $desktopSha
+            server_native_url = "https://gamparda.github.io/codingcircle/libbattle_native.linux.x86_64.so"
+            server_native_sha256 = $nativeSha
             mandatory = $true
             published_at = (Get-Date).ToUniversalTime().ToString("o")
           } | ConvertTo-Json
           [System.IO.File]::WriteAllText((Join-Path $PWD "site/update.json"), $manifest + "`n", [System.Text.UTF8Encoding]::new($false))
-          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n$androidSha  CatWar.apk`n$contentSha  CatWarContent.pck`n$desktopSha  CatWarDesktop.pck`n", [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n$androidSha  CatWar.apk`n$contentSha  CatWarContent.pck`n$desktopSha  CatWarDesktop.pck`n$nativeSha  libbattle_native.linux.x86_64.so`n", [System.Text.UTF8Encoding]::new($false))
           New-Item -ItemType File -Force site/.nojekyll | Out-Null
 
       - name: Publish GitHub Release (new versions only)
@@ -433,7 +534,7 @@ jobs:
           path: site
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

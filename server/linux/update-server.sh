@@ -19,6 +19,8 @@ UPDATE_MODE="${CATWAR_UPDATE_MODE:-git}"
 HISTORY_DIR="${CATWAR_HISTORY_DIR:-${CONTROL_DIR}/history.git}"
 PACK_URL="${CATWAR_PACK_URL:-${MANIFEST_URL%/*}/CatWarDesktop.pck}"
 PACK_MAX_BYTES="${CATWAR_PACK_MAX_BYTES:-300000000}"
+NATIVE_URL="${CATWAR_NATIVE_URL:-${MANIFEST_URL%/*}/libbattle_native.linux.x86_64.so}"
+NATIVE_MAX_BYTES="${CATWAR_NATIVE_MAX_BYTES:-50000000}"
 
 fail() {
   echo "Cat War updater: $*" >&2
@@ -117,6 +119,23 @@ if re.search(r"[\s'\"\\]", url):
 if pack_commit != commit:
     raise SystemExit("update manifest pack commit differs from its commit")
 print(commit, version, pack_commit, digest, url)
+PY
+}
+
+# Prints "sha256 url" of the native battle engine the manifest publishes, or nothing when it publishes none.
+read_native_manifest() {
+  local manifest=$1
+  "$PYTHON_BIN" - "$manifest" <<'PY'
+import json, re, sys
+with open(sys.argv[1], encoding="utf-8-sig") as handle:
+    manifest = json.load(handle)
+digest = str(manifest.get("server_native_sha256", "")).lower()
+url = str(manifest.get("server_native_url", ""))
+if not digest and not url:
+    raise SystemExit(0)
+if not re.fullmatch(r"[0-9a-f]{64}", digest) or re.search(r"[\s'\"\\]", url):
+    raise SystemExit("update manifest has an invalid native engine entry")
+print(digest, url)
 PY
 }
 
@@ -289,6 +308,24 @@ build_pack_staging() {
   rm -rf -- "$staging_dir"
   install -d -o root -g root -m 0755 -- "$staging_dir"
   install -o root -g root -m 0644 -- "$download" "$staging_dir/server.pck"
+  # The native battle engine (optional): same checks as the pack. Without it battles run in GDScript.
+  local native_fields native_sha native_url native_download
+  native_fields=$(read_native_manifest "$manifest_file")
+  if [[ -n "$native_fields" ]]; then
+    read -r native_sha native_url <<<"$native_fields"
+    [[ "$native_url" == "$NATIVE_URL" ]] || fail "native engine url is not the official one"
+    native_download="$CONTROL_DIR/native-$target_commit.so"
+    rm -f -- "$native_download"
+    curl --fail --silent --show-error --location --proto '=https' --max-redirs 3 \
+      --connect-timeout 10 --max-time 300 --max-filesize "$NATIVE_MAX_BYTES" \
+      -H 'Cache-Control: no-cache' "$native_url" -o "$native_download"
+    [[ -f "$native_download" && ! -L "$native_download" ]] || fail "native engine download is not a regular file"
+    actual=$(sha256sum -- "$native_download")
+    actual=${actual%% *}
+    [[ "$actual" == "$native_sha" ]] || fail "native engine SHA-256 does not match the manifest"
+    install -o root -g root -m 0644 -- "$native_download" "$staging_dir/libbattle_native.linux.x86_64.so"
+    rm -f -- "$native_download"
+  fi
   printf '%s\n' "$target_commit" > "$staging_dir/commit"
   chown root:root -- "$staging_dir/commit"
   chmod 0644 -- "$staging_dir/commit"

@@ -107,7 +107,7 @@ static func _momentum(model: BattleModel) -> float:
 	var power := [0.0, 0.0]
 	for side in 2:
 		power[side] = maxf(0.0, float(model.base_hp[side])) * BASE_WEIGHT
-	for unit in model.units:
+	for unit in model.units_view():
 		if float(unit.hp) > 0.0:
 			power[int(unit.side)] += float(unit.hp) * UNIT_WEIGHT
 	var total: float = power[0] + power[1]
