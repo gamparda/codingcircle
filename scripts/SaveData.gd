@@ -63,6 +63,7 @@ static func default_data() -> Dictionary:
 		"daily": {},
 		"weekly": {},
 		"seen_features": [],
+		"read_notices": [],
 		"goals": {},
 		"install_id": "",
 		"next_report_sequence": 1,
@@ -260,6 +261,10 @@ static func sanitize(raw: Variant, diagnostics: Dictionary = {}) -> Dictionary:
 		for id in preload("res://scripts/Goals.gd").ids():
 			if raw.goals.get(id) is bool and raw.goals[id]:
 				clean.goals[id] = true
+	if raw.get("read_notices") is Array:
+		for id in raw.read_notices.slice(0, 60):
+			if id is String and not id.is_empty() and id.length() <= 40 and not clean.read_notices.has(id):
+				clean.read_notices.append(id)
 	if raw.get("seen_features") is Array:
 		for id in raw.seen_features.slice(0, 60):
 			if id is String and not id.is_empty() and id.length() <= 40 and not clean.seen_features.has(id):

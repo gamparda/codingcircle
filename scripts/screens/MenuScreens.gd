@@ -128,6 +128,8 @@ static func _build_connect_screen(main, message: String = "") -> void:
 	corner.add_child(patch_notes)
 	Goals.add_chip(main, corner)
 	corner.move_child(patch_notes, -1)
+	var Notices = load("res://scripts/Notices.gd")
+	Notices.add_button(main, corner)
 	# Every menu button wears the board's wood and iron.
 	for tile in [battle_tile, solo_tile, deck_tile]:
 		LobbyScene.dress_wood(tile, tile == battle_tile)
@@ -135,6 +137,12 @@ static func _build_connect_screen(main, message: String = "") -> void:
 		if button is Button:
 			LobbyScene.dress_wood(button)
 	NewFeatures.decorate(main, column)
+	# An unread important notice (e.g. a privacy policy change) opens once over the menu.
+	if bool(main.save_data.get("tutorial_completed", false)) and not Notices.unread(main.save_data).is_empty():
+		var menu_root: Node = main.root_background
+		(func():
+			if is_instance_valid(menu_root) and menu_root == main.root_background and not is_instance_valid(main.action_overlay):
+				Notices.pop_important(main)).call_deferred()
 	main.updater.set_safe_to_update(main._client_can_update())
 	main.updater.check_for_update()
 
