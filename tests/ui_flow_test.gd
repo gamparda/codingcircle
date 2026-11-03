@@ -1,6 +1,8 @@
 extends SceneTree
 
 const Localization = preload("res://scripts/Localization.gd")
+const MainScript = preload("res://scripts/Main.gd")
+const UpdateOverlay = preload("res://scripts/screens/UpdateOverlay.gd")
 
 var failures := 0
 var checks := 0
@@ -130,8 +132,22 @@ func run() -> void:
 	await process_frame
 	expect_true(tree_text(main.update_overlay).contains("APK 업데이트가 필요합니다."), "older Android APKs receive the required update message")
 	expect_true(find_button(main.update_overlay, "APK 다운로드") != null, "APK update notice exposes a download action")
+	expect_true(find_button(main.update_overlay, "나중에") == null, "a required APK update cannot be put off")
 	main.update_overlay.queue_free()
 	main.update_overlay = null
+	await process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(UpdateOverlay.APK_OFFER_PATH))
+	UpdateOverlay._show_android_apk_notice(main, true)
+	await process_frame
+	expect_true(tree_text(main.update_overlay).contains("선택"), "an optional APK update says the current app keeps playing")
+	var later_button := find_button(main.update_overlay, "나중에")
+	expect_true(later_button != null, "an optional APK update can be put off")
+	if later_button != null:
+		later_button.pressed.emit()
+		await process_frame
+	expect_true(main.update_overlay == null, "putting off an optional APK update closes the notice")
+	expect_true(UpdateOverlay.apk_offer_dismissed(MainScript.build_binary_version()), "a put-off optional APK update is not offered again for that version")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(UpdateOverlay.APK_OFFER_PATH))
 	if main.has_method("_input"):
 		var was_fullscreen := bool(main.save_data.settings.fullscreen)
 		main._input(key_event(KEY_F11))

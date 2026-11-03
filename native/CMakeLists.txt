@@ -7,12 +7,20 @@ if(NOT GODOT_CPP_DIR)
 	set(GODOT_CPP_DIR ${CMAKE_SOURCE_DIR}/godot-cpp)
 endif()
 add_subdirectory(${GODOT_CPP_DIR} godot-cpp)
-# The rules hash ties this library to the BattleModel.gd it was translated from: BattleModel uses the library
-# only when its own (generated) hash matches, so a game-data update with new rules falls back to GDScript.
-# Line endings are dropped first, so a Windows checkout (CRLF) hashes the same as tools/update_rules_hash.py.
-file(READ ${CMAKE_SOURCE_DIR}/../scripts/BattleModel.gd BATTLE_MODEL_SOURCE)
-string(REPLACE "\r" "" BATTLE_MODEL_SOURCE "${BATTLE_MODEL_SOURCE}")
-string(SHA256 BATTLE_RULES_HASH "${BATTLE_MODEL_SOURCE}")
+# The rules hash ties this library to the GDScript it translates (tools/update_rules_hash.py: the battle rule
+# functions of BattleModel.gd, constants excluded since they are passed at run time). BattleModel uses the library
+# only when its generated BattleRulesHash.gd matches, so changed rules in a game-data update fall back to GDScript.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+execute_process(
+	COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/../tools/update_rules_hash.py --print
+	OUTPUT_VARIABLE BATTLE_RULES_HASH
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+	RESULT_VARIABLE BATTLE_RULES_HASH_RESULT)
+if(NOT BATTLE_RULES_HASH_RESULT EQUAL 0 OR NOT BATTLE_RULES_HASH MATCHES "^[0-9a-f]+$")
+	message(FATAL_ERROR "tools/update_rules_hash.py --print failed")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+	${CMAKE_SOURCE_DIR}/../scripts/BattleModel.gd ${CMAKE_SOURCE_DIR}/../scripts/BattleReport.gd ${CMAKE_SOURCE_DIR}/../tools/update_rules_hash.py)
 add_library(battle_native SHARED src/register_types.cpp src/battle_core.cpp)
 target_compile_definitions(battle_native PRIVATE BATTLE_RULES_HASH="${BATTLE_RULES_HASH}")
 target_link_libraries(battle_native PRIVATE godot-cpp)

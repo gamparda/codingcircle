@@ -19,36 +19,35 @@ using namespace godot;
 
 namespace {
 
-// Constants of scripts/BattleModel.gd (the rules hash makes sure they are the ones this was built with).
-constexpr double WORLD_SCALE = 1.15;
-constexpr double FIELD_LEFT = 90.0 * WORLD_SCALE;
-constexpr double FIELD_RIGHT = 1190.0 * WORLD_SCALE;
-constexpr double MIN_ATTACK_INTERVAL = 1.2;
-constexpr int64_t SUPPORT_MAX_STACKS = 10;
-constexpr double SUPPORT_INCREMENT = 0.05;
-constexpr double SUPPORT_COOLDOWN = 4.0;
-constexpr double SUPPORT_FOLLOW_DISTANCE = 65.0;
-constexpr double CURSE_RADIUS = 45.0;
-constexpr double CURSE_DURATION = 5.0;
-constexpr double CURSE_SPEED_SCALE = 0.7;
-constexpr double SUMMON_INTERVAL = 5.0;
-constexpr int64_t MAX_SKELETONS_PER_NECROMANCER = 3;
-constexpr double RAGE_HP_FRACTION = 0.5;
-constexpr double RAGE_SPEED_MULTIPLIER = 1.5;
-constexpr int64_t MAX_ACTIVE_UNITS = 256;
-constexpr int64_t SIDE_UNIT_LIMIT = MAX_ACTIVE_UNITS / 2;
-constexpr double KNOCKBACK_FRACTION = 0.5;
-constexpr double KNOCKBACK_DISTANCE = 100.0;
-constexpr double CASTLE_RANGE = 300.0;
-constexpr double CASTLE_INTERVAL = 1.5;
-constexpr double CASTLE_DAMAGE = 8.0;
-constexpr double CASTLE_DESPERATION = 2.5;
-constexpr double GUARD_SPOT = 20.0;
-constexpr double FORMATION_MELEE = 35.0;
-constexpr double MUSTER_INSET = 10.0;
-constexpr double FORMATION_RANGED_MIN = 60.0;
-constexpr double FORMATION_RANGED_MAX = 160.0;
-constexpr int64_t MAX_FALLEN = 40;
+// BattleModel.gd constants, handed over by configure() (BattleModel.native_constants()): a balance change in
+// the game data reaches the engine without an app update.
+double FIELD_LEFT = 0.0;
+double FIELD_RIGHT = 0.0;
+double MIN_ATTACK_INTERVAL = 0.0;
+double SUPPORT_INCREMENT = 0.0;
+double SUPPORT_COOLDOWN = 0.0;
+double SUPPORT_FOLLOW_DISTANCE = 0.0;
+double CURSE_RADIUS = 0.0;
+double CURSE_DURATION = 0.0;
+double CURSE_SPEED_SCALE = 0.0;
+double SUMMON_INTERVAL = 0.0;
+double RAGE_HP_FRACTION = 0.0;
+double RAGE_SPEED_MULTIPLIER = 0.0;
+double KNOCKBACK_FRACTION = 0.0;
+double KNOCKBACK_DISTANCE = 0.0;
+double CASTLE_RANGE = 0.0;
+double CASTLE_INTERVAL = 0.0;
+double CASTLE_DAMAGE = 0.0;
+double CASTLE_DESPERATION = 0.0;
+double GUARD_SPOT = 0.0;
+double FORMATION_MELEE = 0.0;
+double MUSTER_INSET = 0.0;
+double FORMATION_RANGED_MIN = 0.0;
+double FORMATION_RANGED_MAX = 0.0;
+int64_t SUPPORT_MAX_STACKS = 0;
+int64_t MAX_SKELETONS_PER_NECROMANCER = 0;
+int64_t SIDE_UNIT_LIMIT = 0;
+int64_t MAX_FALLEN = 0;
 constexpr double EPS = 0.000001;
 constexpr double INF = std::numeric_limits<double>::infinity();
 
@@ -148,7 +147,7 @@ void battle_core_free_names() {
 
 void BattleCore::_bind_methods() {
 	ClassDB::bind_static_method("BattleCore", D_METHOD("rules_hash"), &BattleCore::rules_hash);
-	ClassDB::bind_method(D_METHOD("configure", "unit_stats", "summon_stats", "structure_stats", "report_kinds"), &BattleCore::configure);
+	ClassDB::bind_method(D_METHOD("configure", "unit_stats", "summon_stats", "structure_stats", "report_kinds", "constants"), &BattleCore::configure);
 	ClassDB::bind_method(D_METHOD("set_units", "values"), &BattleCore::set_units);
 	ClassDB::bind_method(D_METHOD("get_units"), &BattleCore::get_units);
 	ClassDB::bind_method(D_METHOD("unit_count"), &BattleCore::unit_count);
@@ -169,7 +168,22 @@ static double num(const Variant &value, double fallback = 0.0) {
 	return value.get_type() == Variant::NIL ? fallback : double(value);
 }
 
-void BattleCore::configure(const Dictionary &unit_stats, const Dictionary &summon_stats, const Dictionary &structure_stats_value, const Array &kinds_for_report) {
+bool BattleCore::configure(const Dictionary &unit_stats, const Dictionary &summon_stats, const Dictionary &structure_stats_value, const Array &kinds_for_report, const Dictionary &constants) {
+	// Every constant the rules use must come in; a model that does not hand one over keeps GDScript.
+	const char *floats[] = {"FIELD_LEFT", "FIELD_RIGHT", "MIN_ATTACK_INTERVAL", "SUPPORT_INCREMENT", "SUPPORT_COOLDOWN", "SUPPORT_FOLLOW_DISTANCE", "CURSE_RADIUS", "CURSE_DURATION", "CURSE_SPEED_SCALE", "SUMMON_INTERVAL", "RAGE_HP_FRACTION", "RAGE_SPEED_MULTIPLIER", "KNOCKBACK_FRACTION", "KNOCKBACK_DISTANCE", "CASTLE_RANGE", "CASTLE_INTERVAL", "CASTLE_DAMAGE", "CASTLE_DESPERATION", "GUARD_SPOT", "FORMATION_MELEE", "MUSTER_INSET", "FORMATION_RANGED_MIN", "FORMATION_RANGED_MAX"};
+	double *float_targets[] = {&FIELD_LEFT, &FIELD_RIGHT, &MIN_ATTACK_INTERVAL, &SUPPORT_INCREMENT, &SUPPORT_COOLDOWN, &SUPPORT_FOLLOW_DISTANCE, &CURSE_RADIUS, &CURSE_DURATION, &CURSE_SPEED_SCALE, &SUMMON_INTERVAL, &RAGE_HP_FRACTION, &RAGE_SPEED_MULTIPLIER, &KNOCKBACK_FRACTION, &KNOCKBACK_DISTANCE, &CASTLE_RANGE, &CASTLE_INTERVAL, &CASTLE_DAMAGE, &CASTLE_DESPERATION, &GUARD_SPOT, &FORMATION_MELEE, &MUSTER_INSET, &FORMATION_RANGED_MIN, &FORMATION_RANGED_MAX};
+	for (size_t i = 0; i < sizeof(floats) / sizeof(floats[0]); i++) {
+		Variant value = constants.get(floats[i], Variant());
+		if (value.get_type() != Variant::FLOAT && value.get_type() != Variant::INT) return false;
+		*float_targets[i] = double(value);
+	}
+	const char *ints[] = {"SUPPORT_MAX_STACKS", "MAX_SKELETONS_PER_NECROMANCER", "SIDE_UNIT_LIMIT", "MAX_FALLEN"};
+	int64_t *int_targets[] = {&SUPPORT_MAX_STACKS, &MAX_SKELETONS_PER_NECROMANCER, &SIDE_UNIT_LIMIT, &MAX_FALLEN};
+	for (size_t i = 0; i < sizeof(ints) / sizeof(ints[0]); i++) {
+		Variant value = constants.get(ints[i], Variant());
+		if (value.get_type() != Variant::INT) return false;
+		*int_targets[i] = int64_t(value);
+	}
 	kinds.clear();
 	kind_index.clear();
 	structure_stats = structure_stats_value;
@@ -235,6 +249,7 @@ void BattleCore::configure(const Dictionary &unit_stats, const Dictionary &summo
 			kinds.push_back(info);
 		}
 	}
+	return true;
 }
 
 int BattleCore::kind_of(const String &name) {

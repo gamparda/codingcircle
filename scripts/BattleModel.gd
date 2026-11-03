@@ -172,7 +172,41 @@ static func native_available() -> bool:
 func _init() -> void:
 	if native_enabled and native_available():
 		_core = ClassDB.instantiate("BattleCore")
-		_core.configure(UNIT_STATS, SUMMON_STATS, STRUCTURE_STATS, Report.KINDS)
+		if not _core.configure(UNIT_STATS, SUMMON_STATS, STRUCTURE_STATS, Report.KINDS, native_constants()):
+			_core = null # an engine that wants a constant this model does not have: GDScript
+
+## The constants the native engine's rules use, handed over at run time: changing their values (balance) needs no
+## new engine, only the rules hash (the code of the rule functions) does.
+static func native_constants() -> Dictionary:
+	return {
+		"FIELD_LEFT": FIELD_LEFT,
+		"FIELD_RIGHT": FIELD_RIGHT,
+		"MIN_ATTACK_INTERVAL": MIN_ATTACK_INTERVAL,
+		"SUPPORT_INCREMENT": SUPPORT_INCREMENT,
+		"SUPPORT_COOLDOWN": SUPPORT_COOLDOWN,
+		"SUPPORT_FOLLOW_DISTANCE": SUPPORT_FOLLOW_DISTANCE,
+		"CURSE_RADIUS": CURSE_RADIUS,
+		"CURSE_DURATION": CURSE_DURATION,
+		"CURSE_SPEED_SCALE": CURSE_SPEED_SCALE,
+		"SUMMON_INTERVAL": SUMMON_INTERVAL,
+		"RAGE_HP_FRACTION": RAGE_HP_FRACTION,
+		"RAGE_SPEED_MULTIPLIER": RAGE_SPEED_MULTIPLIER,
+		"KNOCKBACK_FRACTION": KNOCKBACK_FRACTION,
+		"KNOCKBACK_DISTANCE": KNOCKBACK_DISTANCE,
+		"CASTLE_RANGE": CASTLE_RANGE,
+		"CASTLE_INTERVAL": CASTLE_INTERVAL,
+		"CASTLE_DAMAGE": CASTLE_DAMAGE,
+		"CASTLE_DESPERATION": CASTLE_DESPERATION,
+		"GUARD_SPOT": GUARD_SPOT,
+		"FORMATION_MELEE": FORMATION_MELEE,
+		"MUSTER_INSET": MUSTER_INSET,
+		"FORMATION_RANGED_MIN": FORMATION_RANGED_MIN,
+		"FORMATION_RANGED_MAX": FORMATION_RANGED_MAX,
+		"SUPPORT_MAX_STACKS": SUPPORT_MAX_STACKS,
+		"MAX_SKELETONS_PER_NECROMANCER": MAX_SKELETONS_PER_NECROMANCER,
+		"SIDE_UNIT_LIMIT": SIDE_UNIT_LIMIT,
+		"MAX_FALLEN": MAX_FALLEN,
+	}
 
 ## Whether this battle runs on the native engine.
 func is_native() -> bool:

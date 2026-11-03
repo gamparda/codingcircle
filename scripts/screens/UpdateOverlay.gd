@@ -31,6 +31,7 @@ static func _on_update_started(main, version: String) -> void:
 	inner.custom_minimum_size = Vector2(600, 310)
 	panel.add_child(inner)
 	var overline := Label.new()
+	overline.name = "UpdateOverline"
 	overline.text = "MANDATORY UPDATE"
 	overline.position = Vector2(0, 38)
 	overline.size = Vector2(600, 22)
@@ -70,13 +71,26 @@ static func _on_update_started(main, version: String) -> void:
 	main.update_note_label.add_theme_color_override("font_color", Color("#747d91"))
 	inner.add_child(main.update_note_label)
 
-static func _show_android_apk_notice(main) -> void:
+const APK_OFFER_PATH := "user://apk_offer.json"
+
+## Whether the player already put off the optional app `version`.
+static func apk_offer_dismissed(version: String) -> bool:
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(APK_OFFER_PATH)) if FileAccess.file_exists(APK_OFFER_PATH) else null
+	return parsed is Dictionary and String(parsed.get("dismissed", "")) == version
+
+## `optional`: a newer app is offered (this one keeps playing); otherwise the app must be updated first.
+static func _show_android_apk_notice(main, optional: bool = false) -> void:
 	main._on_update_started(main.build_binary_version())
 	if not is_instance_valid(main.update_overlay):
 		return
 	var store := ContentUpdater.store_build()
 	var in_app := not store and ApkInstaller.available()
 	main.update_message_label.text = Localization.text("앱 업데이트가 필요합니다.") if store or in_app else Localization.text("APK 업데이트가 필요합니다.")
+	if optional:
+		var overline = main.update_overlay.find_child("UpdateOverline", true, false)
+		if overline != null:
+			overline.text = "OPTIONAL UPDATE"
+		main.update_message_label.text = Localization.text("새 앱 버전이 있습니다 (선택).\n지금 앱으로도 그대로 플레이할 수 있고, 새 앱에서는 대규모 전투가 더 빨라집니다.")
 	main.update_progress_bar.visible = in_app
 	main.update_progress_bar.value = 0.0
 	main.update_note_label.text = Localization.text("원스토어에서 업데이트한 뒤 게임을 다시 실행해 주세요.") if store else (Localization.text("'업데이트 설치'를 누르면 받아서 바로 설치합니다.") if in_app else Localization.text("새 APK를 설치한 뒤 게임을 다시 실행해 주세요."))
@@ -103,6 +117,21 @@ static func _show_android_apk_notice(main) -> void:
 		else:
 			OS.shell_open(ANDROID_APK_URL))
 	main.update_overlay.add_child(download_button)
+	if optional:
+		download_button.position.x -= 120
+		var later = main._styled_button(Localization.text("나중에"), Color("#697386"), false)
+		later.name = "ApkLaterButton"
+		later.position = Vector2(download_button.position.x + download_button.size.x + 20, 420)
+		later.size = Vector2(160, 50)
+		later.pressed.connect(func():
+			var file := FileAccess.open(APK_OFFER_PATH, FileAccess.WRITE)
+			if file != null:
+				file.store_string(JSON.stringify({"dismissed": main.build_binary_version()}))
+				file.close()
+			if is_instance_valid(main.update_overlay):
+				main.update_overlay.queue_free()
+			main.update_overlay = null)
+		main.update_overlay.add_child(later)
 
 static func _on_update_status(main, message: String, progress: float) -> void:
 	if main.running_as_server:

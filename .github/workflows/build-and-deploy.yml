@@ -476,7 +476,9 @@ jobs:
             commit = "${{ github.sha }}"
             installer_url = "https://gamparda.github.io/codingcircle/CatWarSetup.exe"
             sha256 = $sha
-            android_binary_version = $env:ANDROID_BINARY_VERSION
+            # The oldest app that still plays (older apps must update); a newer app is offered, not required.
+            android_binary_version = $env:ANDROID_MIN_BINARY_VERSION
+            android_latest_binary_version = $env:ANDROID_BINARY_VERSION
             android_apk_url = "https://gamparda.github.io/codingcircle/CatWar.apk"
             android_sha256 = $androidSha
             content_pack_version = $env:CONTENT_VERSION

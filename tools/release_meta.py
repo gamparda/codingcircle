@@ -24,6 +24,13 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 FIELDS = ("content_version", "windows_version", "android_binary_version", "update_url")
+# The oldest Android app that still plays this release (an older one must update first). Apps from it up to
+# android_binary_version get a newer app offered, not required: e.g. a native engine update the old app does
+# without (its battles run on GDScript). Defaults to android_binary_version (every new app required).
+
+
+def as_tuple(value) -> tuple:
+    return tuple(int(part) for part in str(value).split("."))
 
 
 def load() -> dict:
@@ -34,6 +41,11 @@ def load() -> dict:
     for field in FIELDS[:3]:
         if not SEMVER.match(str(data[field])):
             raise SystemExit(f"release.json '{field}' must be major.minor.patch, got {data[field]!r}")
+    data.setdefault("android_min_binary_version", data["android_binary_version"])
+    if not SEMVER.match(str(data["android_min_binary_version"])):
+        raise SystemExit("release.json 'android_min_binary_version' must be major.minor.patch")
+    if as_tuple(data["android_min_binary_version"]) > as_tuple(data["android_binary_version"]):
+        raise SystemExit("release.json 'android_min_binary_version' cannot be newer than 'android_binary_version'")
     return data
 
 
@@ -53,6 +65,7 @@ def _build_info(release: dict, commit: str) -> dict:
         "version": release["content_version"],
         "windows_version": release["windows_version"],
         "binary_version": release["android_binary_version"],
+        "binary_min_version": release["android_min_binary_version"],
         "commit": commit,
         "update_url": release["update_url"],
     }
@@ -96,6 +109,7 @@ def github_env(release: dict) -> list:
         f"CONTENT_VERSION={release['content_version']}",
         f"WINDOWS_VERSION={release['windows_version']}",
         f"ANDROID_BINARY_VERSION={release['android_binary_version']}",
+        f"ANDROID_MIN_BINARY_VERSION={release['android_min_binary_version']}",
         f"UPDATE_URL={release['update_url']}",
     ]
 

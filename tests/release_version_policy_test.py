@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import pathlib
 import re
@@ -50,7 +51,10 @@ class ReleasePolicyTest(unittest.TestCase):
         self.assertIn('"--export-release", "Android", "dist/CatWar.apk"', workflow)
         self.assertIn("-ContentVersion $env:CONTENT_VERSION", workflow)
         self.assertIn("version = $env:WINDOWS_VERSION", workflow)
-        self.assertIn("android_binary_version = $env:ANDROID_BINARY_VERSION", workflow)
+        # Old apps block on android_binary_version, so it carries the oldest app that still plays this data;
+        # a newer app that only brings speed-ups is offered as android_latest_binary_version.
+        self.assertIn("android_binary_version = $env:ANDROID_MIN_BINARY_VERSION", workflow)
+        self.assertIn("android_latest_binary_version = $env:ANDROID_BINARY_VERSION", workflow)
         self.assertIn("content_pack_version = $env:CONTENT_VERSION", workflow)
 
     def test_tagged_releases_are_immutable(self):
@@ -68,8 +72,20 @@ class ReleasePolicyTest(unittest.TestCase):
 
     def test_android_notice_displays_required_binary_version(self):
         overlay = (ROOT / "scripts" / "screens" / "UpdateOverlay.gd").read_text(encoding="utf-8")
-        notice = overlay.split("static func _show_android_apk_notice(main) -> void:", 1)[1].split("\nstatic func ", 1)[0]
+        notice = overlay.split("static func _show_android_apk_notice(main, optional: bool = false) -> void:", 1)[1].split("\nstatic func ", 1)[0]
         self.assertIn("main._on_update_started(main.build_binary_version())", notice)
+
+    def test_android_min_binary_version(self):
+        spec = importlib.util.spec_from_file_location("release_meta", ROOT / "tools" / "release_meta.py")
+        meta = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(meta)
+        release = meta.load()
+        self.assertLessEqual(meta.as_tuple(release["android_min_binary_version"]), meta.as_tuple(release["android_binary_version"]))
+        info = json.loads((ROOT / "build_info.json").read_text(encoding="utf-8"))
+        self.assertEqual(info["binary_min_version"], release["android_min_binary_version"])
+        self.assertIn(f"ANDROID_MIN_BINARY_VERSION={release['android_min_binary_version']}", meta.github_env(release))
+        main = (ROOT / "scripts" / "Main.gd").read_text(encoding="utf-8")
+        self.assertIn("apk_update_required(OS.get_name(), app_version, build_min_binary_version())", main)
 
     def test_pck_localization_does_not_require_a_new_global_class_cache(self):
         localized_scripts = [

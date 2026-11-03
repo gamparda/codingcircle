@@ -63,7 +63,7 @@ protected:
 
 public:
 	static String rules_hash();
-	void configure(const Dictionary &unit_stats, const Dictionary &summon_stats, const Dictionary &structure_stats, const Array &report_kinds);
+	bool configure(const Dictionary &unit_stats, const Dictionary &summon_stats, const Dictionary &structure_stats, const Array &report_kinds, const Dictionary &constants);
 	void set_units(const Array &values);
 	Array get_units();
 	int64_t unit_count();

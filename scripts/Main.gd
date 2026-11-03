@@ -302,8 +302,12 @@ func _ready() -> void:
 	_apply_settings()
 	_setup_bgm()
 	_build_connect_screen()
-	if apk_update_required(OS.get_name(), String(ProjectSettings.get_setting("application/config/version", "0.0.0")), build_binary_version()):
+	var app_version := String(ProjectSettings.get_setting("application/config/version", "0.0.0"))
+	if apk_update_required(OS.get_name(), app_version, build_min_binary_version()):
 		_show_android_apk_notice()
+	elif apk_update_required(OS.get_name(), app_version, build_binary_version()) and not UpdateOverlay.apk_offer_dismissed(build_binary_version()):
+		# A newer app this one can do without (e.g. a faster native engine): offered once per version.
+		UpdateOverlay._show_android_apk_notice(self, true)
 	if args.has("--offline-ai") or ai_smoke_mode:
 		_start_local_ai_battle(_arg_int(args, "--ai-stage=", 1))
 		return
@@ -646,6 +650,14 @@ static func build_version() -> String:
 		return "0.4.9"
 	var data = JSON.parse_string(file.get_as_text())
 	return String(data.get("version", "0.4.9")) if data is Dictionary else "0.4.9"
+
+## The oldest app that still plays this game data (older ones must update first).
+static func build_min_binary_version() -> String:
+	var file := FileAccess.open("res://build_info.json", FileAccess.READ)
+	if file == null:
+		return build_binary_version()
+	var data = JSON.parse_string(file.get_as_text())
+	return String(data.get("binary_min_version", build_binary_version())) if data is Dictionary else build_binary_version()
 
 static func build_binary_version() -> String:
 	var file := FileAccess.open("res://build_info.json", FileAccess.READ)
