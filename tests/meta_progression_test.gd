@@ -84,7 +84,8 @@ func _gold_and_quests() -> void:
 	var quest_store := _store(now)
 	var q: String = quest_store.create("sub-c", "임무꾼", now).id
 	var paid := 0
-	for i in 12:
+	# Enough for any quest set (the account id, and so the quests, differ every run): the weekly 15 wins.
+	for i in 20:
 		quest_store.now_override += 1200
 		var every := {}
 		for unit in BattleModel.UNIT_STATS: every[unit] = {"spawned": 40, "kills": 40}
