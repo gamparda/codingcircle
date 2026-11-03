@@ -144,11 +144,12 @@ func _build_signed_in() -> void:
 	var delete = main._styled_button(Localization.text("계정 삭제"), Color("#8f3a4a"), false)
 	delete.name = "AccountDeleteButton"
 	delete.disabled = not available
-	delete.tooltip_text = Localization.text("서버에서 계정과 닉네임을 바로 지웁니다. 되돌릴 수 없습니다.")
+	var grace: bool = int(Time.get_unix_time_from_system()) >= preload("res://scripts/accounts/AccountStore.gd").DELETE_GRACE_FROM
+	delete.tooltip_text = Localization.text("30일 뒤 계정과 진행도가 완전히 삭제됩니다. 그 전에 같은 Google 계정으로 다시 로그인하면 삭제가 취소됩니다.") if grace else Localization.text("서버에서 계정과 닉네임을 바로 지웁니다. 되돌릴 수 없습니다.")
 	delete.pressed.connect(func():
 		if not delete_armed:
 			delete_armed = true
-			delete.text = Localization.text("한 번 더 누르면 삭제")
+			delete.text = Localization.text("한 번 더 누르면 삭제 (30일 뒤 완전 삭제)") if grace else Localization.text("한 번 더 누르면 삭제")
 			return
 		delete_armed = false
 		account.delete_account())

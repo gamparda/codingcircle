@@ -168,6 +168,13 @@ static func _finish_login(main, peer: int, check: Dictionary) -> void:
 		_answer(main, peer, "login", "invalid_token"); return
 	var id: String = main.accounts.find_by_subject(String(check.subject))
 	if id.is_empty():
+		# An account waiting out the deletion grace comes back on sign-in (a new nickname if its old one is taken).
+		var restored: Dictionary = main.accounts.restore(String(check.subject))
+		if restored.has("id"):
+			main.accounts.flush()
+			print("ACCOUNT_RESTORED")
+			_open(main, peer, String(restored.id), "login"); return
+	if id.is_empty():
 		main.verified_subjects[peer] = {"subject": String(check.subject), "expires": now() + SIGN_UP_SECONDS}
 		_answer(main, peer, "login", "needs_nickname"); return
 	_open(main, peer, id, "login")
@@ -213,11 +220,12 @@ static func request_delete(main) -> void:
 	main.peer_accounts.erase(sender)
 	for peer in main.peer_accounts.keys():
 		if main.peer_accounts[peer] == id: main.peer_accounts.erase(peer)
-	main.cloud.delete(id)
+	if not main.accounts.is_withdrawn(id):
+		main.cloud.delete(id) # during the deletion grace the cloud save waits with the account
 	main.last_opponents.erase(id)
 	main.accounts.flush()
 	print("ACCOUNT_DELETED")
-	_answer(main, sender, "delete", "")
+	_answer(main, sender, "delete", "grace" if main.accounts.is_withdrawn(id) else "")
 
 static func request_logout(main, session: String) -> void:
 	var sender: int = main.multiplayer.get_remote_sender_id()

@@ -313,11 +313,12 @@ func _on_result(result: Dictionary) -> void:
 			else:
 				_finish("signed_in", _error_text(error))
 		"delete":
-			if error.is_empty():
+			# "grace": the server keeps the account for the deletion grace (AccountStore.DELETE_GRACE_SECONDS).
+			if error.is_empty() or error == "grace":
 				forget()
 				if plugin != null:
 					plugin.call("signOut")
-				_finish("guest", "계정을 삭제했습니다.")
+				_finish("guest", "계정 삭제를 신청했습니다. 30일 안에 같은 Google 계정으로 다시 로그인하면 삭제가 취소되고, 30일이 지나면 완전히 삭제됩니다." if error == "grace" else "계정을 삭제했습니다.")
 			else:
 				_finish("signed_in", _error_text(error))
 

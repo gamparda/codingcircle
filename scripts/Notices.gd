@@ -14,14 +14,15 @@ const PRIVACY_URL := "https://gampa.xyz/privacy_policy.html"
 ## Newest first. id: stable and unique; date: posting day "YYYY-MM-DD"; until: last day shown ("" = always);
 ## important: opens once by itself; link: [button text, https URL] or [].
 const NOTICES := [
-	{"id": "privacy-2026-11-02", "date": "2026-11-03", "until": "2027-02-28", "important": true,
-		"title": "개인정보 처리방침 변경 안내",
-		"body": "성장 기능(금화·임무·시즌 패스·꾸미기·도감·프로필 카드)이 추가되어 개인정보 처리방침을 바꿨습니다.\n\n• 시행일: 2026년 11월 2일\n• 추가된 항목: 칭호·성장 기능 운영 — 보유·착용한 칭호, 금화, 임무와 시즌 패스 진행도, 보유·착용한 꾸미기, 유닛별 출전·처치 수, 서버가 확인한 전투 시간, 같은 기록을 두 번 받지 않기 위한 최근 전투 기록의 해시값, 서버 확인용으로 보낸 혼자 한 전투의 덱 구성·전투 조작 기록(확인 후 바로 버림)\n• 다른 이용자에게 보이는 것: 프로필 카드의 닉네임·칭호·깃발·카드 테두리·랭크 점수·전투 시간·판수·주력 유닛·가입 연월\n• 보유 기간: 계정을 삭제할 때까지(삭제하면 즉시 파기)\n• 금화는 게임 안에서만 얻고 쓰며 유료 결제는 없습니다.\n\n로그인하지 않고 플레이하면 이 정보는 서버에 저장되지 않습니다. 자세한 내용은 개인정보 처리방침 전문에서 확인할 수 있습니다.",
+	{"id": "privacy-2026-11-10", "date": "2026-11-03", "until": "2026-11-09", "important": true,
+		"title": "개인정보 처리방침 개정 안내 (11월 10일 시행)",
+		"body": "2026년 11월 10일(화)부터 개인정보 처리방침이 바뀝니다.\n\n[1] 계정 삭제 유예 (11월 10일부터)\n• 계정 삭제를 신청하면 바로 지우지 않고 30일 뒤에 완전히 삭제합니다.\n• 30일 안에 같은 Google 계정으로 다시 로그인하면 삭제가 취소되고 계정·진행도·랭크 기록·금화·꾸미기가 그대로 돌아옵니다. 예전 닉네임을 그 사이 다른 사람이 쓰고 있으면 새 닉네임만 정하면 됩니다.\n• 유예 기간에는 계정이 순위표·프로필 카드 등 어디에도 보이지 않고, 닉네임은 다른 이용자가 쓸 수 있게 풀립니다.\n• 실수로 지운 계정을 되돌리고, 삭제와 재가입을 반복해 랭크 기록 등을 초기화하는 부정 이용을 막기 위한 변경입니다.\n• 30일을 기다리지 않고 바로 삭제되기를 원하시면 개인정보 보호책임자에게 요청할 수 있습니다.\n\n[2] 게임 재화와 성장 정보 (11월 2일 반영분 안내)\n• 성장 기능(금화·임무·시즌 패스·꾸미기·도감·프로필 카드)을 위해 계정에 칭호, 금화, 임무·시즌 패스 진행도, 꾸미기, 유닛별 출전·처치 수, 서버가 확인한 전투 시간을 저장합니다.\n• 프로필 카드에는 닉네임·칭호·깃발·카드 테두리·랭크 점수·전투 시간·판수·주력 유닛·가입 연월이 다른 이용자에게 보입니다.\n• 금화는 게임 안에서만 얻고 쓰며 유료 결제는 없습니다.\n\n11월 9일까지는 이전 방침이 적용됩니다. 로그인하지 않고 플레이하면 위 정보는 서버에 저장되지 않습니다. 자세한 내용은 개인정보 처리방침 전문에서 확인할 수 있습니다.",
 		"link": ["개인정보 처리방침 전문 보기", PRIVACY_URL]},
 ]
 
+## Today in Korea (UTC+9), so a notice comes down at midnight Korean time after its `until` day.
 static func _today() -> String:
-	return Time.get_date_string_from_system(true)
+	return Time.get_date_string_from_unix_time(int(Time.get_unix_time_from_system()) + 9 * 3600)
 
 ## Notices still shown on `today` (YYYY-MM-DD), newest first.
 static func active(today: String = "") -> Array:

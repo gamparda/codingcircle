@@ -29,7 +29,8 @@
     "tests/guard_and_swamp_test.gd",
     "tests/pack_patcher_test.gd",
     "tests/titles_test.gd",
-    "tests/meta_progression_test.gd"
+    "tests/meta_progression_test.gd",
+    "tests/account_grace_test.gd"
   ],
   "network": [
     "tests/transport_security_test.gd",

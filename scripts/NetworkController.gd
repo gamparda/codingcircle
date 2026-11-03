@@ -1218,6 +1218,10 @@ func _backup_state() -> void:
 		var now := int(Time.get_unix_time_from_system())
 		ServerBackup.snapshot(state_dir, now)
 		reports.prune(now)
+		# Accounts whose deletion grace ended go for good, with their cloud saves.
+		for id in accounts.purge_withdrawn():
+			cloud.delete(String(id))
+		accounts.flush()
 
 # ---------- Accounts (Google sign-in) ----------
 

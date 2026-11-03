@@ -24,6 +24,12 @@ const SEASON_HISTORY := 24
 static var HYPER_NICKNAME_SHA256 := "c7e498a9907c963726c7e076f59e77001f18d0a86b120e602dfdf1378841655a"
 const HYPER_CREATED_BEFORE := 1793433600 # 2026-10-31 08:00 UTC
 const HYPER_ENV := "CATWAR_HYPER_ACCOUNT"
+## Deletion grace: from DELETE_GRACE_FROM on, deleting an account schedules it for removal after
+## DELETE_GRACE_SECONDS instead of erasing it at once. Signing in again with the same Google account in that time
+## cancels the deletion and brings the account back (with a new nickname if the old one was taken meanwhile).
+## Before that moment deletion stays immediate, so the change takes effect on the announced day by itself.
+const DELETE_GRACE_FROM := 1794236400 # 2026-11-10 00:00 KST
+const DELETE_GRACE_SECONDS := 30 * 86400
 ## Distinct challenge days remembered per account (enough for the daily title).
 const MAX_DAILY_DAYS := 40
 
@@ -48,6 +54,9 @@ var by_nickname: Dictionary = {}
 var salt := ""
 ## Ranked seasons whose top-ten titles were already handed out.
 var awarded_seasons: Array = []
+## Accounts waiting out the deletion grace: subject hash -> {"id", "deleted": unix time, "record": the account
+## without its sessions}. Not in `accounts`, so they appear nowhere and cannot sign in until restored.
+var withdrawn: Dictionary = {}
 var dirty := false
 ## Unix time used instead of the clock (tests).
 var now_override := 0
@@ -57,6 +66,7 @@ func configure(directory: String) -> void:
 	accounts = {}; by_subject = {}; by_nickname = {}; by_session = {}
 	salt = ""
 	awarded_seasons = []
+	withdrawn = {}
 	var stored = ServerBackup.read_store(path).value
 	if stored is Dictionary:
 		if stored.get("salt") is String and String(stored.salt).length() == 64:
@@ -68,6 +78,12 @@ func configure(directory: String) -> void:
 			for season in stored.awarded_seasons:
 				if valid_season(season) and not awarded_seasons.has(season):
 					awarded_seasons.append(String(season))
+		if stored.get("withdrawn") is Dictionary:
+			for subject in stored.withdrawn:
+				var entry = stored.withdrawn[subject]
+				if _hex(String(subject), 64) and not by_subject.has(String(subject)) and entry is Dictionary and _hex(String(entry.get("id", "")), 32) \
+						and _is_number(entry.get("deleted")) and entry.get("record") is Dictionary and not accounts.has(String(entry.id)):
+					withdrawn[String(subject)] = {"id": String(entry.id), "deleted": int(entry.deleted), "record": entry.record}
 	if salt.is_empty():
 		salt = Crypto.new().generate_random_bytes(32).hex_encode()
 		dirty = true
@@ -139,6 +155,10 @@ func create(subject: String, nickname: String, now: int) -> Dictionary:
 		return {"error": "nickname_taken"}
 	if not find_by_subject(subject).is_empty():
 		return {"error": "exists"}
+	# Within the deletion grace the same Google account gets its old account back, under this nickname.
+	var waiting := restore(subject, nickname)
+	if not waiting.is_empty():
+		return waiting
 	if accounts.size() >= MAX_ACCOUNTS:
 		return {"error": "full"}
 	var id := Crypto.new().generate_random_bytes(16).hex_encode()
@@ -212,10 +232,19 @@ func revoke(token: String) -> void:
 	if accounts.has(id) and accounts[id].sessions.erase(token_hash):
 		dirty = true
 
-## Removes the account and every session; the Google subject can sign up again as a new account.
-func delete(id: String) -> bool:
+func grace_active() -> bool:
+	return now() >= DELETE_GRACE_FROM
+
+## Deletes the account: every session ends and the nickname is freed. During the deletion grace the record waits
+## in `withdrawn` (see DELETE_GRACE_FROM); before it, or with `immediately`, it is erased at once and the Google
+## subject can sign up again as a new account.
+func delete(id: String, immediately: bool = false) -> bool:
 	if not accounts.has(id):
 		return false
+	if grace_active() and not immediately:
+		var record: Dictionary = accounts[id].duplicate(true)
+		record.sessions = {}
+		withdrawn[String(record.subject)] = {"id": id, "deleted": now(), "record": record}
 	by_subject.erase(accounts[id].subject)
 	by_nickname.erase(String(accounts[id].nickname).to_lower())
 	for token_hash in accounts[id].sessions:
@@ -223,6 +252,48 @@ func delete(id: String) -> bool:
 	accounts.erase(id)
 	dirty = true
 	return true
+
+## Brings back an account waiting out the deletion grace for `subject` (a Google subject). Uses `nickname`, or
+## the old one when "" and still free. Returns {"id"}, {"error": "nickname_taken"} when a new nickname is needed,
+## or {} when nothing waits for this subject.
+func restore(subject: String, nickname: String = "") -> Dictionary:
+	var key := subject_hash(subject)
+	var entry: Dictionary = withdrawn.get(key, {})
+	if entry.is_empty():
+		return {}
+	if now() - int(entry.deleted) >= DELETE_GRACE_SECONDS:
+		return {}
+	var record: Dictionary = entry.record.duplicate(true)
+	var name := nickname if not nickname.is_empty() else String(record.get("nickname", ""))
+	if not valid_nickname(name) or nickname_taken(name):
+		return {"error": "nickname_taken"}
+	record.nickname = name
+	var id := String(entry.id)
+	_adopt(id, record)
+	if not accounts.has(id):
+		return {}
+	withdrawn.erase(key)
+	# Only one hyper account: one restored while another holds the role comes back without it.
+	if String(accounts[id].role) == "hyper" and accounts.keys().any(func(other): return other != id and String(accounts[other].role) == "hyper"):
+		set_role(id, "")
+	accounts[id].last_login = now()
+	dirty = true
+	return {"id": id}
+
+## Erases the accounts whose deletion grace is over. Returns their ids (their cloud saves go too).
+func purge_withdrawn() -> Array:
+	var gone: Array = []
+	for key in withdrawn.keys():
+		if now() - int(withdrawn[key].deleted) >= DELETE_GRACE_SECONDS:
+			gone.append(String(withdrawn[key].id))
+			withdrawn.erase(key)
+	if not gone.is_empty():
+		dirty = true
+	return gone
+
+## True while `id` waits out the deletion grace (its cloud save must stay).
+func is_withdrawn(id: String) -> bool:
+	return withdrawn.values().any(func(entry): return String(entry.id) == id)
 
 func profile(id: String) -> Dictionary:
 	if not accounts.has(id):
@@ -550,7 +621,7 @@ func award_seasons() -> void:
 func flush() -> bool:
 	if path.is_empty() or not dirty:
 		return true
-	if ServerStats.write_json(path, {"salt": salt, "accounts": accounts, "awarded_seasons": awarded_seasons}):
+	if ServerStats.write_json(path, {"salt": salt, "accounts": accounts, "awarded_seasons": awarded_seasons, "withdrawn": withdrawn}):
 		dirty = false
 	return not dirty
 

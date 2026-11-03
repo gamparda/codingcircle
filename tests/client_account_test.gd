@@ -132,10 +132,13 @@ func run() -> void:
 
 	account.sign_in()
 	check(await wait_for(func(): return account.state == "signed_in" and account.nickname == "마왕군주"), "signing in again opens the existing account")
+	# Immediate deletion (the rules before the deletion grace starts; the grace has its own test) whatever today is.
+	server.accounts.now_override = server.accounts.DELETE_GRACE_FROM - 100
 	check(account.delete_account(), "delete is sent")
 	check(await wait_for(func(): return account.state == "guest"), "deleting the account signs out")
 	check(server.accounts.find_by_subject("google-player").is_empty() and not FileAccess.file_exists(ClientAccount.save_path), "the account is gone from the server and the device")
 	check(plugin.signed_out == 1, "the remembered Google account choice is cleared")
+	server.accounts.now_override = 0
 
 	account.sign_in()
 	check(await wait_for(func(): return account.state == "needs_nickname"), "the same Google account can sign up again")
