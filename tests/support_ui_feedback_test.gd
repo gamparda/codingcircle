@@ -65,6 +65,14 @@ func run() -> void:
 	var back := main.find_child("PatchNotesBack", true, false) as Button
 	check(scroll != null and back != null, "patch notes open with scroll and fixed back action")
 	check(tree_text(main).contains("v0.20.0") and tree_text(main).contains("v0.3.3"), "patch notes include current and previous releases")
+	# Folded versions build their lines when opened: open the ones holding these values, as a player would.
+	for wanted in ["상한은 +30%", "9→8/초"]:
+		for entry in load("res://scripts/PatchNotes.gd").entries():
+			if entry.changes.any(func(line): return String(line).contains(wanted)):
+				for heading in scroll.find_children("*", "Button", true, false):
+					if String(heading.text).contains(String(entry.version) + "   ("):
+						heading.pressed.emit()
+	await process_frame
 	check(tree_text(main).contains("상한은 +30%") and tree_text(main).contains("9→8/초"), "patch notes describe shipped balance values")
 	check(back.get_global_rect().end.y <= 720.0, "patch notes back action stays inside the viewport")
 	capture("patch-notes")
@@ -201,9 +209,10 @@ func run() -> void:
 	expected.append("v0.48.1")
 	expected.append("v0.48.2")
 	expected.append("v0.48.3")
+	expected.append("v0.48.4")
 	var versions: Array = history.map(func(entry): return entry.version)
 	check(versions.size() == expected.size() and expected.all(func(version): return versions.count(version) == 1), "every release since 0.3.3 has exactly one patch-note entry")
-	check(history[0].version == "v0.48.3" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
+	check(history[0].version == "v0.48.4" and history.back().version == "v0.3.3", "patch notes are newest-first with full historical coverage")
 	var store_history: Array = PatchNotes.entries_for(true)
 	check(store_history.size() == history.size() and not store_history.any(func(entry): return entry.changes.any(func(line): return String(line).contains("APK"))), "store builds show every release without the APK install lines")
 	main.campaign_mode = false

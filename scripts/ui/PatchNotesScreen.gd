@@ -19,13 +19,10 @@ func populate() -> void:
 		var body := VBoxContainer.new()
 		body.add_theme_constant_override("separation", 8)
 		body.visible = open
-		for change in changes:
-			var label := Label.new()
-			label.text = "• " + Localization.text(String(change))
-			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			label.add_theme_font_size_override("font_size", 18)
-			label.add_theme_color_override("font_color", CHANGE_COLOR)
-			body.add_child(label)
+		# Folded versions get their lines only when first opened: hundreds of wrapping labels entering the screen
+		# at once made it take seconds to appear.
+		if open:
+			_fill(body, changes)
 		var heading := Button.new()
 		heading.flat = true
 		heading.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -38,11 +35,22 @@ func populate() -> void:
 		heading.text = _heading_text(version, changes.size(), open)
 		heading.tooltip_text = Localization.text("눌러서 접기·펼치기")
 		heading.pressed.connect(func():
+			if body.get_child_count() == 0:
+				_fill(body, changes)
 			body.visible = not body.visible
 			heading.text = _heading_text(version, changes.size(), body.visible)
 		)
 		entries_box.add_child(heading)
 		entries_box.add_child(body)
+
+static func _fill(body: VBoxContainer, changes: Array) -> void:
+	for change in changes:
+		var label := Label.new()
+		label.text = "• " + Localization.text(String(change))
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.add_theme_font_size_override("font_size", 18)
+		label.add_theme_color_override("font_color", CHANGE_COLOR)
+		body.add_child(label)
 
 static func _heading_text(version: String, count: int, open: bool) -> String:
 	var text := "%s  %s" % ["▾" if open else "▸", version]
