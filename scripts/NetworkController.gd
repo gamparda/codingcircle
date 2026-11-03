@@ -782,13 +782,14 @@ func _broadcast_snapshot(match_id: int) -> void:
 		if _peer_is_connected(int(player_id)):
 			# Each player gets only their own economy; spectators neither side's (Protocol.snapshot_for).
 			var view := Protocol.snapshot_for(data, registry.get_side(int(player_id)))
-			if int(data.winner)!=-1: receive_completed_snapshot.rpc_id(int(player_id),view)
-			else: receive_snapshot.rpc_id(int(player_id), view)
+			if int(data.winner)!=-1: receive_completed_snapshot.rpc_id(int(player_id), Protocol.pack(view))
+			else: receive_snapshot.rpc_id(int(player_id), Protocol.pack(view))
 
 func _broadcast_combat_events(match_id: int, events: Array) -> void:
+	var packed := Protocol.pack(events)
 	for player_id in _match_audience(match_id):
 		if _peer_is_connected(int(player_id)):
-			receive_combat_events.rpc_id(int(player_id), events)
+			receive_combat_events.rpc_id(int(player_id), packed)
 
 @rpc("authority", "call_remote", "reliable")
 func match_started(side: int) -> void:
@@ -800,14 +801,18 @@ func match_started(side: int) -> void:
 		match_found.emit(side)
 
 @rpc("authority", "call_remote", "unreliable_ordered")
-func receive_snapshot(data: Dictionary) -> void:
-	if is_valid_snapshot(data):
+func receive_snapshot(packed: PackedByteArray) -> void:
+	_accept_snapshot(Protocol.unpack(packed))
+
+func _accept_snapshot(data: Variant) -> void:
+	if data is Dictionary and is_valid_snapshot(data):
 		if data.has("network"): recovery_changed.emit(data.network)
 		snapshot_received.emit(data)
 
 @rpc("authority", "call_remote", "unreliable_ordered")
-func receive_combat_events(events: Array) -> void:
-	if events.size() <= 128:
+func receive_combat_events(packed: PackedByteArray) -> void:
+	var events = Protocol.unpack(packed)
+	if events is Array and events.size() <= Protocol.MAX_COMBAT_EVENTS:
 		combat_events_received.emit(events)
 
 @rpc("authority", "call_remote", "reliable")
@@ -1161,10 +1166,10 @@ func _disconnect_peer(peer_id: int) -> void:
 	_on_peer_disconnected(peer_id)
 
 @rpc("authority", "call_remote", "reliable")
-func receive_completed_snapshot(data: Dictionary) -> void:
+func receive_completed_snapshot(packed: PackedByteArray) -> void:
 	# Final per-kind reports exceed a single datagram; ENet reliable fragmentation
 	# avoids sending the only result/report over an oversized unreliable packet.
-	receive_snapshot(data)
+	_accept_snapshot(Protocol.unpack(packed))
 
 # ---------- Community statistics and the daily board ----------
 

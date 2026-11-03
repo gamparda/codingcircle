@@ -5,7 +5,12 @@ extends RefCounted
 const SessionStore = preload("res://scripts/RoomSessions.gd")
 
 const RECONNECT_GRACE := 20.0
-const MAX_SNAPSHOT_UNITS := 256
+const MAX_SNAPSHOT_UNITS := 4096
+## Battle snapshots and combat events travel compressed (pack/unpack): big battles repeat the same keys and
+## values unit after unit, so zstd shrinks them 15-35x. Limits keep a forged packet from inflating.
+const MAX_PACKED_BYTES := 1 << 20
+const MAX_UNPACKED_BYTES := 16 << 20
+const MAX_COMBAT_EVENTS := 8192
 const MAX_SNAPSHOT_STRUCTURES := 16
 const TRANSPORT_MAX_PEERS := 4095 # ENet protocol ceiling, not an application admission quota.
 const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord", "skeleton"]
@@ -285,3 +290,24 @@ static func valid_recovery_state(data: Variant) -> bool:
 
 static func validate_deck_payload(unit_deck: Array, structure_deck: Array) -> bool:
 	return BattleModel._valid_deck(unit_deck, BattleModel.UNIT_STATS) and BattleModel._valid_deck(structure_deck, BattleModel.STRUCTURE_STATS)
+
+## `value` as [4-byte little-endian raw size][zstd of var_to_bytes(value)].
+static func pack(value: Variant) -> PackedByteArray:
+	var raw := var_to_bytes(value)
+	var packed := PackedByteArray()
+	packed.resize(4)
+	packed.encode_u32(0, raw.size())
+	packed.append_array(raw.compress(FileAccess.COMPRESSION_ZSTD))
+	return packed
+
+## The value of a pack() result, or null when the bytes are malformed or too big. Never decodes objects.
+static func unpack(packed: PackedByteArray) -> Variant:
+	if packed.size() < 5 or packed.size() > MAX_PACKED_BYTES:
+		return null
+	var size := packed.decode_u32(0)
+	if size == 0 or size > MAX_UNPACKED_BYTES:
+		return null
+	var raw := packed.slice(4).decompress(size, FileAccess.COMPRESSION_ZSTD)
+	if raw.size() != size:
+		return null
+	return bytes_to_var(raw)
