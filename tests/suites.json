@@ -103,6 +103,7 @@
   ],
   "balance": [
     "tests/balance_bot_test.gd",
+    "tests/determinism_golden_test.gd",
     "tests/balance_analysis_test.py",
     "tests/docs_policy_test.py",
     "tests/ranked_report_test.py"

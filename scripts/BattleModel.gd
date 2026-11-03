@@ -861,6 +861,13 @@ static func field_limit_error(values: Array, side: int, kind: String) -> String:
 static func trait_value(kind: String, key: String, fallback = null):
 	return UNIT_STATS.get(kind, SUMMON_STATS.get(kind, {})).get(key, fallback)
 
+## Whether `kind` has the "guard" trait (tanks), cached per kind.
+static var _guard_kinds: Dictionary = {}
+static func _is_guard(kind: String) -> bool:
+	if not _guard_kinds.has(kind):
+		_guard_kinds[kind] = bool(trait_value(kind, "guard", false))
+	return bool(_guard_kinds[kind])
+
 static func can_revive(kind: String) -> bool:
 	return trait_value(kind, "revive_delay") != null
 
@@ -1048,11 +1055,19 @@ func _index_lanes() -> void:
 		xs.resize(entries.size())
 		order.resize(entries.size())
 		refs.resize(entries.size())
+		# The side's tanks ("guard" trait) in the same order, for _guard_beside.
+		var guard_xs := PackedFloat64Array()
+		var guard_order := PackedInt32Array()
+		var guard_refs: Array = []
 		for i in entries.size():
 			xs[i] = entries[i][0]
 			order[i] = entries[i][1]
 			refs[i] = units[entries[i][1]]
-		_lanes[side] = {"xs": xs, "order": order, "units": refs}
+			if _is_guard(String(refs[i].kind)):
+				guard_xs.append(xs[i])
+				guard_order.append(order[i])
+				guard_refs.append(refs[i])
+		_lanes[side] = {"xs": xs, "order": order, "units": refs, "guard_xs": guard_xs, "guard_order": guard_order, "guard_units": guard_refs}
 	_indexed = targeting_index
 
 ## Whether `unit` stands inside its side's spawn zone (see `shelter`).
@@ -1112,16 +1127,28 @@ func _guard_beside(unit: Dictionary, nearest: Dictionary) -> Dictionary:
 	var best := nearest
 	var best_distance := INF
 	if _indexed:
+		# Among the enemy tanks within GUARD_SPOT of `spot` (sorted by x, then place in `units`), the one nearest
+		# to `unit` is the first at or right of `unit.x` or the last left of it; of equal x the earliest in
+		# `units` is the start of that run. Same pick as scanning the spot, in O(log n).
 		var lane: Dictionary = _lanes[1 - int(unit.side)]
-		var xs: PackedFloat64Array = lane.xs
+		var gxs: PackedFloat64Array = lane.guard_xs
+		var low := gxs.bsearch(spot - GUARD_SPOT, true)
+		var high := gxs.bsearch(spot + GUARD_SPOT, false)
+		if low >= high:
+			return best
+		var split := clampi(gxs.bsearch(x, true), low, high)
 		var best_order := 1 << 30
-		for i in range(xs.bsearch(spot - GUARD_SPOT, true), xs.bsearch(spot + GUARD_SPOT, false)):
-			var enemy: Dictionary = lane.units[i]
-			var distance := absf(xs[i] - x)
-			if distance <= reach and trait_value(String(enemy.kind), "guard", false) and (distance < best_distance or (distance == best_distance and lane.order[i] < best_order)):
-				best = enemy
+		if split < high:
+			var distance := absf(gxs[split] - x)
+			if distance <= reach:
+				best = lane.guard_units[split]
 				best_distance = distance
-				best_order = lane.order[i]
+				best_order = lane.guard_order[split]
+		if split > low:
+			var left := maxi(low, _run_start(gxs, split - 1))
+			var distance := absf(gxs[left] - x)
+			if distance <= reach and (distance < best_distance or (distance == best_distance and lane.guard_order[left] < best_order)):
+				best = lane.guard_units[left]
 		return best
 	for enemy in units:
 		if int(enemy.side) == int(unit.side) or float(enemy.hp) <= 0.0 or absf(float(enemy.x) - spot) > GUARD_SPOT or not targetable(enemy):
