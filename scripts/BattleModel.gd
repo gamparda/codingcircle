@@ -138,6 +138,10 @@ static var targeting_index := true
 ## when units appear, fall, or reach the cap: with every ally maxed, supports have nothing to look at.
 var _fronts: Array = [null, null]
 var _needy: Array = [[], []]
+## _needy by position: per side {"xs": PackedFloat64Array, "order": PackedInt32Array (place in _needy)}.
+var _needy_lanes: Array = [{}, {}]
+## Whether a support moved this tick (the lane index is rebuilt only then).
+var _supports_moved := false
 ## Units that already made their first attack (for the "first_strike" modifier).
 var first_struck: Dictionary = {}
 ## Cheats switched on per side (super accounts; see Cheats.gd): "resources", "cooldowns", "castle".
@@ -709,7 +713,9 @@ func tick(delta: float) -> void:
 		if unit.kind == "healer":
 			_tick_support(unit, delta)
 			continue
-	_index_lanes() # supports moved
+	if _supports_moved:
+		_index_lanes() # supports moved
+	_supports_moved = false
 	var pending_skills: Array = []
 	for unit in units:
 		if float(unit.hp) <= 0.0 or unit.kind == "healer" or unit.has("frozen_remaining"):
@@ -896,7 +902,15 @@ static func is_enraged(unit: Dictionary) -> bool:
 	return unit.kind == "berserker" and float(unit.hp) > 0.0 and float(unit.hp) <= float(unit.max_hp) * RAGE_HP_FRACTION
 
 func unit_attack_damage(unit: Dictionary) -> float:
-	return float(unit.damage) * (1.0 + int(unit.get("souls", 0)) * float(trait_value(String(unit.kind), "soul_damage_step", 0.0)))
+	return float(unit.damage) * (1.0 + int(unit.get("souls", 0)) * _kind_trait(String(unit.kind), "soul_damage_step", 0.0))
+
+## trait_value() cached per kind and key (unit data never changes during a battle).
+static var _trait_cache: Dictionary = {}
+static func _kind_trait(kind: String, key: String, fallback):
+	var cache_key := kind + "|" + key
+	if not _trait_cache.has(cache_key):
+		_trait_cache[cache_key] = trait_value(kind, key, fallback)
+	return _trait_cache[cache_key]
 
 ## The damage of an attack `unit` makes now; the "first_strike" modifier doubles each unit's first one.
 func _strike_damage(unit: Dictionary) -> float:
@@ -924,10 +938,32 @@ func _install_curse(caster: Dictionary, x: float) -> void:
 	curses.append({"source_id": caster.id, "side": caster.side, "x": x, "expires_at": elapsed + CURSE_DURATION})
 	combat_events.append({"type": "CURSE", "source_id": caster.id, "x": x})
 
+## The allies of support `unit` that may still take a buff and stand around its reach, in _needy order (so
+## buffs and their events come in the same order as a scan of _needy). The caller applies the exact range
+## test; the window is a little wider than the reach so rounding never drops one the test would take.
+func _needy_in_reach(unit: Dictionary) -> Array:
+	var lane: Dictionary = _needy_lanes[int(unit.side)]
+	var xs: PackedFloat64Array = lane.xs
+	var x := float(unit.x)
+	var reach := float(unit.range) + 0.001
+	var low := xs.bsearch(x - reach, true)
+	var high := xs.bsearch(x + reach, false)
+	if low >= high:
+		return []
+	var picked := PackedInt32Array()
+	for i in range(low, high):
+		picked.append(lane.order[i])
+	picked.sort()
+	var needy: Array = _needy[int(unit.side)]
+	var result: Array = []
+	for i in picked:
+		result.append(needy[i])
+	return result
+
 func _tick_support(unit: Dictionary, delta: float) -> void:
 	if float(unit.cooldown) <= 0.0:
 		var cast := false
-		for ally in (_needy[int(unit.side)] if _indexed else units):
+		for ally in (_needy_in_reach(unit) if _indexed else units):
 			if ally.side == unit.side and ally.kind != "healer" and float(ally.hp) > 0.0 and abs(float(ally.x) - float(unit.x)) <= float(unit.range):
 				var stacks := int(ally.get("support_stacks", 0))
 				if stacks < SUPPORT_MAX_STACKS:
@@ -946,6 +982,7 @@ func _tick_support(unit: Dictionary, delta: float) -> void:
 	var step := float(unit.speed) * _swamp_scale(unit) * delta
 	if sheltered(unit) and not unit.has("muster"):
 		# A support that marched must leave the spawn zone (it can be hit nowhere else), whatever it sees ahead.
+		_supports_moved = true
 		unit.x = _held_stride(unit, clampf(float(unit.x) + direction * step, FIELD_LEFT, FIELD_RIGHT), direction, delta)
 		return
 	if frontline != null and direction * (float(frontline.x) - float(unit.x)) <= SUPPORT_FOLLOW_DISTANCE:
@@ -961,6 +998,7 @@ func _tick_support(unit: Dictionary, delta: float) -> void:
 	if frontline != null:
 		var follow_x := float(frontline.x) - direction * SUPPORT_FOLLOW_DISTANCE
 		destination = min(destination, follow_x) if direction > 0.0 else max(destination, follow_x)
+	_supports_moved = true
 	unit.x = _held_stride(unit, clamp(destination, FIELD_LEFT, FIELD_RIGHT), direction, delta)
 
 
@@ -1030,6 +1068,20 @@ func _index_fronts() -> void:
 		var direction := 1.0 if side == 0 else -1.0
 		if _fronts[side] == null or direction * float(unit.x) > direction * float(_fronts[side].x):
 			_fronts[side] = unit
+	for side in 2:
+		var keyed: Array = []
+		var needy: Array = _needy[side]
+		for i in needy.size():
+			keyed.append([float(needy[i].x), i])
+		keyed.sort()
+		var xs := PackedFloat64Array()
+		var order := PackedInt32Array()
+		xs.resize(keyed.size())
+		order.resize(keyed.size())
+		for i in keyed.size():
+			xs[i] = keyed[i][0]
+			order[i] = keyed[i][1]
+		_needy_lanes[side] = {"xs": xs, "order": order}
 
 func _index_curses() -> void:
 	for side in 2:
@@ -1042,10 +1094,17 @@ func _index_curses() -> void:
 
 func _index_lanes() -> void:
 	var keyed: Array = [[], []]
-	for index in units.size():
-		var unit: Dictionary = units[index]
-		if float(unit.hp) > 0.0 and targetable(unit):
-			keyed[int(unit.side)].append([float(unit.x), index])
+	# targetable(), inlined: outside its side's spawn zone (see sheltered()).
+	var left_zone := FIELD_LEFT + float(shelter[0]) if float(shelter[0]) > 0.0 else -INF
+	var right_zone := FIELD_RIGHT - float(shelter[1]) if float(shelter[1]) > 0.0 else INF
+	var index := 0
+	for unit in units:
+		if float(unit.hp) > 0.0:
+			var x := float(unit.x)
+			var side := int(unit.side)
+			if (x >= left_zone) if side == 0 else (x <= right_zone):
+				keyed[side].append([x, index])
+		index += 1
 	for side in 2:
 		var entries: Array = keyed[side]
 		entries.sort() # by x, then by place in `units`
@@ -1211,7 +1270,7 @@ func _enemy_ahead_indexed(unit: Dictionary, reach: float) -> bool:
 	return behind >= 0 and absf(xs[behind] - x) <= reach
 
 func _find_target(unit: Dictionary):
-	if trait_value(String(unit.kind), "target_rearmost", false):
+	if _kind_trait(String(unit.kind), "target_rearmost", false):
 		var rearmost = _rearmost_enemy_indexed(unit) if _indexed else _rearmost_enemy(unit)
 		if rearmost != null:
 			return rearmost
