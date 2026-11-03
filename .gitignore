@@ -11,3 +11,8 @@ android/plugins/*/build/
 android/plugins/*/.gradle/
 android/plugins/*/local.properties
 addons/keepfall_signin/bin/
+
+# Native battle engine: built libraries and the fetched godot-cpp checkout.
+native/bin/
+native/godot-cpp/
+native/build*/

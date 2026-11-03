@@ -65,7 +65,19 @@ const DEFAULT_STRUCTURE_DECK := ["wall", "swamp", "turret", "generator"]
 var resources: Array = [START_RESOURCE, START_RESOURCE]
 var base_hp: Array = [BASE_MAX_HP, BASE_MAX_HP]
 var base_max_hp: Array = [BASE_MAX_HP, BASE_MAX_HP]
-var units: Array = []
+## The living (and downed) units. With the native engine (native/, BattleCore) the units live there and this
+## property hands out dictionaries on demand; changes made through them are read back before the next tick.
+var units: Array:
+	get:
+		return _core.get_units() if _core != null else _units_store
+	set(value):
+		if _core != null:
+			_core.set_units(value)
+		else:
+			_units_store = value
+var _units_store: Array = []
+## BattleCore (native battle engine) when available and built from these exact rules, else null (GDScript).
+var _core = null
 var structures: Array = []
 var winner := -1
 var elapsed := 0.0
@@ -133,6 +145,29 @@ var _curse_xs: Array = [PackedFloat64Array(), PackedFloat64Array()]
 var _indexed := false
 ## Tests turn the index off to check that it picks exactly what the scans pick.
 static var targeting_index := true
+## The native engine is used when its library is loaded and was built from this BattleModel.gd (its rules hash
+## matches BattleRulesHash.gd); otherwise battles run here in GDScript. Tests switch it off to compare both.
+static var native_enabled := true
+const NATIVE_EXTENSION := "res://native/battle_native.gdextension"
+static var _native_checked := false
+static var _native_ok := false
+
+static func native_available() -> bool:
+	if not _native_checked:
+		_native_checked = true
+		if not ClassDB.class_exists("BattleCore") and FileAccess.file_exists(NATIVE_EXTENSION):
+			GDExtensionManager.load_extension(NATIVE_EXTENSION)
+		_native_ok = ClassDB.class_exists("BattleCore") and String(ClassDB.instantiate("BattleCore").rules_hash()) == preload("res://scripts/BattleRulesHash.gd").HASH
+	return _native_ok
+
+func _init() -> void:
+	if native_enabled and native_available():
+		_core = ClassDB.instantiate("BattleCore")
+		_core.configure(UNIT_STATS, SUMMON_STATS, STRUCTURE_STATS, Report.KINDS)
+
+## Whether this battle runs on the native engine.
+func is_native() -> bool:
+	return _core != null
 ## Per tick: each side's most advanced living non-support unit (supports follow it), and the living allies a
 ## support can still buff (below the stack cap), in field order. Stacks only grow, so that list changes only
 ## when units appear, fall, or reach the cap: with every ally maxed, supports have nothing to look at.
@@ -649,6 +684,9 @@ func place_structure(side: int, kind: String, x: float) -> bool:
 
 func tick(delta: float) -> void:
 	if winner != -1:
+		return
+	if _core != null:
+		_core.tick(self, delta)
 		return
 	elapsed += delta
 	if not cheats[0].is_empty() or not cheats[1].is_empty():
