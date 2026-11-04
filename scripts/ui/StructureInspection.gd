@@ -4,9 +4,11 @@ extends RefCounted
 
 const Lifetime = preload("res://scripts/ui/StructureLifetime.gd")
 const UnitInspection = preload("res://scripts/ui/UnitInspection.gd")
+const UISounds = preload("res://scripts/ui/UISounds.gd")
 const FONT = preload("res://assets/fonts/BlackHanSans-Regular.ttf")
 const NAMES := {"wall": "방벽", "swamp": "늪", "turret": "포탑", "generator": "발전기"}
 const DRAG_DISTANCE := 14.0
+const BUTTON_HEIGHT := 58.0
 
 var enabled := false
 var selected_id := -1
@@ -21,12 +23,21 @@ var cycle_targets: Array = []
 var canceled := false
 var spectator := false
 var suppress_emulated_mouse := false
+var card_anchor_ratio := -1.0
+var card_has_unit := false
+var pressed_action := ""
+var pressed_card := Rect2()
+var pressed_action_rect := Rect2()
+var pressed_source_id := -1
+var pressed_source_collection := "structures"
 
 func cancel(view) -> void:
 	selected_id = -1
 	selected_collection = "structures"
 	cycle_targets.clear()
 	pressed_targets.clear()
+	card_anchor_ratio = -1.0
+	card_has_unit = false
 	canceled = true
 	view.queue_redraw()
 
@@ -36,6 +47,7 @@ func reset(view) -> void:
 	mouse_down = false
 	pressed_id = -1
 	pressed_collection = "structures"
+	pressed_action = ""
 	suppress_emulated_mouse = false
 
 func sync(main) -> void:
@@ -161,6 +173,68 @@ func navigation_hint() -> String:
 	if index < 0 or cycle_targets.size() < 2: return ""
 	return "겹침 %d/%d · 재선택/Tab: 다음" % [index + 1, cycle_targets.size()]
 
+func card_rect(view) -> Rect2:
+	var item := selected(view)
+	if item.is_empty(): return Rect2()
+	var body := UnitInspection.body_rect(view, item) if selected_collection == "units" else body_rect(view, item)
+	var anchor: float = card_anchor_ratio * view.size.x if card_anchor_ratio >= 0.0 else body.get_center().x
+	var width := minf(380.0, maxf(1.0, view.size.x - 24.0))
+	var left := clampf(anchor - width * 0.5, 12.0, maxf(12.0, view.size.x - width - 12.0))
+	# Reserve the taller unit layout for the whole tap group. Neither marching
+	# nor switching to a structure (or losing a neighbour) moves the buttons.
+	var footer_y := 224.0 if card_has_unit or selected_collection == "units" else 132.0
+	return Rect2(left, 28.0, width, footer_y + BUTTON_HEIGHT + 12.0 - 28.0)
+
+func action_rects(card: Rect2) -> Dictionary:
+	var gap := 8.0
+	var width := maxf(1.0, (card.size.x - 24.0 - gap * 2.0) / 3.0)
+	var y := card.end.y - 12.0 - BUTTON_HEIGHT
+	return {
+		"previous": Rect2(card.position.x + 12.0, y, width, BUTTON_HEIGHT),
+		"next": Rect2(card.position.x + 12.0 + width + gap, y, width, BUTTON_HEIGHT),
+		"close": Rect2(card.position.x + 12.0 + (width + gap) * 2.0, y, width, BUTTON_HEIGHT),
+	}
+
+func begin_card_action(view, position: Vector2) -> void:
+	pressed_card = card_rect(view)
+	pressed_action = "surface"
+	pressed_action_rect = pressed_card
+	pressed_source_id = selected_id
+	pressed_source_collection = selected_collection
+	prune_cycle_targets(view)
+	var rects := action_rects(pressed_card)
+	for action in rects:
+		var rect: Rect2 = rects[action]
+		if not rect.has_point(position): continue
+		if action != "close" and cycle_targets.size() < 2: break
+		pressed_action = action
+		pressed_action_rect = rect
+		if action != "close":
+			var index := target_index(cycle_targets, selected_collection, selected_id)
+			if index < 0:
+				pressed_action = "surface"
+				break
+			var direction := -1 if action == "previous" else 1
+			var target: Dictionary = cycle_targets[posmod(index + direction, cycle_targets.size())]
+			pressed_collection = String(target.collection)
+			pressed_id = int(target.id)
+		break
+
+func release_card_action(view, position: Vector2) -> void:
+	# Resolve the target on press, just as battlefield taps do. If it dies,
+	# do not silently skip to a different neighbour when the finger lifts.
+	if selected_id != pressed_source_id or selected_collection != pressed_source_collection: return
+	if card_rect(view) != pressed_card or not pressed_action_rect.has_point(position): return
+	if pressed_action == "close":
+		cancel(view)
+		UISounds.play("back")
+	elif pressed_action in ["previous", "next"]:
+		prune_cycle_targets(view)
+		if target_index(cycle_targets, pressed_collection, pressed_id) < 0 or entity(view, pressed_collection, pressed_id).is_empty(): return
+		selected_collection = pressed_collection
+		selected_id = pressed_id
+		UISounds.play("click")
+
 func target_at(view, position: Vector2) -> Dictionary:
 	# Units are drawn above structures. Resolve the visible foreground first;
 	# separate collections also prevent colliding unit/structure IDs.
@@ -179,7 +253,9 @@ func begin_gui_input(view, event: InputEvent) -> bool:
 		position = event.position
 	else:
 		return false
-	var candidates := ordered_targets(view, position)
+	pressed_action = ""
+	var over_card := selected_id >= 0 and card_rect(view).has_point(position)
+	var candidates := [] if over_card else ordered_targets(view, position)
 	var target := {"collection": "structures", "id": -1}
 	if not candidates.is_empty():
 		var index := target_index(candidates, selected_collection, selected_id)
@@ -189,20 +265,26 @@ func begin_gui_input(view, event: InputEvent) -> bool:
 	pressed_id = int(target.id)
 	pressed_collection = String(target.collection)
 	pressed_targets = candidates
+	if over_card: begin_card_action(view, position)
 	canceled = false
 	if event is InputEventScreenTouch:
 		touch_index = event.index
 		suppress_emulated_mouse = true
 	else: mouse_down = true
+	view.queue_redraw()
 	return true
 
 func _move(view, position: Vector2) -> void:
 	if not Rect2(Vector2.ZERO, view.size).has_point(position) or position.distance_to(start_position) > DRAG_DISTANCE:
 		canceled = true
+	if not pressed_action.is_empty() and not pressed_action_rect.has_point(position): canceled = true
+	view.queue_redraw()
 
 func _release(view, position: Vector2, interrupted: bool) -> void:
 	_move(view, position)
-	if enabled and not canceled and not interrupted:
+	if enabled and not canceled and not interrupted and not pressed_action.is_empty():
+		release_card_action(view, position)
+	elif enabled and not canceled and not interrupted:
 		var matches := false
 		if pressed_id < 0:
 			matches = int(target_at(view, position).id) < 0
@@ -219,6 +301,13 @@ func _release(view, position: Vector2, interrupted: bool) -> void:
 			if toggle_off or pressed_id < 0:
 				cancel(view)
 			else:
+				if target_index(pressed_targets, selected_collection, selected_id) < 0:
+					var item := entity(view, pressed_collection, pressed_id)
+					var body := UnitInspection.body_rect(view, item) if pressed_collection == "units" else body_rect(view, item)
+					card_anchor_ratio = body.get_center().x / maxf(1.0, view.size.x)
+					card_has_unit = false
+				for target in pressed_targets:
+					if String(target.collection) == "units": card_has_unit = true
 				selected_id = pressed_id
 				selected_collection = pressed_collection
 				cycle_targets = pressed_targets
@@ -228,6 +317,8 @@ func _release(view, position: Vector2, interrupted: bool) -> void:
 	mouse_down = false
 	pressed_id = -1
 	pressed_targets = []
+	pressed_action = ""
+	view.queue_redraw()
 
 func handle_input(main, event: InputEvent) -> bool:
 	sync(main)
@@ -275,8 +366,10 @@ func draw(view) -> void:
 	if not enabled or selected_id < 0: return
 	var item := selected(view)
 	if item.is_empty(): return
+	var card := card_rect(view)
 	if selected_collection == "units":
-		UnitInspection.draw(view, item, spectator, navigation_hint())
+		UnitInspection.draw(view, item, spectator, "", card)
+		draw_card_actions(view, card)
 		return
 	var structure := item
 	var kind := String(structure.kind)
@@ -289,10 +382,8 @@ func draw(view) -> void:
 	var health_tone: Color = view.RED_LIGHT if fraction <= 0.25 else Color("#e8edf5")
 	var body := body_rect(view, structure)
 	view.draw_rect(body, view.GOLD, false, 2.0)
-	var width := minf(340.0, maxf(1.0, view.size.x - 24.0))
-	var left := clampf(body.get_center().x - width * 0.5, 12.0, maxf(12.0, view.size.x - width - 12.0))
-	var hint := navigation_hint()
-	var card := Rect2(left, 28.0, width, 142.0 if hint.is_empty() else 164.0)
+	var width := card.size.x
+	var left := card.position.x
 	view.draw_line(Vector2(card.get_center().x, card.end.y), Vector2(body.get_center().x, body.position.y), Color(team.r, team.g, team.b, 0.65), 1.5)
 	view.draw_rect(card, Color(0.02, 0.03, 0.06, 0.96))
 	view.draw_rect(card, team, false, 2.0)
@@ -315,8 +406,33 @@ func draw(view) -> void:
 	elif kind == "generator":
 		detail = "추가 수입 +%.1f/전투 초 · 수명 제한 없음" % float(stats.income)
 	view.draw_string(FONT, Vector2(left + 12.0, 120.0), detail, HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 14, detail_tone)
-	if hint.is_empty():
-		view.draw_string(FONT, Vector2(left + 12.0, 152.0), "같은 구조물 · 빈 전장 · Esc로 닫기", HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 12, Color("#8995ad"))
-	else:
-		view.draw_string(FONT, Vector2(left + 12.0, 148.0), hint, HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 12, view.GOLD)
-		view.draw_string(FONT, Vector2(left + 12.0, 176.0), "Shift+Tab: 이전 · 빈 전장/Esc: 닫기", HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 12, Color("#8995ad"))
+	if card_has_unit:
+		view.draw_string(FONT, Vector2(left + 12.0, 152.0), "병력과 구조물을 함께 확인 중", HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 14, Color("#b0bbcf"))
+		view.draw_string(FONT, Vector2(left + 12.0, 180.0), "수명·수입은 전투 시간 기준", HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 14, Color("#b0bbcf"))
+		view.draw_string(FONT, Vector2(left + 12.0, 212.0), "마지막 전투 상태 기준 · 전투는 계속 진행", HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 12, Color("#8995ad"))
+	draw_card_actions(view, card)
+
+func draw_card_actions(view, card: Rect2) -> void:
+	var index := target_index(cycle_targets, selected_collection, selected_id)
+	var can_cycle := index >= 0 and cycle_targets.size() > 1
+	var pointer: Vector2 = view.get_local_mouse_position()
+	var labels := {"previous": "‹ 이전", "next": "다음 ›", "close": "닫기 ×"}
+	var active_pointer := touch_index >= 0 or mouse_down
+	var rects := action_rects(card)
+	for action in rects:
+		var rect: Rect2 = rects[action]
+		var available: bool = action == "close" or can_cycle
+		var down: bool = active_pointer and not canceled and pressed_action == action
+		var hover: bool = not active_pointer and available and rect.has_point(pointer)
+		var fill := Color("#25344e") if down else Color("#1d2b43") if hover else Color("#121b2d")
+		var tone: Color = view.GOLD if available else Color("#62708b")
+		view.draw_rect(rect, fill)
+		view.draw_rect(rect, tone if down or hover else Color("#2b3d5c"), false, 1.5)
+		var baseline := rect.position.y + (35.0 if action == "previous" and not can_cycle else 25.0)
+		var label: String = "다음 · Tab" if action == "next" and can_cycle else labels[action]
+		view.draw_string(FONT, Vector2(rect.position.x + 4.0, baseline), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 8.0, 16, tone)
+		if action == "next":
+			var count := "겹침 %d/%d" % [index + 1, cycle_targets.size()] if can_cycle else "대상 1개"
+			view.draw_string(FONT, Vector2(rect.position.x + 4.0, rect.position.y + 45.0), count, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 8.0, 12, tone)
+		elif action == "close" or can_cycle:
+			view.draw_string(FONT, Vector2(rect.position.x + 4.0, rect.position.y + 45.0), "Esc" if action == "close" else "Shift+Tab", HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 8.0, 12, tone)

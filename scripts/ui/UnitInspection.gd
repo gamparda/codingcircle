@@ -44,7 +44,7 @@ static func curse_remaining(view, unit: Dictionary) -> float:
 		remaining = maxf(remaining, float(curse.get("expires_at", elapsed)) - elapsed)
 	return remaining
 
-static func draw(view, unit: Dictionary, spectator: bool, navigation_hint: String = "") -> void:
+static func draw(view, unit: Dictionary, spectator: bool, navigation_hint: String = "", inspection_card: Rect2 = Rect2()) -> void:
 	var body := body_rect(view, unit)
 	var side := int(unit.side)
 	var kind := String(unit.kind)
@@ -58,6 +58,10 @@ static func draw(view, unit: Dictionary, spectator: bool, navigation_hint: Strin
 	var width := minf(380.0, maxf(1.0, view.size.x - 24.0))
 	var left := clampf(body.get_center().x - width * 0.5, 12.0, maxf(12.0, view.size.x - width - 12.0))
 	var card := Rect2(left, 28.0, width, 224.0 if navigation_hint.is_empty() else 244.0)
+	if inspection_card.has_area():
+		card = inspection_card
+		left = card.position.x
+		width = card.size.x
 	view.draw_line(Vector2(card.get_center().x, card.end.y), Vector2(body.get_center().x, body.position.y), Color(team.r, team.g, team.b, 0.65), 1.5)
 	view.draw_rect(card, Color(0.02, 0.03, 0.06, 0.96))
 	view.draw_rect(card, team, false, 2.0)
@@ -93,6 +97,7 @@ static func draw(view, unit: Dictionary, spectator: bool, navigation_hint: Strin
 		ability = "저주는 장판을 벗어나면 해제됩니다"
 	_line(view, left, width, 192.0, ability, 14, ability_tone)
 	_line(view, left, width, 212.0, "마지막 전투 상태 기준 · 전투는 계속 진행", 12, Color("#8995ad"))
+	if inspection_card.has_area(): return # Live battle controls own the footer.
 	if navigation_hint.is_empty():
 		_line(view, left, width, 238.0, "같은 병력 · 빈 전장 · Esc로 닫기", 12, Color("#8995ad"))
 	else:
