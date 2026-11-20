@@ -90,7 +90,7 @@ jobs:
       contents: read
     timeout-minutes: 25
     env:
-      # Battles in the tests run on the native engine; the determinism test also checks it against GDScript.
+      # Battles run only on the native engine: a test machine without it fails instead of skipping battles.
       CATWAR_REQUIRE_NATIVE: "1"
     strategy:
       fail-fast: false
@@ -563,12 +563,18 @@ jobs:
         uses: actions/deploy-pages@v4
 
   multiplayer-preview:
+    # The scenes it renders fight battles, which run only on the native engine.
+    needs: build-native
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: native-linux.x86_64
+          path: native/bin
       - name: Prepare preview renderer
         timeout-minutes: 13
         shell: bash
