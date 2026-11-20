@@ -34,7 +34,7 @@ func _initialize() -> void:
 	var royal := model(["king", "shield", "archer", "healer"], BattleModel.DEFAULT_UNIT_DECK)
 	check(royal.spawn_unit(0, "king"), "king is purchasable")
 	check(by_kind(royal, "king").size() == 1 and by_kind(royal, "royal_guard").size() == 3, "king arrives with three royal guards")
-	check(is_equal_approx(float(royal.resources[0]), 180.0 - 110.0), "the escort costs nothing extra")
+	check(is_equal_approx(float(royal.resources[0]), 180.0 - float(BattleModel.UNIT_STATS.king.cost)), "the escort costs nothing extra")
 	check(royal.combat_events.any(func(event): return event.type == "ESCORT"), "the escort arrival is announced")
 	royal.resources[0] = 180.0
 	royal.spawn_cooldowns[0].clear()
@@ -61,16 +61,16 @@ func _initialize() -> void:
 	var friend_hp := float(friend.hp)
 	bang.tick(1.0 / 30.0)
 	check(by_kind(bang, "bomber").is_empty(), "the bomber dies in its own blast")
-	check(by_kind(bang, "swordsman", 1).is_empty(), "the blast kills a swordsman (120 damage)")
+	check(by_kind(bang, "swordsman", 1).is_empty(), "the blast kills a swordsman")
 	friend = by_kind(bang, "shield", 0)[0]
-	check(is_equal_approx(float(friend.hp), friend_hp - 120.0), "the blast hurts its own side too")
+	check(is_equal_approx(float(friend.hp), maxf(0.0, friend_hp - float(BattleModel.UNIT_STATS.bomber.damage))), "the blast hurts its own side too")
 	check(bang.combat_events.any(func(event): return event.type == "BLAST") or true, "blast event")
 	var castle := model(["bomber", "shield", "archer", "healer"], BattleModel.DEFAULT_UNIT_DECK)
 	castle.spawn_unit(0, "bomber")
 	by_kind(castle, "bomber")[0].x = BattleModel.FIELD_RIGHT - 20.0
 	var base_before := float(castle.base_hp[1])
 	castle.tick(1.0 / 30.0)
-	check(is_equal_approx(base_before - float(castle.base_hp[1]), 40.0), "a castle takes only the structure damage (40)")
+	check(is_equal_approx(base_before - float(castle.base_hp[1]), float(BattleModel.UNIT_STATS.bomber.blast_structure_damage)), "a castle takes only the lighter structure damage")
 
 	# Joker: blinks behind the enemy front, stalls briefly, then strikes twice as hard once.
 	var cards := model(["joker", "shield", "archer", "healer"], ["shield", "swordsman", "archer", "healer"])

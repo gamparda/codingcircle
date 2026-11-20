@@ -40,7 +40,7 @@ func _initialize() -> void:
 	for unit in [hero, near, far]: unit.speed = 0.0
 	near.cooldown = 1.0; far.cooldown = 1.0
 	aura.tick(0.1)
-	check(is_equal_approx(float(by_kind(aura, "swordsman", 0)[0].cooldown), 1.0 - 0.1 * 1.2), "a swordsman in the aura recovers 20 percent faster")
+	check(is_equal_approx(float(by_kind(aura, "swordsman", 0)[0].cooldown), 1.0 - 0.1 * (1.0 + float(BattleModel.UNIT_STATS.hero.aura_attack_speed))), "a swordsman in the aura recovers faster")
 	check(is_equal_approx(float(by_kind(aura, "swordsman", 0)[1].cooldown), 1.0 - 0.1), "one outside it does not")
 	check(not aura.spawn_unit(0, "hero"), "one hero at a time")
 
