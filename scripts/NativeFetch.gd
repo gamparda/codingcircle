@@ -24,7 +24,9 @@ static func manifest_entry(manifest: Dictionary, target: String) -> Dictionary:
 	var key := target.replace(".", "_")
 	var url := String(manifest.get("native_%s_url" % key, ""))
 	var sha := String(manifest.get("native_%s_sha256" % key, "")).to_lower()
-	if not ContentUpdater.is_trusted_content_url(url) or not RegEx.create_from_string("^[0-9a-f]{64}$").search(sha):
+	var library := url.trim_prefix(ContentUpdater.OFFICIAL_CONTENT_PREFIX)
+	# Only this platform's library from the official channel (no paths, no other files).
+	if not url.begins_with(ContentUpdater.OFFICIAL_CONTENT_PREFIX) or library != BattleModel.native_library_file(target) or not RegEx.create_from_string("^[0-9a-f]{64}$").search(sha):
 		return {}
 	return {"url": url, "sha256": sha}
 

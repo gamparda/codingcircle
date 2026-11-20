@@ -7,6 +7,7 @@
     "tests/batch1_units_test.gd",
     "tests/batch2_units_test.gd",
     "tests/native_memory_test.gd",
+    "tests/native_fetch_test.gd",
     "tests/unit_data_test.gd",
     "tests/simultaneous_combat_test.gd",
     "tests/combat_polish_test.gd",
