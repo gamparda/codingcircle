@@ -118,7 +118,7 @@ func _unit_score(kind: String, state: Dictionary) -> float:
 			if count >= BattleModel.field_limit(kind): return -100.0
 			return 84.0 if state.frontline > 0 or state.danger else 64.0
 		"general": return (62.0 if state.enemy_backline > 0 else 54.0) - count * 8.0
-		"bomber": return (78.0 if state.enemy_melee >= 3 else 50.0) - count * 10.0
+		"bomber": return (72.0 if state.enemy_melee >= 3 else 44.0) - count * 18.0
 		"joker": return (70.0 if state.enemy_backline > 0 else 48.0) - count * 10.0
 		"king", "hero":
 			if count >= BattleModel.field_limit(kind): return -100.0

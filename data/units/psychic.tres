@@ -8,14 +8,14 @@ kind = "psychic"
 display_name = "초능력자"
 order = 18
 summon_only = false
-cost = 60.0
-hp = 60.0
+cost = 50.0
+hp = 80.0
 damage = 10.0
 interval = 1.2
 speed = 40.0
 range = 120.0
 extra = {
-"arrival_stall": 1.5,
+"arrival_stall": 1.0,
 "card_cooldown": 20.0,
 "field_limit": 1
 }

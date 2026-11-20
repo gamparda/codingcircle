@@ -52,6 +52,19 @@ constexpr double EPS = 0.000001;
 constexpr double INF = std::numeric_limits<double>::infinity();
 
 // Godot's own comparisons, so even signed zeros and ties come out the same as in GDScript.
+// godot-cpp 4.5's Dictionary move assignment (operator=(Dictionary&&)) builds the new value over the old one
+// without releasing it, so every `dict = temporary` leaks the dictionary it replaces. Assign from a named
+// copy instead (copy assignment releases correctly).
+template <typename T>
+inline void assign(T &target, const T &value) { target = value; }
+inline void assign_dict(Dictionary &target, const Variant &value) {
+	const Dictionary copy = value;
+	target = copy;
+}
+
+inline void load_field(Array &target, const Variant &value) { target = Array(value); } // Array moves swap: fine
+inline void load_field(Dictionary &target, const Variant &value) { assign_dict(target, value); }
+
 inline double gd_max(double a, double b) { return a < b ? b : a; } // max(): (a < b) ? b : a
 inline double gd_min(double a, double b) { return b < a ? b : a; } // min(): (b < a) ? b : a
 inline double gd_maxf(double a, double b) { return a > b ? a : b; } // MAX macro
@@ -209,7 +222,7 @@ bool BattleCore::configure(const Dictionary &unit_stats, const Dictionary &summo
 			info.name = name;
 			info.known = true;
 			info.summon = pass == 1;
-			info.stats = table[name];
+			assign_dict(info.stats, table[name]);
 			const Dictionary &stats = info.stats;
 			info.hp = num(stats.get("hp", Variant()));
 			info.damage = num(stats.get("damage", Variant()));
@@ -433,7 +446,8 @@ void BattleCore::write_into(Dictionary &d, const Unit &u) const {
 
 Dictionary BattleCore::handle_of(Unit &u) {
 	if (!u.has_handle) {
-		u.handle = to_dictionary(u);
+		const Dictionary fresh = to_dictionary(u);
+		u.handle = fresh;
 		u.has_handle = true;
 	}
 	return u.handle;
@@ -1601,9 +1615,14 @@ void Tick::run() {
 				Dictionary wall = blocking_wall(side, sx, enemy.x);
 				double candidate_distance = wall.is_empty() ? std::fabs(enemy.x - sx) : std::fabs(double(wall[N->x]) - sx);
 				if (candidate_distance < nearest) {
-					target = Target();
-					if (wall.is_empty()) target.unit = j;
-					else target.structure = wall;
+					target.unit = -1;
+					if (wall.is_empty()) {
+						target.unit = j;
+						const Dictionary none;
+						target.structure = none;
+					} else {
+						target.structure = wall;
+					}
 					nearest = candidate_distance;
 				}
 			}
@@ -1699,8 +1718,7 @@ void Tick::run() {
 			}
 		}
 		bool blaster = K(u.kind).has_blast;
-		Target target;
-		if (!sheltered(u)) target = find_target(i);
+		const Target target = sheltered(u) ? Target() : find_target(i);
 		if (target.valid()) {
 			if (blaster) {
 				pending_blasts.push_back(i);
@@ -1994,7 +2012,7 @@ void load_tick(Tick &t, BattleCore *core, std::vector<KindInfo> &kinds, std::vec
 	t.delta = delta;
 	t.winner = -1;
 	t.next_unit_id = int64_t(model->get("next_unit_id"));
-#define LOAD(name) t.name = model->get(#name)
+#define LOAD(name) load_field(t.name, model->get(#name))
 	LOAD(cheats); LOAD(curses); LOAD(structures); LOAD(resources); LOAD(spawn_cooldowns); LOAD(spell_cooldowns);
 	LOAD(spell_uses); LOAD(base_hp); LOAD(base_max_hp); LOAD(invulnerable_bases); LOAD(castle_cooldowns); LOAD(modifiers);
 	LOAD(shelter); LOAD(advance_limit); LOAD(formation); LOAD(combat_events); LOAD(battle_report); LOAD(fallen);
@@ -2059,7 +2077,7 @@ Variant BattleCore::probe(Object *model, const String &what, const Array &args) 
 		else if (!target.structure.is_empty()) result = target.structure;
 	} else if (what == "damage" && unit >= 0 && args.size() >= 4) {
 		Target target;
-		if (args[1].get_type() == Variant::DICTIONARY) target.structure = args[1];
+		if (args[1].get_type() == Variant::DICTIONARY) assign_dict(target.structure, args[1]);
 		else target.unit = index_of_id(units, int64_t(args[1]));
 		if (target.valid()) t.damage_target(unit, 0, String(), 0.0, 0, target, double(args[2]), bool(args[3]));
 	} else if (what == "swamp_scale" && unit >= 0) {
