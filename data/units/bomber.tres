@@ -12,7 +12,7 @@ cost = 40.0
 hp = 70.0
 damage = 150.0
 interval = 1.2
-speed = 48.0
+speed = 66.0
 range = 30.0
 extra = {
 "blast_radius": 80.0,
