@@ -1,0 +1,23 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "joker"
+display_name = "조커"
+order = 13
+summon_only = false
+cost = 55.0
+hp = 70.0
+damage = 14.0
+interval = 1.4
+speed = 44.0
+range = 40.0
+extra = {
+"blink_bonus": 2.0,
+"blink_cooldown": 8.0,
+"blink_range": 250.0,
+"blink_stall": 0.5
+}
+tags = PackedStringArray()

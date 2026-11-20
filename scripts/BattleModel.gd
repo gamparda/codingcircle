@@ -396,7 +396,22 @@ func spawn_unit(side: int, kind: String) -> bool:
 	battle_report[side].resources_spent += cost
 	battle_report[side].units[kind].purchased += 1
 	spawn_cooldowns[side][kind] = 0.35
-	_create_unit(side, kind, stats, stat_scale * unit_modifier(side, kind, "hp"), stat_scale * unit_modifier(side, kind, "damage"), FIELD_LEFT + 35.0 if side == 0 else FIELD_RIGHT - 35.0)
+	var hp_scale := stat_scale * unit_modifier(side, kind, "hp")
+	var damage_scale := stat_scale * unit_modifier(side, kind, "damage")
+	var spawn_x := FIELD_LEFT + 35.0 if side == 0 else FIELD_RIGHT - 35.0
+	_create_unit(side, kind, stats, hp_scale, damage_scale, spawn_x)
+	var escort = trait_value(kind, "escort_kind")
+	if escort != null:
+		# A leader arrives with its escort: summons that march with it (see "leaderless_damage").
+		var leader: Dictionary = last_unit()
+		var direction := 1.0 if side == 0 else -1.0
+		for index in int(trait_value(kind, "escort_count", 0)):
+			if side_full(side):
+				break
+			_create_unit(side, String(escort), SUMMON_STATS[String(escort)], hp_scale, damage_scale, spawn_x + direction * (16.0 + 14.0 * index))
+			summon_owners[last_unit().id] = leader.id
+			battle_report[side].units[kind].summoned += 1
+		combat_events.append({"type": "ESCORT", "source_id": leader.id, "x": leader.x})
 	return true
 
 func _create_unit(side: int, kind: String, stats: Dictionary, hp_scale: float, damage_scale: float, x: float) -> void:
@@ -414,6 +429,8 @@ func _create_unit(side: int, kind: String, stats: Dictionary, hp_scale: float, d
 		unit["skill_remaining"] = float(trait_value(kind, "skill_cooldown"))
 	if trait_value(kind, "soul_max") != null:
 		unit["souls"] = 0
+	if trait_value(kind, "blink_cooldown") != null:
+		unit["blink_remaining"] = float(trait_value(kind, "blink_cooldown"))
 	if _core != null:
 		_core.append_unit(unit)
 	else:
@@ -424,10 +441,11 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 	if not UNIT_STATS.has(kind) and not SUMMON_STATS.has(kind):
 		return ""
 	var stats: Dictionary = UNIT_STATS.get(kind, SUMMON_STATS.get(kind, {}))
-	var interval: float = max(float(stats.interval), MIN_ATTACK_INTERVAL)
+	# MIN_ATTACK_INTERVAL only delays a new unit's first attack; afterwards it attacks every `interval`.
+	var interval := float(stats.interval)
 	var stat_scale := float(campaign_bonuses(growth_level).stat_scale)
 	var output := Localization.text("비용 %d  ·  체력 %d\n") % [int(stats.cost), int(stats.hp * stat_scale)]
-	if kind == "skeleton":
+	if bool(stats.get("summon_only", false)) or SUMMON_STATS.has(kind):
 		output = "소환 전용  ·  체력 %d\n" % int(stats.hp * stat_scale)
 	var support_step := roundi(SUPPORT_INCREMENT * 100.0)
 	var support_cap := roundi(SUPPORT_INCREMENT * SUPPORT_MAX_STACKS * 100.0)
@@ -449,6 +467,16 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 			output += " · %d만큼 밀쳐냄" % int(trait_value(kind, "skill_knockback"))
 	if trait_value(kind, "soul_max") != null:
 		output += "\n영혼 수확 · 반경 %d 안의 적이 쓰러질 때마다 체력 %d%% 회복\n영혼 1개당 공격력 +%d%% · 최대 %d개 (+%d%%)" % [int(trait_value(kind, "soul_radius", 0.0)), roundi(float(trait_value(kind, "soul_heal_fraction", 0.0)) * 100.0), roundi(float(trait_value(kind, "soul_damage_step", 0.0)) * 100.0), int(trait_value(kind, "soul_max")), roundi(float(trait_value(kind, "soul_damage_step", 0.0)) * float(trait_value(kind, "soul_max")) * 100.0)]
+	if trait_value(kind, "blast_radius") != null:
+		output += "\n적·방벽·성에 닿으면 자폭 · 반경 %d 안의 모든 유닛에 공격력만큼 피해 (아군 포함)\n적 구조물과 성에는 %d" % [int(trait_value(kind, "blast_radius")), int(float(trait_value(kind, "blast_structure_damage", 0.0)) * stat_scale)]
+	if trait_value(kind, "blink_cooldown") != null:
+		output += "\n%d초마다 앞쪽 %d 안의 가장 깊숙한 적 곁으로 순간이동\n이동 직후 %.1f초 멈춤 · 다음 공격 피해 ×%.0f" % [int(trait_value(kind, "blink_cooldown")), int(trait_value(kind, "blink_range", 0.0)), float(trait_value(kind, "blink_stall", 0.0)), float(trait_value(kind, "blink_bonus", 1.0))]
+	if trait_value(kind, "control_weakness") != null:
+		output += "\n늪·빙결 효과를 %.1f배로 받음 (기마)" % float(trait_value(kind, "control_weakness"))
+	if trait_value(kind, "escort_kind") != null:
+		var escort := String(trait_value(kind, "escort_kind"))
+		var guard: Dictionary = SUMMON_STATS[escort]
+		output += "\n소환할 때 %s %d기 동행 · 체력 %d · 공격력 %d\n%s이 쓰러지면 %s 공격력 -%d%%" % [UNIT_NAMES.get(escort, escort), int(trait_value(kind, "escort_count", 0)), int(float(guard.hp) * stat_scale), int(float(guard.damage) * stat_scale), UNIT_NAMES.get(kind, kind), UNIT_NAMES.get(escort, escort), roundi((1.0 - float(guard.get("leaderless_damage", 1.0))) * 100.0)]
 	if field_limit(kind) > 0:
 		output += "\n전장에 %d기만 둘 수 있음" % field_limit(kind)
 	if trait_value(kind, "undead_bonus") != null:
@@ -477,6 +505,10 @@ static func unit_role(kind: String) -> String:
 		"zombie": return Localization.text("체력 %d%%로 1회 부활") % roundi(float(trait_value(kind, "revive_hp_fraction", 0.5)) * 100.0)
 		"necromancer": return Localization.text("%d초 해골 소환·최대 %d") % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER]
 		"demon_lord": return Localization.text("영혼 수확·%d초 포효·1기") % int(trait_value(kind, "skill_cooldown"))
+		"general": return Localization.text("기마 · 빠른 이동과 공격")
+		"bomber": return Localization.text("닿으면 자폭 · 아군도 피해")
+		"joker": return Localization.text("%d초 순간이동 · 첫 공격 ×%.0f") % [int(trait_value(kind, "blink_cooldown")), float(trait_value(kind, "blink_bonus", 1.0))]
+		"king": return Localization.text("근위병 %d기 동행 · 1기") % int(trait_value(kind, "escort_count", 0))
 	return ""
 
 ## One-line description of a tactic card (structure or spell) for deck and battle cards.
@@ -637,7 +669,7 @@ func _land_spell(cast: Dictionary) -> void:
 			for enemy in units:
 				if int(enemy.side) != side and float(enemy.hp) > 0.0 and absf(float(enemy.x) - x) <= radius:
 					targets.append(enemy.id)
-					enemy["frozen_remaining"] = float(stats.duration)
+					enemy["frozen_remaining"] = float(stats.duration) * float(_kind_trait(String(enemy.kind), "control_weakness", 1.0))
 		"bless":
 			for ally in units:
 				if int(ally.side) == side and float(ally.hp) > 0.0 and absf(float(ally.x) - x) <= radius:
@@ -756,7 +788,7 @@ func tick(delta: float) -> void:
 			if float(spell_cooldowns[side][kind]) <= 0.0:
 				spell_cooldowns[side].erase(kind)
 	for unit in units:
-		for key in ["frozen_remaining", "blessed_remaining"]:
+		for key in ["frozen_remaining", "blessed_remaining", "stall_remaining"]:
 			if unit.has(key):
 				unit[key] = float(unit[key]) - delta
 				if float(unit[key]) <= 0.000001:
@@ -795,6 +827,8 @@ func tick(delta: float) -> void:
 			unit["summon_remaining"] = maxf(0.0, float(summon_timers[unit.id]))
 		if unit.has("skill_remaining"):
 			unit.skill_remaining = maxf(0.0, float(unit.skill_remaining) - delta)
+		if unit.has("blink_remaining"):
+			unit.blink_remaining = maxf(0.0, float(unit.blink_remaining) - delta)
 		if unit.kind == "healer":
 			_tick_support(unit, delta)
 			continue
@@ -802,11 +836,23 @@ func tick(delta: float) -> void:
 		_index_lanes() # supports moved
 	_supports_moved = false
 	var pending_skills: Array = []
+	var pending_blinks: Array = []
+	var pending_blasts: Array = []
 	for unit in units:
-		if float(unit.hp) <= 0.0 or unit.kind == "healer" or unit.has("frozen_remaining"):
+		if float(unit.hp) <= 0.0 or unit.kind == "healer" or unit.has("frozen_remaining") or unit.has("stall_remaining"):
 			continue
+		if unit.has("blink_remaining") and float(unit.blink_remaining) <= 0.0 and not sheltered(unit):
+			var mark = _blink_mark(unit)
+			if mark != null:
+				pending_blinks.append({"unit": unit, "x": float(mark.x)})
+				unit.blink_remaining = float(_kind_trait(String(unit.kind), "blink_cooldown", 0.0))
+				continue
+		var blaster := float(_kind_trait(String(unit.kind), "blast_radius", 0.0)) > 0.0
 		var target = null if sheltered(unit) else _find_target(unit)
 		if target != null:
+			if blaster:
+				pending_blasts.append(unit)
+				continue
 			if unit.has("skill_remaining") and float(unit.skill_remaining) <= 0.0:
 				pending_skills.append({"caster": unit, "x": float(target.x)})
 				unit.skill_remaining = float(trait_value(String(unit.kind), "skill_cooldown")) * float(modifier(int(unit.side), "skill_cooldown:" + String(unit.kind)))
@@ -818,12 +864,16 @@ func tick(delta: float) -> void:
 		var enemy_base_x := FIELD_RIGHT if unit.side == 0 else FIELD_LEFT
 		var blocking_wall = _blocking_wall(unit, enemy_base_x)
 		if blocking_wall != null and abs(float(blocking_wall.x) - float(unit.x)) <= float(unit.range) + 12.0:
-			if unit.cooldown <= 0.0:
+			if blaster:
+				pending_blasts.append(unit)
+			elif unit.cooldown <= 0.0:
 				pending_attacks.append({"attacker":unit, "target":blocking_wall, "damage":_strike_damage(unit)})
 				unit.cooldown = unit.interval
 			continue
 		if abs(float(unit.x) - enemy_base_x) <= float(unit.range):
-			if unit.cooldown <= 0.0:
+			if blaster:
+				pending_blasts.append(unit)
+			elif unit.cooldown <= 0.0:
 				pending_base_hits.append({"attacker":unit, "damage":_strike_damage(unit), "x":enemy_base_x})
 				unit.cooldown = unit.interval
 			continue
@@ -845,6 +895,9 @@ func tick(delta: float) -> void:
 			attack.target.hp = maxf(0.0, before - float(attack.damage))
 			combat_events.append({"type":"ATTACK", "attacker_id":attack.attacker.id, "target_id":attack.target.id, "attack_kind":String(attack.attacker.kind), "x":attack.attacker.x, "target_x":attack.target.x})
 			combat_events.append({"type":"DAMAGE", "target_id":attack.target.id, "amount":attack.damage, "x":attack.target.x})
+	for bomber in pending_blasts:
+		if float(bomber.hp) > 0.0:
+			_blast(bomber)
 	for hit in pending_base_hits:
 		var enemy_side := 1 - int(hit.attacker.side)
 		_record_damage(int(hit.attacker.side), String(hit.attacker.kind), minf(float(hit.damage), float(base_hp[enemy_side])), false)
@@ -854,6 +907,8 @@ func tick(delta: float) -> void:
 		if hit.attacker.kind == "warlock": _install_curse(hit.attacker, hit.x)
 	for move in pending_moves:
 		move.unit.x = move.x
+	for blink in pending_blinks:
+		_blink(blink.unit, float(blink.x))
 	if base_hp[0] <= 0.0 or base_hp[1] <= 0.0:
 		winner = 2 if base_hp[0] <= 0.0 and base_hp[1] <= 0.0 else 1 if base_hp[0] <= 0.0 else 0
 
@@ -872,13 +927,16 @@ func tick(delta: float) -> void:
 		combat_events.append({"type": "SUMMON", "source_id": owner.id, "unit_id": units.back().id, "x": units.back().x})
 	var live_ids := {}
 	for unit in units:
-		live_ids[unit.id] = true
+		live_ids[unit.id] = unit
 	for id in summon_timers.keys():
 		if not live_ids.has(id):
 			summon_timers.erase(id)
 	for id in summon_owners.keys():
 		if not live_ids.has(id):
 			summon_owners.erase(id)
+		elif not live_ids.has(summon_owners[id]) and _kind_trait(String(live_ids[id].kind), "leaderless_damage", 1.0) != 1.0:
+			# The leader fell: its escort fights on, weaker (once marked, the mark stays).
+			live_ids[id]["leaderless"] = true
 	for id in revive_used.keys():
 		if not live_ids.has(id):
 			revive_used.erase(id)
@@ -1033,7 +1091,10 @@ static func is_enraged(unit: Dictionary) -> bool:
 	return unit.kind == "berserker" and float(unit.hp) > 0.0 and float(unit.hp) <= float(unit.max_hp) * RAGE_HP_FRACTION
 
 func unit_attack_damage(unit: Dictionary) -> float:
-	return float(unit.damage) * (1.0 + int(unit.get("souls", 0)) * _kind_trait(String(unit.kind), "soul_damage_step", 0.0))
+	var damage: float = float(unit.damage) * (1.0 + int(unit.get("souls", 0)) * _kind_trait(String(unit.kind), "soul_damage_step", 0.0))
+	if unit.has("leaderless"):
+		damage *= float(_kind_trait(String(unit.kind), "leaderless_damage", 1.0))
+	return damage
 
 ## trait_value() cached per kind and key (unit data never changes during a battle).
 static var _trait_cache: Dictionary = {}
@@ -1049,6 +1110,9 @@ func _strike_damage(unit: Dictionary) -> float:
 	if float(modifier(int(unit.side), "first_strike", 0.0)) > 0.0 and not first_struck.has(int(unit.id)):
 		first_struck[int(unit.id)] = true
 		damage *= 2.0
+	if unit.has("blink_bonus"):
+		unit.erase("blink_bonus")
+		damage *= float(_kind_trait(String(unit.kind), "blink_bonus", 1.0))
 	return damage
 
 func curse_speed_scale(side: int, x: float) -> float:
@@ -1148,6 +1212,74 @@ func _cast_skill(caster: Dictionary, x: float) -> void:
 			_damage_target(caster, enemy, float(trait_value(kind, "skill_damage", 0.0)) * growth, false)
 			if knockback != 0.0 and float(enemy.hp) > 0.0:
 				enemy.x = clampf(float(enemy.x) + knockback, FIELD_LEFT, FIELD_RIGHT)
+
+## The enemy a blinker (trait "blink_cooldown") jumps to: the one deepest behind the enemy line within its
+## blink range, past its own reach (a blinker already in a melee stays in it). First in `units` on a tie.
+func _blink_mark(unit: Dictionary):
+	var reach := float(_kind_trait(String(unit.kind), "blink_range", 0.0))
+	var direction := 1.0 if int(unit.side) == 0 else -1.0
+	var best = null
+	var best_depth := -INF
+	for enemy in units:
+		if int(enemy.side) == int(unit.side) or float(enemy.hp) <= 0.0 or not targetable(enemy):
+			continue
+		var ahead := direction * (float(enemy.x) - float(unit.x))
+		if ahead <= float(unit.range) + 20.0 or ahead > reach:
+			continue
+		if ahead > best_depth:
+			best = enemy
+			best_depth = ahead
+	return best
+
+## Lands a blink beside the mark's spot (on the blinker's side of it), then stalls the blinker briefly; its
+## next attack hits harder.
+func _blink(unit: Dictionary, mark_x: float) -> void:
+	if float(unit.hp) <= 0.0:
+		return
+	var side := int(unit.side)
+	var direction := 1.0 if side == 0 else -1.0
+	var from_x := float(unit.x)
+	var x := clampf(mark_x - direction * 18.0, FIELD_LEFT, FIELD_RIGHT)
+	x = minf(x, float(advance_limit[0])) if side == 0 else maxf(x, float(advance_limit[1]))
+	unit.x = x
+	unit["stall_remaining"] = float(_kind_trait(String(unit.kind), "blink_stall", 0.0))
+	unit["blink_bonus"] = true
+	combat_events.append({"type": "BLINK", "unit_id": unit.id, "from_x": from_x, "x": x})
+
+## A bomber (trait "blast_radius") blows up where it stands: every unit in the radius takes its attack damage,
+## its own side's included; enemy structures and the enemy castle there take the lighter structure damage.
+func _blast(bomber: Dictionary) -> void:
+	var kind := String(bomber.kind)
+	var side := int(bomber.side)
+	var x := float(bomber.x)
+	var radius := float(_kind_trait(kind, "blast_radius", 0.0))
+	var damage := unit_attack_damage(bomber)
+	var growth := float(bomber.damage) / maxf(0.01, float(UNIT_STATS[kind].damage))
+	var heavy := float(_kind_trait(kind, "blast_structure_damage", 0.0)) * growth
+	bomber.hp = 0.0
+	combat_events.append({"type": "BLAST", "source_id": bomber.id, "kind": kind, "x": x, "radius": radius})
+	for other in units:
+		if float(other.hp) <= 0.0 or absf(float(other.x) - x) > radius:
+			continue
+		if int(other.side) != side:
+			if targetable(other):
+				_damage_target(bomber, other, damage, false)
+		else:
+			other.hp = maxf(0.0, float(other.hp) - damage)
+			combat_events.append({"type": "DAMAGE", "target_id": other.id, "amount": damage, "x": other.x})
+	for structure in structures:
+		if int(structure.side) != side and float(structure.hp) > 0.0 and absf(float(structure.x) - x) <= radius:
+			var before := float(structure.hp)
+			_record_damage(side, kind, minf(before, heavy), false)
+			structure.hp = maxf(0.0, before - heavy)
+			combat_events.append({"type": "DAMAGE", "target_id": structure.id, "amount": heavy, "x": structure.x})
+	var enemy_side := 1 - side
+	var enemy_base_x := FIELD_RIGHT if side == 0 else FIELD_LEFT
+	if absf(enemy_base_x - x) <= radius:
+		_record_damage(side, kind, minf(heavy, float(base_hp[enemy_side])), false)
+		if not bool(invulnerable_bases[enemy_side]):
+			base_hp[enemy_side] = maxf(0.0, float(base_hp[enemy_side]) - heavy)
+			combat_events.append({"type": "BASE_HIT", "side": enemy_side, "amount": heavy, "x": enemy_base_x})
 
 func _damage_target(attacker: Dictionary, target: Dictionary, damage: float, show_attack: bool = true) -> void:
 	var undead_bonus = trait_value(String(attacker.kind), "undead_bonus")
@@ -1535,7 +1667,10 @@ func castle_damage(side: int) -> float:
 func _swamp_scale(unit: Dictionary) -> float:
 	for structure in structures:
 		if structure.kind == "swamp" and structure.side != unit.side and structure.hp > 0.0 and abs(float(structure.x) - float(unit.x)) <= float(STRUCTURE_STATS.swamp.radius):
-			return float(STRUCTURE_STATS.swamp.speed_scale)
+			var scale := float(STRUCTURE_STATS.swamp.speed_scale)
+			var weakness := float(_kind_trait(String(unit.kind), "control_weakness", 1.0))
+			# Mounted units (control_weakness > 1) are slowed that much harder.
+			return scale if weakness == 1.0 else maxf(0.0, 1.0 - (1.0 - scale) * weakness)
 	return 1.0
 
 

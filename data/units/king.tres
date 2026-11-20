@@ -1,0 +1,22 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "king"
+display_name = "국왕"
+order = 14
+summon_only = false
+cost = 110.0
+hp = 170.0
+damage = 6.0
+interval = 1.5
+speed = 34.0
+range = 45.0
+extra = {
+"escort_count": 3,
+"escort_kind": "royal_guard",
+"field_limit": 1
+}
+tags = PackedStringArray()

@@ -9,7 +9,7 @@ const STAGE_NAMES := [
 	"입문", "견습", "전진", "수비", "전술",
 	"공세", "정예", "최종전",
 ]
-const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord"]
+const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord", "general", "bomber", "joker", "king"]
 const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret"]
 const LONG_BATTLE_START := 180.0
 const LONG_BATTLE_STEP := 60.0
@@ -117,6 +117,12 @@ func _unit_score(kind: String, state: Dictionary) -> float:
 		"demon_lord":
 			if count >= BattleModel.field_limit(kind): return -100.0
 			return 84.0 if state.frontline > 0 or state.danger else 64.0
+		"general": return (62.0 if state.enemy_backline > 0 else 54.0) - count * 8.0
+		"bomber": return (78.0 if state.enemy_melee >= 3 else 50.0) - count * 10.0
+		"joker": return (70.0 if state.enemy_backline > 0 else 48.0) - count * 10.0
+		"king":
+			if count >= BattleModel.field_limit(kind): return -100.0
+			return 66.0 if state.danger else 80.0
 		"healer":
 			if state.buff_need < 2: return 2.0
 			return (96.0 if count == 0 else 72.0 if state.buff_need > count * 5 else 8.0) - count * 8.0
@@ -150,7 +156,7 @@ func _try_spawn(model: BattleModel) -> void:
 		available.sort_custom(func(a, b): return _unit_score(a, state) > _unit_score(b, state))
 	var preferred := String(available[0])
 	# Protect the first summoner, curse counter or needed support purchase from cheap-unit spam.
-	var key_purchase: bool = (preferred in ["necromancer", "demon_lord"] and int(state.counts.get(preferred, 0)) == 0) or (preferred == "warlock" and int(state.counts.get(preferred, 0)) == 0 and state.enemy_melee >= 2) or (preferred == "healer" and int(state.counts.get(preferred, 0)) == 0 and state.buff_need >= 2) or (preferred == "shield" and state.frontline == 0 and state.own > 0)
+	var key_purchase: bool = (preferred in ["necromancer", "demon_lord", "king"] and int(state.counts.get(preferred, 0)) == 0) or (preferred == "warlock" and int(state.counts.get(preferred, 0)) == 0 and state.enemy_melee >= 2) or (preferred == "healer" and int(state.counts.get(preferred, 0)) == 0 and state.buff_need >= 2) or (preferred == "shield" and state.frontline == 0 and state.own > 0)
 	# A cheap fallback must not repeatedly spend the bank just below the price
 	# of the preferred damage dealer. Emergency defense still buys immediately.
 	var clear_preference: bool = state.own >= 2 and available.size() > 1 and _unit_score(preferred, state) >= _unit_score(String(available[1]), state) + 8.0
@@ -159,8 +165,15 @@ func _try_spawn(model: BattleModel) -> void:
 		return
 	for kind in available:
 		if stage >= 3 and kind == "healer" and _unit_score(kind, state) <= 8.0: continue
+		var first_id := model.next_unit_id
 		if model.spawn_unit(side, String(kind)):
-			_apply_stage_unit_bonus(model.last_unit())
+			if BattleModel.trait_value(String(kind), "escort_kind") == null:
+				_apply_stage_unit_bonus(model.last_unit())
+			else:
+				# A leader arrives with its escort: every unit this purchase made gets the stage bonus.
+				for unit in model.units_view():
+					if int(unit.id) >= first_id:
+						_apply_stage_unit_bonus(unit)
 			unit_cursor += 1
 			spawn_timer = _spawn_interval()
 			return

@@ -30,7 +30,7 @@ RULE_FUNCTIONS = [
     "_damage_target", "_install_curse", "_record_damage", "_strike_damage", "unit_attack_damage", "_kind_trait",
     "trait_value", "_is_guard", "can_revive", "_down_revivable_units", "_emit_death_events", "_harvest_soul",
     "_remember_fallen", "field_limit", "_create_unit", "side_full", "side_limit", "side_count", "smite_tags",
-    "has_tag", "unit_tags", "modifier", "has_health",
+    "has_tag", "unit_tags", "modifier", "has_health", "_blink_mark", "_blink", "_blast",
     "scripts/BattleReport.gd::credit_kind",
 ]
 # Called from the rules but run in GDScript even with the native engine (it calls back into the model).

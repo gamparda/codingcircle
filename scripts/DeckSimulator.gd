@@ -8,7 +8,7 @@ const DT := 0.05
 const TIMEOUT := 420.0
 const EARLY_LOSS_SECONDS := 90.0
 const LATE_LOSS_SECONDS := 240.0
-const FRONTLINE := ["shield", "berserker", "swordsman", "zombie", "paladin", "demon_lord"]
+const FRONTLINE := ["shield", "berserker", "swordsman", "zombie", "paladin", "demon_lord", "general", "joker", "king"]
 const RANGED := ["archer", "warlock"]
 
 class Run extends RefCounted:

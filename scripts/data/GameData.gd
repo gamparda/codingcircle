@@ -6,8 +6,8 @@ extends RefCounted
 const UnitDef = preload("res://scripts/data/UnitDef.gd")
 const StructureDef = preload("res://scripts/data/StructureDef.gd")
 
-const UNIT_FILES := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord"]
-const SUMMON_FILES := ["skeleton"]
+const UNIT_FILES := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord", "general", "bomber", "joker", "king"]
+const SUMMON_FILES := ["skeleton", "royal_guard"]
 ## Tactic cards: structures and spells (StructureDef with "spell" in params) share the deck slot.
 const STRUCTURE_FILES := ["wall", "swamp", "turret", "generator", "lightning", "fireball", "frost", "blessing", "seraph"]
 

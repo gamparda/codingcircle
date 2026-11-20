@@ -31,6 +31,10 @@ struct KindInfo {
 	PackedStringArray tags;
 	int scope = 0; // 0 none, 1 melee, 2 ranged
 	double formation_offset = 0.0;
+	// Batch 1 traits: blink (joker), blast (bomber), control weakness (general), leaderless (royal guard).
+	bool has_blink = false, has_blast = false, has_leaderless = false;
+	double blink_cooldown = 0.0, blink_range = 0.0, blink_stall = 0.0, blink_bonus = 1.0;
+	double blast_radius = 0.0, blast_structure_damage = 0.0, control_weakness = 1.0, leaderless_damage = 1.0;
 };
 
 struct Unit {
@@ -47,6 +51,8 @@ struct Unit {
 	Variant revived;
 	bool has_muster = false;
 	Variant muster;
+	bool has_blink = false, has_stall = false, has_blink_bonus = false, has_leaderless = false;
+	double blink_remaining = 0.0, stall_remaining = 0.0;
 	// Keys this engine does not know, kept as they came.
 	Dictionary extra;
 	// The dictionary GDScript holds for this unit (once it asked for it): kept in step both ways, so a reference

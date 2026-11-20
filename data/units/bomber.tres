@@ -1,0 +1,21 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "bomber"
+display_name = "폭탄병"
+order = 12
+summon_only = false
+cost = 45.0
+hp = 60.0
+damage = 120.0
+interval = 1.0
+speed = 48.0
+range = 30.0
+extra = {
+"blast_radius": 70.0,
+"blast_structure_damage": 40.0
+}
+tags = PackedStringArray()

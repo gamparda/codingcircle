@@ -129,6 +129,10 @@ struct Names {
 	StringName expires_at = StringName("expires_at");
 	StringName source_id = StringName("source_id");
 	StringName lands_at = StringName("lands_at");
+	StringName blink = StringName("blink_remaining");
+	StringName stall = StringName("stall_remaining");
+	StringName blink_bonus = StringName("blink_bonus");
+	StringName leaderless = StringName("leaderless");
 };
 Names *N = nullptr;
 
@@ -229,6 +233,17 @@ bool BattleCore::configure(const Dictionary &unit_stats, const Dictionary &summo
 			info.has_undead_bonus = stats.has("undead_bonus") && stats["undead_bonus"].get_type() != Variant::NIL;
 			info.undead_bonus = num(stats.get("undead_bonus", 1.0));
 			info.field_limit = int64_t(num(stats.get("field_limit", 0)));
+			info.has_blink = stats.has("blink_cooldown") && stats["blink_cooldown"].get_type() != Variant::NIL;
+			info.blink_cooldown = num(stats.get("blink_cooldown", 0.0));
+			info.blink_range = num(stats.get("blink_range", 0.0));
+			info.blink_stall = num(stats.get("blink_stall", 0.0));
+			info.blink_bonus = num(stats.get("blink_bonus", 1.0));
+			info.blast_radius = num(stats.get("blast_radius", 0.0));
+			info.has_blast = info.blast_radius > 0.0;
+			info.blast_structure_damage = num(stats.get("blast_structure_damage", 0.0));
+			info.control_weakness = num(stats.get("control_weakness", 1.0));
+			info.leaderless_damage = num(stats.get("leaderless_damage", 1.0));
+			info.has_leaderless = info.leaderless_damage != 1.0;
 			Variant smite = stats.get("smite_tags", Variant());
 			if (smite.get_type() == Variant::NIL) {
 				info.smite_tags.push_back("undead");
@@ -287,6 +302,10 @@ Dictionary BattleCore::to_dictionary(const Unit &u) const {
 	if (u.has_revive) d[N->revive] = u.revive_remaining;
 	if (u.has_revived) d[N->revived] = u.revived;
 	if (u.has_muster) d[N->muster] = u.muster;
+	if (u.has_blink) d[N->blink] = u.blink_remaining;
+	if (u.has_stall) d[N->stall] = u.stall_remaining;
+	if (u.has_blink_bonus) d[N->blink_bonus] = true;
+	if (u.has_leaderless) d[N->leaderless] = true;
 	if (!u.extra.is_empty()) {
 		Array keys = u.extra.keys();
 		for (int64_t i = 0; i < keys.size(); i++) d[keys[i]] = u.extra[keys[i]];
@@ -321,6 +340,10 @@ Unit BattleCore::from_dictionary(const Dictionary &d) {
 		else if (key == N->revive) { u.has_revive = true; u.revive_remaining = double(v); }
 		else if (key == N->revived) { u.has_revived = true; u.revived = v; }
 		else if (key == N->muster) { u.has_muster = true; u.muster = v; }
+		else if (key == N->blink) { u.has_blink = true; u.blink_remaining = double(v); }
+		else if (key == N->stall) { u.has_stall = true; u.stall_remaining = double(v); }
+		else if (key == N->blink_bonus) u.has_blink_bonus = true;
+		else if (key == N->leaderless) u.has_leaderless = true;
 		else u.extra[keys[i]] = v;
 	}
 	if (!d.has(N->support_stacks)) u.has_support_stacks = false;
@@ -359,6 +382,14 @@ void BattleCore::write_into(Dictionary &d, const Unit &u) const {
 	else d.erase(N->revived);
 	if (u.has_muster) d[N->muster] = u.muster;
 	else d.erase(N->muster);
+	if (u.has_blink) d[N->blink] = u.blink_remaining;
+	else d.erase(N->blink);
+	if (u.has_stall) d[N->stall] = u.stall_remaining;
+	else d.erase(N->stall);
+	if (u.has_blink_bonus) d[N->blink_bonus] = true;
+	else d.erase(N->blink_bonus);
+	if (u.has_leaderless) d[N->leaderless] = true;
+	else d.erase(N->leaderless);
 }
 
 Dictionary BattleCore::handle_of(Unit &u) {
@@ -578,7 +609,9 @@ struct Tick {
 		for (int64_t i = 0; i < structures.size(); i++) {
 			Dictionary s = structures[i];
 			if (String(s[N->kind]) == "swamp" && int64_t(s[N->side]) != u.side && double(s[N->hp]) > 0.0 && std::fabs(double(s[N->x]) - u.x) <= double(swamp["radius"])) {
-				return double(swamp["speed_scale"]);
+				double scale = double(swamp["speed_scale"]);
+				double weakness = K(u.kind).control_weakness;
+				return weakness == 1.0 ? scale : gd_maxf(0.0, 1.0 - (1.0 - scale) * weakness);
 			}
 		}
 		return 1.0;
@@ -602,7 +635,7 @@ struct Tick {
 	}
 
 	void record_damage(int64_t side, const String &attacker_kind, double amount, bool killed) {
-		String kind = attacker_kind == "skeleton" ? String("necromancer") : attacker_kind;
+		String kind = attacker_kind == "skeleton" ? String("necromancer") : (attacker_kind == "royal_guard" ? String("king") : attacker_kind);
 		if (side < 0 || side > 1) return;
 		Dictionary report = battle_report[side];
 		Dictionary rows = report["units"];
@@ -926,13 +959,127 @@ struct Tick {
 		return side == 0 ? gd_maxf(back, limit) : gd_minf(back, limit);
 	}
 
-	double strike_damage(Unit &u) {
+	double attack_damage(const Unit &u) {
 		double damage = u.damage * (1.0 + double(u.has_souls ? u.souls : 0) * K(u.kind).soul_damage_step);
+		if (u.has_leaderless) damage *= K(u.kind).leaderless_damage;
+		return damage;
+	}
+
+	double strike_damage(Unit &u) {
+		double damage = attack_damage(u);
 		if (double(modifier(u.side, "first_strike", 0.0)) > 0.0 && !first_struck.has(u.id)) {
 			first_struck[u.id] = true;
 			damage *= 2.0;
 		}
+		if (u.has_blink_bonus) {
+			u.has_blink_bonus = false;
+			damage *= K(u.kind).blink_bonus;
+		}
 		return damage;
+	}
+
+	// _blink_mark: the enemy deepest behind the enemy line within blink range, past the blinker's own reach.
+	int blink_mark(const Unit &u) {
+		double reach = K(u.kind).blink_range;
+		double direction = u.side == 0 ? 1.0 : -1.0;
+		int best = -1;
+		double best_depth = -INF;
+		for (int i = 0; i < int(U().size()); i++) {
+			const Unit &enemy = U()[i];
+			if (enemy.side == u.side || enemy.hp <= 0.0 || !targetable(enemy)) continue;
+			double ahead = direction * (enemy.x - u.x);
+			if (ahead <= u.range + 20.0 || ahead > reach) continue;
+			if (ahead > best_depth) {
+				best = i;
+				best_depth = ahead;
+			}
+		}
+		return best;
+	}
+
+	void blink(int index, double mark_x) {
+		Unit &u = U()[index];
+		if (u.hp <= 0.0) return;
+		double direction = u.side == 0 ? 1.0 : -1.0;
+		double from_x = u.x;
+		double x = gd_clamp(mark_x - direction * 18.0, FIELD_LEFT, FIELD_RIGHT);
+		x = u.side == 0 ? gd_minf(x, double(advance_limit[0])) : gd_maxf(x, double(advance_limit[1]));
+		u.x = x;
+		u.has_stall = true;
+		u.stall_remaining = K(u.kind).blink_stall;
+		u.has_blink_bonus = true;
+		Dictionary e;
+		e[N->type] = "BLINK";
+		e["unit_id"] = u.id;
+		e["from_x"] = from_x;
+		e[N->x] = x;
+		event(e);
+	}
+
+	void blast(int index) {
+		const KindInfo &info = K(U()[index].kind);
+		int64_t side = U()[index].side;
+		double x = U()[index].x;
+		double radius = info.blast_radius;
+		double damage = attack_damage(U()[index]);
+		double growth = U()[index].damage / gd_maxf(0.01, info.damage);
+		double heavy = info.blast_structure_damage * growth;
+		U()[index].hp = 0.0;
+		{
+			Dictionary e;
+			e[N->type] = "BLAST";
+			e[N->source_id] = U()[index].id;
+			e[N->kind] = info.name;
+			e[N->x] = x;
+			e["radius"] = radius;
+			event(e);
+		}
+		for (int i = 0; i < int(U().size()); i++) {
+			if (U()[i].hp <= 0.0 || std::fabs(U()[i].x - x) > radius) continue;
+			if (U()[i].side != side) {
+				if (targetable(U()[i])) {
+					Target t;
+					t.unit = i;
+					damage_target(index, 0, String(), 0.0, 0, t, damage, false);
+				}
+			} else {
+				Unit &ally = U()[i];
+				ally.hp = gd_maxf(0.0, ally.hp - damage);
+				Dictionary e;
+				e[N->type] = "DAMAGE";
+				e["target_id"] = ally.id;
+				e["amount"] = damage;
+				e[N->x] = ally.x;
+				event(e);
+			}
+		}
+		for (int64_t i = 0; i < structures.size(); i++) {
+			Dictionary s = structures[i];
+			if (int64_t(s[N->side]) == side || double(s[N->hp]) <= 0.0 || std::fabs(double(s[N->x]) - x) > radius) continue;
+			double before = double(s[N->hp]);
+			record_damage(side, info.name, gd_minf(before, heavy), false);
+			s[N->hp] = gd_maxf(0.0, before - heavy);
+			Dictionary e;
+			e[N->type] = "DAMAGE";
+			e["target_id"] = s[N->id];
+			e["amount"] = heavy;
+			e[N->x] = s[N->x];
+			event(e);
+		}
+		int64_t enemy_side = 1 - side;
+		double enemy_base_x = side == 0 ? FIELD_RIGHT : FIELD_LEFT;
+		if (std::fabs(enemy_base_x - x) <= radius) {
+			record_damage(side, info.name, gd_minf(heavy, double(base_hp[enemy_side])), false);
+			if (!bool(invulnerable_bases[enemy_side])) {
+				base_hp[enemy_side] = gd_maxf(0.0, double(base_hp[enemy_side]) - heavy);
+				Dictionary e;
+				e[N->type] = "BASE_HIT";
+				e[N->side] = enemy_side;
+				e["amount"] = heavy;
+				e[N->x] = enemy_base_x;
+				event(e);
+			}
+		}
 	}
 
 	// ---------- supports ----------
@@ -1035,6 +1182,10 @@ struct Tick {
 			u.has_souls = true;
 			u.souls = 0;
 		}
+		if (info.has_blink) {
+			u.has_blink = true;
+			u.blink_remaining = info.blink_cooldown;
+		}
 		U().push_back(u);
 		next_unit_id += 1;
 	}
@@ -1090,7 +1241,7 @@ struct Tick {
 				if (e.side != side && e.hp > 0.0 && std::fabs(e.x - x) <= radius) {
 					targets.push_back(e.id);
 					e.has_frozen = true;
-					e.frozen_remaining = double(stats["duration"]);
+					e.frozen_remaining = double(stats["duration"]) * K(e.kind).control_weakness;
 				}
 			}
 		} else if (effect == "bless") {
@@ -1289,6 +1440,10 @@ void Tick::run() {
 			u.blessed_remaining = u.blessed_remaining - delta;
 			if (u.blessed_remaining <= EPS) u.has_blessed = false;
 		}
+		if (u.has_stall) {
+			u.stall_remaining = u.stall_remaining - delta;
+			if (u.stall_remaining <= EPS) u.has_stall = false;
+		}
 	}
 	// _tick_revives
 	for (Unit &u : U()) {
@@ -1411,6 +1566,7 @@ void Tick::run() {
 			u.summon_remaining = gd_maxf(0.0, timer);
 		}
 		if (u.has_skill) u.skill_remaining = gd_maxf(0.0, u.skill_remaining - delta);
+		if (u.has_blink) u.blink_remaining = gd_maxf(0.0, u.blink_remaining - delta);
 		if (u.kind == healer) {
 			tick_support(i);
 			continue;
@@ -1419,12 +1575,27 @@ void Tick::run() {
 	if (supports_moved) index_lanes();
 	supports_moved = false;
 	std::vector<std::pair<int, double>> pending_skills;
+	std::vector<std::pair<int, double>> pending_blinks;
+	std::vector<int> pending_blasts;
 	for (int i = 0; i < int(U().size()); i++) {
 		Unit &u = U()[i];
-		if (u.hp <= 0.0 || u.kind == healer || u.has_frozen) continue;
+		if (u.hp <= 0.0 || u.kind == healer || u.has_frozen || u.has_stall) continue;
+		if (u.has_blink && u.blink_remaining <= 0.0 && !sheltered(u)) {
+			int mark = blink_mark(u);
+			if (mark >= 0) {
+				pending_blinks.push_back({i, U()[mark].x});
+				u.blink_remaining = K(u.kind).blink_cooldown;
+				continue;
+			}
+		}
+		bool blaster = K(u.kind).has_blast;
 		Target target;
 		if (!sheltered(u)) target = find_target(i);
 		if (target.valid()) {
+			if (blaster) {
+				pending_blasts.push_back(i);
+				continue;
+			}
 			double tx = target.unit >= 0 ? U()[target.unit].x : double(target.structure[N->x]);
 			if (u.has_skill && u.skill_remaining <= 0.0) {
 				pending_skills.push_back({i, tx});
@@ -1444,7 +1615,9 @@ void Tick::run() {
 		double enemy_base_x = u.side == 0 ? FIELD_RIGHT : FIELD_LEFT;
 		Dictionary wall = blocking_wall(u.side, u.x, enemy_base_x);
 		if (!wall.is_empty() && std::fabs(double(wall[N->x]) - u.x) <= u.range + 12.0) {
-			if (u.cooldown <= 0.0) {
+			if (blaster) {
+				pending_blasts.push_back(i);
+			} else if (u.cooldown <= 0.0) {
 				PendingAttack attack;
 				attack.attacker_unit = i;
 				attack.target.structure = wall;
@@ -1455,7 +1628,9 @@ void Tick::run() {
 			continue;
 		}
 		if (std::fabs(u.x - enemy_base_x) <= u.range) {
-			if (u.cooldown <= 0.0) {
+			if (blaster) {
+				pending_blasts.push_back(i);
+			} else if (u.cooldown <= 0.0) {
 				PendingHit hit;
 				hit.attacker = i;
 				hit.damage = strike_damage(u);
@@ -1509,6 +1684,9 @@ void Tick::run() {
 			event(d);
 		}
 	}
+	for (int bomber : pending_blasts) {
+		if (U()[bomber].hp > 0.0) blast(bomber);
+	}
 	for (PendingHit &hit : pending_base_hits) {
 		Unit &attacker = U()[hit.attacker];
 		int64_t enemy_side = 1 - attacker.side;
@@ -1525,6 +1703,7 @@ void Tick::run() {
 		if (attacker.kind == warlock) install_curse(U()[hit.attacker], hit.x);
 	}
 	for (auto &move : pending_moves) U()[move.first].x = move.second;
+	for (auto &jump : pending_blinks) blink(jump.first, jump.second);
 	if (double(base_hp[0]) <= 0.0 || double(base_hp[1]) <= 0.0) {
 		winner = (double(base_hp[0]) <= 0.0 && double(base_hp[1]) <= 0.0) ? 2 : (double(base_hp[0]) <= 0.0 ? 1 : 0);
 	}
@@ -1618,12 +1797,17 @@ void Tick::run() {
 	}
 	{
 		Dictionary live_ids;
-		for (const Unit &u : U()) live_ids[u.id] = true;
+		for (int i = 0; i < int(U().size()); i++) live_ids[U()[i].id] = i;
 		Dictionary *tables[4] = {&summon_timers, &summon_owners, &revive_used, &knocked_back};
 		for (Dictionary *table : tables) {
 			Array keys = table->keys();
 			for (int64_t k = 0; k < keys.size(); k++) {
-				if (!live_ids.has(keys[k])) table->erase(keys[k]);
+				if (!live_ids.has(keys[k])) {
+					table->erase(keys[k]);
+				} else if (table == &summon_owners && !live_ids.has((*table)[keys[k]])) {
+					Unit &escort = U()[int(int64_t(live_ids[keys[k]]))];
+					if (K(escort.kind).has_leaderless) escort.has_leaderless = true;
+				}
 			}
 		}
 		Array keys = structure_expirations.keys();

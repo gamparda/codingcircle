@@ -1,0 +1,20 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "royal_guard"
+display_name = "근위병"
+order = 98
+summon_only = true
+cost = 0.0
+hp = 40.0
+damage = 7.0
+interval = 1.4
+speed = 44.0
+range = 40.0
+extra = {
+"leaderless_damage": 0.7
+}
+tags = PackedStringArray()

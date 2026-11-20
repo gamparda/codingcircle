@@ -1,13 +1,13 @@
 extends RefCounted
 
-const KINDS := ["shield","swordsman","archer","healer","berserker","warlock","necromancer","zombie","paladin","sniper","demon_lord","turret"]
+const KINDS := ["shield","swordsman","archer","healer","berserker","warlock","necromancer","zombie","paladin","sniper","demon_lord","general","bomber","joker","king","turret"]
 static func empty_side() -> Dictionary:
 	var rows: Dictionary = {}
 	for kind in KINDS: rows[kind] = {"purchased":0,"summoned":0,"kills":0,"damage":0.0}
 	return {"resources_spent":0.0,"structures_built":0,"damage":0.0,"kills":0,"units":rows}
 
 static func credit_kind(kind: String) -> String:
-	return "necromancer" if kind == "skeleton" else kind
+	return "necromancer" if kind == "skeleton" else ("king" if kind == "royal_guard" else kind)
 
 static func valid_number(value: Variant, integral: bool = false) -> bool:
 	return (value is int or value is float) and is_finite(float(value)) and float(value)>=0.0 and float(value)<=1e12 and (not integral or float(value)==floor(float(value)))
