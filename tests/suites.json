@@ -5,6 +5,7 @@
     "tests/save_roundtrip_test.gd",
     "tests/new_units_test.gd",
     "tests/batch1_units_test.gd",
+    "tests/batch2_units_test.gd",
     "tests/unit_data_test.gd",
     "tests/simultaneous_combat_test.gd",
     "tests/combat_polish_test.gd",

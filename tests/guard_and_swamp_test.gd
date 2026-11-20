@@ -12,13 +12,9 @@ func unit(id: int, side: int, kind: String, x: float) -> Dictionary:
 	var stats: Dictionary = BattleModel.UNIT_STATS[kind]
 	return {"id": id, "side": side, "kind": kind, "hp": 500.0, "max_hp": 500.0, "damage": 0.0, "interval": 99.0, "speed": 0.0, "range": float(stats.range), "x": x, "cooldown": 99.0}
 
-func target_of(model: BattleModel, attacker: Dictionary, indexed: bool):
-	BattleModel.targeting_index = indexed
-	model._index_lanes()
+func target_of(model: BattleModel, attacker: Dictionary, _indexed: bool):
 	var found = model._find_target(attacker)
-	model._indexed = false
-	BattleModel.targeting_index = true
-	return found
+	return model.units.filter(func(unit): return int(unit.id) == int(found.id))[0] if found is Dictionary and found.has("speed") else found
 
 func _initialize() -> void:
 	for indexed in [false, true]:

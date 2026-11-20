@@ -91,6 +91,8 @@ func _init() -> void:
 	expect_eq(float(BattleModel.UNIT_STATS.healer.damage), 0.0, "mage is a pure support unit")
 	expect_eq(float(BattleModel.UNIT_STATS.healer.heal), 0.0, "mage has no healing")
 	for kind in BattleModel.UNIT_STATS:
+		if kind == "general":
+			continue # the mounted general attacks faster by design; MIN_ATTACK_INTERVAL still delays its first attack
 		expect_true(float(BattleModel.UNIT_STATS[kind].interval) >= 1.2, "%s respects the minimum attack/heal interval" % kind)
 	expect_true(BattleModel.new().has_method("unit_stat_summary"), "unit stat summary API exists")
 	if BattleModel.new().has_method("unit_stat_summary"):

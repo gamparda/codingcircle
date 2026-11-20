@@ -26,6 +26,9 @@ static func scenarios() -> Array:
 		{"name": "batch1", "a": ["general", "bomber", "joker", "king"], "b": ["shield", "archer", "sniper", "healer"], "ta": ["wall", "swamp", "frost", "turret"], "tb": ["frost", "swamp", "fireball", "generator"], "seconds": 150.0, "boost": 0.0, "seed": 83},
 		{"name": "batch1_mirror", "a": ["king", "joker", "archer", "shield"], "b": ["bomber", "general", "zombie", "paladin"], "ta": ["blessing", "lightning", "wall", "generator"], "tb": ["wall", "frost", "seraph", "turret"], "seconds": 150.0, "boost": 0.0, "seed": 89},
 		{"name": "batch1_crowd", "a": ["bomber", "king", "swordsman", "healer"], "b": ["joker", "general", "shield", "archer"], "ta": ["swamp", "wall", "turret", "fireball"], "tb": ["frost", "swamp", "blessing", "lightning"], "seconds": 90.0, "boost": 3.0, "seed": 97},
+		# Batch-2 units: aura, plunder, gifts (rage, revive, smite), arrival at structures, conversion.
+		{"name": "batch2", "a": ["hero", "raider", "preacher", "shaman"], "b": ["berserker", "zombie", "paladin", "swordsman"], "ta": ["wall", "swamp", "turret", "blessing"], "tb": ["wall", "turret", "generator", "frost"], "seconds": 150.0, "boost": 0.0, "seed": 101},
+		{"name": "batch2_mix", "a": ["psychic", "shaman", "king", "joker"], "b": ["preacher", "hero", "bomber", "general"], "ta": ["turret", "generator", "wall", "lightning"], "tb": ["wall", "turret", "swamp", "seraph"], "seconds": 150.0, "boost": 1.0, "seed": 103},
 	]
 
 static func run(scenario: Dictionary) -> String:

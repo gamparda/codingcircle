@@ -9,7 +9,7 @@ const STAGE_NAMES := [
 	"입문", "견습", "전진", "수비", "전술",
 	"공세", "정예", "최종전",
 ]
-const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord", "general", "bomber", "joker", "king"]
+const ATTACK_ORDER := ["swordsman", "shield", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord", "general", "bomber", "joker", "king", "hero", "raider", "preacher", "psychic", "shaman"]
 const STRUCTURE_ORDER := ["generator", "wall", "swamp", "turret"]
 const LONG_BATTLE_START := 180.0
 const LONG_BATTLE_STEP := 60.0
@@ -120,9 +120,15 @@ func _unit_score(kind: String, state: Dictionary) -> float:
 		"general": return (62.0 if state.enemy_backline > 0 else 54.0) - count * 8.0
 		"bomber": return (78.0 if state.enemy_melee >= 3 else 50.0) - count * 10.0
 		"joker": return (70.0 if state.enemy_backline > 0 else 48.0) - count * 10.0
-		"king":
+		"king", "hero":
 			if count >= BattleModel.field_limit(kind): return -100.0
 			return 66.0 if state.danger else 80.0
+		"raider": return 52.0 - count * 6.0
+		"preacher": return (64.0 if state.enemy_melee >= 2 else 50.0) - count * 8.0
+		"psychic":
+			if count >= BattleModel.field_limit(kind): return -100.0
+			return 72.0 if state.enemy_backline > 0 else 46.0
+		"shaman": return (70.0 if state.enemy_melee >= 2 else 54.0) - count * 14.0
 		"healer":
 			if state.buff_need < 2: return 2.0
 			return (96.0 if count == 0 else 72.0 if state.buff_need > count * 5 else 8.0) - count * 8.0
@@ -156,7 +162,7 @@ func _try_spawn(model: BattleModel) -> void:
 		available.sort_custom(func(a, b): return _unit_score(a, state) > _unit_score(b, state))
 	var preferred := String(available[0])
 	# Protect the first summoner, curse counter or needed support purchase from cheap-unit spam.
-	var key_purchase: bool = (preferred in ["necromancer", "demon_lord", "king"] and int(state.counts.get(preferred, 0)) == 0) or (preferred == "warlock" and int(state.counts.get(preferred, 0)) == 0 and state.enemy_melee >= 2) or (preferred == "healer" and int(state.counts.get(preferred, 0)) == 0 and state.buff_need >= 2) or (preferred == "shield" and state.frontline == 0 and state.own > 0)
+	var key_purchase: bool = (preferred in ["necromancer", "demon_lord", "king", "hero"] and int(state.counts.get(preferred, 0)) == 0) or (preferred == "warlock" and int(state.counts.get(preferred, 0)) == 0 and state.enemy_melee >= 2) or (preferred == "healer" and int(state.counts.get(preferred, 0)) == 0 and state.buff_need >= 2) or (preferred == "shield" and state.frontline == 0 and state.own > 0)
 	# A cheap fallback must not repeatedly spend the bank just below the price
 	# of the preferred damage dealer. Emergency defense still buys immediately.
 	var clear_preference: bool = state.own >= 2 and available.size() > 1 and _unit_score(preferred, state) >= _unit_score(String(available[1]), state) + 8.0

@@ -1,0 +1,20 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "preacher"
+display_name = "전도자"
+order = 17
+summon_only = false
+cost = 60.0
+hp = 110.0
+damage = 8.0
+interval = 1.4
+speed = 40.0
+range = 45.0
+extra = {
+"gift_kinds": PackedStringArray("berserker", "zombie", "paladin")
+}
+tags = PackedStringArray()

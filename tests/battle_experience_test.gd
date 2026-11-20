@@ -14,13 +14,14 @@ func _initialize()->void:
 	check(NetworkController.is_valid_snapshot(model.snapshot()),"live cooldown snapshot accepted")
 	check(not model.snapshot().has("battle_report"),"live snapshots omit detailed final report")
 	var attacker:Dictionary=model.units[0]
-	var target:Dictionary={"id":99,"kind":"shield","side":1,"hp":3.0,"speed":0.0,"x":500.0}
+	var target:Dictionary={"id":99,"kind":"shield","side":1,"hp":3.0,"max_hp":230.0,"damage":5.0,"heal":0.0,"interval":1.5,"cooldown":9.0,"speed":0.0,"range":34.0,"x":500.0}
+	var skeleton:Dictionary={"id":100,"kind":"skeleton","side":0,"hp":40.0,"max_hp":40.0,"damage":9.0,"heal":0.0,"interval":1.4,"cooldown":9.0,"speed":0.0,"range":40.0,"x":500.0}
+	var enemy:Dictionary={"id":101,"kind":"archer","side":1,"hp":5.0,"max_hp":45.0,"damage":11.0,"heal":0.0,"interval":1.5,"cooldown":9.0,"speed":0.0,"range":280.0,"x":510.0}
+	model.units=model.units+[target,skeleton,enemy]
 	model._damage_target(attacker,target,10.0)
 	check(model.battle_report[0].damage==3 and model.battle_report[0].kills==1,"overkill only credits actual health and one unit kill")
 	model._damage_target(attacker,target,10.0)
 	check(model.battle_report[0].damage==3 and model.battle_report[0].kills==1,"already-dead target cannot yield duplicate credit")
-	var skeleton:Dictionary={"id":100,"kind":"skeleton","side":0,"x":500.0}
-	var enemy:Dictionary={"id":101,"kind":"archer","side":1,"hp":5.0,"speed":0.0,"x":510.0}
 	model._damage_target(skeleton,enemy,10.0)
 	check(model.battle_report[0].units.necromancer.damage==5 and model.battle_report[0].units.necromancer.kills==1,"summon performance credited to necromancer")
 	model.resources[0]=180

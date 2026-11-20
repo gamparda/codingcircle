@@ -7,9 +7,8 @@ if(NOT GODOT_CPP_DIR)
 	set(GODOT_CPP_DIR ${CMAKE_SOURCE_DIR}/godot-cpp)
 endif()
 add_subdirectory(${GODOT_CPP_DIR} godot-cpp)
-# The rules hash ties this library to the GDScript it translates (tools/update_rules_hash.py: the battle rule
-# functions of BattleModel.gd, constants excluded since they are passed at run time). BattleModel uses the library
-# only when its generated BattleRulesHash.gd matches, so changed rules in a game-data update fall back to GDScript.
+# The rules hash is a fingerprint of this source (tools/update_rules_hash.py). Game data carries the same hash
+# (scripts/BattleRulesHash.gd) and runs only on a library that reports it.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 execute_process(
 	COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/../tools/update_rules_hash.py --print
@@ -20,7 +19,8 @@ if(NOT BATTLE_RULES_HASH_RESULT EQUAL 0 OR NOT BATTLE_RULES_HASH MATCHES "^[0-9a
 	message(FATAL_ERROR "tools/update_rules_hash.py --print failed")
 endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-	${CMAKE_SOURCE_DIR}/../scripts/BattleModel.gd ${CMAKE_SOURCE_DIR}/../scripts/BattleReport.gd ${CMAKE_SOURCE_DIR}/../tools/update_rules_hash.py)
+	${CMAKE_SOURCE_DIR}/src/battle_core.cpp ${CMAKE_SOURCE_DIR}/src/battle_core.h ${CMAKE_SOURCE_DIR}/src/register_types.cpp
+	${CMAKE_SOURCE_DIR}/../tools/update_rules_hash.py)
 add_library(battle_native SHARED src/register_types.cpp src/battle_core.cpp)
 target_compile_definitions(battle_native PRIVATE BATTLE_RULES_HASH="${BATTLE_RULES_HASH}")
 target_link_libraries(battle_native PRIVATE godot-cpp)

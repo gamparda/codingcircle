@@ -1,93 +1,34 @@
 #!/usr/bin/env python3
-"""The rules hash: a fingerprint of exactly the GDScript the native battle engine (native/) translates, so the
-engine is used only while those functions are unchanged. It covers the functions in RULE_FUNCTIONS (code lines
-only: comments and blank lines do not count) and never the numbers in BattleModel's constants, which the engine
-receives at run time (BattleModel.native_constants()). So a balance change or an edit elsewhere in
-BattleModel.gd keeps the native engine on; changing how a battle step works turns it off until an app update
-brings a matching engine (battles meanwhile run on GDScript, unchanged).
+"""The rules hash: a fingerprint of the battle engine's source (native/src). The library compiles it in
+(native/CMakeLists.txt) and the game data carries it (scripts/BattleRulesHash.gd); BattleModel uses a library
+only when the two match, so game data never runs on an engine built from other rules. A new hash means a new
+library, which the updater downloads (no app reinstall).
 
     python tools/update_rules_hash.py          # write scripts/BattleRulesHash.gd
     python tools/update_rules_hash.py --check  # fail if it is stale
-    python tools/update_rules_hash.py --print  # print the hash (native/CMakeLists.txt compiles it in)
-
-tests/native_rules_hash_test.py checks the file is current and that RULE_FUNCTIONS holds every BattleModel
-function the listed ones call (except CALLBACKS, which the engine calls back into GDScript)."""
+    python tools/update_rules_hash.py --print  # print the hash
+"""
 import hashlib
 import pathlib
-import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODEL = ROOT / "scripts" / "BattleModel.gd"
-
-# What native/src/battle_core.cpp translates (file::function for other files).
-RULE_FUNCTIONS = [
-    "tick", "_apply_cheats", "_tick_revives", "_land_spells", "_land_spell", "_index_curses", "_index_lanes",
-    "_index_fronts", "_tick_turrets", "_tick_castles", "castle_damage", "support_attack_speed", "curse_speed_scale",
-    "is_enraged", "_tick_support", "_needy_in_reach", "_find_target", "_nearest_enemy_indexed", "_guard_beside",
-    "_rearmost_enemy_indexed", "_rearmost_enemy", "_enemy_ahead_indexed", "_run_start", "_held_stride",
-    "formation_offset", "unit_scope", "sheltered", "targetable", "_swamp_scale", "_blocking_wall", "_cast_skill",
-    "_damage_target", "_install_curse", "_record_damage", "_strike_damage", "unit_attack_damage", "_kind_trait",
-    "trait_value", "_is_guard", "can_revive", "_down_revivable_units", "_emit_death_events", "_harvest_soul",
-    "_remember_fallen", "field_limit", "_create_unit", "side_full", "side_limit", "side_count", "smite_tags",
-    "has_tag", "unit_tags", "modifier", "has_health", "_blink_mark", "_blink", "_blast",
-    "scripts/BattleReport.gd::credit_kind",
-]
-# Called from the rules but run in GDScript even with the native engine (it calls back into the model).
-CALLBACKS = {"resource_income", "resource_capacity"}
-
-FUNC = re.compile(r"^(?:static\s+)?func\s+([A-Za-z_]\w*)\s*\(")
-
-
-def functions(path: pathlib.Path) -> dict:
-    """Top-level function name -> its source lines (header and indented body)."""
-    lines = path.read_bytes().replace(b"\r", b"").decode("utf-8").split("\n")
-    found, name, body = {}, None, []
-    for line in lines:
-        match = FUNC.match(line)
-        if match or (line and not line[0].isspace() and name is not None):
-            if name is not None:
-                found[name] = body
-            name, body = (match.group(1), [line]) if match else (None, [])
-            continue
-        if name is not None:
-            body.append(line)
-    if name is not None:
-        found[name] = body
-    return found
-
-
-def code_lines(body: list) -> list:
-    kept = []
-    for line in body:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        kept.append(line.rstrip())
-    return kept
-
-
-def rules_source() -> str:
-    tables = {}
-    parts = []
-    for entry in RULE_FUNCTIONS:
-        path, name = (entry.split("::") if "::" in entry else ("scripts/BattleModel.gd", entry))
-        if path not in tables:
-            tables[path] = functions(ROOT / path)
-        if name not in tables[path]:
-            raise SystemExit(f"rule function {entry} not found")
-        parts.append(f"## {entry}\n" + "\n".join(code_lines(tables[path][name])))
-    return "\n".join(parts) + "\n"
+SOURCES = sorted((ROOT / "native" / "src").glob("*.[ch]*"))
 
 
 def rules_hash() -> str:
-    return hashlib.sha256(rules_source().encode("utf-8")).hexdigest()
+    digest = hashlib.sha256()
+    for path in SOURCES:
+        digest.update(path.name.encode("utf-8") + b"\n")
+        # Line endings do not count (a Windows checkout must build the same hash).
+        digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
+    return digest.hexdigest()
 
 
 def render(value: str) -> str:
     return ('extends RefCounted\n'
-            '## Generated by tools/update_rules_hash.py from the battle rule functions of scripts/BattleModel.gd: do\n'
-            '## not edit. The native battle engine carries the same hash; BattleModel runs on it only when they match.\n\n'
+            '## Generated by tools/update_rules_hash.py from the battle engine source (native/src): do not edit.\n'
+            '## BattleModel runs only on an engine library built from that source.\n\n'
             f'const HASH := "{value}"\n')
 
 

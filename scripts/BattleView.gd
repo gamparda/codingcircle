@@ -35,6 +35,11 @@ const UNIT_TEXTURES := {
 	"joker": preload("res://assets/units/joker.png"),
 	"king": preload("res://assets/units/king.png"),
 	"royal_guard": preload("res://assets/units/royal_guard.png"),
+	"hero": preload("res://assets/units/hero.png"),
+	"raider": preload("res://assets/units/raider.png"),
+	"preacher": preload("res://assets/units/preacher.png"),
+	"psychic": preload("res://assets/units/psychic.png"),
+	"shaman": preload("res://assets/units/shaman.png"),
 }
 const UNIT_WALK_TEXTURES := {
 	"shield": [
@@ -70,6 +75,11 @@ const UNIT_WALK_TEXTURES := {
 	"joker": [preload("res://assets/units/animations/joker/walk_0.png"), preload("res://assets/units/animations/joker/walk_1.png"), preload("res://assets/units/animations/joker/walk_2.png"), preload("res://assets/units/animations/joker/walk_3.png"), preload("res://assets/units/animations/joker/walk_4.png"), preload("res://assets/units/animations/joker/walk_5.png"), preload("res://assets/units/animations/joker/walk_6.png"), preload("res://assets/units/animations/joker/walk_7.png")],
 	"king": [preload("res://assets/units/animations/king/walk_0.png"), preload("res://assets/units/animations/king/walk_1.png"), preload("res://assets/units/animations/king/walk_2.png"), preload("res://assets/units/animations/king/walk_3.png"), preload("res://assets/units/animations/king/walk_4.png"), preload("res://assets/units/animations/king/walk_5.png"), preload("res://assets/units/animations/king/walk_6.png"), preload("res://assets/units/animations/king/walk_7.png")],
 	"royal_guard": [preload("res://assets/units/animations/royal_guard/walk_0.png"), preload("res://assets/units/animations/royal_guard/walk_1.png"), preload("res://assets/units/animations/royal_guard/walk_2.png"), preload("res://assets/units/animations/royal_guard/walk_3.png"), preload("res://assets/units/animations/royal_guard/walk_4.png"), preload("res://assets/units/animations/royal_guard/walk_5.png"), preload("res://assets/units/animations/royal_guard/walk_6.png"), preload("res://assets/units/animations/royal_guard/walk_7.png")],
+	"hero": [preload("res://assets/units/animations/hero/walk_0.png"), preload("res://assets/units/animations/hero/walk_1.png"), preload("res://assets/units/animations/hero/walk_2.png"), preload("res://assets/units/animations/hero/walk_3.png"), preload("res://assets/units/animations/hero/walk_4.png"), preload("res://assets/units/animations/hero/walk_5.png"), preload("res://assets/units/animations/hero/walk_6.png"), preload("res://assets/units/animations/hero/walk_7.png")],
+	"raider": [preload("res://assets/units/animations/raider/walk_0.png"), preload("res://assets/units/animations/raider/walk_1.png"), preload("res://assets/units/animations/raider/walk_2.png"), preload("res://assets/units/animations/raider/walk_3.png"), preload("res://assets/units/animations/raider/walk_4.png"), preload("res://assets/units/animations/raider/walk_5.png"), preload("res://assets/units/animations/raider/walk_6.png"), preload("res://assets/units/animations/raider/walk_7.png")],
+	"preacher": [preload("res://assets/units/animations/preacher/walk_0.png"), preload("res://assets/units/animations/preacher/walk_1.png"), preload("res://assets/units/animations/preacher/walk_2.png"), preload("res://assets/units/animations/preacher/walk_3.png"), preload("res://assets/units/animations/preacher/walk_4.png"), preload("res://assets/units/animations/preacher/walk_5.png"), preload("res://assets/units/animations/preacher/walk_6.png"), preload("res://assets/units/animations/preacher/walk_7.png")],
+	"psychic": [preload("res://assets/units/animations/psychic/walk_0.png"), preload("res://assets/units/animations/psychic/walk_1.png"), preload("res://assets/units/animations/psychic/walk_2.png"), preload("res://assets/units/animations/psychic/walk_3.png"), preload("res://assets/units/animations/psychic/walk_4.png"), preload("res://assets/units/animations/psychic/walk_5.png"), preload("res://assets/units/animations/psychic/walk_6.png"), preload("res://assets/units/animations/psychic/walk_7.png")],
+	"shaman": [preload("res://assets/units/animations/shaman/walk_0.png"), preload("res://assets/units/animations/shaman/walk_1.png"), preload("res://assets/units/animations/shaman/walk_2.png"), preload("res://assets/units/animations/shaman/walk_3.png"), preload("res://assets/units/animations/shaman/walk_4.png"), preload("res://assets/units/animations/shaman/walk_5.png"), preload("res://assets/units/animations/shaman/walk_6.png"), preload("res://assets/units/animations/shaman/walk_7.png")],
 }
 const UNIT_ATTACK_TEXTURES := {
 	"paladin": [preload("res://assets/units/animations/paladin/attack_0.png"), preload("res://assets/units/animations/paladin/attack_1.png"), preload("res://assets/units/animations/paladin/attack_2.png"), preload("res://assets/units/animations/paladin/attack_3.png"), preload("res://assets/units/animations/paladin/attack_4.png")],
@@ -85,6 +95,11 @@ const UNIT_ATTACK_TEXTURES := {
 	"joker": [preload("res://assets/units/animations/joker/attack_0.png"), preload("res://assets/units/animations/joker/attack_1.png"), preload("res://assets/units/animations/joker/attack_2.png"), preload("res://assets/units/animations/joker/attack_3.png"), preload("res://assets/units/animations/joker/attack_4.png")],
 	"king": [preload("res://assets/units/animations/king/attack_0.png"), preload("res://assets/units/animations/king/attack_1.png"), preload("res://assets/units/animations/king/attack_2.png"), preload("res://assets/units/animations/king/attack_3.png"), preload("res://assets/units/animations/king/attack_4.png")],
 	"royal_guard": [preload("res://assets/units/animations/royal_guard/attack_0.png"), preload("res://assets/units/animations/royal_guard/attack_1.png"), preload("res://assets/units/animations/royal_guard/attack_2.png"), preload("res://assets/units/animations/royal_guard/attack_3.png"), preload("res://assets/units/animations/royal_guard/attack_4.png")],
+	"hero": [preload("res://assets/units/animations/hero/attack_0.png"), preload("res://assets/units/animations/hero/attack_1.png"), preload("res://assets/units/animations/hero/attack_2.png"), preload("res://assets/units/animations/hero/attack_3.png"), preload("res://assets/units/animations/hero/attack_4.png")],
+	"raider": [preload("res://assets/units/animations/raider/attack_0.png"), preload("res://assets/units/animations/raider/attack_1.png"), preload("res://assets/units/animations/raider/attack_2.png"), preload("res://assets/units/animations/raider/attack_3.png"), preload("res://assets/units/animations/raider/attack_4.png")],
+	"preacher": [preload("res://assets/units/animations/preacher/attack_0.png"), preload("res://assets/units/animations/preacher/attack_1.png"), preload("res://assets/units/animations/preacher/attack_2.png"), preload("res://assets/units/animations/preacher/attack_3.png"), preload("res://assets/units/animations/preacher/attack_4.png")],
+	"psychic": [preload("res://assets/units/animations/psychic/attack_0.png"), preload("res://assets/units/animations/psychic/attack_1.png"), preload("res://assets/units/animations/psychic/attack_2.png"), preload("res://assets/units/animations/psychic/attack_3.png"), preload("res://assets/units/animations/psychic/attack_4.png")],
+	"shaman": [preload("res://assets/units/animations/shaman/attack_0.png"), preload("res://assets/units/animations/shaman/attack_1.png"), preload("res://assets/units/animations/shaman/attack_2.png"), preload("res://assets/units/animations/shaman/attack_3.png"), preload("res://assets/units/animations/shaman/attack_4.png")],
 }
 # A downed unit plays death, lies still, then plays revive before standing again.
 const UNIT_DOWNED_TEXTURES := {
@@ -96,13 +111,22 @@ const UNIT_SKILL_TEXTURES := {
 	"demon_lord": [preload("res://assets/units/animations/demon_lord/skill_0.png"), preload("res://assets/units/animations/demon_lord/skill_1.png"), preload("res://assets/units/animations/demon_lord/skill_2.png"), preload("res://assets/units/animations/demon_lord/skill_3.png"), preload("res://assets/units/animations/demon_lord/skill_4.png"), preload("res://assets/units/animations/demon_lord/skill_5.png"), preload("res://assets/units/animations/demon_lord/skill_6.png")],
 	"general": [preload("res://assets/units/animations/general/skill_0.png"), preload("res://assets/units/animations/general/skill_1.png"), preload("res://assets/units/animations/general/skill_2.png"), preload("res://assets/units/animations/general/skill_3.png"), preload("res://assets/units/animations/general/skill_4.png"), preload("res://assets/units/animations/general/skill_5.png")],
 	"king": [preload("res://assets/units/animations/king/skill_0.png"), preload("res://assets/units/animations/king/skill_1.png"), preload("res://assets/units/animations/king/skill_2.png"), preload("res://assets/units/animations/king/skill_3.png"), preload("res://assets/units/animations/king/skill_4.png"), preload("res://assets/units/animations/king/skill_5.png"), preload("res://assets/units/animations/king/skill_6.png")],
+	"raider": [preload("res://assets/units/animations/raider/skill_0.png"), preload("res://assets/units/animations/raider/skill_1.png"), preload("res://assets/units/animations/raider/skill_2.png"), preload("res://assets/units/animations/raider/skill_3.png"), preload("res://assets/units/animations/raider/skill_4.png"), preload("res://assets/units/animations/raider/skill_5.png"), preload("res://assets/units/animations/raider/skill_6.png")],
+	"preacher": [preload("res://assets/units/animations/preacher/skill_0.png"), preload("res://assets/units/animations/preacher/skill_1.png"), preload("res://assets/units/animations/preacher/skill_2.png"), preload("res://assets/units/animations/preacher/skill_3.png"), preload("res://assets/units/animations/preacher/skill_4.png"), preload("res://assets/units/animations/preacher/skill_5.png"), preload("res://assets/units/animations/preacher/skill_6.png")],
+	"psychic": [preload("res://assets/units/animations/psychic/skill_0.png"), preload("res://assets/units/animations/psychic/skill_1.png"), preload("res://assets/units/animations/psychic/skill_2.png"), preload("res://assets/units/animations/psychic/skill_3.png"), preload("res://assets/units/animations/psychic/skill_4.png"), preload("res://assets/units/animations/psychic/skill_5.png"), preload("res://assets/units/animations/psychic/skill_6.png")],
+	"shaman": [preload("res://assets/units/animations/shaman/skill_0.png"), preload("res://assets/units/animations/shaman/skill_1.png"), preload("res://assets/units/animations/shaman/skill_2.png"), preload("res://assets/units/animations/shaman/skill_3.png"), preload("res://assets/units/animations/shaman/skill_4.png"), preload("res://assets/units/animations/shaman/skill_5.png")],
 }
 const HOLY_PILLAR_TEXTURES := [preload("res://assets/units/effects/holy_pillar_0.png"), preload("res://assets/units/effects/holy_pillar_1.png"), preload("res://assets/units/effects/holy_pillar_2.png"), preload("res://assets/units/effects/holy_pillar_3.png"), preload("res://assets/units/effects/holy_pillar_4.png"), preload("res://assets/units/effects/holy_pillar_5.png"), preload("res://assets/units/effects/holy_pillar_6.png"), preload("res://assets/units/effects/holy_pillar_7.png"), preload("res://assets/units/effects/holy_pillar_8.png")]
 const DOWNED_RISE_SECONDS := 1.0
 ## The demon lord towers over the rest of the roster.
 const DEMON_LORD_HEIGHT := 112.0
 ## Idle-sprite heights of the batch-1 units (the mounted general stands tallest).
-const UNIT_HEIGHTS := {"general": 104.0, "king": 94.0, "bomber": 84.0, "joker": 86.0, "royal_guard": 80.0}
+const UNIT_HEIGHTS := {"general": 104.0, "king": 94.0, "bomber": 84.0, "joker": 86.0, "royal_guard": 80.0, "hero": 88.0, "raider": 84.0, "preacher": 90.0, "psychic": 86.0, "shaman": 90.0}
+const PSYCHIC_PORTAL_TEXTURES := [preload("res://assets/units/effects/psychic_portal_0.png"), preload("res://assets/units/effects/psychic_portal_1.png"), preload("res://assets/units/effects/psychic_portal_2.png"), preload("res://assets/units/effects/psychic_portal_3.png"), preload("res://assets/units/effects/psychic_portal_4.png"), preload("res://assets/units/effects/psychic_portal_5.png"), preload("res://assets/units/effects/psychic_portal_6.png")]
+const COIN_STEAL_TEXTURES := [preload("res://assets/units/effects/coin_steal_0.png"), preload("res://assets/units/effects/coin_steal_1.png"), preload("res://assets/units/effects/coin_steal_2.png"), preload("res://assets/units/effects/coin_steal_3.png"), preload("res://assets/units/effects/coin_steal_4.png"), preload("res://assets/units/effects/coin_steal_5.png")]
+const GIFT_ABSORB_TEXTURES := [preload("res://assets/units/effects/gift_absorb_0.png"), preload("res://assets/units/effects/gift_absorb_1.png"), preload("res://assets/units/effects/gift_absorb_2.png"), preload("res://assets/units/effects/gift_absorb_3.png"), preload("res://assets/units/effects/gift_absorb_4.png"), preload("res://assets/units/effects/gift_absorb_5.png")]
+const HERO_AURA_TEXTURES := [preload("res://assets/units/effects/hero_aura_0.png"), preload("res://assets/units/effects/hero_aura_1.png"), preload("res://assets/units/effects/hero_aura_2.png"), preload("res://assets/units/effects/hero_aura_3.png"), preload("res://assets/units/effects/hero_aura_4.png"), preload("res://assets/units/effects/hero_aura_5.png")]
+const CONVERT_SWIRL_TEXTURES := [preload("res://assets/units/effects/convert_swirl_0.png"), preload("res://assets/units/effects/convert_swirl_1.png"), preload("res://assets/units/effects/convert_swirl_2.png"), preload("res://assets/units/effects/convert_swirl_3.png"), preload("res://assets/units/effects/convert_swirl_4.png"), preload("res://assets/units/effects/convert_swirl_5.png")]
 const BOMB_BLAST_TEXTURES := [preload("res://assets/units/effects/bomb_blast_0.png"), preload("res://assets/units/effects/bomb_blast_1.png"), preload("res://assets/units/effects/bomb_blast_2.png"), preload("res://assets/units/effects/bomb_blast_3.png"), preload("res://assets/units/effects/bomb_blast_4.png"), preload("res://assets/units/effects/bomb_blast_5.png"), preload("res://assets/units/effects/bomb_blast_6.png"), preload("res://assets/units/effects/bomb_blast_7.png")]
 const JOKER_BLINK_TEXTURES := [preload("res://assets/units/effects/joker_blink_0.png"), preload("res://assets/units/effects/joker_blink_1.png"), preload("res://assets/units/effects/joker_blink_2.png"), preload("res://assets/units/effects/joker_blink_3.png"), preload("res://assets/units/effects/joker_blink_4.png"), preload("res://assets/units/effects/joker_blink_5.png")]
 const ROYAL_SUMMON_TEXTURES := [preload("res://assets/units/effects/royal_summon_0.png"), preload("res://assets/units/effects/royal_summon_1.png"), preload("res://assets/units/effects/royal_summon_2.png"), preload("res://assets/units/effects/royal_summon_3.png"), preload("res://assets/units/effects/royal_summon_4.png"), preload("res://assets/units/effects/royal_summon_5.png")]
@@ -311,7 +335,7 @@ func push_combat_events(events: Array) -> void:
 						existing.amount = float(existing.amount)+float(event.get("amount",0.0)); merged = true; break
 			if merged: continue
 			var visual: Dictionary = event.duplicate(true)
-			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else (1.0 if String(event.get("type", "")) in ["SKILL", "SOUL", "SPELL_LAND", "BLAST", "BLINK", "ESCORT"] else 0.7)
+			visual["life"] = 0.45 if String(event.get("type", "")) in ["DEATH", "STRUCTURE_DESTROYED"] else (1.0 if String(event.get("type", "")) in ["SKILL", "SOUL", "SPELL_LAND", "BLAST", "BLINK", "ESCORT", "ARRIVAL", "PLUNDER", "GIFT", "CONVERT"] else 0.7)
 			if String(event.get("type","")) in ["DAMAGE","HEAL","BASE_HIT"]:
 				visual["text_lane"] = damage_lane_cursor % 4
 				damage_lane_cursor += 1
@@ -319,8 +343,10 @@ func push_combat_events(events: Array) -> void:
 			if visual_events.size()>MAX_VISUAL_EVENTS: visual_events.pop_front()
 			if event.get("type") == "SUMMON":
 				unit_actions[event.source_id] = {"type": "SUMMON", "started": animation_time}
-			elif event.get("type") in ["SKILL", "ESCORT"]:
+			elif event.get("type") in ["SKILL", "ESCORT", "PLUNDER", "GIFT", "CONVERT"]:
 				unit_actions[event.source_id] = {"type": "SKILL", "started": animation_time}
+			elif event.get("type") == "ARRIVAL":
+				unit_actions[event.unit_id] = {"type": "SKILL", "started": animation_time}
 			elif event.get("type") == "ATTACK" and UNIT_ATTACK_TEXTURES.has(String(event.get("attack_kind", ""))):
 				unit_actions[event.attacker_id] = {"type": "ATTACK", "started": animation_time}
 	queue_redraw()
@@ -744,6 +770,10 @@ func _draw_unit(unit: Dictionary, scale_x: float, lane_y: float) -> void:
 		var aura_height := aura_width * float(aura.get_height()) / float(aura.get_width())
 		var soul_max := maxf(1.0, float(BattleModel.trait_value(kind, "soul_max", 1)))
 		draw_texture_rect(aura, Rect2(x - aura_width * 0.5, lane_y + 8.0 - aura_height, aura_width, aura_height), false, Color(1, 1, 1, (0.35 + 0.55 * souls / soul_max) * effect_intensity))
+	if show_battle_effects and BattleModel.trait_value(kind, "aura_radius") != null:
+		var ring: Texture2D = HERO_AURA_TEXTURES[int(animation_time * 8.0) % HERO_AURA_TEXTURES.size()]
+		var ring_width := 110.0
+		draw_texture_rect(ring, Rect2(x - ring_width * 0.5, lane_y + 8.0 - ring_width * float(ring.get_height()) / float(ring.get_width()), ring_width, ring_width * float(ring.get_height()) / float(ring.get_width())), false, Color(1, 1, 1, 0.55 * effect_intensity))
 	draw_set_transform_matrix(_view_transform() * Transform2D(0.0, Vector2(facing, 1.0), 0.0, Vector2(x, lane_y)))
 	var tint: Color = (Color.WHITE.lerp(Color("#ffb37a"), 0.25) if BattleModel.is_enraged(unit) else Color.WHITE) * unit_tints[int(unit.side)]
 	if texture != walk_texture and action_blend < 1.0:
@@ -1014,6 +1044,16 @@ func _draw_combat_events(scale_x: float, lane_y: float) -> void:
 				_draw_effect_frames(JOKER_BLINK_TEXTURES, life, x, lane_y - 10.0, 90.0)
 			elif event_type == "ESCORT":
 				_draw_effect_frames(ROYAL_SUMMON_TEXTURES, life, x, lane_y + 8.0, 120.0)
+			elif event_type == "ARRIVAL":
+				_draw_effect_frames(PSYCHIC_PORTAL_TEXTURES, life, x, lane_y + 6.0, 96.0)
+			elif event_type == "PLUNDER":
+				# Coins fly from the fallen enemy to the raider.
+				var from_x := world_to_screen_x(float(event.get("from_x", event.get("x", 640.0))))
+				_draw_effect_frames(COIN_STEAL_TEXTURES, life, lerpf(from_x, x, 1.0 - life), lane_y - 40.0, 70.0)
+			elif event_type == "GIFT":
+				_draw_effect_frames(GIFT_ABSORB_TEXTURES, life, x, lane_y - 30.0, 80.0)
+			elif event_type == "CONVERT":
+				_draw_effect_frames(CONVERT_SWIRL_TEXTURES, life, x, lane_y + 4.0, 90.0)
 			elif event_type == "KNOCKBACK":
 				# Dust where the thrown unit lands.
 				for puff in 4:

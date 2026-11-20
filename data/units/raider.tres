@@ -1,0 +1,22 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "raider"
+display_name = "약탈자"
+order = 16
+summon_only = false
+cost = 45.0
+hp = 100.0
+damage = 10.0
+interval = 1.3
+speed = 46.0
+range = 40.0
+extra = {
+"plunder_cap": 15.0,
+"plunder_cooldown": 4.0,
+"plunder_fraction": 0.25
+}
+tags = PackedStringArray()

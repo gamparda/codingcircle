@@ -34,7 +34,8 @@ func _initialize() -> void:
 		var ai := ServerAI.new(1, stage)
 		ai._try_spawn(model)
 		check(model.units.size() == 1, "stage %d can make its opening purchase" % stage)
-	check(used.size() == BattleModel.UNIT_STATS.size(), "campaign decks cover every current purchasable unit")
+	# The campaign predates the 2026-11 roster: its decks cover every unit from before it.
+	check(["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord"].all(func(kind): return used.has(kind)), "campaign decks cover every original unit")
 	var hp := fixture(1, 1)
 	hp.configure_base_health(1,320.0); hp.base_hp[1]=250.0
 	check(hp.snapshot().base_max_hp[1] == 320.0, "damage never changes the base maximum")

@@ -1,6 +1,5 @@
 extends SceneTree
-## Batch-1 units (general, bomber, joker, king with royal guards) follow their rules on whichever battle
-## engine this machine runs (determinism_golden_test.gd checks the two engines agree).
+## Batch-1 units (general, bomber, joker, king with royal guards) follow their rules in the battle engine.
 
 var checks := 0
 var failures := 0
@@ -104,7 +103,10 @@ func _initialize() -> void:
 	check(is_equal_approx(float(general.speed), 70.0) and is_equal_approx(float(general.interval), 0.9), "the general is fast and attacks every 0.9 s")
 	horse.structures.append({"id": 99, "side": 1, "kind": "swamp", "x": float(general.x), "hp": 1.0, "max_hp": 1.0})
 	var swamp_scale := float(BattleModel.STRUCTURE_STATS.swamp.speed_scale)
-	check(is_equal_approx(horse._swamp_scale(general), maxf(0.0, 1.0 - (1.0 - swamp_scale) * 1.5)), "a swamp slows the general 1.5 times as hard")
+	var start_x := float(general.x)
+	horse.tick(0.1)
+	general = by_kind(horse, "general")[0]
+	check(is_equal_approx(float(general.x) - start_x, 70.0 * 0.1 * maxf(0.0, 1.0 - (1.0 - swamp_scale) * 1.5)), "a swamp slows the general 1.5 times as hard")
 
 	print("PASS: %d batch-1 unit checks" % checks if failures == 0 else "FAILED: %d of %d" % [failures, checks])
 	quit(0 if failures == 0 else 1)

@@ -28,12 +28,22 @@ UNITS = {
     'joker': ('joker', [('idle', 8), ('walk', 8), ('attack', 5), (None, 7)]),
     'king': ('king', [('idle', 8), ('walk', 8), ('attack', 5), ('skill', 7)]),
     'royal_guard': ('king_guard', [('idle', 8), ('walk', 8), ('attack', 5), ('death', 6)]),
+    'hero': ('hero', [('idle', 8), ('walk', 8), ('attack', 5), ('skill', 7)]),
+    'raider': ('raider', [('idle', 8), ('walk', 8), ('attack', 5), ('skill', 7)]),
+    'preacher': ('preacher', [('idle', 8), ('walk', 8), ('attack', 5), ('skill', 7)]),
+    'psychic': ('psychic', [('idle', 8), ('walk', 8), ('attack', 5), ('skill', 7)]),
+    'shaman': ('shaman', [('idle', 8), ('walk', 8), ('attack', 5), ('skill', 6)]),
 }
 # name: (sheet, row index, poses)
 EFFECTS = {
     'bomb_blast': ('new_effects_a', 1, 8),
     'joker_blink': ('new_effects_a', 2, 6),
     'royal_summon': ('new_effects_b', 3, 6),
+    'psychic_portal': ('new_effects_a', 4, 7),
+    'coin_steal': ('new_effects_b', 0, 6),
+    'gift_absorb': ('new_effects_b', 1, 6),
+    'hero_aura': ('new_effects_b', 2, 6),
+    'convert_swirl': ('new_effects_b', 4, 6),
 }
 
 

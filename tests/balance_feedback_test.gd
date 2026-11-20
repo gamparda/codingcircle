@@ -25,7 +25,12 @@ func run() -> void:
 	var enemy: Dictionary = swamp.units[0]
 	enemy.x = 570.0
 	check(swamp._swamp_scale(enemy) == 0.2 and BattleModel.STRUCTURE_STATS.swamp.radius == 95.0, "swamp reduces enemy movement 80 percent without increasing radius")
-	check(swamp._swamp_scale({"side": 0, "x": 500.0}) == 1.0, "own swamp never slows allies")
+	swamp.spawn_unit(0, "swordsman")
+	var friend: Dictionary = swamp.units.back()
+	friend.x = 500.0
+	check(swamp._swamp_scale(friend) == 1.0, "own swamp never slows allies")
+	swamp.units = swamp.units.filter(func(unit): return int(unit.side) == 1)
+	enemy = swamp.units[0]
 	swamp.tick(1.0)
 	check(is_equal_approx(570.0 - float(enemy.x), float(enemy.speed) * 0.2), "swamp slowdown actually affects movement")
 	swamp.tick(3.99)

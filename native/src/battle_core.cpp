@@ -133,6 +133,10 @@ struct Names {
 	StringName stall = StringName("stall_remaining");
 	StringName blink_bonus = StringName("blink_bonus");
 	StringName leaderless = StringName("leaderless");
+	StringName plunder = StringName("plunder_remaining");
+	StringName convert = StringName("convert_remaining");
+	StringName gift = StringName("gift");
+	StringName converted = StringName("converted");
 };
 Names *N = nullptr;
 
@@ -157,6 +161,7 @@ void BattleCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("unit_count"), &BattleCore::unit_count);
 	ClassDB::bind_method(D_METHOD("side_count", "side"), &BattleCore::side_count);
 	ClassDB::bind_method(D_METHOD("tick", "model", "delta"), &BattleCore::tick);
+	ClassDB::bind_method(D_METHOD("probe", "model", "what", "args"), &BattleCore::probe);
 	ClassDB::bind_method(D_METHOD("export_units"), &BattleCore::export_units);
 	ClassDB::bind_method(D_METHOD("count_units", "side", "include_downed"), &BattleCore::count_units);
 	ClassDB::bind_method(D_METHOD("fielded", "side", "kind"), &BattleCore::fielded);
@@ -244,6 +249,24 @@ bool BattleCore::configure(const Dictionary &unit_stats, const Dictionary &summo
 			info.control_weakness = num(stats.get("control_weakness", 1.0));
 			info.leaderless_damage = num(stats.get("leaderless_damage", 1.0));
 			info.has_leaderless = info.leaderless_damage != 1.0;
+			info.cost = num(stats.get("cost", 0.0));
+			info.aura_radius = num(stats.get("aura_radius", 0.0));
+			info.has_aura = info.aura_radius > 0.0;
+			info.aura_attack_speed = num(stats.get("aura_attack_speed", 0.0));
+			info.aura_cap = num(stats.get("aura_cap", 0.0));
+			info.plunder_fraction = num(stats.get("plunder_fraction", 0.0));
+			info.has_plunder = info.plunder_fraction > 0.0;
+			info.plunder_cap = num(stats.get("plunder_cap", 0.0));
+			info.plunder_cooldown = num(stats.get("plunder_cooldown", 0.0));
+			Variant gifts = stats.get("gift_kinds", Variant());
+			if (gifts.get_type() != Variant::NIL) info.gift_kinds = PackedStringArray(gifts);
+			info.has_gift = !info.gift_kinds.is_empty();
+			info.convert_radius = num(stats.get("convert_radius", 0.0));
+			info.has_convert = info.convert_radius > 0.0;
+			info.convert_max_cost = num(stats.get("convert_max_cost", 0.0));
+			info.convert_cooldown = num(stats.get("convert_cooldown", 0.0));
+			info.convert_hp = num(stats.get("convert_hp", 0.5));
+			info.convert_limit = int64_t(num(stats.get("convert_limit", 0)));
 			Variant smite = stats.get("smite_tags", Variant());
 			if (smite.get_type() == Variant::NIL) {
 				info.smite_tags.push_back("undead");
@@ -306,6 +329,10 @@ Dictionary BattleCore::to_dictionary(const Unit &u) const {
 	if (u.has_stall) d[N->stall] = u.stall_remaining;
 	if (u.has_blink_bonus) d[N->blink_bonus] = true;
 	if (u.has_leaderless) d[N->leaderless] = true;
+	if (u.has_plunder_cd) d[N->plunder] = u.plunder_remaining;
+	if (u.has_convert_cd) d[N->convert] = u.convert_remaining;
+	if (u.has_gift) d[N->gift] = kinds[u.gift].name;
+	if (u.has_converted) d[N->converted] = true;
 	if (!u.extra.is_empty()) {
 		Array keys = u.extra.keys();
 		for (int64_t i = 0; i < keys.size(); i++) d[keys[i]] = u.extra[keys[i]];
@@ -344,6 +371,10 @@ Unit BattleCore::from_dictionary(const Dictionary &d) {
 		else if (key == N->stall) { u.has_stall = true; u.stall_remaining = double(v); }
 		else if (key == N->blink_bonus) u.has_blink_bonus = true;
 		else if (key == N->leaderless) u.has_leaderless = true;
+		else if (key == N->plunder) { u.has_plunder_cd = true; u.plunder_remaining = double(v); }
+		else if (key == N->convert) { u.has_convert_cd = true; u.convert_remaining = double(v); }
+		else if (key == N->gift) { u.has_gift = true; u.gift = kind_of(String(v)); }
+		else if (key == N->converted) u.has_converted = true;
 		else u.extra[keys[i]] = v;
 	}
 	if (!d.has(N->support_stacks)) u.has_support_stacks = false;
@@ -390,6 +421,14 @@ void BattleCore::write_into(Dictionary &d, const Unit &u) const {
 	else d.erase(N->blink_bonus);
 	if (u.has_leaderless) d[N->leaderless] = true;
 	else d.erase(N->leaderless);
+	if (u.has_plunder_cd) d[N->plunder] = u.plunder_remaining;
+	else d.erase(N->plunder);
+	if (u.has_convert_cd) d[N->convert] = u.convert_remaining;
+	else d.erase(N->convert);
+	if (u.has_gift) d[N->gift] = kinds[u.gift].name;
+	else d.erase(N->gift);
+	if (u.has_converted) d[N->converted] = true;
+	else d.erase(N->converted);
 }
 
 Dictionary BattleCore::handle_of(Unit &u) {
@@ -560,7 +599,8 @@ struct Tick {
 	std::vector<int> needy[2];
 	NeedyLane needy_lanes[2];
 	bool supports_moved = false;
-	int healer = -1, necromancer = -1, skeleton = -1, berserker = -1, warlock = -1;
+	int healer = -1, necromancer = -1, skeleton = -1, berserker = -1, warlock = -1, zombie = -1, paladin = -1;
+	std::vector<int> auras[2];
 
 	std::vector<Unit> &U() { return *units; }
 	const KindInfo &K(int kind) { return (*kinds)[kind]; }
@@ -588,7 +628,14 @@ struct Tick {
 	}
 
 	bool is_enraged(const Unit &u) {
-		return u.kind == berserker && u.hp > 0.0 && u.hp <= u.max_hp * RAGE_HP_FRACTION;
+		return (u.kind == berserker || (u.has_gift && u.gift == berserker)) && u.hp > 0.0 && u.hp <= u.max_hp * RAGE_HP_FRACTION;
+	}
+
+	// The kind whose revive trait a unit uses (its own, or a preacher's zombie gift), or -1.
+	int revive_kind(const Unit &u) {
+		if (K(u.kind).can_revive) return u.kind;
+		if (u.has_gift && K(u.gift).can_revive) return u.gift;
+		return -1;
 	}
 
 	double support_attack_speed(const Unit &u) {
@@ -597,6 +644,17 @@ struct Tick {
 		if (u.kind == healer) return curse;
 		int64_t stacks = u.has_support_stacks ? u.support_stacks : 0;
 		double multiplier = 1.0 + double(gd_mini(SUPPORT_MAX_STACKS, gd_maxi(0, stacks))) * SUPPORT_INCREMENT;
+		// A hero's aura (the strongest in reach; auras do not stack) adds to mage stacks, up to the aura's cap.
+		double aura = 0.0, cap = 0.0;
+		for (int index : auras[u.side]) {
+			const Unit &hero = U()[index];
+			const KindInfo &info = K(hero.kind);
+			if (std::fabs(hero.x - u.x) <= info.aura_radius && info.aura_attack_speed > aura) {
+				aura = info.aura_attack_speed;
+				cap = info.aura_cap;
+			}
+		}
+		if (aura > 0.0) multiplier = gd_minf(multiplier + aura, 1.0 + cap);
 		if (u.has_blessed) {
 			Dictionary blessing = structure_stats["blessing"];
 			multiplier *= double(blessing["attack_speed"]);
@@ -678,17 +736,19 @@ struct Tick {
 	void damage_target(int attacker_unit, int64_t caster_side, const String &caster_kind, double caster_x, int64_t caster_id, const Target &target, double damage, bool show_attack) {
 		int attacker_kind = attacker_unit >= 0 ? U()[attacker_unit].kind : core_kind(caster_kind);
 		const KindInfo &ak = K(attacker_kind);
+		// A preacher's paladin gift smites like a paladin.
+		const KindInfo &smiter = (attacker_unit >= 0 && U()[attacker_unit].has_gift && K(U()[attacker_unit].gift).has_undead_bonus) ? K(U()[attacker_unit].gift) : ak;
 		bool target_is_unit = target.unit >= 0;
 		bool smites_undead = false;
-		if (ak.has_undead_bonus && target_is_unit) {
-			for (int64_t i = 0; i < ak.smite_tags.size(); i++) {
-				if (has_tag(U()[target.unit].kind, ak.smite_tags[i])) {
+		if (smiter.has_undead_bonus && target_is_unit) {
+			for (int64_t i = 0; i < smiter.smite_tags.size(); i++) {
+				if (has_tag(U()[target.unit].kind, smiter.smite_tags[i])) {
 					smites_undead = true;
 					break;
 				}
 			}
 		}
-		if (smites_undead) damage *= ak.undead_bonus;
+		if (smites_undead) damage *= smiter.undead_bonus;
 		double target_hp = target_is_unit ? U()[target.unit].hp : double(target.structure[N->hp]);
 		double before = gd_maxf(0.0, target_hp);
 		double effective = gd_minf(before, gd_maxf(0.0, damage));
@@ -703,6 +763,7 @@ struct Tick {
 			if (smites_undead && t.hp <= 0.0) revive_used[t.id] = true;
 			target_id = t.id;
 			target_x = t.x;
+			if (before > 0.0 && t.hp <= 0.0 && attacker_unit >= 0) on_kill(attacker_unit, target.unit);
 		} else {
 			Dictionary s = target.structure;
 			s[N->hp] = new_hp;
@@ -747,6 +808,42 @@ struct Tick {
 
 	int core_kind(const String &name);
 
+	// A unit's attack felled `victim`: a raider takes some of the enemy's resources, a preacher takes the
+	// victim's ability.
+	void on_kill(int killer, int victim) {
+		Unit &k = U()[killer];
+		const KindInfo &info = K(k.kind);
+		const Unit &v = U()[victim];
+		if (info.has_plunder && !k.has_plunder_cd && !K(v.kind).summon) {
+			int64_t enemy = 1 - k.side;
+			double amount = gd_minf(gd_minf(info.plunder_cap, K(v.kind).cost * info.plunder_fraction), double(resources[enemy]));
+			if (amount > 0.0) {
+				resources[enemy] = double(resources[enemy]) - amount;
+				double capacity = double(model->call("resource_capacity", k.side));
+				resources[k.side] = gd_minf(capacity, double(resources[k.side]) + amount);
+				k.has_plunder_cd = true;
+				k.plunder_remaining = info.plunder_cooldown;
+				Dictionary e;
+				e[N->type] = "PLUNDER";
+				e[N->source_id] = k.id;
+				e[N->x] = k.x;
+				e["from_x"] = v.x;
+				e["amount"] = amount;
+				event(e);
+			}
+		}
+		if (info.has_gift && info.gift_kinds.has(K(v.kind).name)) {
+			k.has_gift = true;
+			k.gift = v.kind;
+			Dictionary e;
+			e[N->type] = "GIFT";
+			e[N->source_id] = k.id;
+			e[N->kind] = K(v.kind).name;
+			e[N->x] = k.x;
+			event(e);
+		}
+	}
+
 	// ---------- indexes ----------
 
 	void index_curses() {
@@ -790,6 +887,11 @@ struct Tick {
 	}
 
 	void index_fronts() {
+		auras[0].clear();
+		auras[1].clear();
+		for (int i = 0; i < int(U().size()); i++) {
+			if (U()[i].hp > 0.0 && K(U()[i].kind).has_aura) auras[U()[i].side].push_back(i);
+		}
 		fronts[0] = fronts[1] = -1;
 		needy[0].clear();
 		needy[1].clear();
@@ -1283,7 +1385,7 @@ struct Tick {
 
 	void remember_fallen(const Unit &u) {
 		const KindInfo &info = K(u.kind);
-		if (!info.known || info.summon || (u.has_revived && u.revived.booleanize()) || info.field_limit > 0) return;
+		if (!info.known || info.summon || u.has_converted || (u.has_revived && u.revived.booleanize()) || info.field_limit > 0) return;
 		double damage_scale = info.damage > 0.0 ? u.damage / info.damage : 1.0;
 		Array side_fallen = fallen[u.side];
 		Dictionary entry;
@@ -1444,6 +1546,14 @@ void Tick::run() {
 			u.stall_remaining = u.stall_remaining - delta;
 			if (u.stall_remaining <= EPS) u.has_stall = false;
 		}
+		if (u.has_plunder_cd) {
+			u.plunder_remaining = u.plunder_remaining - delta;
+			if (u.plunder_remaining <= EPS) u.has_plunder_cd = false;
+		}
+		if (u.has_convert_cd) {
+			u.convert_remaining = u.convert_remaining - delta;
+			if (u.convert_remaining <= EPS) u.has_convert_cd = false;
+		}
 	}
 	// _tick_revives
 	for (Unit &u : U()) {
@@ -1451,7 +1561,7 @@ void Tick::run() {
 		u.revive_remaining = gd_maxf(0.0, u.revive_remaining - delta);
 		if (u.revive_remaining > EPS) continue;
 		u.has_revive = false;
-		u.hp = u.max_hp * K(u.kind).revive_hp_fraction;
+		u.hp = u.max_hp * K(revive_kind(u) >= 0 ? revive_kind(u) : u.kind).revive_hp_fraction;
 		u.cooldown = gd_max(MIN_ATTACK_INTERVAL, u.interval);
 		Dictionary e;
 		e[N->type] = "REVIVE";
@@ -1710,10 +1820,10 @@ void Tick::run() {
 
 	// _down_revivable_units
 	for (Unit &u : U()) {
-		if (u.hp > 0.0 || u.has_revive || revive_used.has(u.id) || !K(u.kind).can_revive) continue;
+		if (u.hp > 0.0 || u.has_revive || revive_used.has(u.id) || revive_kind(u) < 0) continue;
 		revive_used[u.id] = true;
 		u.has_revive = true;
-		u.revive_remaining = K(u.kind).revive_delay;
+		u.revive_remaining = K(revive_kind(u)).revive_delay;
 		u.support_stacks = 0;
 		u.has_support_stacks = true;
 		Dictionary e;
@@ -1722,7 +1832,9 @@ void Tick::run() {
 		e[N->x] = u.x;
 		event(e);
 	}
-	// _emit_death_events
+	// _emit_death_events; a shaman near a fallen enemy raises it on its own side (after the list is cleaned).
+	struct Conversion { int64_t shaman_id; int kind; double x; };
+	std::vector<Conversion> pending_conversions;
 	for (int i = 0; i < int(U().size()); i++) {
 		const Unit &u = U()[i];
 		if (u.hp <= 0.0 && !u.has_revive && !announced_deaths.has(u.id)) {
@@ -1734,6 +1846,25 @@ void Tick::run() {
 			event(e);
 			harvest_soul(i);
 			remember_fallen(U()[i]);
+			const KindInfo &victim = K(U()[i].kind);
+			if (!victim.known || victim.summon || victim.field_limit > 0 || U()[i].has_converted) continue;
+			for (Unit &shaman : U()) {
+				const KindInfo &info = K(shaman.kind);
+				if (!info.has_convert || shaman.side == U()[i].side || shaman.hp <= 0.0 || shaman.has_convert_cd) continue;
+				if (victim.cost > info.convert_max_cost || std::fabs(shaman.x - U()[i].x) > info.convert_radius) continue;
+				int64_t held = 0;
+				for (const Unit &other : U()) {
+					if (other.has_converted && other.hp > 0.0 && summon_owners.has(other.id) && int64_t(summon_owners[other.id]) == shaman.id) held++;
+				}
+				for (const Conversion &c : pending_conversions) {
+					if (c.shaman_id == shaman.id) held++;
+				}
+				if (held >= info.convert_limit) continue;
+				shaman.has_convert_cd = true;
+				shaman.convert_remaining = info.convert_cooldown;
+				pending_conversions.push_back({shaman.id, U()[i].kind, U()[i].x});
+				break;
+			}
 		}
 	}
 	for (int64_t i = 0; i < structures.size(); i++) {
@@ -1765,6 +1896,28 @@ void Tick::run() {
 		}
 		structures = kept;
 		structures_replaced = true;
+	}
+	for (const Conversion &c : pending_conversions) {
+		int shaman = -1;
+		for (int i = 0; i < int(U().size()); i++) {
+			if (U()[i].id == c.shaman_id) {
+				shaman = i;
+				break;
+			}
+		}
+		if (winner != -1 || shaman < 0 || side_full(U()[shaman].side)) continue;
+		int64_t side = U()[shaman].side;
+		create_unit(side, c.kind, K(U()[shaman].kind).convert_hp, 1.0, c.x);
+		Unit &raised = U().back();
+		raised.has_converted = true;
+		summon_owners[raised.id] = c.shaman_id;
+		Dictionary e;
+		e[N->type] = "CONVERT";
+		e[N->source_id] = c.shaman_id;
+		e["unit_id"] = raised.id;
+		e[N->kind] = K(c.kind).name;
+		e[N->x] = raised.x;
+		event(e);
 	}
 	for (int64_t owner_id : pending_summons) {
 		int owner = -1;
@@ -1831,21 +1984,14 @@ int BattleCore::kind_of_public(const String &name) { return kind_of(name); }
 
 void BattleCore::write_back(Unit &u) { write_into(u.handle, u); }
 
-void BattleCore::tick(Object *model, double delta) {
-	if (model == nullptr) return;
-	if (int64_t(model->get("winner")) != -1) return;
-	sync_in();
-	exposed = Array(); // the tick makes a new units array, as `units = units.filter(...)` does in GDScript
-	has_exposed = false;
-	Tick t;
-	t.core = this;
+namespace {
+void load_tick(Tick &t, BattleCore *core, std::vector<KindInfo> &kinds, std::vector<Unit> &units, const Dictionary &structure_stats, Object *model, double delta) {
+	t.core = core;
 	t.kinds = &kinds;
 	t.units = &units;
 	t.model = model;
 	t.structure_stats = structure_stats;
 	t.delta = delta;
-	t.elapsed = double(model->get("elapsed")) + delta;
-	model->set("elapsed", t.elapsed);
 	t.winner = -1;
 	t.next_unit_id = int64_t(model->get("next_unit_id"));
 #define LOAD(name) t.name = model->get(#name)
@@ -1856,16 +2002,78 @@ void BattleCore::tick(Object *model, double delta) {
 	LOAD(revive_used); LOAD(knocked_back); LOAD(first_struck); LOAD(cheat_saved); LOAD(announced_deaths);
 	LOAD(announced_structure_deaths);
 #undef LOAD
-	t.healer = kind_of("healer");
-	t.necromancer = kind_of("necromancer");
-	t.skeleton = kind_of("skeleton");
-	t.berserker = kind_of("berserker");
-	t.warlock = kind_of("warlock");
-	t.run();
+	t.healer = core->kind_of_public("healer");
+	t.necromancer = core->kind_of_public("necromancer");
+	t.skeleton = core->kind_of_public("skeleton");
+	t.berserker = core->kind_of_public("berserker");
+	t.warlock = core->kind_of_public("warlock");
+	t.zombie = core->kind_of_public("zombie");
+	t.paladin = core->kind_of_public("paladin");
+}
+
+void store_tick(Tick &t, Object *model) {
 	if (t.curses_replaced) model->set("curses", t.curses);
 	if (t.structures_replaced) model->set("structures", t.structures);
 	if (t.casts_replaced) model->set("spell_casts", t.spell_casts);
 	model->set("next_unit_id", t.next_unit_id);
 	if (t.winner != -1) model->set("winner", t.winner);
+}
+
+int index_of_id(std::vector<Unit> &units, int64_t id) {
+	for (int i = 0; i < int(units.size()); i++) {
+		if (units[i].id == id) return i;
+	}
+	return -1;
+}
+} // namespace
+
+void BattleCore::tick(Object *model, double delta) {
+	if (model == nullptr) return;
+	if (int64_t(model->get("winner")) != -1) return;
+	sync_in();
+	exposed = Array(); // the tick makes a new units array, as `units = units.filter(...)` does in GDScript
+	has_exposed = false;
+	Tick t;
+	load_tick(t, this, kinds, units, structure_stats, model, delta);
+	t.elapsed = double(model->get("elapsed")) + delta;
+	model->set("elapsed", t.elapsed);
+	t.run();
+	store_tick(t, model);
 	sync_out();
+}
+
+Variant BattleCore::probe(Object *model, const String &what, const Array &args) {
+	if (model == nullptr) return Variant();
+	sync_in();
+	Tick t;
+	load_tick(t, this, kinds, units, structure_stats, model, 0.0);
+	t.elapsed = double(model->get("elapsed"));
+	t.index_curses();
+	t.index_lanes();
+	t.index_fronts();
+	Variant result;
+	int unit = args.size() > 0 && args[0].get_type() == Variant::INT ? index_of_id(units, int64_t(args[0])) : -1;
+	if (what == "find_target" && unit >= 0) {
+		Target target = t.find_target(unit);
+		if (target.unit >= 0) result = units[target.unit].id;
+		else if (!target.structure.is_empty()) result = target.structure;
+	} else if (what == "damage" && unit >= 0 && args.size() >= 4) {
+		Target target;
+		if (args[1].get_type() == Variant::DICTIONARY) target.structure = args[1];
+		else target.unit = index_of_id(units, int64_t(args[1]));
+		if (target.valid()) t.damage_target(unit, 0, String(), 0.0, 0, target, double(args[2]), bool(args[3]));
+	} else if (what == "swamp_scale" && unit >= 0) {
+		result = t.swamp_scale(units[unit]);
+	} else if (what == "strike" && unit >= 0) {
+		result = t.strike_damage(units[unit]);
+	} else if (what == "curse" && unit >= 0 && args.size() >= 2) {
+		t.install_curse(units[unit], double(args[1]));
+	} else if (what == "record" && args.size() >= 4) {
+		t.record_damage(int64_t(args[0]), String(args[1]), double(args[2]), bool(args[3]));
+	} else if (what == "support" && unit >= 0) {
+		t.tick_support(unit);
+	}
+	store_tick(t, model);
+	sync_out();
+	return result;
 }

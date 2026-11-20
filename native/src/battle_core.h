@@ -35,6 +35,14 @@ struct KindInfo {
 	bool has_blink = false, has_blast = false, has_leaderless = false;
 	double blink_cooldown = 0.0, blink_range = 0.0, blink_stall = 0.0, blink_bonus = 1.0;
 	double blast_radius = 0.0, blast_structure_damage = 0.0, control_weakness = 1.0, leaderless_damage = 1.0;
+	// Batch 2: aura (hero), plunder (raider), gifts (preacher), conversion (shaman).
+	double cost = 0.0;
+	bool has_aura = false, has_plunder = false, has_gift = false, has_convert = false;
+	double aura_radius = 0.0, aura_attack_speed = 0.0, aura_cap = 0.0;
+	double plunder_fraction = 0.0, plunder_cap = 0.0, plunder_cooldown = 0.0;
+	PackedStringArray gift_kinds;
+	double convert_radius = 0.0, convert_max_cost = 0.0, convert_cooldown = 0.0, convert_hp = 0.5;
+	int64_t convert_limit = 0;
 };
 
 struct Unit {
@@ -53,6 +61,9 @@ struct Unit {
 	Variant muster;
 	bool has_blink = false, has_stall = false, has_blink_bonus = false, has_leaderless = false;
 	double blink_remaining = 0.0, stall_remaining = 0.0;
+	bool has_plunder_cd = false, has_convert_cd = false, has_gift = false, has_converted = false;
+	double plunder_remaining = 0.0, convert_remaining = 0.0;
+	int gift = -1;
 	// Keys this engine does not know, kept as they came.
 	Dictionary extra;
 	// The dictionary GDScript holds for this unit (once it asked for it): kept in step both ways, so a reference
@@ -82,6 +93,9 @@ public:
 	Dictionary last_unit();
 	void append_unit(const Dictionary &value);
 	void tick(Object *model, double delta);
+	// One rule step on its own, for tests (see BattleModel's probe wrappers): "find_target", "damage",
+	// "swamp_scale", "strike", "curse", "record", "support".
+	Variant probe(Object *model, const String &what, const Array &args);
 	int kind_of_public(const String &name);
 	void write_back(Unit &unit);
 
