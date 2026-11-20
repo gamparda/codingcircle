@@ -8,14 +8,14 @@ kind = "bomber"
 display_name = "폭탄병"
 order = 12
 summon_only = false
-cost = 35.0
+cost = 40.0
 hp = 70.0
-damage = 120.0
+damage = 150.0
 interval = 1.2
 speed = 48.0
 range = 30.0
 extra = {
-"blast_radius": 70.0,
-"blast_structure_damage": 40.0
+"blast_radius": 80.0,
+"blast_structure_damage": 50.0
 }
 tags = PackedStringArray()
