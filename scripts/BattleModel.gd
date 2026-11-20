@@ -137,46 +137,67 @@ const FORMATION_MELEE := 35.0
 const MUSTER_INSET := 10.0
 const FORMATION_RANGED_MIN := 60.0
 const FORMATION_RANGED_MAX := 160.0
-## Per tick: each side's living units sorted by x (ties by their place in `units`), and the x of each side's
-## curses. Targeting looks them up by binary search instead of scanning every unit for every unit, which made
-## a tick quadratic in the unit count. Only valid while `_indexed` (inside tick); otherwise the scans run.
-var _lanes: Array = [{}, {}]
-var _curse_xs: Array = [PackedFloat64Array(), PackedFloat64Array()]
-var _indexed := false
-## Tests turn the index off to check that it picks exactly what the scans pick.
-static var targeting_index := true
-## The native engine is used when its library is loaded and was built from this BattleModel.gd (its rules hash
-## matches BattleRulesHash.gd); otherwise battles run here in GDScript. Tests switch it off to compare both.
-static var native_enabled := true
+## The battle rules live only in the native engine (native/src, class BattleCore). A library is used only when
+## it was built from the engine source this game data expects: its rules_hash() equals BattleRulesHash.HASH (a
+## hash of that source, tools/update_rules_hash.py). Rule changes ship as a new library the updater downloads
+## (ContentUpdater, user://native/<hash>/), so no app reinstall is needed; the copy shipped with the app is
+## used while it still matches. The Linux server's updater puts its copy next to it (CATWAR_NATIVE_LIB).
 const NATIVE_EXTENSION := "res://native/battle_native.gdextension"
-static var _native_checked := false
+const RulesHash = preload("res://scripts/BattleRulesHash.gd")
 static var _native_ok := false
 
+## This platform's library target ("android.arm64", "windows.x86_64", ...), or "" where there is none.
+static func native_target() -> String:
+	match OS.get_name():
+		"Android": return "android.arm64" if OS.has_feature("arm64") else "android.arm32"
+		"Windows": return "windows.x86_64"
+		"Linux": return "linux.x86_64"
+	return ""
+
+static func native_library_file(target: String) -> String:
+	return "libbattle_native.%s.%s" % [target, "dll" if target.begins_with("windows") else "so"]
+
+## Where the updater keeps the library for these rules.
+static func downloaded_native_path(target: String = native_target()) -> String:
+	return "user://native/%s/%s" % [RulesHash.HASH, native_library_file(target)]
+
+static func _native_matches() -> bool:
+	return ClassDB.class_exists("BattleCore") and String(ClassDB.instantiate("BattleCore").rules_hash()) == RulesHash.HASH
+
+static func _load_native_file(path: String, target: String) -> void:
+	var config := "user://battle_native_%s.gdextension" % target
+	var file := FileAccess.open(config, FileAccess.WRITE)
+	if file == null:
+		return
+	file.store_string("[configuration]\nentry_symbol = \"battle_native_init\"\ncompatibility_minimum = \"4.5\"\n\n[libraries]\n%s = \"%s\"\n" % [target, path.c_escape()])
+	file.close()
+	GDExtensionManager.load_extension(config)
+
 static func native_available() -> bool:
-	if not _native_checked:
-		_native_checked = true
-		if not ClassDB.class_exists("BattleCore") and FileAccess.file_exists(NATIVE_EXTENSION):
-			GDExtensionManager.load_extension(NATIVE_EXTENSION)
-		# The Linux server runs a game-data pack: its updater puts the library next to it (CATWAR_NATIVE_LIB).
-		var library := OS.get_environment("CATWAR_NATIVE_LIB")
-		if not ClassDB.class_exists("BattleCore") and not library.is_empty() and FileAccess.file_exists(library):
-			var config := "user://battle_native_local.gdextension"
-			var file := FileAccess.open(config, FileAccess.WRITE)
-			if file != null:
-				file.store_string("[configuration]\nentry_symbol = \"battle_native_init\"\ncompatibility_minimum = \"4.5\"\n\n[libraries]\nlinux.x86_64 = \"%s\"\n" % library.c_escape())
-				file.close()
-				GDExtensionManager.load_extension(config)
-		_native_ok = ClassDB.class_exists("BattleCore") and String(ClassDB.instantiate("BattleCore").rules_hash()) == preload("res://scripts/BattleRulesHash.gd").HASH
+	if _native_ok:
+		return true
+	var target := native_target()
+	var downloaded := downloaded_native_path(target)
+	var server_copy := OS.get_environment("CATWAR_NATIVE_LIB")
+	if not ClassDB.class_exists("BattleCore") and FileAccess.file_exists(NATIVE_EXTENSION):
+		GDExtensionManager.load_extension(NATIVE_EXTENSION)
+	if not _native_matches() and (FileAccess.file_exists(downloaded) or (not server_copy.is_empty() and FileAccess.file_exists(server_copy))):
+		# The app's own copy (loaded at start) is from older rules: swap in the downloaded one.
+		for loaded in GDExtensionManager.get_loaded_extensions():
+			GDExtensionManager.unload_extension(loaded)
+		_load_native_file(ProjectSettings.globalize_path(downloaded) if FileAccess.file_exists(downloaded) else server_copy, target)
+	_native_ok = _native_matches()
 	return _native_ok
 
 func _init() -> void:
-	if native_enabled and native_available():
+	if native_available():
 		_core = ClassDB.instantiate("BattleCore")
 		if not _core.configure(UNIT_STATS, SUMMON_STATS, STRUCTURE_STATS, Report.KINDS, native_constants()):
-			_core = null # an engine that wants a constant this model does not have: GDScript
+			push_error("BattleModel: the battle engine rejected this game data")
+			_core = null
 
-## The constants the native engine's rules use, handed over at run time: changing their values (balance) needs no
-## new engine, only the rules hash (the code of the rule functions) does.
+## The constants the engine's rules use, handed over at run time: changing their values (balance) needs no new
+## engine.
 static func native_constants() -> Dictionary:
 	return {
 		"FIELD_LEFT": FIELD_LEFT,
@@ -211,15 +232,6 @@ static func native_constants() -> Dictionary:
 ## Whether this battle runs on the native engine.
 func is_native() -> bool:
 	return _core != null
-## Per tick: each side's most advanced living non-support unit (supports follow it), and the living allies a
-## support can still buff (below the stack cap), in field order. Stacks only grow, so that list changes only
-## when units appear, fall, or reach the cap: with every ally maxed, supports have nothing to look at.
-var _fronts: Array = [null, null]
-var _needy: Array = [[], []]
-## _needy by position: per side {"xs": PackedFloat64Array, "order": PackedInt32Array (place in _needy)}.
-var _needy_lanes: Array = [{}, {}]
-## Whether a support moved this tick (the lane index is rebuilt only then).
-var _supports_moved := false
 ## Units that already made their first attack (for the "first_strike" modifier).
 var first_struck: Dictionary = {}
 ## Cheats switched on per side (super accounts; see Cheats.gd): "resources", "cooldowns", "castle".
@@ -395,8 +407,37 @@ func spawn_unit(side: int, kind: String) -> bool:
 	resources[side] -= cost
 	battle_report[side].resources_spent += cost
 	battle_report[side].units[kind].purchased += 1
-	spawn_cooldowns[side][kind] = 0.35
-	_create_unit(side, kind, stats, stat_scale * unit_modifier(side, kind, "hp"), stat_scale * unit_modifier(side, kind, "damage"), FIELD_LEFT + 35.0 if side == 0 else FIELD_RIGHT - 35.0)
+	spawn_cooldowns[side][kind] = float(trait_value(kind, "card_cooldown", 0.35))
+	var hp_scale := stat_scale * unit_modifier(side, kind, "hp")
+	var damage_scale := stat_scale * unit_modifier(side, kind, "damage")
+	var spawn_x := FIELD_LEFT + 35.0 if side == 0 else FIELD_RIGHT - 35.0
+	var arrival = trait_value(kind, "arrival_stall")
+	if arrival != null:
+		# Arrives in front of the enemy's foremost structure (the one nearest this side), if it has any.
+		var direction := 1.0 if side == 0 else -1.0
+		var front = null
+		for structure in structures:
+			if int(structure.side) != side and float(structure.hp) > 0.0 and (front == null or direction * float(structure.x) < direction * float(front.x)):
+				front = structure
+		if front != null:
+			spawn_x = float(front.x) - direction * 30.0
+	_create_unit(side, kind, stats, hp_scale, damage_scale, spawn_x)
+	if arrival != null:
+		var arrived: Dictionary = last_unit()
+		arrived["stall_remaining"] = float(arrival)
+		combat_events.append({"type": "ARRIVAL", "unit_id": arrived.id, "x": arrived.x})
+	var escort = trait_value(kind, "escort_kind")
+	if escort != null:
+		# A leader arrives with its escort: summons that march with it (see "leaderless_damage").
+		var leader: Dictionary = last_unit()
+		var direction := 1.0 if side == 0 else -1.0
+		for index in int(trait_value(kind, "escort_count", 0)):
+			if side_full(side):
+				break
+			_create_unit(side, String(escort), SUMMON_STATS[String(escort)], hp_scale, damage_scale, spawn_x + direction * (16.0 + 14.0 * index))
+			summon_owners[last_unit().id] = leader.id
+			battle_report[side].units[kind].summoned += 1
+		combat_events.append({"type": "ESCORT", "source_id": leader.id, "x": leader.x})
 	return true
 
 func _create_unit(side: int, kind: String, stats: Dictionary, hp_scale: float, damage_scale: float, x: float) -> void:
@@ -414,6 +455,8 @@ func _create_unit(side: int, kind: String, stats: Dictionary, hp_scale: float, d
 		unit["skill_remaining"] = float(trait_value(kind, "skill_cooldown"))
 	if trait_value(kind, "soul_max") != null:
 		unit["souls"] = 0
+	if trait_value(kind, "blink_cooldown") != null:
+		unit["blink_remaining"] = float(trait_value(kind, "blink_cooldown"))
 	if _core != null:
 		_core.append_unit(unit)
 	else:
@@ -424,10 +467,11 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 	if not UNIT_STATS.has(kind) and not SUMMON_STATS.has(kind):
 		return ""
 	var stats: Dictionary = UNIT_STATS.get(kind, SUMMON_STATS.get(kind, {}))
-	var interval: float = max(float(stats.interval), MIN_ATTACK_INTERVAL)
+	# MIN_ATTACK_INTERVAL only delays a new unit's first attack; afterwards it attacks every `interval`.
+	var interval := float(stats.interval)
 	var stat_scale := float(campaign_bonuses(growth_level).stat_scale)
 	var output := Localization.text("비용 %d  ·  체력 %d\n") % [int(stats.cost), int(stats.hp * stat_scale)]
-	if kind == "skeleton":
+	if bool(stats.get("summon_only", false)) or SUMMON_STATS.has(kind):
 		output = "소환 전용  ·  체력 %d\n" % int(stats.hp * stat_scale)
 	var support_step := roundi(SUPPORT_INCREMENT * 100.0)
 	var support_cap := roundi(SUPPORT_INCREMENT * SUPPORT_MAX_STACKS * 100.0)
@@ -449,6 +493,26 @@ static func unit_stat_summary(kind: String, growth_level: int = 0) -> String:
 			output += " · %d만큼 밀쳐냄" % int(trait_value(kind, "skill_knockback"))
 	if trait_value(kind, "soul_max") != null:
 		output += "\n영혼 수확 · 반경 %d 안의 적이 쓰러질 때마다 체력 %d%% 회복\n영혼 1개당 공격력 +%d%% · 최대 %d개 (+%d%%)" % [int(trait_value(kind, "soul_radius", 0.0)), roundi(float(trait_value(kind, "soul_heal_fraction", 0.0)) * 100.0), roundi(float(trait_value(kind, "soul_damage_step", 0.0)) * 100.0), int(trait_value(kind, "soul_max")), roundi(float(trait_value(kind, "soul_damage_step", 0.0)) * float(trait_value(kind, "soul_max")) * 100.0)]
+	if trait_value(kind, "blast_radius") != null:
+		output += "\n적·방벽·성에 닿으면 자폭 · 반경 %d 안의 모든 유닛에 공격력만큼 피해 (아군 포함)\n적 구조물과 성에는 %d" % [int(trait_value(kind, "blast_radius")), int(float(trait_value(kind, "blast_structure_damage", 0.0)) * stat_scale)]
+	if trait_value(kind, "blink_cooldown") != null:
+		output += "\n%d초마다 앞쪽 %d 안의 가장 깊숙한 적 곁으로 순간이동\n이동 직후 %.1f초 멈춤 · 다음 공격 피해 ×%.0f" % [int(trait_value(kind, "blink_cooldown")), int(trait_value(kind, "blink_range", 0.0)), float(trait_value(kind, "blink_stall", 0.0)), float(trait_value(kind, "blink_bonus", 1.0))]
+	if trait_value(kind, "control_weakness") != null:
+		output += "\n늪·빙결 효과를 %.1f배로 받음 (기마)" % float(trait_value(kind, "control_weakness"))
+	if trait_value(kind, "escort_kind") != null:
+		var escort := String(trait_value(kind, "escort_kind"))
+		var guard: Dictionary = SUMMON_STATS[escort]
+		output += "\n소환할 때 %s %d기 동행 · 체력 %d · 공격력 %d\n%s이 쓰러지면 %s 공격력 -%d%%" % [UNIT_NAMES.get(escort, escort), int(trait_value(kind, "escort_count", 0)), int(float(guard.hp) * stat_scale), int(float(guard.damage) * stat_scale), UNIT_NAMES.get(kind, kind), UNIT_NAMES.get(escort, escort), roundi((1.0 - float(guard.get("leaderless_damage", 1.0))) * 100.0)]
+	if trait_value(kind, "aura_radius") != null:
+		output += "\n반경 %d 안의 아군(자신 포함) 공속 +%d%% · 주인공끼리 중복 없음\n마법사 지원과 합쳐 최대 +%d%%" % [int(trait_value(kind, "aura_radius")), roundi(float(trait_value(kind, "aura_attack_speed", 0.0)) * 100.0), roundi(float(trait_value(kind, "aura_cap", 0.0)) * 100.0)]
+	if trait_value(kind, "plunder_fraction") != null:
+		output += "\n적 유닛을 처치하면 그 비용의 %d%%(최대 %d)를 상대 자원에서 빼앗음\n약탈 후 %d초 대기 · 소환 유닛은 대상 아님" % [roundi(float(trait_value(kind, "plunder_fraction")) * 100.0), int(trait_value(kind, "plunder_cap", 0.0)), int(trait_value(kind, "plunder_cooldown", 0.0))]
+	if trait_value(kind, "gift_kinds") != null:
+		output += "\n처치한 적의 능력 하나를 얻음 (마지막 것만 유지)\n%s" % " · ".join(PackedStringArray(Array(trait_value(kind, "gift_kinds")).map(func(gift): return {"berserker": "광전사: 광폭화", "zombie": "좀비: 1회 부활", "paladin": "성기사: 언데드·마족 추가 피해"}.get(gift, gift))))
+	if trait_value(kind, "arrival_stall") != null:
+		output += "\n적 구조물 중 가장 앞의 것 바로 앞에 등장 (없으면 기지에서 출발)\n등장 후 %.1f초 행동 불가 · 다시 소환까지 %d초" % [float(trait_value(kind, "arrival_stall")), int(trait_value(kind, "card_cooldown", 0.0))]
+	if trait_value(kind, "convert_radius") != null:
+		output += "\n반경 %d 안에서 쓰러진 비용 %d 이하 적을 아군으로 일으킴 (체력 %d%%)\n동시에 %d기까지 · %d초마다 · 군주·소환 유닛 제외" % [int(trait_value(kind, "convert_radius")), int(trait_value(kind, "convert_max_cost", 0.0)), roundi(float(trait_value(kind, "convert_hp", 0.5)) * 100.0), int(trait_value(kind, "convert_limit", 0)), int(trait_value(kind, "convert_cooldown", 0.0))]
 	if field_limit(kind) > 0:
 		output += "\n전장에 %d기만 둘 수 있음" % field_limit(kind)
 	if trait_value(kind, "undead_bonus") != null:
@@ -468,15 +532,24 @@ static func unit_role(kind: String) -> String:
 	match kind:
 		"healer": return Localization.text("공격속도 지원")
 		"archer": return Localization.text("원거리")
-		"shield": return Localization.text("방어 · 같은 자리면 먼저 맞음")
+		"shield": return Localization.text("방어 · 먼저 맞음")
 		"swordsman": return Localization.text("근접 공격")
-		"berserker": return Localization.text("체력 %d%% 이하: 광폭화") % roundi(RAGE_HP_FRACTION * 100.0)
-		"warlock": return Localization.text("적 공속 -%d%% 장판") % roundi((1.0 - CURSE_SPEED_SCALE) * 100.0)
-		"paladin": return Localization.text("%d초 십자가 강타") % int(trait_value(kind, "skill_cooldown"))
+		"berserker": return Localization.text("%d%% 이하 광폭화") % roundi(RAGE_HP_FRACTION * 100.0)
+		"warlock": return Localization.text("공속 -%d%% 장판") % roundi((1.0 - CURSE_SPEED_SCALE) * 100.0)
+		"paladin": return Localization.text("%d초 십자가") % int(trait_value(kind, "skill_cooldown"))
 		"sniper": return Localization.text("맨 뒤의 적 저격")
-		"zombie": return Localization.text("체력 %d%%로 1회 부활") % roundi(float(trait_value(kind, "revive_hp_fraction", 0.5)) * 100.0)
-		"necromancer": return Localization.text("%d초 해골 소환·최대 %d") % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER]
-		"demon_lord": return Localization.text("영혼 수확·%d초 포효·1기") % int(trait_value(kind, "skill_cooldown"))
+		"zombie": return Localization.text("%d%%로 1회 부활") % roundi(float(trait_value(kind, "revive_hp_fraction", 0.5)) * 100.0)
+		"necromancer": return Localization.text("%d초 해골 소환 ·%d") % [int(SUMMON_INTERVAL), MAX_SKELETONS_PER_NECROMANCER]
+		"demon_lord": return Localization.text("영혼 수확 · %d초 포효") % int(trait_value(kind, "skill_cooldown"))
+		"general": return Localization.text("기마 · 빠른 공격")
+		"bomber": return Localization.text("닿으면 자폭")
+		"joker": return Localization.text("%d초 순간이동 ×%.0f") % [int(trait_value(kind, "blink_cooldown")), float(trait_value(kind, "blink_bonus", 1.0))]
+		"king": return Localization.text("근위병 %d기 동행") % int(trait_value(kind, "escort_count", 0))
+		"hero": return Localization.text("주변 공속 +%d%%") % roundi(float(trait_value(kind, "aura_attack_speed", 0.0)) * 100.0)
+		"raider": return Localization.text("처치 시 자원 약탈")
+		"preacher": return Localization.text("적 능력 흡수")
+		"psychic": return Localization.text("적 구조물 앞 등장")
+		"shaman": return Localization.text("쓰러진 적을 아군으로")
 	return ""
 
 ## One-line description of a tactic card (structure or spell) for deck and battle cards.
@@ -599,81 +672,6 @@ func _cast_spell(side: int, kind: String, x: float) -> void:
 	combat_events.append({"type": "SPELL_CAST", "cast_id": next_cast_id, "side": side, "kind": kind, "x": x, "delay": delay})
 	next_cast_id += 1
 
-## Lands every cast that is due, in cast order.
-func _land_spells() -> void:
-	var due: Array = spell_casts.filter(func(cast): return float(cast.lands_at) <= elapsed + 0.000001)
-	if due.is_empty():
-		return
-	spell_casts = spell_casts.filter(func(cast): return float(cast.lands_at) > elapsed + 0.000001)
-	for cast in due:
-		_land_spell(cast)
-
-func _land_spell(cast: Dictionary) -> void:
-	var side := int(cast.side)
-	var kind := String(cast.kind)
-	var x := float(cast.x)
-	var stats: Dictionary = STRUCTURE_STATS[kind]
-	var radius := float(stats.get("radius", 0.0))
-	var caster := {"id": 0, "side": side, "kind": kind, "x": x}
-	var targets: Array = []
-	match String(stats.get("effect", kind)):
-		"strike":
-			# The healthiest enemy unit in the radius takes the whole hit.
-			var strongest = null
-			for enemy in units:
-				if int(enemy.side) != side and float(enemy.hp) > 0.0 and absf(float(enemy.x) - x) <= radius:
-					if strongest == null or float(enemy.hp) > float(strongest.hp):
-						strongest = enemy
-			if strongest != null:
-				x = float(strongest.x)
-				targets.append(strongest.id)
-				_damage_target(caster, strongest, float(stats.damage), false)
-		"blast":
-			for enemy in units:
-				if int(enemy.side) != side and float(enemy.hp) > 0.0 and absf(float(enemy.x) - x) <= radius:
-					targets.append(enemy.id)
-					_damage_target(caster, enemy, float(stats.damage), false)
-		"freeze":
-			for enemy in units:
-				if int(enemy.side) != side and float(enemy.hp) > 0.0 and absf(float(enemy.x) - x) <= radius:
-					targets.append(enemy.id)
-					enemy["frozen_remaining"] = float(stats.duration)
-		"bless":
-			for ally in units:
-				if int(ally.side) == side and float(ally.hp) > 0.0 and absf(float(ally.x) - x) <= radius:
-					targets.append(ally.id)
-					ally["blessed_remaining"] = float(stats.duration)
-					ally.hp = minf(float(ally.max_hp), float(ally.hp) + float(ally.max_hp) * float(stats.get("heal_fraction", 0.0)))
-		"resurrect":
-			var count := mini(int(stats.revive_count), fallen[side].size())
-			var raised: Array = fallen[side].slice(fallen[side].size() - count)
-			fallen[side] = fallen[side].slice(0, fallen[side].size() - count)
-			var fraction := float(stats.revive_fraction)
-			for index in raised.size():
-				if side_full(side):
-					break
-				var entry: Dictionary = raised[index]
-				var spread := (float(index) - float(raised.size() - 1) * 0.5) * 14.0
-				_create_unit(side, String(entry.kind), UNIT_STATS[String(entry.kind)], float(entry.hp_scale) * fraction, float(entry.damage_scale) * fraction, x + spread)
-				var unit: Dictionary = units.back()
-				unit["revived"] = true
-				revive_used[unit.id] = true
-				targets.append(unit.id)
-	combat_events.append({"type": "SPELL_LAND", "side": side, "kind": kind, "x": x, "radius": radius, "targets": targets})
-
-## Remembers a fallen ally for resurrection: bought units only (no summons, nothing already raised,
-## no unit limited to one on the field).
-func _remember_fallen(unit: Dictionary) -> void:
-	var kind := String(unit.kind)
-	if not UNIT_STATS.has(kind) or unit.get("revived", false) or field_limit(kind) > 0:
-		return
-	var stats: Dictionary = UNIT_STATS[kind]
-	var side := int(unit.side)
-	var damage_scale := float(unit.damage) / float(stats.damage) if float(stats.damage) > 0.0 else 1.0
-	fallen[side].append({"kind": kind, "hp_scale": float(unit.max_hp) / maxf(0.01, float(stats.hp)), "damage_scale": damage_scale})
-	if fallen[side].size() > MAX_FALLEN:
-		fallen[side].pop_front()
-
 func structure_placement_error(side: int, kind: String, x: float) -> String:
 	if winner != -1 or side < 0 or side > 1 or not STRUCTURE_STATS.has(kind):
 		return Localization.text("설치할 수 없는 구조물입니다.")
@@ -729,166 +727,50 @@ func place_structure(side: int, kind: String, x: float) -> bool:
 	next_structure_id += 1
 	return true
 
+## One step of the battle. The rules live in the native engine (native/src/battle_core.cpp); a model
+## without it cannot fight (see native_available()).
 func tick(delta: float) -> void:
 	if winner != -1:
 		return
-	if _core != null:
-		_core.tick(self, delta)
+	if _core == null:
+		push_error("BattleModel: the battle engine is not loaded")
 		return
-	elapsed += delta
-	if not cheats[0].is_empty() or not cheats[1].is_empty():
-		_apply_cheats()
-	curses = curses.filter(func(curse): return float(curse.expires_at) > elapsed)
-	for structure in structures:
-		if structure_expirations.has(structure.id) and elapsed >= float(structure_expirations[structure.id]):
-			structure.hp = 0.0
-			structure_expirations.erase(structure.id)
-	for side in 2:
-		var income := resource_income(side)
-		for structure in structures:
-			if int(structure.side) == side and String(structure.kind) == "generator" and float(structure.hp) > 0.0:
-				income += float(STRUCTURE_STATS.generator.income)
-		resources[side] = min(resource_capacity(side), float(resources[side]) + income * delta)
-		for kind in spawn_cooldowns[side].keys():
-			spawn_cooldowns[side][kind] = max(0.0, float(spawn_cooldowns[side][kind]) - delta)
-		for kind in spell_cooldowns[side].keys():
-			spell_cooldowns[side][kind] = maxf(0.0, float(spell_cooldowns[side][kind]) - delta)
-			if float(spell_cooldowns[side][kind]) <= 0.0:
-				spell_cooldowns[side].erase(kind)
+	_core.tick(self, delta)
+
+## ---- Single rule steps run by the engine on their own (tests and tools; battles use tick()). ----
+func _probe(what: String, args: Array):
+	return _core.probe(self, what, args) if _core != null else null
+
+func _unit_by_id(id) -> Variant:
 	for unit in units:
-		for key in ["frozen_remaining", "blessed_remaining"]:
-			if unit.has(key):
-				unit[key] = float(unit[key]) - delta
-				if float(unit[key]) <= 0.000001:
-					unit.erase(key)
+		if int(unit.id) == int(id):
+			return unit
+	return null
 
-	_tick_revives(delta)
-	_land_spells()
-	_index_curses()
-	_index_lanes()
-	_index_fronts()
+## What `unit` would attack now (a unit, a structure, or null).
+func _find_target(unit: Dictionary):
+	var found = _probe("find_target", [int(unit.id)])
+	return _unit_by_id(found) if found is int else found
 
-	# All combatants choose from the same positions/health. Applying an attack
-	# while choosing the next one gave earlier array entries a free lethal hit.
-	var pending_attacks: Array = []
-	var pending_base_hits: Array = []
-	var pending_moves: Array = []
-	_tick_turrets(delta, pending_attacks)
-	_tick_castles(delta, pending_attacks)
-	var pending_summons: Array = []
-	var live_skeletons := {}
-	for unit in units:
-		if unit.kind == "skeleton" and float(unit.hp) > 0.0 and summon_owners.has(unit.id):
-			live_skeletons[summon_owners[unit.id]] = int(live_skeletons.get(summon_owners[unit.id], 0)) + 1
-	for unit in units:
-		if unit.has("frozen_remaining"):
-			continue
-		unit.cooldown = max(0.0, float(unit.cooldown) - delta * support_attack_speed(unit))
-		if unit.hp <= 0.0:
-			continue
-		if unit.kind == "necromancer":
-			summon_timers[unit.id] = float(summon_timers.get(unit.id, SUMMON_INTERVAL)) - delta
-			if float(summon_timers[unit.id]) <= 0.000001:
-				if int(live_skeletons.get(unit.id, 0)) < MAX_SKELETONS_PER_NECROMANCER + int(modifier(int(unit.side), "skeleton_cap", 0)):
-					pending_summons.append(unit)
-				summon_timers[unit.id] = SUMMON_INTERVAL
-			unit["summon_remaining"] = maxf(0.0, float(summon_timers[unit.id]))
-		if unit.has("skill_remaining"):
-			unit.skill_remaining = maxf(0.0, float(unit.skill_remaining) - delta)
-		if unit.kind == "healer":
-			_tick_support(unit, delta)
-			continue
-	if _supports_moved:
-		_index_lanes() # supports moved
-	_supports_moved = false
-	var pending_skills: Array = []
-	for unit in units:
-		if float(unit.hp) <= 0.0 or unit.kind == "healer" or unit.has("frozen_remaining"):
-			continue
-		var target = null if sheltered(unit) else _find_target(unit)
-		if target != null:
-			if unit.has("skill_remaining") and float(unit.skill_remaining) <= 0.0:
-				pending_skills.append({"caster": unit, "x": float(target.x)})
-				unit.skill_remaining = float(trait_value(String(unit.kind), "skill_cooldown")) * float(modifier(int(unit.side), "skill_cooldown:" + String(unit.kind)))
-			if unit.cooldown <= 0.0:
-				pending_attacks.append({"attacker":unit, "target":target, "damage":_strike_damage(unit)})
-				unit.cooldown = unit.interval
-			continue
+func _damage_target(attacker: Dictionary, target: Dictionary, damage: float, show_attack: bool = true) -> void:
+	_probe("damage", [int(attacker.id), target if not target.has("speed") else int(target.id), damage, show_attack])
 
-		var enemy_base_x := FIELD_RIGHT if unit.side == 0 else FIELD_LEFT
-		var blocking_wall = _blocking_wall(unit, enemy_base_x)
-		if blocking_wall != null and abs(float(blocking_wall.x) - float(unit.x)) <= float(unit.range) + 12.0:
-			if unit.cooldown <= 0.0:
-				pending_attacks.append({"attacker":unit, "target":blocking_wall, "damage":_strike_damage(unit)})
-				unit.cooldown = unit.interval
-			continue
-		if abs(float(unit.x) - enemy_base_x) <= float(unit.range):
-			if unit.cooldown <= 0.0:
-				pending_base_hits.append({"attacker":unit, "damage":_strike_damage(unit), "x":enemy_base_x})
-				unit.cooldown = unit.interval
-			continue
-		var direction := 1.0 if unit.side == 0 else -1.0
-		var stride := clampf(float(unit.x) + direction * float(unit.speed) * _swamp_scale(unit) * delta, FIELD_LEFT, FIELD_RIGHT)
-		stride = _held_stride(unit, stride, direction, delta)
-		pending_moves.append({"unit":unit, "x":stride})
+func _swamp_scale(unit: Dictionary) -> float:
+	return float(_probe("swamp_scale", [int(unit.id)]))
 
-	_indexed = false # from here on attacks change health and positions
-	for skill in pending_skills:
-		_cast_skill(skill.caster, float(skill.x))
-	for attack in pending_attacks:
-		if attack.attacker.has("speed"):
-			_damage_target(attack.attacker, attack.target, attack.damage)
-		else:
-			var before := maxf(0.0, float(attack.target.hp))
-			var effective := minf(before, float(attack.damage))
-			_record_damage(int(attack.attacker.side), String(attack.attacker.kind), effective, attack.target.has("speed") and before > 0.0 and effective >= before)
-			attack.target.hp = maxf(0.0, before - float(attack.damage))
-			combat_events.append({"type":"ATTACK", "attacker_id":attack.attacker.id, "target_id":attack.target.id, "attack_kind":String(attack.attacker.kind), "x":attack.attacker.x, "target_x":attack.target.x})
-			combat_events.append({"type":"DAMAGE", "target_id":attack.target.id, "amount":attack.damage, "x":attack.target.x})
-	for hit in pending_base_hits:
-		var enemy_side := 1 - int(hit.attacker.side)
-		_record_damage(int(hit.attacker.side), String(hit.attacker.kind), minf(float(hit.damage), float(base_hp[enemy_side])), false)
-		if not bool(invulnerable_bases[enemy_side]):
-			base_hp[enemy_side] = maxf(0.0, float(base_hp[enemy_side]) - float(hit.damage))
-			combat_events.append({"type":"BASE_HIT", "side":enemy_side, "amount":hit.damage, "x":hit.x})
-		if hit.attacker.kind == "warlock": _install_curse(hit.attacker, hit.x)
-	for move in pending_moves:
-		move.unit.x = move.x
-	if base_hp[0] <= 0.0 or base_hp[1] <= 0.0:
-		winner = 2 if base_hp[0] <= 0.0 and base_hp[1] <= 0.0 else 1 if base_hp[0] <= 0.0 else 0
+func _strike_damage(unit: Dictionary) -> float:
+	return float(_probe("strike", [int(unit.id)]))
 
-	_down_revivable_units()
-	_emit_death_events()
-	units = units.filter(func(unit): return unit.hp > 0.0 or unit.has("revive_remaining"))
-	structures = structures.filter(func(structure): return structure.hp > 0.0)
-	for owner in pending_summons:
-		if winner != -1 or float(owner.hp) <= 0.0 or side_full(int(owner.side)):
-			continue
-		var hp_scale := float(owner.max_hp) / float(UNIT_STATS.necromancer.hp)
-		var damage_scale := float(owner.damage) / float(UNIT_STATS.necromancer.damage)
-		battle_report[int(owner.side)].units.necromancer.summoned += 1
-		_create_unit(int(owner.side), "skeleton", SUMMON_STATS.skeleton, hp_scale, damage_scale, float(owner.x) + (22.0 if int(owner.side) == 0 else -22.0))
-		summon_owners[units.back().id] = owner.id
-		combat_events.append({"type": "SUMMON", "source_id": owner.id, "unit_id": units.back().id, "x": units.back().x})
-	var live_ids := {}
-	for unit in units:
-		live_ids[unit.id] = true
-	for id in summon_timers.keys():
-		if not live_ids.has(id):
-			summon_timers.erase(id)
-	for id in summon_owners.keys():
-		if not live_ids.has(id):
-			summon_owners.erase(id)
-	for id in revive_used.keys():
-		if not live_ids.has(id):
-			revive_used.erase(id)
-	for id in knocked_back.keys():
-		if not live_ids.has(id):
-			knocked_back.erase(id)
-	for id in structure_expirations.keys():
-		if not structures.any(func(structure): return structure.id == id):
-			structure_expirations.erase(id)
+func _install_curse(caster: Dictionary, x: float) -> void:
+	_probe("curse", [int(caster.id), x])
 
+func _record_damage(side: int, kind: String, amount: float, killed: bool) -> void:
+	_probe("record", [side, kind, amount, killed])
+
+func _tick_support(unit: Dictionary, _delta: float = 0.0) -> void:
+	_probe("support", [int(unit.id)])
+
+## For display: a unit's attack-speed factor, as the engine computes it in battle.
 func support_attack_speed(unit: Dictionary) -> float:
 	if float(unit.hp) <= 0.0:
 		return 1.0
@@ -896,6 +778,15 @@ func support_attack_speed(unit: Dictionary) -> float:
 	if unit.kind == "healer":
 		return curse
 	var multiplier := 1.0 + mini(SUPPORT_MAX_STACKS, maxi(0, int(unit.get("support_stacks", 0)))) * SUPPORT_INCREMENT
+	var aura := 0.0
+	var cap := 0.0
+	for hero in units_view():
+		var kind := String(hero.kind)
+		if int(hero.side) == int(unit.side) and float(hero.hp) > 0.0 and absf(float(hero.x) - float(unit.x)) <= float(trait_value(kind, "aura_radius", 0.0)) and float(trait_value(kind, "aura_attack_speed", 0.0)) > aura:
+			aura = float(trait_value(kind, "aura_attack_speed", 0.0))
+			cap = float(trait_value(kind, "aura_cap", 0.0))
+	if aura > 0.0:
+		multiplier = minf(multiplier + aura, 1.0 + cap)
 	if unit.has("blessed_remaining"):
 		multiplier *= float(STRUCTURE_STATS.blessing.attack_speed)
 	return multiplier * (RAGE_SPEED_MULTIPLIER if is_enraged(unit) else 1.0) * curse
@@ -998,42 +889,17 @@ static func field_limit_error(values: Array, side: int, kind: String) -> String:
 static func trait_value(kind: String, key: String, fallback = null):
 	return UNIT_STATS.get(kind, SUMMON_STATS.get(kind, {})).get(key, fallback)
 
-## Whether `kind` has the "guard" trait (tanks), cached per kind.
-static var _guard_kinds: Dictionary = {}
-static func _is_guard(kind: String) -> bool:
-	if not _guard_kinds.has(kind):
-		_guard_kinds[kind] = bool(trait_value(kind, "guard", false))
-	return bool(_guard_kinds[kind])
-
 static func can_revive(kind: String) -> bool:
 	return trait_value(kind, "revive_delay") != null
 
-func _down_revivable_units() -> void:
-	for unit in units:
-		if float(unit.hp) > 0.0 or unit.has("revive_remaining") or revive_used.has(unit.id) or not can_revive(String(unit.kind)):
-			continue
-		revive_used[unit.id] = true
-		unit["revive_remaining"] = float(trait_value(String(unit.kind), "revive_delay"))
-		unit.support_stacks = 0
-		combat_events.append({"type": "DOWNED", "unit_id": unit.id, "x": unit.x})
-
-func _tick_revives(delta: float) -> void:
-	for unit in units:
-		if not unit.has("revive_remaining"):
-			continue
-		unit.revive_remaining = maxf(0.0, float(unit.revive_remaining) - delta)
-		if float(unit.revive_remaining) > 0.000001:
-			continue
-		unit.erase("revive_remaining")
-		unit.hp = float(unit.max_hp) * float(trait_value(String(unit.kind), "revive_hp_fraction", 0.5))
-		unit.cooldown = max(MIN_ATTACK_INTERVAL, float(unit.interval))
-		combat_events.append({"type": "REVIVE", "unit_id": unit.id, "x": unit.x})
-
 static func is_enraged(unit: Dictionary) -> bool:
-	return unit.kind == "berserker" and float(unit.hp) > 0.0 and float(unit.hp) <= float(unit.max_hp) * RAGE_HP_FRACTION
+	return (unit.kind == "berserker" or String(unit.get("gift", "")) == "berserker") and float(unit.hp) > 0.0 and float(unit.hp) <= float(unit.max_hp) * RAGE_HP_FRACTION
 
 func unit_attack_damage(unit: Dictionary) -> float:
-	return float(unit.damage) * (1.0 + int(unit.get("souls", 0)) * _kind_trait(String(unit.kind), "soul_damage_step", 0.0))
+	var damage: float = float(unit.damage) * (1.0 + int(unit.get("souls", 0)) * _kind_trait(String(unit.kind), "soul_damage_step", 0.0))
+	if unit.has("leaderless"):
+		damage *= float(_kind_trait(String(unit.kind), "leaderless_damage", 1.0))
+	return damage
 
 ## trait_value() cached per kind and key (unit data never changes during a battle).
 static var _trait_cache: Dictionary = {}
@@ -1043,222 +909,12 @@ static func _kind_trait(kind: String, key: String, fallback):
 		_trait_cache[cache_key] = trait_value(kind, key, fallback)
 	return _trait_cache[cache_key]
 
-## The damage of an attack `unit` makes now; the "first_strike" modifier doubles each unit's first one.
-func _strike_damage(unit: Dictionary) -> float:
-	var damage := unit_attack_damage(unit)
-	if float(modifier(int(unit.side), "first_strike", 0.0)) > 0.0 and not first_struck.has(int(unit.id)):
-		first_struck[int(unit.id)] = true
-		damage *= 2.0
-	return damage
-
+## For display: the attack-speed factor an enemy curse puts on a spot (the engine decides in battle).
 func curse_speed_scale(side: int, x: float) -> float:
-	if _indexed:
-		# Curses of the other side, sorted by x: is the nearest one within the radius?
-		var xs: PackedFloat64Array = _curse_xs[1 - side]
-		var at := xs.bsearch(x, true)
-		if (at < xs.size() and absf(xs[at] - x) <= CURSE_RADIUS) or (at > 0 and absf(xs[at - 1] - x) <= CURSE_RADIUS):
-			return CURSE_SPEED_SCALE
-		return 1.0
 	for curse in curses:
 		if int(curse.side) != side and float(curse.expires_at) > elapsed and absf(float(curse.x) - x) <= CURSE_RADIUS:
 			return CURSE_SPEED_SCALE
 	return 1.0
-
-func _install_curse(caster: Dictionary, x: float) -> void:
-	curses = curses.filter(func(curse): return int(curse.source_id) != int(caster.id))
-	curses.append({"source_id": caster.id, "side": caster.side, "x": x, "expires_at": elapsed + CURSE_DURATION})
-	combat_events.append({"type": "CURSE", "source_id": caster.id, "x": x})
-
-## The allies of support `unit` that may still take a buff and stand around its reach, in _needy order (so
-## buffs and their events come in the same order as a scan of _needy). The caller applies the exact range
-## test; the window is a little wider than the reach so rounding never drops one the test would take.
-func _needy_in_reach(unit: Dictionary) -> Array:
-	var lane: Dictionary = _needy_lanes[int(unit.side)]
-	var xs: PackedFloat64Array = lane.xs
-	var x := float(unit.x)
-	var reach := float(unit.range) + 0.001
-	var low := xs.bsearch(x - reach, true)
-	var high := xs.bsearch(x + reach, false)
-	if low >= high:
-		return []
-	var picked := PackedInt32Array()
-	for i in range(low, high):
-		picked.append(lane.order[i])
-	picked.sort()
-	var needy: Array = _needy[int(unit.side)]
-	var result: Array = []
-	for i in picked:
-		result.append(needy[i])
-	return result
-
-func _tick_support(unit: Dictionary, delta: float) -> void:
-	if float(unit.cooldown) <= 0.0:
-		var cast := false
-		for ally in (_needy_in_reach(unit) if _indexed else units):
-			if ally.side == unit.side and ally.kind != "healer" and float(ally.hp) > 0.0 and abs(float(ally.x) - float(unit.x)) <= float(unit.range):
-				var stacks := int(ally.get("support_stacks", 0))
-				if stacks < SUPPORT_MAX_STACKS:
-					ally.support_stacks = stacks + 1
-					combat_events.append({"type": "SUPPORT_BUFF", "source_id": unit.id, "target_id": ally.id, "stacks": ally.support_stacks, "x": ally.x})
-					cast = true
-		if cast:
-			unit.cooldown = SUPPORT_COOLDOWN
-	var direction := 1.0 if int(unit.side) == 0 else -1.0
-	var frontline = _fronts[int(unit.side)] if _indexed else null
-	if not _indexed:
-		for ally in units:
-			if ally.side == unit.side and ally.kind != "healer" and float(ally.hp) > 0.0:
-				if frontline == null or direction * float(ally.x) > direction * float(frontline.x):
-					frontline = ally
-	var step := float(unit.speed) * _swamp_scale(unit) * delta
-	if sheltered(unit) and not unit.has("muster"):
-		# A support that marched must leave the spawn zone (it can be hit nowhere else), whatever it sees ahead.
-		_supports_moved = true
-		unit.x = _held_stride(unit, clampf(float(unit.x) + direction * step, FIELD_LEFT, FIELD_RIGHT), direction, delta)
-		return
-	if frontline != null and direction * (float(frontline.x) - float(unit.x)) <= SUPPORT_FOLLOW_DISTANCE:
-		return
-	# Support units never attack units, buildings or bases, even with no wounded ally.
-	var enemy_ahead: bool = _enemy_ahead_indexed(unit, max(float(unit.range), step)) if _indexed else units.any(func(enemy): return enemy.side != unit.side and float(enemy.hp) > 0.0 and direction * (float(enemy.x) - float(unit.x)) >= 0.0 and abs(float(enemy.x) - float(unit.x)) <= max(float(unit.range), step))
-	if enemy_ahead or _blocking_wall(unit, float(unit.x) + direction * step) != null or _find_target(unit) != null:
-		return
-	var enemy_base_x := FIELD_RIGHT if int(unit.side) == 0 else FIELD_LEFT
-	if abs(float(unit.x) - enemy_base_x) <= float(unit.range):
-		return
-	var destination := float(unit.x) + direction * step
-	if frontline != null:
-		var follow_x := float(frontline.x) - direction * SUPPORT_FOLLOW_DISTANCE
-		destination = min(destination, follow_x) if direction > 0.0 else max(destination, follow_x)
-	_supports_moved = true
-	unit.x = _held_stride(unit, clamp(destination, FIELD_LEFT, FIELD_RIGHT), direction, delta)
-
-
-## Ground slam around `x` (or the caster): every living enemy unit in the radius takes the
-## skill damage, and survivors are pushed back toward their own base when the skill knocks back.
-func _cast_skill(caster: Dictionary, x: float) -> void:
-	var kind := String(caster.kind)
-	if trait_value(kind, "skill_on_self", false):
-		x = float(caster.x)
-	var growth := float(caster.damage) / maxf(0.01, float(UNIT_STATS[kind].damage))
-	var radius := float(trait_value(kind, "skill_radius", 0.0))
-	var knockback := float(trait_value(kind, "skill_knockback", 0.0)) * (1.0 if int(caster.side) == 0 else -1.0)
-	combat_events.append({"type": "SKILL", "source_id": caster.id, "kind": kind, "x": x, "radius": radius})
-	for enemy in units:
-		if int(enemy.side) != int(caster.side) and float(enemy.hp) > 0.0 and absf(float(enemy.x) - x) <= radius:
-			_damage_target(caster, enemy, float(trait_value(kind, "skill_damage", 0.0)) * growth, false)
-			if knockback != 0.0 and float(enemy.hp) > 0.0:
-				enemy.x = clampf(float(enemy.x) + knockback, FIELD_LEFT, FIELD_RIGHT)
-
-func _damage_target(attacker: Dictionary, target: Dictionary, damage: float, show_attack: bool = true) -> void:
-	var undead_bonus = trait_value(String(attacker.kind), "undead_bonus")
-	var smites_undead: bool = undead_bonus != null and target.has("speed") and smite_tags(String(attacker.kind)).any(func(tag): return has_tag(String(target.kind), tag))
-	if smites_undead:
-		damage *= float(undead_bonus)
-	var before := maxf(0.0,float(target.hp))
-	var effective := minf(before,maxf(0.0,damage))
-	_record_damage(int(attacker.side),String(attacker.kind),effective,target.has("speed") and before>0.0 and effective>=before)
-	target.hp = max(0.0, float(target.hp) - damage)
-	# Undead struck down by holy damage stay down (no zombie revive).
-	if smites_undead and float(target.hp) <= 0.0:
-		revive_used[target.id] = true
-	if show_attack:
-		combat_events.append({"type": "ATTACK", "attacker_id": attacker.id, "target_id": target.id, "attack_kind": attacker.kind, "x": attacker.x})
-	combat_events.append({"type": "DAMAGE", "target_id": target.id, "amount": damage, "x": target.x})
-	if target.has("speed") and float(target.hp) > 0.0 and float(target.hp) <= float(target.max_hp) * KNOCKBACK_FRACTION and not knocked_back.has(target.id):
-		knocked_back[target.id] = true
-		var away := -1.0 if int(target.side) == 0 else 1.0
-		target.x = clampf(float(target.x) + away * KNOCKBACK_DISTANCE * float(modifier(int(target.side), "knockback")), FIELD_LEFT, FIELD_RIGHT)
-		combat_events.append({"type": "KNOCKBACK", "target_id": target.id, "x": target.x})
-	if attacker.kind == "warlock":
-		_install_curse(attacker, float(target.x))
-
-func _blocking_wall(attacker: Dictionary, target_x: float):
-	var best = null
-	var best_distance := INF
-	var origin := float(attacker.x)
-	for structure in structures:
-		if int(structure.side) == int(attacker.side) or String(structure.kind) != "wall" or float(structure.hp) <= 0.0:
-			continue
-		var wall_x := float(structure.x)
-		var between := (origin < wall_x and wall_x < target_x) or (target_x < wall_x and wall_x < origin)
-		var distance: float = abs(wall_x - origin)
-		if between and distance < best_distance:
-			best = structure
-			best_distance = distance
-	return best
-
-func _index_fronts() -> void:
-	_fronts = [null, null]
-	_needy = [[], []]
-	for unit in units:
-		if unit.kind == "healer" or float(unit.hp) <= 0.0:
-			continue
-		var side := int(unit.side)
-		if int(unit.get("support_stacks", 0)) < SUPPORT_MAX_STACKS:
-			_needy[side].append(unit)
-		var direction := 1.0 if side == 0 else -1.0
-		if _fronts[side] == null or direction * float(unit.x) > direction * float(_fronts[side].x):
-			_fronts[side] = unit
-	for side in 2:
-		var keyed: Array = []
-		var needy: Array = _needy[side]
-		for i in needy.size():
-			keyed.append([float(needy[i].x), i])
-		keyed.sort()
-		var xs := PackedFloat64Array()
-		var order := PackedInt32Array()
-		xs.resize(keyed.size())
-		order.resize(keyed.size())
-		for i in keyed.size():
-			xs[i] = keyed[i][0]
-			order[i] = keyed[i][1]
-		_needy_lanes[side] = {"xs": xs, "order": order}
-
-func _index_curses() -> void:
-	for side in 2:
-		var xs := PackedFloat64Array()
-		for curse in curses:
-			if int(curse.side) == side and float(curse.expires_at) > elapsed:
-				xs.append(float(curse.x))
-		xs.sort()
-		_curse_xs[side] = xs
-
-func _index_lanes() -> void:
-	var keyed: Array = [[], []]
-	# targetable(), inlined: outside its side's spawn zone (see sheltered()).
-	var left_zone := FIELD_LEFT + float(shelter[0]) if float(shelter[0]) > 0.0 else -INF
-	var right_zone := FIELD_RIGHT - float(shelter[1]) if float(shelter[1]) > 0.0 else INF
-	var index := 0
-	for unit in units:
-		if float(unit.hp) > 0.0:
-			var x := float(unit.x)
-			var side := int(unit.side)
-			if (x >= left_zone) if side == 0 else (x <= right_zone):
-				keyed[side].append([x, index])
-		index += 1
-	for side in 2:
-		var entries: Array = keyed[side]
-		entries.sort() # by x, then by place in `units`
-		var xs := PackedFloat64Array()
-		var order := PackedInt32Array()
-		var refs: Array = []
-		xs.resize(entries.size())
-		order.resize(entries.size())
-		refs.resize(entries.size())
-		# The side's tanks ("guard" trait) in the same order, for _guard_beside.
-		var guard_xs := PackedFloat64Array()
-		var guard_order := PackedInt32Array()
-		var guard_refs: Array = []
-		for i in entries.size():
-			xs[i] = entries[i][0]
-			order[i] = entries[i][1]
-			refs[i] = units[entries[i][1]]
-			if _is_guard(String(refs[i].kind)):
-				guard_xs.append(xs[i])
-				guard_order.append(order[i])
-				guard_refs.append(refs[i])
-		_lanes[side] = {"xs": xs, "order": order, "units": refs, "guard_xs": guard_xs, "guard_order": guard_order, "guard_units": guard_refs}
-	_indexed = targeting_index
 
 ## Whether `unit` stands inside its side's spawn zone (see `shelter`).
 func sheltered(unit: Dictionary) -> bool:
@@ -1279,305 +935,15 @@ static func formation_offset(kind: String) -> float:
 		return clampf(float(UNIT_STATS.get(kind, SUMMON_STATS.get(kind, {})).get("range", 0.0)) * 0.5, FORMATION_RANGED_MIN, FORMATION_RANGED_MAX)
 	return FORMATION_MELEE if scope == "melee" else 0.0
 
-## The first entry of the run of equal x that `at` belongs to: the earliest of them in `units`.
-static func _run_start(xs: PackedFloat64Array, at: int) -> int:
-	return xs.bsearch(xs[at], true)
-
-## Nearest living enemy of `unit` within its range (ties: earliest in `units`), from the lane index.
-func _nearest_enemy_indexed(unit: Dictionary):
-	var lane: Dictionary = _lanes[1 - int(unit.side)]
-	var xs: PackedFloat64Array = lane.xs
-	if xs.is_empty():
-		return null
-	var x := float(unit.x)
-	var reach := float(unit.range)
-	var best = null
-	var best_distance := INF
-	var best_order := 1 << 30
-	var right := xs.bsearch(x, true)
-	if right < xs.size() and absf(xs[right] - x) <= reach:
-		best = lane.units[right]
-		best_distance = absf(xs[right] - x)
-		best_order = lane.order[right]
-	if right > 0:
-		var left := _run_start(xs, right - 1)
-		var distance := absf(xs[left] - x)
-		if distance <= reach and (distance < best_distance or (distance == best_distance and lane.order[left] < best_order)):
-			best = lane.units[left]
-	return best
-
-## A tank ("guard" trait) standing in the same spot as `nearest` (within GUARD_SPOT) and in `unit`'s reach
-## takes the hit instead (nearest to `unit` first, ties: earliest in `units`); otherwise `nearest`.
-func _guard_beside(unit: Dictionary, nearest: Dictionary) -> Dictionary:
-	if trait_value(String(nearest.kind), "guard", false):
-		return nearest
-	var x := float(unit.x)
-	var reach := float(unit.range)
-	var spot := float(nearest.x)
-	var best := nearest
-	var best_distance := INF
-	if _indexed:
-		# Among the enemy tanks within GUARD_SPOT of `spot` (sorted by x, then place in `units`), the one nearest
-		# to `unit` is the first at or right of `unit.x` or the last left of it; of equal x the earliest in
-		# `units` is the start of that run. Same pick as scanning the spot, in O(log n).
-		var lane: Dictionary = _lanes[1 - int(unit.side)]
-		var gxs: PackedFloat64Array = lane.guard_xs
-		var low := gxs.bsearch(spot - GUARD_SPOT, true)
-		var high := gxs.bsearch(spot + GUARD_SPOT, false)
-		if low >= high:
-			return best
-		var split := clampi(gxs.bsearch(x, true), low, high)
-		var best_order := 1 << 30
-		if split < high:
-			var distance := absf(gxs[split] - x)
-			if distance <= reach:
-				best = lane.guard_units[split]
-				best_distance = distance
-				best_order = lane.guard_order[split]
-		if split > low:
-			var left := maxi(low, _run_start(gxs, split - 1))
-			var distance := absf(gxs[left] - x)
-			if distance <= reach and (distance < best_distance or (distance == best_distance and lane.guard_order[left] < best_order)):
-				best = lane.guard_units[left]
-		return best
-	for enemy in units:
-		if int(enemy.side) == int(unit.side) or float(enemy.hp) <= 0.0 or absf(float(enemy.x) - spot) > GUARD_SPOT or not targetable(enemy):
-			continue
-		var distance := absf(float(enemy.x) - x)
-		if distance <= reach and distance < best_distance and trait_value(String(enemy.kind), "guard", false):
-			best = enemy
-			best_distance = distance
-	return best
-
-## Farthest living enemy of `unit` within its range (ties: earliest in `units`), from the lane index.
-func _rearmost_enemy_indexed(unit: Dictionary):
-	var lane: Dictionary = _lanes[1 - int(unit.side)]
-	var xs: PackedFloat64Array = lane.xs
-	var x := float(unit.x)
-	var reach := float(unit.range)
-	var low := xs.bsearch(x - reach, true)
-	while low < xs.size() and absf(xs[low] - x) > reach and xs[low] < x:
-		low += 1
-	var high := xs.bsearch(x + reach, false) - 1
-	while high >= 0 and absf(xs[high] - x) > reach and xs[high] > x:
-		high -= 1
-	if low >= xs.size() or high < 0 or low > high:
-		return null
-	var best = lane.units[low]
-	var best_distance := absf(xs[low] - x)
-	var best_order: int = lane.order[low]
-	var far := _run_start(xs, high)
-	var distance := absf(xs[far] - x)
-	if distance > best_distance or (distance == best_distance and lane.order[far] < best_order):
-		best = lane.units[far]
-	return best
-
-## Whether a living enemy of `unit` stands ahead of it (or level) within `reach`, from the lane index.
-## Where `unit` may step to (`stride`) given its side's advance limit: never past it, and back toward it at
-## walking pace when the limit has moved behind the unit (endless defense pulls its defenders back between waves).
-func _held_stride(unit: Dictionary, stride: float, direction: float, delta: float) -> float:
-	var side := int(unit.side)
-	var limit := float(advance_limit[side])
-	if unit.has("muster"):
-		# Waiting in the spawn zone for the rest of its wave.
-		limit = FIELD_LEFT + float(shelter[side]) - MUSTER_INSET if side == 0 else FIELD_RIGHT - float(shelter[side]) + MUSTER_INSET
-	elif bool(formation[side]):
-		limit -= direction * formation_offset(String(unit.kind))
-	if direction * (stride - limit) <= 0.0:
-		return stride
-	var x := float(unit.x)
-	if direction * (x - limit) <= 0.0:
-		return limit
-	var back := x - direction * float(unit.speed) * _swamp_scale(unit) * delta
-	return maxf(back, limit) if side == 0 else minf(back, limit)
-
-func _enemy_ahead_indexed(unit: Dictionary, reach: float) -> bool:
-	var xs: PackedFloat64Array = _lanes[1 - int(unit.side)].xs
-	var x := float(unit.x)
-	if int(unit.side) == 0:
-		var at := xs.bsearch(x, true)
-		return at < xs.size() and absf(xs[at] - x) <= reach
-	var behind := xs.bsearch(x, false) - 1
-	return behind >= 0 and absf(xs[behind] - x) <= reach
-
-func _find_target(unit: Dictionary):
-	if _kind_trait(String(unit.kind), "target_rearmost", false):
-		var rearmost = _rearmost_enemy_indexed(unit) if _indexed else _rearmost_enemy(unit)
-		if rearmost != null:
-			return rearmost
-	var best_unit = null
-	var best_distance := INF
-	if _indexed:
-		best_unit = _nearest_enemy_indexed(unit)
-	else:
-		for enemy in units:
-			if enemy.side == unit.side or enemy.hp <= 0.0 or not targetable(enemy):
-				continue
-			var distance: float = abs(float(enemy.x) - float(unit.x))
-			if distance <= float(unit.range) and distance < best_distance:
-				best_unit = enemy
-				best_distance = distance
-	if best_unit != null:
-		best_unit = _guard_beside(unit, best_unit)
-		var wall = _blocking_wall(unit, float(best_unit.x))
-		if wall != null:
-			return wall if abs(float(wall.x) - float(unit.x)) <= float(unit.range) + 12.0 else null
-		return best_unit
-	var best_structure = null
-	best_distance = INF
-	for structure in structures:
-		if structure.side == unit.side or structure.hp <= 0.0 or not has_health(String(structure.kind)):
-			continue
-		var distance: float = abs(float(structure.x) - float(unit.x))
-		if distance <= float(unit.range) + 12.0 and distance < best_distance:
-			var wall = _blocking_wall(unit, float(structure.x))
-			best_structure = wall if wall != null else structure
-			best_distance = abs(float(best_structure.x) - float(unit.x))
-	return best_structure
-
-
-## Snipers fire over walls at the in-range enemy unit farthest behind the enemy line.
-func _rearmost_enemy(unit: Dictionary):
-	var best = null
-	var best_distance := -1.0
-	for enemy in units:
-		if enemy.side == unit.side or float(enemy.hp) <= 0.0 or not targetable(enemy):
-			continue
-		var distance: float = absf(float(enemy.x) - float(unit.x))
-		if distance <= float(unit.range) and distance > best_distance:
-			best = enemy
-			best_distance = distance
-	return best
-
-func _tick_turrets(delta: float, pending_attacks: Array) -> void:
-	for structure in structures:
-		if String(structure.kind) != "turret" or float(structure.hp) <= 0.0:
-			continue
-		var id := int(structure.id)
-		structure_cooldowns[id] = max(0.0, float(structure_cooldowns.get(id, STRUCTURE_STATS.turret.interval)) - delta * curse_speed_scale(int(structure.side), float(structure.x)))
-		if structure_cooldowns[id] > 0.0:
-			continue
-		var target = null
-		var nearest := INF
-		for enemy in units:
-			if int(enemy.side) == int(structure.side) or float(enemy.hp) <= 0.0 or not targetable(enemy):
-				continue
-			var enemy_distance: float = abs(float(enemy.x) - float(structure.x))
-			if enemy_distance > float(STRUCTURE_STATS.turret.range):
-				continue
-			var wall = _blocking_wall(structure, float(enemy.x))
-			var candidate = wall if wall != null else enemy
-			var candidate_distance: float = abs(float(candidate.x) - float(structure.x))
-			if candidate_distance < nearest:
-				target = candidate
-				nearest = candidate_distance
-		if target != null:
-			var damage := float(STRUCTURE_STATS.turret.damage)
-			pending_attacks.append({"attacker":structure, "target":target, "damage":damage})
-			structure_cooldowns[id] = float(STRUCTURE_STATS.turret.interval)
-
-func _apply_cheats() -> void:
-	for side in 2:
-		var on: Dictionary = cheats[side]
-		if on.is_empty():
-			continue
-		if on.has("resources"):
-			resources[side] = resource_capacity(side)
-		if on.has("cooldowns"):
-			spawn_cooldowns[side].clear()
-			spell_cooldowns[side].clear()
-			spell_uses[side].clear()
-		if on.has("castle"):
-			base_hp[side] = base_max_hp[side]
-		for unit in units:
-			if float(unit.hp) <= 0.0:
-				continue
-			if int(unit.side) == side:
-				if on.has("immortal"):
-					unit.hp = float(unit.max_hp)
-				for stat in (["damage"] if on.has("one_hit") else []) + (["speed"] if on.has("haste") else []):
-					var saved: Dictionary = cheat_saved.get(unit.id, {})
-					if not saved.has(stat):
-						saved[stat] = unit[stat]
-						cheat_saved[unit.id] = saved
-						unit[stat] = 100000.0 if stat == "damage" else float(unit.speed) * 2.0
-			elif on.has("freeze"):
-				unit["frozen_remaining"] = maxf(float(unit.get("frozen_remaining", 0.0)), 0.2)
-
-## Castles shoot the nearest enemy unit within CASTLE_RANGE (not structures, not through nothing: a castle
-## stands behind every wall). A base that cannot fall (endless defense's wave side) has no castle.
-func _tick_castles(delta: float, pending_attacks: Array) -> void:
-	for side in 2:
-		if bool(invulnerable_bases[side]):
-			continue
-		castle_cooldowns[side] = maxf(0.0, float(castle_cooldowns[side]) - delta)
-		if float(castle_cooldowns[side]) > 0.0:
-			continue
-		var castle_x := FIELD_LEFT if side == 0 else FIELD_RIGHT
-		var target = null
-		var nearest := INF
-		for enemy in units:
-			if int(enemy.side) == side or float(enemy.hp) <= 0.0 or not targetable(enemy):
-				continue
-			var distance := absf(float(enemy.x) - castle_x)
-			if distance <= CASTLE_RANGE and distance < nearest:
-				target = enemy
-				nearest = distance
-		if target != null:
-			pending_attacks.append({"attacker": {"id": -1 - side, "side": side, "kind": "castle", "x": castle_x}, "target": target, "damage": castle_damage(side)})
-			castle_cooldowns[side] = CASTLE_INTERVAL
-
 ## A castle's shot: CASTLE_DAMAGE at full health, rising to CASTLE_DESPERATION times that as it falls.
 func castle_damage(side: int) -> float:
 	var lost := 1.0 - clampf(float(base_hp[side]) / maxf(1.0, float(base_max_hp[side])), 0.0, 1.0)
 	return CASTLE_DAMAGE * (1.0 + (CASTLE_DESPERATION - 1.0) * lost)
 
-func _swamp_scale(unit: Dictionary) -> float:
-	for structure in structures:
-		if structure.kind == "swamp" and structure.side != unit.side and structure.hp > 0.0 and abs(float(structure.x) - float(unit.x)) <= float(STRUCTURE_STATS.swamp.radius):
-			return float(STRUCTURE_STATS.swamp.speed_scale)
-	return 1.0
-
-
-func _emit_death_events() -> void:
-	for unit in units:
-		if float(unit.hp) <= 0.0 and not unit.has("revive_remaining") and not announced_deaths.has(unit.id):
-			announced_deaths[unit.id] = true
-			combat_events.append({"type": "DEATH", "unit_id": unit.id, "x": unit.x})
-			_harvest_soul(unit)
-			_remember_fallen(unit)
-	for structure in structures:
-		if float(structure.hp) <= 0.0 and not announced_structure_deaths.has(structure.id):
-			announced_structure_deaths[structure.id] = true
-			combat_events.append({"type": "STRUCTURE_DESTROYED", "structure_id": structure.id, "kind": structure.kind, "x": structure.x})
-
-## A living soul harvester near a fallen enemy heals and gains one soul (up to its maximum).
-func _harvest_soul(fallen: Dictionary) -> void:
-	for lord in units:
-		if int(lord.side) == int(fallen.side) or float(lord.hp) <= 0.0 or not lord.has("souls"):
-			continue
-		var kind := String(lord.kind)
-		if absf(float(lord.x) - float(fallen.x)) > float(trait_value(kind, "soul_radius", 0.0)):
-			continue
-		lord.souls = mini(int(trait_value(kind, "soul_max", 0)), int(lord.souls) + 1)
-		var healed := minf(float(lord.max_hp) - float(lord.hp), float(lord.max_hp) * float(trait_value(kind, "soul_heal_fraction", 0.0)))
-		lord.hp = float(lord.hp) + healed
-		combat_events.append({"type": "SOUL", "source_id": lord.id, "unit_id": fallen.id, "x": lord.x, "from_x": fallen.x, "souls": lord.souls})
-		if healed > 0.0:
-			combat_events.append({"type": "HEAL", "target_id": lord.id, "amount": healed, "x": lord.x})
-
 func drain_combat_events() -> Array:
 	var result := combat_events.duplicate(true)
 	combat_events.clear()
 	return result
-
-func _record_damage(side: int, kind: String, amount: float, killed: bool) -> void:
-	kind = Report.credit_kind(kind)
-	if side<0 or side>1 or not battle_report[side].units.has(kind): return
-	battle_report[side].damage += amount
-	battle_report[side].units[kind].damage += amount
-	if killed:
-		battle_report[side].kills += 1; battle_report[side].units[kind].kills += 1
 
 ## Fingerprint of the full simulation state; replays use it to prove determinism.
 func state_hash() -> String:

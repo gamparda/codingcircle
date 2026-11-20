@@ -1,0 +1,22 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "psychic"
+display_name = "초능력자"
+order = 18
+summon_only = false
+cost = 50.0
+hp = 80.0
+damage = 12.0
+interval = 1.2
+speed = 40.0
+range = 120.0
+extra = {
+"arrival_stall": 1.0,
+"card_cooldown": 20.0,
+"field_limit": 1
+}
+tags = PackedStringArray()

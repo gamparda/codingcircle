@@ -11,7 +11,6 @@ func check(condition: bool, message: String) -> void:
 		printerr("FAIL: " + message)
 
 func battle(units_a: Array, units_b: Array, tactics: Array, seed_value: int, indexed: bool) -> String:
-	BattleModel.targeting_index = indexed
 	var model := BattleModel.new()
 	model.configure_deck(0, units_a, tactics)
 	model.configure_deck(1, units_b, tactics)
@@ -26,7 +25,6 @@ func battle(units_a: Array, units_b: Array, tactics: Array, seed_value: int, ind
 		model.tick(1.0 / 30.0)
 		if model.winner != -1:
 			break
-	BattleModel.targeting_index = true
 	return "%s units=%d t=%.1f" % [model.state_hash(), model.units.size(), model.elapsed]
 
 func crowd(per_side: int) -> float:

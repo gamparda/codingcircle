@@ -1,0 +1,20 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "general"
+display_name = "장군"
+order = 11
+summon_only = false
+cost = 65.0
+hp = 145.0
+damage = 9.0
+interval = 0.9
+speed = 70.0
+range = 45.0
+extra = {
+"control_weakness": 1.5
+}
+tags = PackedStringArray("mounted")

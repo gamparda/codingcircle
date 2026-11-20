@@ -463,10 +463,16 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force site | Out-Null
-          foreach ($file in @("CatWarSetup.exe", "CatWar.apk", "CatWarContent.pck", "CatWarDesktop.pck", "libbattle_native.linux.x86_64.so")) {
+          foreach ($file in @("CatWarSetup.exe", "CatWar.apk", "CatWarContent.pck", "CatWarDesktop.pck", "libbattle_native.linux.x86_64.so", "libbattle_native.windows.x86_64.dll", "libbattle_native.android.arm64.so", "libbattle_native.android.arm32.so")) {
             Copy-Item "dist/$file" "site/$file"
           }
           $nativeSha = (Get-FileHash site/libbattle_native.linux.x86_64.so -Algorithm SHA256).Hash.ToLowerInvariant()
+          # The battle rules live only in the engine: game data names the engine it needs (rules hash), and every
+          # platform downloads it from here when its app carries an older one (scripts/NativeFetch.gd).
+          $rulesHash = (python3 tools/update_rules_hash.py --print).Trim()
+          $windowsNativeSha = (Get-FileHash site/libbattle_native.windows.x86_64.dll -Algorithm SHA256).Hash.ToLowerInvariant()
+          $arm64NativeSha = (Get-FileHash site/libbattle_native.android.arm64.so -Algorithm SHA256).Hash.ToLowerInvariant()
+          $arm32NativeSha = (Get-FileHash site/libbattle_native.android.arm32.so -Algorithm SHA256).Hash.ToLowerInvariant()
           $sha = (Get-FileHash site/CatWarSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           $androidSha = (Get-FileHash site/CatWar.apk -Algorithm SHA256).Hash.ToLowerInvariant()
           $contentSha = (Get-FileHash site/CatWarContent.pck -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -491,11 +497,20 @@ jobs:
             desktop_pack_sha256 = $desktopSha
             server_native_url = "https://gamparda.github.io/codingcircle/libbattle_native.linux.x86_64.so"
             server_native_sha256 = $nativeSha
+            native_rules_hash = $rulesHash
+            native_windows_x86_64_url = "https://gamparda.github.io/codingcircle/libbattle_native.windows.x86_64.dll"
+            native_windows_x86_64_sha256 = $windowsNativeSha
+            native_android_arm64_url = "https://gamparda.github.io/codingcircle/libbattle_native.android.arm64.so"
+            native_android_arm64_sha256 = $arm64NativeSha
+            native_android_arm32_url = "https://gamparda.github.io/codingcircle/libbattle_native.android.arm32.so"
+            native_android_arm32_sha256 = $arm32NativeSha
+            native_linux_x86_64_url = "https://gamparda.github.io/codingcircle/libbattle_native.linux.x86_64.so"
+            native_linux_x86_64_sha256 = $nativeSha
             mandatory = $true
             published_at = (Get-Date).ToUniversalTime().ToString("o")
           } | ConvertTo-Json
           [System.IO.File]::WriteAllText((Join-Path $PWD "site/update.json"), $manifest + "`n", [System.Text.UTF8Encoding]::new($false))
-          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n$androidSha  CatWar.apk`n$contentSha  CatWarContent.pck`n$desktopSha  CatWarDesktop.pck`n$nativeSha  libbattle_native.linux.x86_64.so`n", [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText((Join-Path $PWD "site/SHA256SUMS.txt"), "$sha  CatWarSetup.exe`n$androidSha  CatWar.apk`n$contentSha  CatWarContent.pck`n$desktopSha  CatWarDesktop.pck`n$nativeSha  libbattle_native.linux.x86_64.so`n$windowsNativeSha  libbattle_native.windows.x86_64.dll`n$arm64NativeSha  libbattle_native.android.arm64.so`n$arm32NativeSha  libbattle_native.android.arm32.so`n", [System.Text.UTF8Encoding]::new($false))
           New-Item -ItemType File -Force site/.nojekyll | Out-Null
 
       - name: Publish GitHub Release (new versions only)

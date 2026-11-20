@@ -32,19 +32,28 @@ static func _build_deck_screen(main, preset_index: int = -1) -> void:
 	var structure_buttons := {}
 	var choices: VBoxContainer = column.get_node("DeckChoices")
 	var unit_row: GridContainer = choices.get_node("DeckUnitGrid")
+	# Twenty units: five compact columns keep four rows on the 720p canvas.
+	var wide_roster := BattleModel.UNIT_STATS.size() > 16
+	if wide_roster:
+		unit_row.columns = 5
 	var unit_names := BattleModel.UNIT_NAMES
 	for kind in BattleModel.UNIT_STATS.keys():
 		var stats: Dictionary = BattleModel.UNIT_STATS[kind]
 		var role: String = BattleModel.unit_role(kind)
 		var card_text := Localization.text("%s · 비용 %d\nHP %d · 공격 %d · 사거리 %d\n%s") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), int(stats.range), role]
-		if kind == "healer":
+		if wide_roster:
+			# Narrow cards: short labels; the full numbers are in the tooltip and the long-press panel.
+			card_text = Localization.text("%s · %d\nHP %d · 공 %d · 사 %d\n%s") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.damage), int(stats.range), role]
+		elif kind == "healer":
 			card_text = Localization.text("%s · 비용 %d\nHP %d · 범위 %d · 쿨 %d초\n공속 +%d%% 영구 · 상한 +%d%%") % [unit_names[kind], int(stats.cost), int(stats.hp), int(stats.range), int(stats.interval), roundi(BattleModel.SUPPORT_INCREMENT * 100.0), roundi(BattleModel.SUPPORT_INCREMENT * BattleModel.SUPPORT_MAX_STACKS * 100.0)]
 		var card = main._styled_button(card_text, Color("#5b8cff"), false)
 		card.name = "DeckUnit_" + kind
+		if wide_roster:
+			card.set_meta("deck_compact", true)
 		card.tooltip_text = BattleModel.unit_stat_summary(kind)
-		card.add_theme_font_size_override("font_size", 13)
+		card.add_theme_font_size_override("font_size", 12 if wide_roster else 13)
 		main._configure_deck_card(card, card_text, Color("#5b8cff"), selected.units.has(kind))
-		card.custom_minimum_size = Vector2(240, 84)
+		card.custom_minimum_size = Vector2(186, 64) if wide_roster else Vector2(240, 84)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_dress_card(card, UIKit.UNIT_COLORS[kind], kind, true)
@@ -189,10 +198,11 @@ static func _dress_card(card: Button, color: Color, kind: String, is_unit: bool)
 	var map := {"normal": normal, "hover": hover, "pressed": chosen, "hover_pressed": chosen_hover, "disabled": normal}
 	for state in map:
 		var style: StyleBox = map[state].duplicate()
-		style.content_margin_left = 90 if is_unit else 50
+		var compact := bool(card.get_meta("deck_compact", false))
+		style.content_margin_left = (62 if compact else 90) if is_unit else 50
 		style.content_margin_right = 8
-		style.content_margin_top = 8 if is_unit else 4
-		style.content_margin_bottom = 8 if is_unit else 4
+		style.content_margin_top = (5 if compact else 8) if is_unit else 4
+		style.content_margin_bottom = (5 if compact else 8) if is_unit else 4
 		card.add_theme_stylebox_override(state, style)
 	UIKit.juice(card, 1.015)
 	var art := Control.new()
@@ -202,8 +212,9 @@ static func _dress_card(card: Button, color: Color, kind: String, is_unit: bool)
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(art)
 	art.draw.connect(func():
-		var center := Vector2(40 if is_unit else 22, card.size.y * 0.5)
-		var outer := 38.0 if is_unit else 20.0
+		var compact_art := bool(card.get_meta("deck_compact", false))
+		var center := Vector2((30 if compact_art else 40) if is_unit else 22, card.size.y * 0.5)
+		var outer := (28.0 if compact_art else 38.0) if is_unit else 20.0
 		for i in 5:
 			var t := float(i) / 4.0
 			art.draw_circle(center, outer - t * outer * 0.58, Color(color.r, color.g, color.b, 0.07 + t * 0.08)))
@@ -213,9 +224,10 @@ static func _dress_card(card: Button, color: Color, kind: String, is_unit: bool)
 		sprite.name = "DeckUnitPortrait"
 		sprite.texture = load("res://assets/units/%s.png" % ("tanker" if kind == "shield" else kind))
 		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		sprite.scale = Vector2(0.2, 0.2)
+		var compact_sprite := bool(card.get_meta("deck_compact", false))
+		sprite.scale = Vector2(0.16, 0.16) if compact_sprite else Vector2(0.2, 0.2)
 		art.add_child(sprite)
-		var place := func(): sprite.position = Vector2(40, card.size.y * 0.5)
+		var place := func(): sprite.position = Vector2(30 if compact_sprite else 40, card.size.y * 0.5)
 		card.resized.connect(place)
 		place.call()
 	else:
@@ -268,6 +280,9 @@ static func _dress_card(card: Button, color: Color, kind: String, is_unit: bool)
 		UIKit.UISounds.play("toggle"))
 
 static func _refresh_deck_card(main, card: Button) -> void:
+	if card.get_meta("deck_compact", false):
+		card.text = String(card.get_meta("deck_base_text", "")) # the gold frame and check badge show the choice
+		return
 	var marker := Localization.text("✓ 선택됨") if card.button_pressed else Localization.text("○ 선택 가능")
 	card.text = marker + "\n" + String(card.get_meta("deck_base_text", ""))
 

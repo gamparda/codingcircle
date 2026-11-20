@@ -13,7 +13,7 @@ const MAX_UNPACKED_BYTES := 16 << 20
 const MAX_COMBAT_EVENTS := 8192
 const MAX_SNAPSHOT_STRUCTURES := 16
 const TRANSPORT_MAX_PEERS := 4095 # ENet protocol ceiling, not an application admission quota.
-const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord", "skeleton"]
+const VALID_UNIT_KINDS := ["shield", "swordsman", "archer", "healer", "berserker", "warlock", "necromancer", "zombie", "paladin", "sniper", "demon_lord", "general", "bomber", "joker", "king", "hero", "raider", "preacher", "psychic", "shaman", "skeleton", "royal_guard"]
 const VALID_STRUCTURE_KINDS := ["wall", "swamp", "turret", "generator"]
 const ROOM_LIST_PAGE_SIZE := 12
 const ROOM_NAME_LENGTH := 24
@@ -118,7 +118,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		for side in data.spawn_cooldowns:
 			if not side is Dictionary or side.size()>BattleModel.UNIT_STATS.size(): return false
 			for kind in side:
-				if not BattleModel.UNIT_STATS.has(kind) or not _number_in_range(side[kind],0.0,0.35): return false
+				if not BattleModel.UNIT_STATS.has(kind) or not _number_in_range(side[kind],0.0,float(BattleModel.trait_value(String(kind), "card_cooldown", 0.35))): return false
 	if not valid_spell_state(data):
 		return false
 	var resources = data.resources
@@ -147,7 +147,7 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 		return false
 	var unit_ids := {}
 	for unit in units:
-		if not unit is Dictionary or not _has_required_optional_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"], ["support_stacks", "summon_remaining", "revive_remaining", "skill_remaining", "souls", "frozen_remaining", "blessed_remaining", "revived"]):
+		if not unit is Dictionary or not _has_required_optional_keys(unit, ["id", "side", "kind", "x", "hp", "max_hp", "damage", "heal", "interval", "cooldown", "speed", "range"], ["support_stacks", "summon_remaining", "revive_remaining", "skill_remaining", "souls", "frozen_remaining", "blessed_remaining", "revived", "blink_remaining", "stall_remaining", "blink_bonus", "leaderless", "plunder_remaining", "convert_remaining", "gift", "converted"]):
 			return false
 		var unit_id = unit.id
 		var unit_side = unit.side
@@ -169,8 +169,15 @@ static func is_valid_snapshot(data: Dictionary) -> bool:
 			return false
 		if unit.has("skill_remaining") and (BattleModel.trait_value(String(unit.kind), "skill_cooldown") == null or not _number_in_range(unit.skill_remaining, 0.0, float(BattleModel.trait_value(String(unit.kind), "skill_cooldown")))):
 			return false
-		for key in ["frozen_remaining", "blessed_remaining"]:
+		for key in ["frozen_remaining", "blessed_remaining", "stall_remaining", "plunder_remaining", "convert_remaining"]:
 			if unit.has(key) and not _number_in_range(unit[key], 0.0, 60.0):
+				return false
+		if unit.has("blink_remaining") and (BattleModel.trait_value(String(unit.kind), "blink_cooldown") == null or not _number_in_range(unit.blink_remaining, 0.0, float(BattleModel.trait_value(String(unit.kind), "blink_cooldown")))):
+			return false
+		if unit.has("gift") and not VALID_UNIT_KINDS.has(String(unit.gift)):
+			return false
+		for key in ["blink_bonus", "leaderless", "converted"]:
+			if unit.has(key) and not unit[key] is bool:
 				return false
 		if unit.has("revived") and not unit.revived is bool:
 			return false

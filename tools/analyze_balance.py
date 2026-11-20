@@ -9,7 +9,7 @@ from pathlib import Path
 import random
 import statistics
 
-NAMES = {"shield": "탱커", "swordsman": "검사", "archer": "궁수", "healer": "마법사", "berserker": "광전사", "warlock": "흑마법사", "necromancer": "네크로맨서", "zombie": "좀비", "paladin": "성기사", "sniper": "저격수", "demon_lord": "마왕"}
+NAMES = {"shield": "탱커", "swordsman": "검사", "archer": "궁수", "healer": "마법사", "berserker": "광전사", "warlock": "흑마법사", "necromancer": "네크로맨서", "zombie": "좀비", "paladin": "성기사", "sniper": "저격수", "demon_lord": "마왕", "general": "장군", "bomber": "폭탄병", "joker": "조커", "king": "국왕", "hero": "주인공", "raider": "약탈자", "preacher": "전도자", "psychic": "초능력자", "shaman": "주술사"}
 
 
 def load(patterns, allow_partial=False):

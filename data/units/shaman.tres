@@ -1,0 +1,24 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/UnitDef.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+kind = "shaman"
+display_name = "주술사"
+order = 19
+summon_only = false
+cost = 70.0
+hp = 105.0
+damage = 8.0
+interval = 1.4
+speed = 38.0
+range = 160.0
+extra = {
+"convert_cooldown": 10.0,
+"convert_hp": 0.5,
+"convert_limit": 2,
+"convert_max_cost": 60.0,
+"convert_radius": 140.0
+}
+tags = PackedStringArray()

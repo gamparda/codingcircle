@@ -1,7 +1,7 @@
 extends RefCounted
 ## Cheat actions for super and hyper accounts, shared by solo battles (applied on the device) and online
 ## battles (the server checks the account's role, then applies them to its own battle). Toggles live in
-## BattleModel.cheats and act every tick (BattleModel._apply_cheats); the rest happen once.
+## BattleModel.cheats and act every tick (the battle engine applies them); the rest happen once.
 
 ## Toggle id -> label, in panel order.
 const TOGGLES := {

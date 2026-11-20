@@ -302,6 +302,8 @@ func _ready() -> void:
 	_apply_settings()
 	_setup_bgm()
 	_build_connect_screen()
+	if not BattleModel.native_available():
+		_fetch_battle_engine()
 	var app_version := String(ProjectSettings.get_setting("application/config/version", "0.0.0"))
 	if apk_update_required(OS.get_name(), app_version, build_min_binary_version()):
 		_show_android_apk_notice()
@@ -316,6 +318,43 @@ func _ready() -> void:
 	if smoke_connect_allowed(smoke_mode, auto_address) and (auto_fallback.is_empty() or smoke_connect_allowed(smoke_mode, auto_fallback)):
 		network.set_room_request("enter", _arg_string(args, "--room-code=", DEFAULT_SMOKE_ROOM_CODE))
 		network.connect_to_server(auto_address, _arg_int(args, "--port=", NetworkController.DEFAULT_PORT), auto_fallback)
+
+## Battles run only on the native engine. When the app's own copy is from older rules, the matching one comes
+## from the update channel (NativeFetch); until then a screen covers the game, with a retry on failure.
+func _fetch_battle_engine() -> void:
+	var cover := ColorRect.new()
+	cover.name = "BattleEngineFetch"
+	cover.color = Color(0.02, 0.025, 0.045, 0.94)
+	cover.mouse_filter = Control.MOUSE_FILTER_STOP
+	cover.z_index = 300
+	cover.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(cover)
+	var label := Label.new()
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	label.custom_minimum_size = Vector2(640, 80)
+	label.position = Vector2(320, 300)
+	cover.add_child(label)
+	var retry := _styled_button(Localization.text("다시 시도"), Color("#d0803a"), true)
+	retry.position = Vector2(560, 400)
+	retry.size = Vector2(160, 50)
+	retry.visible = false
+	cover.add_child(retry)
+	var fetch := preload("res://scripts/NativeFetch.gd").new()
+	cover.add_child(fetch)
+	var run := func():
+		retry.visible = false
+		label.text = Localization.text("전투 엔진을 확인하는 중...")
+		fetch.start()
+	fetch.finished.connect(func(ok: bool):
+		if ok:
+			cover.queue_free()
+			return
+		label.text = Localization.text(fetch.status)
+		retry.visible = true)
+	retry.pressed.connect(run)
+	run.call_deferred()
 
 static func official_connection_candidates(local_addresses) -> Array:
 	# ENet uses the game server address directly, not the web proxy endpoint.
