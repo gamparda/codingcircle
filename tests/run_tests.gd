@@ -90,6 +90,7 @@ func _init() -> void:
 	expect_eq(int(BattleModel.UNIT_STATS.archer.damage), 11, "archer damage is calibrated against melee pressure")
 	expect_eq(float(BattleModel.UNIT_STATS.healer.damage), 0.0, "mage is a pure support unit")
 	expect_eq(float(BattleModel.UNIT_STATS.healer.heal), 0.0, "mage has no healing")
+	expect_true(BattleModel.MAX_ACTIVE_UNITS == NetworkController.MAX_SNAPSHOT_UNITS, "both sides' full armies fit one online snapshot")
 	for kind in BattleModel.UNIT_STATS:
 		if kind == "general":
 			continue # the mounted general attacks faster by design; MIN_ATTACK_INTERVAL still delays its first attack

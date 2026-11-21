@@ -33,6 +33,12 @@ func _init() -> void:
 			printerr("FAIL: %s changed (%s, expected %s)" % [scenario.name, digest.substr(0, 12), String(expected.get(scenario.name, "?")).substr(0, 12)])
 		print("%s %s %dms" % ["ok  " if ok else "FAIL", scenario.name, Time.get_ticks_msec() - started])
 	if record:
+		if not only.is_empty():
+			# Recording one scenario keeps the others' digests.
+			var kept = JSON.parse_string(FileAccess.get_file_as_string(DIGESTS))
+			if kept is Dictionary:
+				kept.merge(digests, true)
+				digests = kept
 		var file := FileAccess.open(DIGESTS, FileAccess.WRITE)
 		file.store_string(JSON.stringify(digests, "  ", true))
 		file.close()

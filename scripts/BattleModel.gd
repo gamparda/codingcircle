@@ -35,7 +35,7 @@ const SUMMON_INTERVAL := 5.0
 const MAX_SKELETONS_PER_NECROMANCER := 3
 const RAGE_HP_FRACTION := 0.5
 const RAGE_SPEED_MULTIPLIER := 1.5
-const MAX_ACTIVE_UNITS := 256
+const MAX_ACTIVE_UNITS := 4096 # both sides together: what one online snapshot carries (NetworkProtocol.MAX_SNAPSHOT_UNITS)
 ## Each side's share of the field: one side filling it never stops the other from fielding units.
 const SIDE_UNIT_LIMIT := MAX_ACTIVE_UNITS / 2
 ## The first time a unit falls to half health it is thrown back this far, once: a losing front gets
